@@ -1,0 +1,114 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: baltoil_auth
+    ports:
+      # Bind to localhost only — DB must not be reachable from LAN/internet.
+      # Other services connect over the docker network, no port mapping needed.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      # Localhost only — no auth, must not be reachable externally.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth_service:
+    build:
+      context: ./auth_service
+    env_file:
+      - ./auth_service/.env
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./auth_service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  order_service:
+    build:
+      context: ./order_service
+    env_file:
+      - ./order_service/.env
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./order_service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+
+  delivery_service:
+    build:
+      context: ./delivery_service
+    env_file:
+      - ./delivery_service/.env
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./delivery_service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+  chat_service:
+    build:
+      context: ./chat_service
+    env_file:
+      - ./chat_service/.env
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./chat_service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+
+  notification_service:
+    build:
+      context: ./notification_service
+    env_file:
+      - ./notification_service/.env
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./notification_service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8005 --reload
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
+volumes:
+  postgres_data:

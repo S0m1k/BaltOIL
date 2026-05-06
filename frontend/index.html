@@ -1,0 +1,2684 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BaltOIL — Панель управления</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0b0e14;
+    --bg2:       #111520;
+    --bg3:       #181d2a;
+    --border:    #252c3d;
+    --border2:   #2e374f;
+    --amber:     #f59e0b;
+    --amber2:    #d97706;
+    --amber-dim: rgba(245,158,11,.12);
+    --text:      #e2e8f0;
+    --text2:     #94a3b8;
+    --text3:     #64748b;
+    --red:       #ef4444;
+    --green:     #10b981;
+
+    --s-new:      #3b82f6;
+    --s-progress: #eab308;
+    --s-assigned: #f97316;
+    --s-transit:  #a855f7;
+    --s-delivered:#14b8a6;
+    --s-partial:  #f59e0b;
+    --s-closed:   #6b7280;
+    --s-rejected: #ef4444;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    background-image:
+      linear-gradient(rgba(245,158,11,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245,158,11,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── TOAST ── */
+  #toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .toast {
+    padding: 12px 18px; border-radius: 4px; font-size: 13px; font-family: 'IBM Plex Mono', monospace;
+    pointer-events: auto; animation: slideIn .25s ease;
+    border-left: 3px solid;
+    backdrop-filter: blur(8px);
+  }
+  .toast.success { background: rgba(16,185,129,.15); border-color: var(--green); color: #6ee7b7; }
+  .toast.error   { background: rgba(239,68,68,.15);  border-color: var(--red);   color: #fca5a5; }
+  @keyframes slideIn { from { transform: translateX(60px); opacity:0; } to { transform: translateX(0); opacity:1; } }
+  @keyframes slideOut { from { opacity:1; } to { transform: translateX(60px); opacity:0; } }
+
+  /* ── AUTH SCREEN ── */
+  #auth-screen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+  }
+  .auth-card {
+    width: 100%; max-width: 420px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
+    padding: 40px;
+    position: relative;
+  }
+  .auth-card::before {
+    content: '';
+    position: absolute; top: -1px; left: 20px;
+    width: 60px; height: 2px;
+    background: var(--bg2);
+  }
+  .auth-logo {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 28px; font-weight: 700; letter-spacing: 3px;
+    color: var(--amber); margin-bottom: 4px;
+  }
+  .auth-subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--text3); letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 32px;
+  }
+  .auth-tabs {
+    display: flex; gap: 0; margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  .auth-tab {
+    padding: 8px 16px; font-size: 12px; cursor: pointer;
+    color: var(--text3); border: none; background: none;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: all .2s;
+  }
+  .auth-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .auth-tab:hover:not(.active) { color: var(--text2); }
+
+  .form-group { margin-bottom: 16px; }
+  .form-label {
+    display: block; font-size: 11px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    font-family: 'IBM Plex Mono', monospace; margin-bottom: 6px;
+  }
+  .form-input {
+    width: 100%; padding: 10px 14px;
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px;
+    outline: none; transition: border-color .2s;
+    border-radius: 2px;
+  }
+  .form-input:focus { border-color: var(--amber); }
+  .form-input::placeholder { color: var(--text3); }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .section-divider {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--text3); letter-spacing: 2px; text-transform: uppercase;
+    border-top: 1px solid var(--border); padding-top: 12px;
+    margin: 16px 0 12px;
+  }
+
+  .btn {
+    padding: 11px 22px; border: none; cursor: pointer;
+    font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    transition: all .2s; border-radius: 2px;
+  }
+  .btn-primary {
+    background: var(--amber); color: #0b0e14; width: 100%; margin-top: 8px;
+  }
+  .btn-primary:hover { background: var(--amber2); }
+  .btn-primary:active { transform: scale(.98); }
+  .btn-sm {
+    padding: 5px 12px; font-size: 11px; letter-spacing: 1px;
+    border: 1px solid; border-radius: 2px;
+  }
+  .btn-ghost { background: transparent; color: var(--text2); border-color: var(--border2); }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .btn-danger:hover { background: rgba(239,68,68,.1); }
+  .btn-success { background: transparent; color: var(--green); border: 1px solid var(--green); }
+  .btn-success:hover { background: rgba(16,185,129,.1); }
+  .btn-warn { background: transparent; color: var(--amber); border: 1px solid var(--amber); }
+  .btn-warn:hover { background: var(--amber-dim); }
+
+  .inline-error {
+    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+    color: #fca5a5; padding: 10px 14px; font-size: 12px; border-radius: 2px;
+    margin-top: 12px; font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ── APP SHELL ── */
+  #app-screen { display: none; flex-direction: column; min-height: 100vh; }
+
+  .topbar {
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 0 24px; display: flex; align-items: center; gap: 0;
+    height: 56px; position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-logo {
+    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    color: var(--amber); letter-spacing: 3px; margin-right: 32px;
+    flex-shrink: 0;
+  }
+  .nav-tabs {
+    display: flex; gap: 0; height: 100%; flex: 1;
+  }
+  .nav-tab {
+    padding: 0 20px; border: none; background: none; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text3);
+    border-bottom: 2px solid transparent; height: 100%;
+    transition: all .2s; white-space: nowrap;
+  }
+  .nav-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .nav-tab:hover:not(.active) { color: var(--text2); }
+
+  .topbar-right {
+    display: flex; align-items: center; gap: 16px; margin-left: auto;
+  }
+  .user-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 12px; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+  .user-name { font-size: 13px; color: var(--text2); }
+  .role-chip {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    padding: 2px 8px; border-radius: 2px; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .role-admin   { background: rgba(239,68,68,.2);  color: #fca5a5; }
+  .role-manager { background: rgba(245,158,11,.2); color: #fcd34d; }
+  .role-driver  { background: rgba(168,85,247,.2); color: #d8b4fe; }
+  .role-client  { background: rgba(59,130,246,.2); color: #93c5fd; }
+
+  .btn-logout {
+    padding: 6px 14px; background: transparent; border: 1px solid var(--border2);
+    color: var(--text3); cursor: pointer; font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px; border-radius: 2px;
+    transition: all .2s;
+  }
+  .btn-logout:hover { border-color: var(--red); color: var(--red); }
+
+  .app-content { flex: 1; padding: 28px 24px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ── ORDERS TAB ── */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+  }
+  .toolbar-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    letter-spacing: 1px; color: var(--text);
+  }
+  .toolbar-title span { color: var(--amber); }
+  .filter-select {
+    padding: 7px 12px; background: var(--bg2); border: 1px solid var(--border);
+    color: var(--text2); font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    outline: none; cursor: pointer; border-radius: 2px; letter-spacing: 1px;
+  }
+  .filter-select:focus { border-color: var(--amber); }
+
+  .orders-grid { display: flex; flex-direction: column; gap: 8px; }
+
+  .order-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 3px; overflow: hidden;
+    transition: border-color .2s;
+  }
+  .order-card:hover { border-color: var(--border2); }
+  .order-card.expanded { border-color: var(--amber); }
+
+  .order-header {
+    padding: 14px 18px; cursor: pointer;
+    display: flex; align-items: center; gap: 16px;
+    user-select: none;
+  }
+  .order-number {
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500;
+    color: var(--amber); flex-shrink: 0; min-width: 140px;
+  }
+  .order-fuel {
+    font-size: 13px; color: var(--text2); flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .order-volume {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    color: var(--text3); white-space: nowrap;
+  }
+  .order-date { font-size: 12px; color: var(--text3); white-space: nowrap; }
+  .priority-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .priority-normal { background: var(--text3); }
+  .priority-urgent { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  .status-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+    white-space: nowrap; flex-shrink: 0;
+    border: 1px solid;
+  }
+  .status-new              { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
+  .status-in_progress      { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
+  .status-assigned         { color: var(--s-assigned);  border-color: var(--s-assigned);  background: rgba(249,115,22,.1); }
+  .status-in_transit       { color: var(--s-transit);   border-color: var(--s-transit);   background: rgba(168,85,247,.1); }
+  .status-delivered        { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
+  .status-partially_delivered { color: var(--s-partial); border-color: var(--s-partial); background: rgba(245,158,11,.1); }
+  .status-closed           { color: var(--s-closed);    border-color: var(--s-closed);    background: rgba(107,114,128,.1); }
+  .status-rejected         { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
+
+  .order-body {
+    display: none; padding: 0 18px 18px;
+    border-top: 1px solid var(--border);
+  }
+  .order-card.expanded .order-body { display: block; }
+
+  .order-details-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px; padding: 14px 0 16px;
+  }
+  .detail-item {}
+  .detail-label {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px;
+  }
+  .detail-value { font-size: 13px; color: var(--text2); }
+
+  .action-bar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+
+  /* ── STATUS TIMELINE ── */
+  .timeline-section { margin: 12px 0 4px; }
+  .timeline-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+  }
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .tl-item {
+    display: flex; gap: 12px; padding: 6px 0;
+    border-left: 1px solid var(--border); margin-left: 6px;
+    padding-left: 16px; position: relative;
+  }
+  .tl-item::before {
+    content: ''; position: absolute; left: -4px; top: 11px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--bg3); border: 1px solid var(--border2);
+  }
+  .tl-item:first-child::before { background: var(--amber); border-color: var(--amber); }
+  .tl-time {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--text3); white-space: nowrap; min-width: 130px;
+  }
+  .tl-content { flex: 1; }
+  .tl-status { font-size: 12px; color: var(--text2); }
+  .tl-comment { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .tl-role {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--text3); margin-left: auto; white-space: nowrap;
+  }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px;
+    color: var(--text3); font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; letter-spacing: 2px;
+  }
+  .empty-state-icon { font-size: 36px; margin-bottom: 12px; opacity: .4; }
+
+  /* ── CREATE ORDER TAB ── */
+  .form-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
+    padding: 32px; max-width: 640px;
+  }
+  .form-card-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700;
+    letter-spacing: 1px; color: var(--text); margin-bottom: 24px;
+  }
+
+  .radio-group { display: flex; gap: 12px; }
+  .radio-label {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 13px; color: var(--text2);
+    padding: 8px 14px; border: 1px solid var(--border);
+    border-radius: 2px; transition: all .2s; flex: 1; justify-content: center;
+  }
+  .radio-label:hover { border-color: var(--border2); color: var(--text); }
+  .radio-label input { display: none; }
+  .radio-label.selected { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+
+  textarea.form-input { resize: vertical; min-height: 80px; }
+
+  /* ── FUEL TYPES TAB ── */
+  .fuel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .fuel-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    padding: 20px; border-radius: 3px;
+    transition: border-color .2s, transform .15s;
+  }
+  .fuel-card:hover { border-color: var(--amber); transform: translateY(-2px); }
+  .fuel-short {
+    font-family: 'Rajdhani', sans-serif; font-size: 32px; font-weight: 700;
+    color: var(--amber); letter-spacing: 1px;
+  }
+  .fuel-name { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .fuel-code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    margin-top: 8px; letter-spacing: 1px;
+  }
+
+  /* ── PROFILE TAB ── */
+  .profile-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    padding: 24px; max-width: 640px;
+  }
+  .profile-card-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700;
+    color: var(--text); margin-bottom: 16px; letter-spacing: 1px;
+  }
+  pre.json-view {
+    background: var(--bg3); border: 1px solid var(--border);
+    padding: 18px; font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; color: #93c5fd; overflow-x: auto;
+    line-height: 1.6; border-radius: 2px;
+  }
+
+  /* ── VEHICLES ── */
+  .vehicles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .vehicle-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    padding: 18px; border-radius: 3px; transition: border-color .2s;
+  }
+  .vehicle-card:hover { border-color: var(--border2); }
+  .vehicle-plate {
+    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    color: var(--amber); letter-spacing: 2px;
+  }
+  .vehicle-model { font-size: 13px; color: var(--text2); margin: 4px 0 10px; }
+  .vehicle-meta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .vehicle-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    padding: 2px 8px; border-radius: 2px; border: 1px solid var(--border2); color: var(--text3);
+  }
+  .vehicle-badge.active { border-color: var(--green); color: var(--green); }
+  .vehicle-badge.inactive { border-color: var(--red); color: var(--red); }
+  .vehicle-actions { display: flex; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+  /* ── TRIPS ── */
+  .trip-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-left: 3px solid var(--border); padding: 14px 18px;
+    border-radius: 2px; display: flex; align-items: center; gap: 16px;
+    transition: border-color .2s;
+  }
+  .trip-card.status-planned   { border-left-color: var(--s-new); }
+  .trip-card.status-in_transit { border-left-color: var(--s-transit); }
+  .trip-card.status-completed  { border-left-color: var(--green); }
+  .trip-card.status-cancelled  { border-left-color: var(--s-closed); }
+  .trip-order-id {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text3);
+    min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .trip-vol { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .trip-addr { font-size: 12px; color: var(--text3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trip-date { font-size: 11px; color: var(--text3); white-space: nowrap; }
+  .trip-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+  /* ── REPORT ── */
+  .report-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-top: 2px solid var(--amber); padding: 28px; max-width: 860px;
+  }
+  .report-stats {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px; margin: 20px 0;
+  }
+  .stat-box {
+    background: var(--bg3); border: 1px solid var(--border);
+    padding: 14px 16px; border-radius: 2px;
+  }
+  .stat-label {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .stat-value {
+    font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: var(--amber);
+  }
+  .stat-unit { font-size: 12px; color: var(--text3); }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
+    z-index: 1000; align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
+    padding: 28px; min-width: 340px; max-width: 480px; width: 90%;
+  }
+  .modal-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700;
+    color: var(--text); margin-bottom: 20px; letter-spacing: 1px;
+  }
+  .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
+
+  .loading {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--amber);
+    border-radius: 50%; animation: spin .6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .section-header {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--text3); text-transform: uppercase; letter-spacing: 2px;
+    padding: 10px 0 6px; border-bottom: 1px solid var(--border); margin: 16px 0 12px;
+  }
+
+  /* ── USERS TAB ── */
+  .users-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
+  .users-table { width:100%; border-collapse:collapse; }
+  .users-table th {
+    font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase;
+    letter-spacing:1.5px; color:var(--text3); padding:8px 14px;
+    border-bottom:1px solid var(--border); text-align:left; white-space:nowrap;
+  }
+  .users-table td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; color:var(--text2); vertical-align:middle; }
+  .users-table tr:hover td { background:var(--bg3); }
+  .user-status-dot { width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:5px; }
+  .dot-active   { background:var(--green); box-shadow:0 0 4px var(--green); }
+  .dot-inactive { background:var(--text3); }
+
+  /* ── NOTIFICATIONS ── */
+  .notif-bell-wrap { position:relative; }
+  .notif-bell {
+    width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid var(--border); border-radius:2px;
+    cursor:pointer; color:var(--text3); font-size:16px; transition:all .2s;
+  }
+  .notif-bell:hover { border-color:var(--amber); color:var(--amber); }
+  .notif-count {
+    position:absolute; top:-5px; right:-5px;
+    background:var(--red); color:#fff;
+    font-family:'IBM Plex Mono',monospace; font-size:9px; font-weight:700;
+    min-width:16px; height:16px; border-radius:8px; padding:0 4px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .notif-panel {
+    position:fixed; top:60px; right:20px; width:340px; max-height:480px;
+    background:var(--bg2); border:1px solid var(--border); border-top:2px solid var(--amber);
+    z-index:500; display:none; flex-direction:column; overflow:hidden;
+    box-shadow:0 8px 32px rgba(0,0,0,.5);
+  }
+  .notif-panel.open { display:flex; }
+  .notif-panel-header {
+    padding:12px 16px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+  }
+  .notif-panel-title { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:var(--text); letter-spacing:1px; }
+  .notif-list { overflow-y:auto; flex:1; }
+  .notif-item {
+    padding:12px 16px; border-bottom:1px solid var(--border);
+    cursor:pointer; transition:background .15s;
+  }
+  .notif-item:hover { background:var(--bg3); }
+  .notif-item.unread { border-left:2px solid var(--amber); }
+  .notif-item-title { font-size:12px; font-weight:500; color:var(--text); margin-bottom:3px; }
+  .notif-item-body  { font-size:11px; color:var(--text3); }
+  .notif-item-time  { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); margin-top:4px; }
+
+  /* ── UUID COPY ── */
+  .uuid-cell { display: flex; align-items: center; gap: 6px; }
+  .copy-btn {
+    flex-shrink: 0; padding: 1px 6px; font-size: 10px; cursor: pointer;
+    background: transparent; border: 1px solid var(--border2); border-radius: 2px;
+    color: var(--text3); font-family: 'IBM Plex Mono', monospace; letter-spacing: .5px;
+    transition: all .15s;
+  }
+  .copy-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+
+  /* ── CHAT ── */
+  .chat-shell {
+    display: grid; grid-template-columns: 300px 1fr;
+    height: calc(100vh - 56px - 56px); gap: 0;
+    border: 1px solid var(--border); background: var(--bg2);
+  }
+  .chat-sidebar {
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .chat-sidebar-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .chat-sidebar-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700;
+    color: var(--text); letter-spacing: 1px;
+  }
+  .conv-list { flex: 1; overflow-y: auto; }
+  .conv-item {
+    padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border);
+    transition: background .15s; position: relative;
+  }
+  .conv-item:hover { background: var(--bg3); }
+  .conv-item.active { background: var(--bg3); border-left: 2px solid var(--amber); }
+  .conv-item-title {
+    font-size: 13px; color: var(--text); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .conv-item-meta {
+    display: flex; align-items: center; gap: 8px; margin-top: 4px;
+  }
+  .conv-item-last {
+    font-size: 11px; color: var(--text3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  }
+  .conv-item-time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .unread-badge {
+    background: var(--amber); color: #0b0e14;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 10px; flex-shrink: 0;
+  }
+  .conv-type-chip {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    padding: 1px 5px; border-radius: 2px; border: 1px solid;
+    text-transform: uppercase; flex-shrink: 0;
+  }
+  .conv-type-client_support { color: #93c5fd; border-color: #3b82f6; }
+  .conv-type-internal       { color: #d8b4fe; border-color: #a855f7; }
+
+  .chat-main {
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .chat-main-header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+  }
+  .chat-main-title { font-size: 15px; font-weight: 600; color: var(--text); flex: 1; }
+  .chat-main-sub { font-size: 11px; color: var(--text3); font-family: 'IBM Plex Mono', monospace; }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg-row { display: flex; gap: 10px; max-width: 76%; }
+  .msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 32px; height: 32px; border-radius: 2px; flex-shrink: 0;
+    background: var(--bg3); border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700;
+    color: var(--amber);
+  }
+  .msg-bubble {
+    background: var(--bg3); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 2px; max-width: 100%;
+  }
+  .msg-row.mine .msg-bubble {
+    background: var(--amber-dim); border-color: rgba(245,158,11,.3);
+  }
+  .msg-meta {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--text3); margin-bottom: 4px;
+  }
+  .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; }
+  .msg-row.mine .msg-text { color: var(--text); }
+  .msg-time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
+
+  .chat-input-area {
+    padding: 12px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1; padding: 10px 14px;
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px;
+    outline: none; resize: none; border-radius: 2px;
+    transition: border-color .2s; height: 42px; overflow-y: hidden;
+  }
+  .chat-input:focus { border-color: var(--amber); }
+  .chat-input::placeholder { color: var(--text3); }
+
+  .chat-empty {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px; color: var(--text3);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 2px;
+  }
+  .ws-status {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    padding: 2px 8px; border-radius: 2px;
+  }
+  .ws-online  { color: var(--green); border: 1px solid var(--green); background: rgba(16,185,129,.1); }
+  .ws-offline { color: var(--text3); border: 1px solid var(--border); }
+
+  /* new conv modal */
+  .new-conv-type { display: flex; gap: 8px; }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 0 14px; }
+    .app-content { padding: 16px 14px; }
+    .order-date, .order-volume { display: none; }
+    .nav-tab { padding: 0 12px; font-size: 10px; }
+    .chat-shell { grid-template-columns: 1fr; }
+    .chat-sidebar { display: none; }
+    .chat-sidebar.active { display: flex; }
+  }
+</style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<!-- ════════════════════════════════ AUTH SCREEN ════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">BALTOIL</div>
+    <div class="auth-subtitle">Система управления доставкой топлива</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Вход</button>
+      <button class="auth-tab" onclick="switchAuthTab('reg-individual')">Физ. лицо</button>
+      <button class="auth-tab" onclick="switchAuthTab('reg-company')">Юр. лицо</button>
+    </div>
+
+    <!-- Login -->
+    <div id="auth-login">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="login-email" class="form-input" placeholder="admin@baltoil.biz" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div id="login-error"></div>
+      <button class="btn btn-primary" onclick="doLogin()">Войти</button>
+    </div>
+
+    <!-- Register Individual -->
+    <div id="auth-reg-individual" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="ri-email" class="form-input" placeholder="user@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Телефон</label>
+          <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Полное имя</label>
+        <input type="text" id="ri-fullname" class="form-input" placeholder="Иванов Иван Иванович">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов">
+      </div>
+      <div class="section-divider">Необязательно</div>
+      <div class="form-group">
+        <label class="form-label">Адрес доставки</label>
+        <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Серия паспорта</label>
+          <input type="text" id="ri-passport-s" class="form-input" placeholder="4520">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Номер паспорта</label>
+          <input type="text" id="ri-passport-n" class="form-input" placeholder="123456">
+        </div>
+      </div>
+      <div id="ri-error"></div>
+      <button class="btn btn-primary" onclick="doRegisterIndividual()">Зарегистрироваться</button>
+    </div>
+
+    <!-- Register Company -->
+    <div id="auth-reg-company" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="rc-email" class="form-input" placeholder="ceo@company.ru">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Телефон</label>
+          <input type="tel" id="rc-phone" class="form-input" placeholder="+7 812 000 00 00">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Контактное лицо (ФИО)</label>
+        <input type="text" id="rc-fullname" class="form-input" placeholder="Петров Пётр Петрович">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов">
+      </div>
+      <div class="section-divider">Реквизиты организации</div>
+      <div class="form-group">
+        <label class="form-label">Название организации</label>
+        <input type="text" id="rc-company" class="form-input" placeholder='ООО "Нефтяная Компания"'>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">ИНН</label>
+          <input type="text" id="rc-inn" class="form-input" placeholder="7701234567">
+        </div>
+        <div class="form-group">
+          <label class="form-label">КПП</label>
+          <input type="text" id="rc-kpp" class="form-input" placeholder="770101001">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Юридический адрес</label>
+        <input type="text" id="rc-legal-addr" class="form-input" placeholder="190000, г. СПб, ...">
+      </div>
+      <div class="section-divider">Банковские реквизиты (необязательно)</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Расчётный счёт</label>
+          <input type="text" id="rc-bank-acc" class="form-input" placeholder="40702810...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">БИК</label>
+          <input type="text" id="rc-bik" class="form-input" placeholder="044030786">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Название банка</label>
+        <input type="text" id="rc-bank-name" class="form-input" placeholder="ПАО Сбербанк">
+      </div>
+      <div id="rc-error"></div>
+      <button class="btn btn-primary" onclick="doRegisterCompany()">Зарегистрировать организацию</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════ APP SCREEN ════════════════════════════════ -->
+<div id="app-screen">
+  <div class="topbar">
+    <div class="topbar-logo">BALTOIL</div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
+      <button class="nav-tab" data-tab="create" id="tab-create-btn" onclick="switchTab('create')">+ Создать</button>
+      <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')">ТС</button>
+      <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
+      <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
+      <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
+      <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
+      <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат</button>
+      <button class="nav-tab" data-tab="profile" onclick="switchTab('profile')">Профиль</button>
+    </div>
+    <div class="topbar-right">
+      <div class="notif-bell-wrap">
+        <button class="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">🔔</button>
+        <div class="notif-count" id="notif-count" style="display:none">0</div>
+      </div>
+      <div class="user-badge">
+        <span id="header-name" class="user-name"></span>
+        <span id="header-role" class="role-chip"></span>
+      </div>
+      <button class="btn-logout" onclick="doLogout()">ВЫХОД</button>
+    </div>
+
+    <!-- Notification panel (outside app-content for fixed positioning) -->
+    <div class="notif-panel" id="notif-panel">
+      <div class="notif-panel-header">
+        <span class="notif-panel-title">Уведомления</span>
+        <button class="btn btn-sm btn-ghost" onclick="markAllNotifsRead()" style="font-size:10px;padding:3px 10px">Прочитать все</button>
+      </div>
+      <div class="notif-list" id="notif-list">
+        <div class="empty-state" style="padding:30px 16px;font-size:11px">Нет уведомлений</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-content">
+
+    <!-- ORDERS TAB -->
+    <div class="tab-pane active" id="pane-orders">
+      <div class="toolbar">
+        <div class="toolbar-title">Заявки</div>
+        <select class="filter-select" id="status-filter" onchange="loadOrders()">
+          <option value="">Все статусы</option>
+          <option value="new">Новые</option>
+          <option value="in_progress">В работе</option>
+          <option value="assigned">Назначены</option>
+          <option value="in_transit">В рейсе</option>
+          <option value="delivered">Доставлены</option>
+          <option value="partially_delivered">Частично</option>
+          <option value="closed">Закрыты</option>
+          <option value="rejected">Отклонены</option>
+        </select>
+        <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
+          ↻ Обновить
+        </button>
+      </div>
+      <div id="orders-list" class="orders-grid">
+        <div class="empty-state">
+          <div class="loading"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATE TAB -->
+    <div class="tab-pane" id="pane-create">
+      <div class="form-card">
+        <div class="form-card-title" id="create-form-title">Новая заявка на топливо</div>
+        <!-- Только для менеджера/админа -->
+        <div id="manager-create-fields" style="display:none">
+          <div class="section-divider">Параметры менеджера</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">UUID клиента <span style="color:var(--text3)">(необязательно)</span></label>
+              <input type="text" id="c-client-id" class="form-input" placeholder="Оставьте пустым — заявка на себя">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Приоритет</label>
+              <select id="c-priority" class="form-input">
+                <option value="normal">Обычный</option>
+                <option value="urgent">Срочный</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Комментарий менеджера</label>
+            <input type="text" id="c-manager-comment" class="form-input" placeholder="...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Начальный статус</label>
+            <div class="radio-group">
+              <label class="radio-label selected" id="status-new-label">
+                <input type="radio" name="init-status" value="new" checked onchange="updateStatusUI()">
+                Новая
+              </label>
+              <label class="radio-label" id="status-progress-label">
+                <input type="radio" name="init-status" value="in_progress" onchange="updateStatusUI()">
+                Сразу в работе
+              </label>
+            </div>
+          </div>
+          <div class="section-divider">Данные заявки</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Вид топлива</label>
+          <select id="c-fuel" class="form-input">
+            <option value="diesel_summer">ДТ-Л — Дизельное летнее</option>
+            <option value="diesel_winter">ДТ-З — Дизельное зимнее</option>
+            <option value="petrol_92">АИ-92 — Бензин Регуляр</option>
+            <option value="petrol_95">АИ-95 — Бензин Премиум</option>
+            <option value="fuel_oil">М-100 — Топочный мазут</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Объём (литры, min 1000)</label>
+            <input type="number" id="c-volume" class="form-input" placeholder="5000" min="1000" step="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Желаемая дата доставки</label>
+            <input type="datetime-local" id="c-date" class="form-input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Адрес доставки</label>
+          <input type="text" id="c-address" class="form-input" placeholder="г. Санкт-Петербург, ул. Примерная, д. 1">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Тип оплаты</label>
+          <div class="radio-group">
+            <label class="radio-label selected" id="pay-prepaid-label">
+              <input type="radio" name="payment" value="prepaid" checked onchange="updatePaymentUI()">
+              Предоплата
+            </label>
+            <label class="radio-label" id="pay-credit-label">
+              <input type="radio" name="payment" value="credit" onchange="updatePaymentUI()">
+              Товарный кредит
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Комментарий</label>
+          <textarea id="c-comment" class="form-input" placeholder="Дополнительные пожелания..."></textarea>
+        </div>
+
+        <div id="create-error"></div>
+        <button class="btn btn-primary" onclick="doCreateOrder()">Отправить заявку</button>
+      </div>
+    </div>
+
+    <!-- VEHICLES TAB -->
+    <div class="tab-pane" id="pane-vehicles">
+      <div class="toolbar">
+        <div class="toolbar-title">Транспортные средства</div>
+        <button class="btn btn-sm btn-warn" id="btn-add-vehicle" onclick="promptAddVehicle()" style="margin-left:auto">+ Добавить ТС</button>
+        <button class="btn btn-sm btn-ghost" onclick="loadVehicles()">↻ Обновить</button>
+      </div>
+      <div id="vehicles-list" class="vehicles-grid">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- TRIPS TAB -->
+    <div class="tab-pane" id="pane-trips">
+      <div class="toolbar">
+        <div class="toolbar-title">Рейсы</div>
+        <select class="filter-select" id="trip-status-filter" onchange="loadTrips()">
+          <option value="">Все статусы</option>
+          <option value="planned">Запланированы</option>
+          <option value="in_transit">В пути</option>
+          <option value="completed">Завершены</option>
+          <option value="cancelled">Отменены</option>
+        </select>
+        <button class="btn btn-sm btn-warn" id="btn-add-trip" onclick="promptAddTrip()">+ Создать рейс</button>
+        <button class="btn btn-sm btn-ghost" onclick="loadTrips()">↻ Обновить</button>
+      </div>
+      <div id="trips-list" style="display:flex;flex-direction:column;gap:8px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- REPORT TAB -->
+    <div class="tab-pane" id="pane-report">
+      <div class="report-card">
+        <div class="form-card-title">Отчёт по рейсам</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px">
+            <label class="form-label">UUID водителя</label>
+            <input type="text" id="rpt-driver-id" class="form-input" placeholder="Оставьте пустым — свой отчёт">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">С</label>
+            <input type="date" id="rpt-from" class="form-input">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">По</label>
+            <input type="date" id="rpt-to" class="form-input">
+          </div>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReport()">Сформировать</button>
+        </div>
+        <div id="report-result" style="margin-top:24px"></div>
+      </div>
+    </div>
+
+    <!-- FUELS TAB -->
+    <div class="tab-pane" id="pane-fuels">
+      <div class="toolbar">
+        <div class="toolbar-title">Справочник топлива</div>
+      </div>
+      <div id="fuel-grid" class="fuel-grid">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- USERS TAB -->
+    <div class="tab-pane" id="pane-users">
+      <div class="users-toolbar">
+        <div class="toolbar-title">Пользователи</div>
+        <select class="filter-select" id="users-role-filter" onchange="loadUsers()">
+          <option value="">Все роли</option>
+          <option value="admin">Admin</option>
+          <option value="manager">Manager</option>
+          <option value="driver">Driver</option>
+          <option value="client">Client</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer">
+          <input type="checkbox" id="users-show-inactive" onchange="loadUsers()"> Неактивные
+        </label>
+        <button class="btn btn-sm btn-ghost" onclick="loadUsers()">↻ Обновить</button>
+        <button class="btn btn-sm btn-warn" id="btn-create-user" onclick="promptCreateUser()" style="margin-left:auto">+ Создать</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="users-table" id="users-table">
+          <thead>
+            <tr>
+              <th>Статус</th>
+              <th>Имя</th>
+              <th>Email</th>
+              <th>Роль</th>
+              <th>ID</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            <tr><td colspan="6" style="text-align:center;padding:40px"><div class="loading"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CHAT TAB -->
+    <div class="tab-pane" id="pane-chat">
+      <div class="chat-shell">
+        <!-- Sidebar: conversation list -->
+        <div class="chat-sidebar">
+          <div class="chat-sidebar-header">
+            <span class="chat-sidebar-title">Диалоги</span>
+            <button class="btn btn-sm btn-warn" onclick="promptNewConv()" style="font-size:10px;padding:4px 10px">+ Новый</button>
+          </div>
+          <div class="conv-list" id="conv-list">
+            <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
+          </div>
+        </div>
+
+        <!-- Main: message area -->
+        <div class="chat-main" id="chat-main">
+          <div class="chat-empty" id="chat-empty">
+            <div style="font-size:32px;opacity:.3">💬</div>
+            <span>Выберите диалог</span>
+          </div>
+          <div id="chat-window" style="display:none;flex:1;flex-direction:column;overflow:hidden;display:none">
+            <div class="chat-main-header">
+              <div>
+                <div class="chat-main-title" id="chat-conv-title">—</div>
+                <div class="chat-main-sub" id="chat-conv-sub"></div>
+              </div>
+              <span class="ws-status ws-offline" id="ws-status-badge">● OFFLINE</span>
+            </div>
+            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-input-area">
+              <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение... (Enter — отправить)"
+                rows="1" onkeydown="chatInputKey(event)"></textarea>
+              <button class="btn btn-sm btn-warn" onclick="sendChatMessage()" style="height:42px;padding:0 18px">→</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILE TAB -->
+    <div class="tab-pane" id="pane-profile">
+      <div class="profile-card">
+        <div class="profile-card-title">Мой профиль</div>
+        <div id="profile-json" style="padding:4px 0">Загрузка...</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════ MODAL ════════════════════════════════ -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm btn-ghost" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-sm btn-warn" id="modal-confirm" onclick="confirmModal()">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════
+const _H = window.location.hostname;
+const AUTH_URL     = `http://${_H}:8001/api/v1`;
+const ORDER_URL    = `http://${_H}:8002/api/v1`;
+const DELIVERY_URL = `http://${_H}:8003/api/v1`;
+const CHAT_URL     = `http://${_H}:8004`;
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let currentUser = null;
+let modalCallback = null;
+
+const FUEL_LABELS = {
+  diesel_summer: 'ДТ-Л (Летнее)',
+  diesel_winter: 'ДТ-З (Зимнее)',
+  petrol_92:     'АИ-92',
+  petrol_95:     'АИ-95',
+  fuel_oil:      'М-100 (Мазут)',
+};
+const STATUS_LABELS = {
+  new:                 'Новая',
+  in_progress:         'В работе',
+  assigned:            'Назначена',
+  in_transit:          'В рейсе',
+  delivered:           'Доставлена',
+  partially_delivered: 'Частично',
+  closed:              'Закрыта',
+  rejected:            'Отклонена',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════════
+function copyUUID(uuid, btn) {
+  navigator.clipboard.writeText(uuid).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+  }).catch(() => toast('Не удалось скопировать', 'error'));
+}
+
+function uuidCell(uuid) {
+  if (!uuid) return '—';
+  const short = uuid.slice(0, 8) + '…';
+  return `<span class="uuid-cell"><span style="font-family:monospace;font-size:11px" title="${uuid}">${short}</span><button class="copy-btn" onclick="copyUUID('${uuid}',this)">copy</button></span>`;
+}
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.style.animation = 'slideOut .25s ease forwards';
+    setTimeout(() => el.remove(), 250);
+  }, 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HTTP HELPERS
+// ═══════════════════════════════════════════════════════════════
+async function api(url, opts = {}) {
+  const token = localStorage.getItem('access_token');
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(url, { ...opts, headers });
+
+  if (res.status === 204) return null;
+
+  const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+
+  if (!res.ok) {
+    const msg = typeof data.detail === 'string'
+      ? data.detail
+      : JSON.stringify(data.detail);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function authPost(path, body) {
+  return api(`${AUTH_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function authGet(path) {
+  return api(`${AUTH_URL}${path}`);
+}
+function orderGet(path) {
+  return api(`${ORDER_URL}${path}`);
+}
+function orderPost(path, body) {
+  return api(`${ORDER_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function deliveryGet(path) {
+  return api(`${DELIVERY_URL}${path}`);
+}
+function deliveryPost(path, body) {
+  return api(`${DELIVERY_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function deliveryPatch(path, body) {
+  return api(`${DELIVERY_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+function deliveryDelete(path) {
+  return api(`${DELIVERY_URL}${path}`, { method: 'DELETE' });
+}
+function chatGet(path) {
+  return api(`${CHAT_URL}${path}`);
+}
+function chatPost(path, body) {
+  return api(`${CHAT_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function chatDelete(path) {
+  return api(`${CHAT_URL}${path}`, { method: 'DELETE' });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════════════════
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t, i) => {
+    t.classList.toggle('active', ['login','reg-individual','reg-company'][i] === tab);
+  });
+  document.getElementById('auth-login').style.display          = tab === 'login'          ? '' : 'none';
+  document.getElementById('auth-reg-individual').style.display = tab === 'reg-individual' ? '' : 'none';
+  document.getElementById('auth-reg-company').style.display    = tab === 'reg-company'    ? '' : 'none';
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.innerHTML = '';
+  try {
+    const tokens = await authPost('/auth/login', { email, password });
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    await initApp();
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doRegisterIndividual() {
+  const body = {
+    email:           document.getElementById('ri-email').value.trim(),
+    phone:           document.getElementById('ri-phone').value.trim(),
+    full_name:       document.getElementById('ri-fullname').value.trim(),
+    password:        document.getElementById('ri-password').value,
+    delivery_address: document.getElementById('ri-address').value.trim() || undefined,
+    passport_series:  document.getElementById('ri-passport-s').value.trim() || undefined,
+    passport_number:  document.getElementById('ri-passport-n').value.trim() || undefined,
+  };
+  const errEl = document.getElementById('ri-error');
+  errEl.innerHTML = '';
+  try {
+    await authPost('/auth/register/individual', body);
+    toast('Регистрация успешна! Войдите в систему.');
+    switchAuthTab('login');
+    document.getElementById('login-email').value = body.email;
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doRegisterCompany() {
+  const body = {
+    email:        document.getElementById('rc-email').value.trim(),
+    phone:        document.getElementById('rc-phone').value.trim(),
+    full_name:    document.getElementById('rc-fullname').value.trim(),
+    password:     document.getElementById('rc-password').value,
+    company_name: document.getElementById('rc-company').value.trim(),
+    inn:          document.getElementById('rc-inn').value.trim(),
+    kpp:          document.getElementById('rc-kpp').value.trim() || undefined,
+    legal_address: document.getElementById('rc-legal-addr').value.trim(),
+    delivery_address: undefined,
+    bank_account: document.getElementById('rc-bank-acc').value.trim() || undefined,
+    bik:          document.getElementById('rc-bik').value.trim() || undefined,
+    bank_name:    document.getElementById('rc-bank-name').value.trim() || undefined,
+  };
+  const errEl = document.getElementById('rc-error');
+  errEl.innerHTML = '';
+  try {
+    await authPost('/auth/register/company', body);
+    toast('Организация зарегистрирована! Войдите в систему.');
+    switchAuthTab('login');
+    document.getElementById('login-email').value = body.email;
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doLogout() {
+  if (chatWs) { chatWs.close(); chatWs = null; }
+  if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
+  if (notifSSE) { notifSSE.close(); notifSSE = null; }
+  notifList = [];
+  activeConvId = null;
+  try {
+    const rt = localStorage.getItem('refresh_token');
+    if (rt) await authPost('/auth/logout', { refresh_token: rt });
+  } catch {}
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  currentUser = null;
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// APP INIT
+// ═══════════════════════════════════════════════════════════════
+async function initApp() {
+  try {
+    currentUser = await authGet('/auth/me');
+  } catch {
+    doLogout(); return;
+  }
+
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app-screen').style.display = 'flex';
+
+  document.getElementById('header-name').textContent = currentUser.full_name;
+  const roleEl = document.getElementById('header-role');
+  roleEl.textContent = currentUser.role;
+  roleEl.className = `role-chip role-${currentUser.role}`;
+
+  const role = currentUser.role;
+  // Create order — clients + manager/admin
+  document.getElementById('tab-create-btn').style.display =
+    role === 'client' ? '' : (role === 'manager' || role === 'admin') ? '' : 'none';
+  // Show manager-only fields in the form
+  const isStaff = role === 'manager' || role === 'admin';
+  document.getElementById('manager-create-fields').style.display = isStaff ? '' : 'none';
+  document.getElementById('create-form-title').textContent = isStaff
+    ? 'Создать заявку (от имени клиента)'
+    : 'Новая заявка на топливо';
+  // Vehicles — admin/manager see all; driver sees their own
+  document.getElementById('tab-vehicles-btn').style.display =
+    role === 'client' ? 'none' : '';
+  // Trips — drivers + manager/admin
+  document.getElementById('tab-trips-btn').style.display =
+    role === 'client' ? 'none' : '';
+  // Report tab
+  document.getElementById('tab-report-btn').style.display =
+    role === 'client' ? 'none' : '';
+
+  // Users tab — admin + manager only
+  document.getElementById('tab-users-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+
+  // Chat tab — visible to all roles
+  document.getElementById('tab-chat-btn').style.display = '';
+
+  // Create user button — admin only
+  const btnCreate = document.getElementById('btn-create-user');
+  if (btnCreate) btnCreate.style.display = role === 'admin' ? '' : 'none';
+
+  initNotifications();
+  switchTab('orders');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p =>
+    p.classList.toggle('active', p.id === `pane-${tab}`));
+
+  if (tab === 'orders')   loadOrders();
+  if (tab === 'vehicles') loadVehicles();
+  if (tab === 'trips')    loadTrips();
+  if (tab === 'report')   initReport();
+  if (tab === 'fuels')    loadFuels();
+  if (tab === 'profile')  loadProfile();
+  if (tab === 'chat')     loadConversations();
+  if (tab === 'users')    loadUsers();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ORDERS
+// ═══════════════════════════════════════════════════════════════
+async function loadOrders() {
+  const status = document.getElementById('status-filter').value;
+  const el = document.getElementById('orders-list');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const qs = status ? `?status=${status}&limit=100` : '?limit=100';
+    const orders = await orderGet(`/orders${qs}`);
+    renderOrders(orders);
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderOrders(orders) {
+  const el = document.getElementById('orders-list');
+  if (!orders.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div>Заявок не найдено</div>';
+    return;
+  }
+  el.innerHTML = orders.map(o => orderCardHTML(o)).join('');
+}
+
+function fmtDate(dt) {
+  if (!dt) return '—';
+  return new Date(dt).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function orderCardHTML(o) {
+  const statusLabel = STATUS_LABELS[o.status] || o.status;
+  const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
+  return `
+  <div class="order-card" id="card-${o.id}">
+    <div class="order-header" onclick="toggleCard('${o.id}')">
+      <div class="priority-dot priority-${o.priority}"></div>
+      <div class="order-number">${o.order_number}</div>
+      <div class="order-fuel">${fuelLabel} · ${o.delivery_address}</div>
+      <div class="order-volume">${Number(o.volume_requested).toLocaleString('ru')} л</div>
+      <div class="order-date">${fmtDate(o.created_at)}</div>
+      <span class="status-badge status-${o.status}">${statusLabel}</span>
+    </div>
+    <div class="order-body" id="body-${o.id}">
+      <div class="order-details-grid">
+        <div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>
+        ${(currentUser?.role === 'manager' || currentUser?.role === 'admin') ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
+        <div class="detail-item"><div class="detail-label">Топливо</div><div class="detail-value">${fuelLabel}</div></div>
+        <div class="detail-item"><div class="detail-label">Объём заказан</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
+        ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
+        <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${o.delivery_address}</div></div>
+        <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${fmtDate(o.desired_date)}</div></div>
+        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${o.payment_type === 'prepaid' ? 'Предоплата' : 'Кредит'}</div></div>
+        <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? '🔴 Срочно' : 'Обычный'}</div></div>
+        ${o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
+        ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${o.client_comment}</div></div>` : ''}
+        ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${o.manager_comment}</div></div>` : ''}
+        ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${o.rejection_reason}</div></div>` : ''}
+      </div>
+      ${actionBarHTML(o)}
+      <div class="timeline-section" id="timeline-${o.id}">
+        <div class="timeline-title">История статусов</div>
+        <div class="loading"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function toggleCard(orderId) {
+  const card = document.getElementById(`card-${orderId}`);
+  const isExpanded = card.classList.contains('expanded');
+  // Collapse all
+  document.querySelectorAll('.order-card.expanded').forEach(c => c.classList.remove('expanded'));
+  if (!isExpanded) {
+    card.classList.add('expanded');
+    await loadTimeline(orderId);
+  }
+}
+
+async function loadTimeline(orderId) {
+  const el = document.getElementById(`timeline-${orderId}`);
+  try {
+    const order = await orderGet(`/orders/${orderId}`);
+    const logs = order.status_logs || [];
+    if (!logs.length) {
+      el.innerHTML = '<div class="timeline-title">История статусов</div><div style="color:var(--text3);font-size:12px">Нет записей</div>';
+      return;
+    }
+    const items = [...logs].reverse().map(l => `
+      <div class="tl-item">
+        <div class="tl-time">${fmtDate(l.created_at)}</div>
+        <div class="tl-content">
+          <div class="tl-status">
+            ${l.from_status ? `<span style="color:var(--text3)">${STATUS_LABELS[l.from_status]||l.from_status}</span> → ` : ''}
+            <span class="status-badge status-${l.to_status}" style="font-size:9px">${STATUS_LABELS[l.to_status]||l.to_status}</span>
+          </div>
+          ${l.comment ? `<div class="tl-comment">${l.comment}</div>` : ''}
+        </div>
+        <div class="tl-role">${l.changed_by_role || ''}</div>
+      </div>`).join('');
+    el.innerHTML = `<div class="timeline-title">История статусов</div><div class="timeline">${items}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="timeline-title">История статусов</div><div style="color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+  }
+}
+
+function actionBarHTML(o) {
+  const role = currentUser?.role;
+  const s = o.status;
+  const btns = [];
+
+  if (role === 'manager' || role === 'admin') {
+    if (s === 'new')
+      btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','in_progress',{comment:'Принято менеджером'})">✓ Принять</button>`);
+    if (s === 'new' || s === 'in_progress')
+      btns.push(`<button class="btn btn-sm btn-danger" onclick="promptReject('${o.id}')">✗ Отклонить</button>`);
+    if (s === 'in_progress')
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Назначить водителя</button>`);
+    if (s === 'assigned')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','in_progress',{comment:'Снят с водителя'})">↩ Вернуть в работу</button>`);
+    if (s === 'delivered' || s === 'partially_delivered')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
+    if (s === 'partially_delivered')
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Повторный рейс</button>`);
+  }
+
+  if (role === 'driver') {
+    if (s === 'assigned' && o.driver_id === currentUser.id)
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_transit',{comment:'Рейс начат'})">▶ Начать рейс</button>`);
+    if (s === 'in_transit')
+      btns.push(`<button class="btn btn-sm btn-success" onclick="promptVolume('${o.id}','delivered')">✓ Доставлено</button>`);
+    if (s === 'in_transit')
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptVolume('${o.id}','partially_delivered')">~ Частично</button>`);
+  }
+
+  if (!btns.length) return '';
+  return `<div class="action-bar">${btns.join('')}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ORDER TRANSITIONS
+// ═══════════════════════════════════════════════════════════════
+async function transitionOrder(orderId, toStatus, extra = {}) {
+  try {
+    await orderPost(`/orders/${orderId}/transition`, { to_status: toStatus, ...extra });
+    toast(`Статус изменён → ${STATUS_LABELS[toStatus] || toStatus}`);
+    await loadOrders();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function promptReject(orderId) {
+  openModal('Отклонить заявку',
+    `<div class="form-group">
+      <label class="form-label">Причина отклонения</label>
+      <input type="text" id="modal-reason" class="form-input" placeholder="Укажите причину..." autofocus>
+    </div>`,
+    async () => {
+      const reason = document.getElementById('modal-reason').value.trim();
+      if (!reason) { toast('Укажите причину', 'error'); return; }
+      closeModal();
+      await transitionOrder(orderId, 'rejected', { rejection_reason: reason });
+    }
+  );
+}
+
+function promptAssign(orderId) {
+  openModal('Назначить водителя',
+    `<div class="form-group">
+      <label class="form-label">UUID водителя</label>
+      <input type="text" id="modal-driver" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Комментарий (необязательно)</label>
+      <input type="text" id="modal-assign-comment" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const driver_id = document.getElementById('modal-driver').value.trim();
+      const comment   = document.getElementById('modal-assign-comment').value.trim() || undefined;
+      if (!driver_id) { toast('Укажите UUID водителя', 'error'); return; }
+      closeModal();
+      await transitionOrder(orderId, 'assigned', { driver_id, comment });
+    }
+  );
+}
+
+function promptVolume(orderId, toStatus) {
+  const label = toStatus === 'delivered' ? 'Доставлено' : 'Частично доставлено';
+  openModal(label,
+    `<div class="form-group">
+      <label class="form-label">Фактический объём (литры)</label>
+      <input type="number" id="modal-volume" class="form-input" placeholder="4800" min="1" step="100" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Комментарий (необязательно)</label>
+      <input type="text" id="modal-vol-comment" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const vol = parseFloat(document.getElementById('modal-volume').value);
+      const comment = document.getElementById('modal-vol-comment').value.trim() || undefined;
+      if (!vol || vol <= 0) { toast('Укажите объём', 'error'); return; }
+      closeModal();
+      await transitionOrder(orderId, toStatus, { volume_delivered: vol, comment });
+    }
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CREATE ORDER
+// ═══════════════════════════════════════════════════════════════
+function updatePaymentUI() {
+  const val = document.querySelector('input[name="payment"]:checked').value;
+  document.getElementById('pay-prepaid-label').classList.toggle('selected', val === 'prepaid');
+  document.getElementById('pay-credit-label').classList.toggle('selected', val === 'credit');
+}
+
+function updateStatusUI() {
+  const val = document.querySelector('input[name="init-status"]:checked')?.value;
+  document.getElementById('status-new-label')?.classList.toggle('selected', val === 'new');
+  document.getElementById('status-progress-label')?.classList.toggle('selected', val === 'in_progress');
+}
+
+async function doCreateOrder() {
+  const errEl = document.getElementById('create-error');
+  errEl.innerHTML = '';
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+
+  const body = {
+    fuel_type:        document.getElementById('c-fuel').value,
+    volume_requested: parseFloat(document.getElementById('c-volume').value),
+    delivery_address: document.getElementById('c-address').value.trim(),
+    desired_date:     document.getElementById('c-date').value
+                        ? new Date(document.getElementById('c-date').value).toISOString()
+                        : undefined,
+    payment_type:     document.querySelector('input[name="payment"]:checked').value,
+    client_comment:   document.getElementById('c-comment').value.trim() || undefined,
+  };
+
+  if (isStaff) {
+    const clientId = document.getElementById('c-client-id').value.trim();
+    if (clientId) body.client_id = clientId;
+    body.priority         = document.getElementById('c-priority').value;
+    body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
+    body.start_in_progress = document.querySelector('input[name="init-status"]:checked')?.value === 'in_progress';
+  }
+
+  try {
+    const order = await orderPost('/orders', body);
+    const statusNote = body.start_in_progress ? ' — сразу в работе' : '';
+    toast(`Заявка ${order.order_number} создана${statusNote}!`);
+    // Reset form
+    document.getElementById('c-volume').value = '';
+    document.getElementById('c-address').value = '';
+    document.getElementById('c-comment').value = '';
+    if (isStaff) {
+      document.getElementById('c-client-id').value = '';
+      document.getElementById('c-manager-comment').value = '';
+      document.getElementById('c-priority').value = 'normal';
+    }
+    switchTab('orders');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FUELS
+// ═══════════════════════════════════════════════════════════════
+async function loadFuels() {
+  const el = document.getElementById('fuel-grid');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const fuels = await orderGet('/fuel-types');
+    el.innerHTML = fuels.map(f => `
+      <div class="fuel-card">
+        <div class="fuel-short">${f.short}</div>
+        <div class="fuel-name">${f.name}</div>
+        <div class="fuel-code">${f.code} · ${f.unit}</div>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROFILE
+// ═══════════════════════════════════════════════════════════════
+async function loadProfile() {
+  const el = document.getElementById('profile-json');
+  try {
+    const me = await authGet('/auth/me');
+    // Render as structured card instead of raw JSON
+    const fields = [
+      ['ID пользователя', uuidCell(me.id)],
+      ['Email', me.email],
+      ['Телефон', me.phone || '—'],
+      ['Роль', `<span class="role-chip role-${me.role}">${me.role}</span>`],
+      ['Статус', me.is_active ? '<span style="color:var(--green)">Активен</span>' : '<span style="color:var(--red)">Неактивен</span>'],
+    ];
+    if (me.client_profile) {
+      const p = me.client_profile;
+      fields.push(['Тип клиента', p.client_type === 'individual' ? 'Физическое лицо' : 'Юридическое лицо']);
+      if (p.company_name) fields.push(['Компания', p.company_name]);
+      if (p.inn)          fields.push(['ИНН', p.inn]);
+      if (p.delivery_address) fields.push(['Адрес доставки', p.delivery_address]);
+    }
+    el.innerHTML = fields.map(([label, value]) =>
+      `<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <span style="min-width:180px;color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
+        <span style="font-size:13px;color:var(--text2)">${value}</span>
+       </div>`
+    ).join('');
+  } catch (e) {
+    el.textContent = `Ошибка: ${escHtml(e.message)}`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════════
+function openModal(title, bodyHTML, onConfirm) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHTML;
+  modalCallback = onConfirm;
+  document.getElementById('modal-overlay').classList.add('open');
+  // Focus first input
+  setTimeout(() => {
+    const inp = document.querySelector('.modal-overlay input');
+    if (inp) inp.focus();
+  }, 50);
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  modalCallback = null;
+}
+function confirmModal() {
+  if (modalCallback) modalCallback();
+}
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && document.getElementById('modal-overlay').classList.contains('open')) {
+    e.preventDefault(); confirmModal();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// VEHICLES
+// ═══════════════════════════════════════════════════════════════
+async function loadVehicles() {
+  const el = document.getElementById('vehicles-list');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const vehicles = await deliveryGet('/vehicles?include_inactive=true');
+    if (!vehicles.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🚛</div>Транспортных средств нет</div>';
+      return;
+    }
+    el.innerHTML = vehicles.map(v => vehicleCardHTML(v)).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function vehicleCardHTML(v) {
+  const role = currentUser?.role;
+  const isStaff = role === 'admin' || role === 'manager';
+  const statusBadge = v.is_active
+    ? '<span class="vehicle-badge active">Активно</span>'
+    : '<span class="vehicle-badge inactive">Неактивно</span>';
+  const driverBadge = v.assigned_driver_id
+    ? `<span class="vehicle-badge" title="${v.assigned_driver_id}">Водитель: ${uuidCell(v.assigned_driver_id)}</span>`
+    : '<span class="vehicle-badge">Свободно</span>';
+  const actions = isStaff ? `
+    <div class="vehicle-actions">
+      <button class="btn btn-sm btn-ghost" onclick="promptEditVehicle(${JSON.stringify(v).replace(/"/g, '&quot;')})">Редактировать</button>
+      <button class="btn btn-sm btn-danger" onclick="archiveVehicle('${v.id}')">Архив</button>
+    </div>` : '';
+  return `
+    <div class="vehicle-card" id="vehicle-${v.id}">
+      <div class="vehicle-plate">${v.plate_number}</div>
+      <div class="vehicle-model">${v.model}</div>
+      <div class="vehicle-meta">
+        ${statusBadge}
+        ${driverBadge}
+        <span class="vehicle-badge">${Number(v.capacity_liters).toLocaleString('ru')} л</span>
+      </div>
+      ${v.notes ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">${v.notes}</div>` : ''}
+      ${actions}
+    </div>`;
+}
+
+function promptAddVehicle() {
+  openModal('Новое транспортное средство',
+    `<div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Госномер</label>
+        <input type="text" id="mv-plate" class="form-input" placeholder="А123ВС78" autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Объём цистерны (л)</label>
+        <input type="number" id="mv-cap" class="form-input" placeholder="10000" min="1">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Модель / Марка</label>
+      <input type="text" id="mv-model" class="form-input" placeholder="КАМАЗ-5320">
+    </div>
+    <div class="form-group">
+      <label class="form-label">UUID водителя (необязательно)</label>
+      <input type="text" id="mv-driver" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечания</label>
+      <input type="text" id="mv-notes" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const body = {
+        plate_number:       document.getElementById('mv-plate').value.trim(),
+        model:              document.getElementById('mv-model').value.trim(),
+        capacity_liters:    parseFloat(document.getElementById('mv-cap').value),
+        assigned_driver_id: document.getElementById('mv-driver').value.trim() || null,
+        notes:              document.getElementById('mv-notes').value.trim() || null,
+      };
+      if (!body.plate_number || !body.model || !body.capacity_liters)
+        return toast('Заполните обязательные поля', 'error');
+      closeModal();
+      try {
+        await deliveryPost('/vehicles', body);
+        toast('ТС добавлено');
+        loadVehicles();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+function promptEditVehicle(v) {
+  openModal('Редактировать ТС',
+    `<div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Госномер</label>
+        <input type="text" id="ev-plate" class="form-input" value="${v.plate_number}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Объём (л)</label>
+        <input type="number" id="ev-cap" class="form-input" value="${v.capacity_liters}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Модель</label>
+      <input type="text" id="ev-model" class="form-input" value="${v.model}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">UUID водителя</label>
+      <input type="text" id="ev-driver" class="form-input" value="${v.assigned_driver_id || ''}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Статус</label>
+      <select id="ev-active" class="form-input">
+        <option value="true" ${v.is_active ? 'selected' : ''}>Активно</option>
+        <option value="false" ${!v.is_active ? 'selected' : ''}>Неактивно</option>
+      </select>
+    </div>`,
+    async () => {
+      const body = {
+        plate_number:       document.getElementById('ev-plate').value.trim(),
+        model:              document.getElementById('ev-model').value.trim(),
+        capacity_liters:    parseFloat(document.getElementById('ev-cap').value),
+        assigned_driver_id: document.getElementById('ev-driver').value.trim() || null,
+        is_active:          document.getElementById('ev-active').value === 'true',
+      };
+      closeModal();
+      try {
+        await deliveryPatch(`/vehicles/${v.id}`, body);
+        toast('ТС обновлено');
+        loadVehicles();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+async function archiveVehicle(id) {
+  openModal('Архивировать ТС?',
+    '<p style="color:var(--text2);font-size:13px">ТС будет деактивировано и скрыто из списка.</p>',
+    async () => {
+      closeModal();
+      try {
+        await deliveryDelete(`/vehicles/${id}`);
+        toast('ТС архивировано');
+        loadVehicles();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRIPS
+// ═══════════════════════════════════════════════════════════════
+const TRIP_STATUS_LABELS = {
+  planned:    'Запланирован',
+  in_transit: 'В пути',
+  completed:  'Завершён',
+  cancelled:  'Отменён',
+};
+
+async function loadTrips() {
+  const el = document.getElementById('trips-list');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  const status = document.getElementById('trip-status-filter').value;
+  try {
+    const qs = status ? `?status=${status}&limit=100` : '?limit=100';
+    const trips = await deliveryGet(`/trips${qs}`);
+    if (!trips.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🚚</div>Рейсов нет</div>';
+      return;
+    }
+    el.innerHTML = trips.map(t => tripRowHTML(t)).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function tripRowHTML(t) {
+  const statusLabel = TRIP_STATUS_LABELS[t.status] || t.status;
+  const vol = t.volume_actual != null
+    ? `${Number(t.volume_actual).toLocaleString('ru')} / ${Number(t.volume_planned).toLocaleString('ru')} л`
+    : `план: ${Number(t.volume_planned).toLocaleString('ru')} л`;
+
+  const actions = tripActionsHTML(t);
+  return `
+    <div class="trip-card status-${t.status}">
+      <div>
+        <span class="status-badge status-${t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed'}">${statusLabel}</span>
+      </div>
+      <div class="trip-order-id">Заявка: ${uuidCell(t.order_id)}</div>
+      <div class="trip-vol">${vol}</div>
+      <div class="trip-addr">${t.delivery_address}</div>
+      <div class="trip-date">${fmtDate(t.created_at)}</div>
+      <div class="trip-actions">${actions}</div>
+    </div>`;
+}
+
+function tripActionsHTML(t) {
+  const role = currentUser?.role;
+  const btns = [];
+  if (role === 'driver' || role === 'admin' || role === 'manager') {
+    if (t.status === 'planned')
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="doStartTrip('${t.id}')">▶ Выехать</button>`);
+    if (t.status === 'in_transit')
+      btns.push(`<button class="btn btn-sm btn-success" onclick="promptCompleteTrip('${t.id}')">✓ Завершить</button>`);
+    if (t.status === 'planned' || t.status === 'in_transit')
+      btns.push(`<button class="btn btn-sm btn-danger" onclick="doCancelTrip('${t.id}')">✗ Отменить</button>`);
+  }
+  return btns.join('');
+}
+
+function promptAddTrip() {
+  openModal('Создать рейс',
+    `<div class="form-group">
+      <label class="form-label">UUID заявки (Order ID)</label>
+      <input type="text" id="nt-order" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">UUID транспортного средства</label>
+      <input type="text" id="nt-vehicle" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Плановый объём (л)</label>
+        <input type="number" id="nt-vol" class="form-input" placeholder="5000" min="1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Показания одометра (км)</label>
+        <input type="number" id="nt-odo" class="form-input" placeholder="необязательно">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Адрес доставки</label>
+      <input type="text" id="nt-addr" class="form-input" placeholder="г. Санкт-Петербург, ...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечания водителя</label>
+      <input type="text" id="nt-notes" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const body = {
+        order_id:       document.getElementById('nt-order').value.trim(),
+        vehicle_id:     document.getElementById('nt-vehicle').value.trim(),
+        volume_planned: parseFloat(document.getElementById('nt-vol').value),
+        delivery_address: document.getElementById('nt-addr').value.trim(),
+        odometer_start: parseFloat(document.getElementById('nt-odo').value) || null,
+        driver_notes:   document.getElementById('nt-notes').value.trim() || null,
+      };
+      if (!body.order_id || !body.vehicle_id || !body.volume_planned || !body.delivery_address)
+        return toast('Заполните обязательные поля', 'error');
+      closeModal();
+      try {
+        await deliveryPost('/trips', body);
+        toast('Рейс создан');
+        loadTrips();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+async function doStartTrip(tripId) {
+  try {
+    await deliveryPost(`/trips/${tripId}/start`, {});
+    toast('Рейс начат — в пути');
+    loadTrips();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function promptCompleteTrip(tripId) {
+  openModal('Завершить рейс',
+    `<div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Фактический объём (л)</label>
+        <input type="number" id="ct-vol" class="form-input" placeholder="4800" min="1" autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Конечный одометр (км)</label>
+        <input type="number" id="ct-odo" class="form-input" placeholder="необязательно">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечания</label>
+      <input type="text" id="ct-notes" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const vol = parseFloat(document.getElementById('ct-vol').value);
+      if (!vol) return toast('Укажите фактический объём', 'error');
+      const body = {
+        volume_actual: vol,
+        odometer_end:  parseFloat(document.getElementById('ct-odo').value) || null,
+        driver_notes:  document.getElementById('ct-notes').value.trim() || null,
+      };
+      closeModal();
+      try {
+        await deliveryPost(`/trips/${tripId}/complete`, body);
+        toast('Рейс завершён');
+        loadTrips();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+async function doCancelTrip(tripId) {
+  openModal('Отменить рейс?',
+    '<p style="color:var(--text2);font-size:13px">Рейс будет отмечен как отменённый.</p>',
+    async () => {
+      closeModal();
+      try {
+        await deliveryPost(`/trips/${tripId}/cancel`, {});
+        toast('Рейс отменён');
+        loadTrips();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REPORT
+// ═══════════════════════════════════════════════════════════════
+function initReport() {
+  // Pre-fill dates: current month
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  document.getElementById('rpt-from').value = from.toISOString().slice(0, 10);
+  document.getElementById('rpt-to').value   = to.toISOString().slice(0, 10);
+  // Pre-fill driver id for driver role
+  if (currentUser?.role === 'driver') {
+    document.getElementById('rpt-driver-id').value = currentUser.id;
+    document.getElementById('rpt-driver-id').readOnly = true;
+  }
+}
+
+async function loadReport() {
+  const el = document.getElementById('report-result');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+
+  const driverId = document.getElementById('rpt-driver-id').value.trim()
+    || (currentUser?.role === 'driver' ? currentUser.id : '');
+  const dateFrom = document.getElementById('rpt-from').value;
+  const dateTo   = document.getElementById('rpt-to').value;
+
+  if (!driverId) { el.innerHTML = '<div class="inline-error">Укажите UUID водителя</div>'; return; }
+  if (!dateFrom || !dateTo) { el.innerHTML = '<div class="inline-error">Укажите период</div>'; return; }
+
+  try {
+    const qs = new URLSearchParams({
+      driver_id: driverId,
+      date_from: new Date(dateFrom).toISOString(),
+      date_to:   new Date(dateTo + 'T23:59:59').toISOString(),
+    });
+    const r = await deliveryGet(`/reports/driver?${qs}`);
+    el.innerHTML = reportHTML(r);
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function reportHTML(r) {
+  const distStr = r.total_distance_km != null
+    ? `${Number(r.total_distance_km).toFixed(1)} км`
+    : '—';
+  const tripRows = r.trips.map(t => `
+    <div class="trip-card status-${t.status}" style="margin-top:6px">
+      <div><span class="status-badge status-${t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed'}">${TRIP_STATUS_LABELS[t.status]}</span></div>
+      <div class="trip-order-id">Заявка: ${uuidCell(t.order_id)}</div>
+      <div class="trip-vol">
+        ${t.volume_actual != null ? Number(t.volume_actual).toLocaleString('ru') : '—'} /
+        ${Number(t.volume_planned).toLocaleString('ru')} л
+      </div>
+      <div class="trip-addr">${t.delivery_address}</div>
+      <div class="trip-date">${fmtDate(t.created_at)}</div>
+    </div>`).join('');
+
+  return `
+    <div class="report-stats">
+      <div class="stat-box">
+        <div class="stat-label">Всего рейсов</div>
+        <div class="stat-value">${r.total_trips}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Завершено</div>
+        <div class="stat-value" style="color:var(--green)">${r.completed_trips}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Отменено</div>
+        <div class="stat-value" style="color:var(--red)">${r.cancelled_trips}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Объём план</div>
+        <div class="stat-value">${Number(r.total_volume_planned).toLocaleString('ru')}</div>
+        <div class="stat-unit">литров</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Объём факт</div>
+        <div class="stat-value">${Number(r.total_volume_actual).toLocaleString('ru')}</div>
+        <div class="stat-unit">литров</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Пробег</div>
+        <div class="stat-value" style="font-size:20px">${distStr}</div>
+      </div>
+    </div>
+    <div class="section-header">Рейсы за период</div>
+    ${tripRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Рейсов не найдено</div>'}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USERS
+// ═══════════════════════════════════════════════════════════════
+const ROLE_LABELS = { admin:'Admin', manager:'Manager', driver:'Driver', client:'Client' };
+
+async function loadUsers() {
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px"><div class="loading"></div></td></tr>';
+  const role     = document.getElementById('users-role-filter').value;
+  const inactive = document.getElementById('users-show-inactive').checked;
+  try {
+    let qs = `?limit=200&include_inactive=${inactive}`;
+    if (role) qs += `&role=${role}`;
+    const users = await authGet(`/users${qs}`);
+    renderUsersTable(users);
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="inline-error">${escHtml(e.message)}</div></td></tr>`;
+  }
+}
+
+function renderUsersTable(users) {
+  const tbody = document.getElementById('users-tbody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text3);font-size:12px">Пользователей не найдено</td></tr>';
+    return;
+  }
+  const isAdmin = currentUser?.role === 'admin';
+  tbody.innerHTML = users.map(u => {
+    const dot = u.is_active
+      ? '<span class="user-status-dot dot-active"></span>'
+      : '<span class="user-status-dot dot-inactive"></span>';
+    const roleChip = `<span class="role-chip role-${u.role}" style="font-size:10px">${ROLE_LABELS[u.role] || u.role}</span>`;
+    const actions = isAdmin ? `
+      <div style="display:flex;gap:6px">
+        ${u.is_active
+          ? `<button class="btn btn-sm btn-danger" onclick="setUserActive('${u.id}',false)">Деактив.</button>`
+          : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>`
+        }
+      </div>` : '—';
+    return `<tr>
+      <td>${dot}${u.is_active ? 'Активен' : 'Неактивен'}</td>
+      <td>${escHtml(u.full_name)}</td>
+      <td style="font-family:monospace;font-size:12px">${u.email}</td>
+      <td>${roleChip}</td>
+      <td>${uuidCell(u.id)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function setUserActive(userId, active) {
+  try {
+    await api(`${AUTH_URL}/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: active }),
+    });
+    toast(active ? 'Пользователь активирован' : 'Пользователь деактивирован');
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function promptCreateUser() {
+  openModal('Создать пользователя', `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="nu-email" class="form-input" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Телефон</label>
+        <input type="tel" id="nu-phone" class="form-input" placeholder="+7 900 000 00 00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Полное имя</label>
+      <input type="text" id="nu-name" class="form-input" placeholder="Иванов Иван Иванович">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Роль</label>
+        <select id="nu-role" class="form-input">
+          <option value="manager">Manager</option>
+          <option value="driver">Driver</option>
+          <option value="client">Client</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Пароль</label>
+        <input type="password" id="nu-password" class="form-input" placeholder="Минимум 8 символов">
+      </div>
+    </div>`,
+    async () => {
+      const body = {
+        email:     document.getElementById('nu-email').value.trim(),
+        full_name: document.getElementById('nu-name').value.trim(),
+        phone:     document.getElementById('nu-phone').value.trim() || undefined,
+        role:      document.getElementById('nu-role').value,
+        password:  document.getElementById('nu-password').value,
+      };
+      if (!body.email || !body.full_name || !body.password) {
+        toast('Заполните обязательные поля', 'error'); return;
+      }
+      closeModal();
+      try {
+        const u = await api(`${AUTH_URL}/users`, { method:'POST', body: JSON.stringify(body) });
+        toast(`Пользователь ${u.email} создан`);
+        loadUsers();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════
+const NOTIF_URL = `http://${_H}:8005/api/v1`;
+let notifSSE = null;
+let notifList = [];
+
+const NOTIF_TYPE_LABELS = {
+  order_created:       'Новая заявка',
+  order_status:        'Статус заявки',
+  chat_message:        'Новое сообщение',
+  trip_assigned:       'Назначен рейс',
+  trip_status:         'Статус рейса',
+};
+
+function initNotifications() {
+  loadNotifications();
+  connectNotifSSE();
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.notif-bell-wrap')) {
+      document.getElementById('notif-panel').classList.remove('open');
+    }
+  });
+}
+
+async function loadNotifications() {
+  try {
+    const data = await api(`${NOTIF_URL}/notifications?limit=30`);
+    notifList = data;
+    renderNotifPanel();
+  } catch { /* service might not be up yet */ }
+}
+
+function renderNotifPanel() {
+  const el = document.getElementById('notif-list');
+  const unread = notifList.filter(n => !n.is_read).length;
+
+  const badge = document.getElementById('notif-count');
+  if (unread > 0) {
+    badge.textContent = unread > 99 ? '99+' : unread;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (!notifList.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет уведомлений</div>';
+    return;
+  }
+  el.innerHTML = notifList.map(n => `
+    <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="readNotif('${n.id}')">
+      <div class="notif-item-title">${NOTIF_TYPE_LABELS[n.type] || n.type}</div>
+      <div class="notif-item-body">${escHtml(n.body)}</div>
+      <div class="notif-item-time">${fmtTime(n.created_at)}</div>
+    </div>`).join('');
+}
+
+function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) loadNotifications();
+}
+
+async function readNotif(id) {
+  try {
+    await api(`${NOTIF_URL}/notifications/${id}/read`, { method: 'POST' });
+    const n = notifList.find(x => x.id === id);
+    if (n) n.is_read = true;
+    renderNotifPanel();
+  } catch {}
+}
+
+async function markAllNotifsRead() {
+  try {
+    await api(`${NOTIF_URL}/notifications/read-all`, { method: 'POST' });
+    notifList.forEach(n => n.is_read = true);
+    renderNotifPanel();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function connectNotifSSE() {
+  if (notifSSE) { notifSSE.close(); notifSSE = null; }
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+  try {
+    notifSSE = new EventSource(`${NOTIF_URL}/notifications/stream?token=${encodeURIComponent(token)}`);
+    notifSSE.onmessage = (e) => {
+      try {
+        const notif = JSON.parse(e.data);
+        if (notif.type === 'ping') return;
+        notifList.unshift(notif);
+        if (notifList.length > 50) notifList.pop();
+        renderNotifPanel();
+        // Mini toast
+        toast(`${NOTIF_TYPE_LABELS[notif.type] || notif.type}: ${notif.body}`, 'success');
+      } catch {}
+    };
+    notifSSE.onerror = () => {
+      // SSE reconnects automatically; no action needed
+    };
+  } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHAT
+// ═══════════════════════════════════════════════════════════════
+let activeConvId  = null;
+let chatWs        = null;
+let chatWsRetry   = null;
+
+const CONV_TYPE_LABELS = {
+  client_support: 'Клиент',
+  internal:       'Внутренний',
+};
+
+function fmtTime(dt) {
+  if (!dt) return '';
+  const d = new Date(dt);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+}
+
+async function loadConversations() {
+  const el = document.getElementById('conv-list');
+  el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
+  try {
+    const convs = await chatGet('/conversations');
+    renderConvList(convs);
+  } catch (e) {
+    el.innerHTML = `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+  }
+}
+
+function convTitle(c) {
+  if (c.title) return c.title;
+  if (c.type === 'client_support') return c.order_id ? `Заявка ${c.order_id.slice(0,8)}…` : 'Поддержка';
+  return 'Внутренний чат';
+}
+
+function renderConvList(convs) {
+  const el = document.getElementById('conv-list');
+  if (!convs.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';
+    return;
+  }
+  el.innerHTML = convs.map(c => `
+    <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
+      <div class="conv-item-title">${escHtml(convTitle(c))}</div>
+      <div class="conv-item-meta">
+        <span class="conv-type-chip conv-type-${c.type}">${CONV_TYPE_LABELS[c.type] || c.type}</span>
+        <span class="conv-item-last">${c.last_message ? escHtml(c.last_message.text) : 'Нет сообщений'}</span>
+        ${c.unread_count > 0 ? `<span class="unread-badge">${c.unread_count}</span>` : ''}
+        <span class="conv-item-time">${fmtTime(c.updated_at)}</span>
+      </div>
+    </div>`).join('');
+}
+
+async function openConversation(convId) {
+  activeConvId = convId;
+
+  // Highlight sidebar item
+  document.querySelectorAll('.conv-item').forEach(el =>
+    el.classList.toggle('active', el.onclick?.toString().includes(convId)));
+
+  // Show chat window
+  document.getElementById('chat-empty').style.display = 'none';
+  const win = document.getElementById('chat-window');
+  win.style.display = 'flex';
+  win.style.flexDirection = 'column';
+  win.style.flex = '1';
+  win.style.overflow = 'hidden';
+
+  document.getElementById('chat-messages').innerHTML =
+    '<div class="empty-state" style="padding:20px"><div class="loading"></div></div>';
+
+  try {
+    const conv = await chatGet(`/conversations/${convId}`);
+    document.getElementById('chat-conv-title').textContent = convTitle(conv);
+    document.getElementById('chat-conv-sub').textContent =
+      `${CONV_TYPE_LABELS[conv.type] || conv.type}` +
+      (conv.order_id ? ` · заявка ${conv.order_id.slice(0,8)}…` : '') +
+      ` · ${conv.participants.length} уч.`;
+
+    renderMessages(conv.messages);
+
+    // Mark as read
+    chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
+    // Update unread badge in sidebar
+    loadConversations();
+  } catch (e) {
+    document.getElementById('chat-messages').innerHTML =
+      `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+  }
+
+  connectWs(convId);
+}
+
+function renderMessages(msgs) {
+  const el = document.getElementById('chat-messages');
+  if (!msgs.length) {
+    el.innerHTML = '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
+    return;
+  }
+  el.innerHTML = msgs.map(m => msgHTML(m)).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function msgHTML(m) {
+  const mine = currentUser && m.sender_id === currentUser.id;
+  const initials = (m.sender_name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  return `
+  <div class="msg-row ${mine ? 'mine' : ''}">
+    <div class="msg-avatar">${escHtml(initials)}</div>
+    <div class="msg-bubble">
+      ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
+      <div class="msg-text">${escHtml(m.text)}</div>
+      <div class="msg-time">${fmtTime(m.created_at)}</div>
+    </div>
+  </div>`;
+}
+
+function escHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function connectWs(convId) {
+  if (chatWs) { chatWs.close(); chatWs = null; }
+  if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
+
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
+
+  const wsUrl = `ws://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
+  const badge = document.getElementById('ws-status-badge');
+
+  function connect() {
+    const ws = new WebSocket(wsUrl);
+    chatWs = ws;
+
+    ws.onopen = () => {
+      badge.textContent = '● ONLINE';
+      badge.className = 'ws-status ws-online';
+    };
+
+    ws.onmessage = (evt) => {
+      if (activeConvId !== convId) return;
+      try {
+        const msg = JSON.parse(evt.data);
+        // Avoid duplicate if we sent it (we already append optimistically on send)
+        const existing = document.getElementById(`msg-${msg.id}`);
+        if (existing) return;
+        appendMessage(msg);
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      badge.textContent = '● OFFLINE';
+      badge.className = 'ws-status ws-offline';
+      if (activeConvId === convId) {
+        chatWsRetry = setTimeout(connect, 3000);
+      }
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  connect();
+}
+
+function appendMessage(msg) {
+  const el = document.getElementById('chat-messages');
+  // Remove "no messages" placeholder if present
+  const empty = el.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = msgHTML(msg);
+  const row = tmp.firstElementChild;
+  if (row) {
+    row.id = `msg-${msg.id}`;
+    el.appendChild(row);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function chatInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+}
+
+async function sendChatMessage() {
+  if (!activeConvId) return;
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+
+  // Optimistic: send via WS if connected, else via REST
+  if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+    chatWs.send(text);
+  } else {
+    try {
+      const msg = await chatPost(`/conversations/${activeConvId}/messages`, { text });
+      appendMessage(msg);
+    } catch (e) {
+      toast(e.message, 'error');
+      inp.value = text;
+    }
+  }
+}
+
+function promptNewConv() {
+  const isStaff = currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager');
+  openModal('Новый диалог', `
+    <div class="form-group">
+      <label class="form-label">Тип</label>
+      <div class="new-conv-type">
+        <label class="radio-label selected" id="nc-support-label">
+          <input type="radio" name="nc-type" value="client_support" checked onchange="updateNewConvUI()">
+          Клиент / Поддержка
+        </label>
+        ${isStaff ? `<label class="radio-label" id="nc-internal-label">
+          <input type="radio" name="nc-type" value="internal" onchange="updateNewConvUI()">
+          Внутренний
+        </label>` : ''}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Заголовок <span style="color:var(--text3)">(необязательно)</span></label>
+      <input type="text" id="nc-title" class="form-input" placeholder="Тема разговора...">
+    </div>
+    <div class="form-group" id="nc-order-group">
+      <label class="form-label">UUID заявки <span style="color:var(--text3)">(необязательно)</span></label>
+      <input type="text" id="nc-order-id" class="form-input" placeholder="Привязать к заявке">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Участники (UUID через запятую)</label>
+      <input type="text" id="nc-participants" class="form-input" placeholder="Оставьте пустым — только вы">
+    </div>`,
+    async () => {
+      const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
+      const title = document.getElementById('nc-title').value.trim() || null;
+      const orderIdRaw = document.getElementById('nc-order-id')?.value.trim();
+      const participantsRaw = document.getElementById('nc-participants').value.trim();
+
+      const body = {
+        type,
+        title,
+        order_id: orderIdRaw || null,
+        participant_ids: participantsRaw
+          ? participantsRaw.split(',').map(s => s.trim()).filter(Boolean)
+          : [],
+      };
+
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations', body);
+        toast('Диалог создан');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
+}
+
+function updateNewConvUI() {
+  document.getElementById('nc-support-label')?.classList.toggle(
+    'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
+  document.getElementById('nc-internal-label')?.classList.toggle(
+    'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT ON LOAD
+// ═══════════════════════════════════════════════════════════════
+(async () => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    try { await initApp(); return; } catch {}
+  }
+  document.getElementById('auth-screen').style.display = 'flex';
+})();
+</script>
+</body>
+</html>

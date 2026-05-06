@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Env files — contain secrets, never commit
+*.env
+.env.*
+
+# DB / data volumes
+*.db
+*.sqlite
+
+# Alembic migration auto-generated (keep versions folder but not pycache)
+*/migrations/versions/__pycache__/
+
+# Docker / compose overrides
+docker-compose.override.yml
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+.claude/
