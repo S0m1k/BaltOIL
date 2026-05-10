@@ -60,6 +60,8 @@ async def create_vehicle(
 
     v = Vehicle(**data.model_dump())
     db.add(v)
+    await db.flush()
+    await db.refresh(v)
     return v
 
 

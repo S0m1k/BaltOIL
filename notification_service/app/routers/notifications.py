@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import uuid
 import json
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
@@ -57,7 +58,7 @@ async def read_all(
 # ─── Internal publish (called by other services) ─────────────────────────────
 
 def _require_internal(x_internal_secret: str = Header(..., alias="X-Internal-Secret")) -> None:
-    if x_internal_secret != settings.internal_api_secret:
+    if not hmac.compare_digest(x_internal_secret, settings.internal_api_secret):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 

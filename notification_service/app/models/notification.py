@@ -13,6 +13,7 @@ class NotificationType(str, enum.Enum):
     CHAT_MESSAGE   = "chat_message"
     TRIP_ASSIGNED  = "trip_assigned"
     TRIP_STATUS    = "trip_status"
+    REPORT_READY   = "report_ready"
 
 
 class Notification(Base):

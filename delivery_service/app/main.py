@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import vehicles, trips, reports
+from app.routers import vehicles, trips, reports, inventory, downloads
 
 settings = get_settings()
 
@@ -31,9 +31,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(vehicles.router, prefix="/api/v1")
-app.include_router(trips.router,    prefix="/api/v1")
-app.include_router(reports.router,  prefix="/api/v1")
+app.include_router(vehicles.router,   prefix="/api/v1")
+app.include_router(trips.router,      prefix="/api/v1")
+app.include_router(reports.router,    prefix="/api/v1")
+app.include_router(inventory.router,  prefix="/api/v1")
+app.include_router(downloads.router,  prefix="/api/v1")
 
 
 @app.get("/health")

@@ -1,17 +1,78 @@
+import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 
+import httpx
+from jose import jwt as jose_jwt
+
+from app.config import get_settings as _get_settings
 from app.models.order import Order, OrderStatus, PaymentType, OrderPriority
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
-from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
+from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest
 from app.services.order_number import generate_order_number
 from app.core.events import publish_order_event
+
+log = logging.getLogger(__name__)
+
+DELIVERY_SERVICE_URL = "http://delivery_service:8003"
+
+
+def _make_service_token(actor: TokenUser) -> str:
+    _settings = _get_settings()
+    return jose_jwt.encode(
+        {
+            "sub": str(actor.id),
+            "role": actor.role,
+            "type": "access",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        _settings.jwt_secret_key,
+        algorithm=_settings.jwt_algorithm,
+    )
+
+
+async def _auto_start_trip(order: Order, actor: TokenUser) -> None:
+    """Создать и запустить рейс в delivery_service при переводе заявки в in_transit.
+
+    Если топлива недостаточно — delivery_service возвращает 422, и мы
+    пробрасываем ошибку: order_service не меняет статус заявки.
+    Если delivery_service недоступен — raise StatusTransitionError (fail-closed).
+    """
+    try:
+        token = _make_service_token(actor)
+        payload = {
+            "order_id": str(order.id),
+            "driver_id": str(order.driver_id),
+            "inv_fuel_type": order.fuel_type.value if order.fuel_type else None,
+            "inv_order_number": order.order_number,
+            "inv_client_id": str(order.client_id),
+            "volume_planned": float(order.volume_requested),
+            "delivery_address": order.delivery_address or "",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{DELIVERY_SERVICE_URL}/api/v1/trips/auto-start",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if r.status_code in (200, 201):
+            return  # success
+        detail = r.json().get("detail", f"Ошибка сервиса доставки: {r.status_code}")
+        raise StatusTransitionError(detail)
+    except StatusTransitionError:
+        raise
+    except Exception as exc:
+        log.error("_auto_start_trip failed for order %s: %s", order.id, exc)
+        raise StatusTransitionError(
+            "Не удалось запустить рейс: сервис доставки недоступен. Попробуйте позже."
+        )
+
 
 ROLE_CLIENT = "client"
 ROLE_DRIVER = "driver"
@@ -36,11 +97,9 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     # Клиент видит только свои заявки
     if actor.role == ROLE_CLIENT and order.client_id != actor.id:
         raise ForbiddenError()
-    # Водитель видит только назначенные на него или в статусе in_progress/assigned
-    if actor.role == ROLE_DRIVER:
-        visible = {OrderStatus.IN_PROGRESS, OrderStatus.ASSIGNED, OrderStatus.IN_TRANSIT}
-        if order.status not in visible and order.driver_id != actor.id:
-            raise ForbiddenError()
+    # Водитель видит только свои заявки (driver_id == actor.id)
+    if actor.role == ROLE_DRIVER and order.driver_id != actor.id:
+        raise ForbiddenError()
 
     return order
 
@@ -51,6 +110,7 @@ async def list_orders(
     *,
     status: OrderStatus | None = None,
     driver_id: uuid.UUID | None = None,
+    client_id: uuid.UUID | None = None,
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
@@ -76,6 +136,8 @@ async def list_orders(
         conditions.append(Order.status == status)
     if driver_id and actor.role in (ROLE_MANAGER, ROLE_ADMIN):
         conditions.append(Order.driver_id == driver_id)
+    if client_id and actor.role in (ROLE_MANAGER, ROLE_ADMIN):
+        conditions.append(Order.client_id == client_id)
 
     result = await db.execute(
         select(Order).where(and_(*conditions))
@@ -213,6 +275,12 @@ async def transition_status(
     validate_transition(order.status, data.to_status, actor.role)
 
     # Бизнес-проверки при конкретных переходах
+
+    # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
+    # Если delivery_service вернёт ошибку (нет топлива, недоступен) — прерываем переход.
+    if data.to_status == OrderStatus.IN_TRANSIT:
+        await _auto_start_trip(order, actor)
+
     if data.to_status == OrderStatus.ASSIGNED:
         driver_id = data.driver_id or order.driver_id
         if not driver_id:
@@ -235,7 +303,7 @@ async def transition_status(
         if data.volume_delivered <= 0:
             raise StatusTransitionError("volume_delivered должен быть > 0")
         # Разрешаем до 5 % погрешности сверх заказанного объёма
-        max_allowed = order.volume_requested * 1.05
+        max_allowed = float(order.volume_requested) * 1.05
         if data.volume_delivered > max_allowed:
             raise StatusTransitionError(
                 f"volume_delivered ({data.volume_delivered} л) превышает заказанный объём "

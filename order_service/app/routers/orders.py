@@ -21,11 +21,13 @@ async def list_orders(
     db: Annotated[AsyncSession, Depends(get_db)],
     status: OrderStatus | None = Query(None),
     driver_id: uuid.UUID | None = Query(None),
+    client_id: uuid.UUID | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
     return await order_service.list_orders(
-        db, current_user, status=status, driver_id=driver_id, offset=offset, limit=limit
+        db, current_user, status=status, driver_id=driver_id, client_id=client_id,
+        offset=offset, limit=limit
     )
 
 

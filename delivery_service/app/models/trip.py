@@ -26,8 +26,8 @@ class Trip(Base):
     order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     driver_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
-    vehicle_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="RESTRICT"), nullable=False
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="SET NULL"), nullable=True
     )
 
     status: Mapped[TripStatus] = mapped_column(
@@ -47,9 +47,18 @@ class Trip(Base):
     arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Адрес доставки (копируется из заявки на момент создания рейса)
-    delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_address: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     driver_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── Денормализованный контекст для учёта топлива ─────────────
+    # Заполняется менеджером при создании рейса; используется при
+    # автоматическом создании FuelTransaction(departure) после завершения.
+    inv_fuel_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    inv_order_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    inv_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    inv_client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    inv_driver_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

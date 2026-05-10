@@ -4,19 +4,19 @@ from pydantic import BaseModel, Field
 
 
 class VehicleCreateRequest(BaseModel):
-    plate_number: str
-    model: str
-    capacity_liters: float = Field(..., gt=0)
+    plate_number: str = Field(..., max_length=20)
+    model: str = Field(..., max_length=100)
+    capacity_liters: float = Field(..., gt=0, le=200_000)
     assigned_driver_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=500)
 
 
 class VehicleUpdateRequest(BaseModel):
-    plate_number: str | None = None
-    model: str | None = None
-    capacity_liters: float | None = Field(None, gt=0)
+    plate_number: str | None = Field(None, max_length=20)
+    model: str | None = Field(None, max_length=100)
+    capacity_liters: float | None = Field(None, gt=0, le=200_000)
     assigned_driver_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: str | None = Field(None, max_length=500)
     is_active: bool | None = None
 
 

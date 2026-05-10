@@ -8,28 +8,45 @@
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:        #0b0e14;
-    --bg2:       #111520;
-    --bg3:       #181d2a;
-    --border:    #252c3d;
-    --border2:   #2e374f;
-    --amber:     #f59e0b;
-    --amber2:    #d97706;
-    --amber-dim: rgba(245,158,11,.12);
-    --text:      #e2e8f0;
-    --text2:     #94a3b8;
-    --text3:     #64748b;
-    --red:       #ef4444;
-    --green:     #10b981;
+    /* ── Светлая тема: зелёно-синие градиенты ── */
+    --bg:        #eef2fb;
+    --bg2:       #ffffff;
+    --bg3:       #f4f7fd;
+    --border:    #dde3f0;
+    --border2:   #c8d2e8;
 
+    /* Первичный цвет — голубой (заменяет amber во всех местах) */
+    --amber:     #0ea5e9;
+    --amber2:    #0284c7;
+    --amber-dim: rgba(14,165,233,.1);
+
+    /* Акцент — изумрудный зелёный */
+    --accent:     #10b981;
+    --accent2:    #059669;
+    --accent-dim: rgba(16,185,129,.1);
+
+    /* Фоновый градиент для шапки/карточек */
+    --grad: linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
+    --grad-soft: linear-gradient(135deg, rgba(14,165,233,.08) 0%, rgba(16,185,129,.08) 100%);
+
+    /* Текст */
+    --text:  #0f172a;
+    --text2: #334155;
+    --text3: #94a3b8;
+
+    /* Системные цвета */
+    --red:   #ef4444;
+    --green: #10b981;
+
+    /* Статусы заявок */
     --s-new:      #3b82f6;
-    --s-progress: #eab308;
-    --s-assigned: #f97316;
-    --s-transit:  #a855f7;
-    --s-delivered:#14b8a6;
-    --s-partial:  #f59e0b;
+    --s-progress: #d97706;
+    --s-assigned: #ea580c;
+    --s-transit:  #7c3aed;
+    --s-delivered:#0d9488;
+    --s-partial:  #d97706;
     --s-closed:   #6b7280;
-    --s-rejected: #ef4444;
+    --s-rejected: #dc2626;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -41,8 +58,8 @@
     font-size: 14px;
     min-height: 100vh;
     background-image:
-      linear-gradient(rgba(245,158,11,.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(245,158,11,.03) 1px, transparent 1px);
+      linear-gradient(rgba(14,165,233,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(14,165,233,.025) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
@@ -57,8 +74,8 @@
     border-left: 3px solid;
     backdrop-filter: blur(8px);
   }
-  .toast.success { background: rgba(16,185,129,.15); border-color: var(--green); color: #6ee7b7; }
-  .toast.error   { background: rgba(239,68,68,.15);  border-color: var(--red);   color: #fca5a5; }
+  .toast.success { background: rgba(16,185,129,.12); border-color: var(--green); color: #065f46; }
+  .toast.error   { background: rgba(239,68,68,.10);  border-color: var(--red);   color: #991b1b; }
   @keyframes slideIn { from { transform: translateX(60px); opacity:0; } to { transform: translateX(0); opacity:1; } }
   @keyframes slideOut { from { opacity:1; } to { transform: translateX(60px); opacity:0; } }
 
@@ -66,44 +83,74 @@
   #auth-screen {
     display: flex; align-items: center; justify-content: center;
     min-height: 100vh; padding: 20px;
+    background: linear-gradient(135deg, rgba(14,165,233,.06) 0%, rgba(16,185,129,.06) 100%);
   }
   .auth-card {
     width: 100%; max-width: 420px;
     background: var(--bg2);
     border: 1px solid var(--border);
-    border-top: 2px solid var(--amber);
+    border-top: 3px solid transparent;
+    border-image: var(--grad) 1;
     padding: 40px;
     position: relative;
+    box-shadow: 0 4px 24px rgba(14,165,233,.08), 0 1px 4px rgba(0,0,0,.04);
+    border-radius: 4px;
   }
   .auth-card::before {
     content: '';
     position: absolute; top: -1px; left: 20px;
-    width: 60px; height: 2px;
+    width: 60px; height: 3px;
     background: var(--bg2);
   }
   .auth-logo {
     font-family: 'Rajdhani', sans-serif;
     font-size: 28px; font-weight: 700; letter-spacing: 3px;
-    color: var(--amber); margin-bottom: 4px;
+    background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 4px;
   }
   .auth-subtitle {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 10px; color: var(--text3); letter-spacing: 2px;
     text-transform: uppercase; margin-bottom: 32px;
   }
-  .auth-tabs {
-    display: flex; gap: 0; margin-bottom: 28px;
-    border-bottom: 1px solid var(--border);
+  /* Auth mode switcher (Войти / Зарегистрироваться) */
+  .auth-mode-btns {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    margin-bottom: 28px;
+    border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
   }
-  .auth-tab {
-    padding: 8px 16px; font-size: 12px; cursor: pointer;
+  .auth-mode-btn {
+    padding: 10px 0; font-size: 12px; cursor: pointer;
     color: var(--text3); border: none; background: none;
     font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
-    border-bottom: 2px solid transparent; margin-bottom: -1px;
-    transition: all .2s;
+    transition: all .2s; text-transform: uppercase;
   }
-  .auth-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
-  .auth-tab:hover:not(.active) { color: var(--text2); }
+  .auth-mode-btn.active { background: var(--amber); color: #000; font-weight: 600; }
+  .auth-mode-btn:not(.active):hover { color: var(--text2); background: var(--bg3); }
+
+  /* Reg type picker (Физ. / Юр.) */
+  .reg-type-btns {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin-bottom: 24px;
+  }
+  .reg-type-btn {
+    padding: 18px 12px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--bg3); color: var(--text2); border-radius: 3px;
+    font-size: 13px; text-align: center; transition: all .2s;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .reg-type-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .reg-type-btn .reg-type-icon { font-size: 28px; display: block; margin-bottom: 8px; }
+
+  /* Back link inside register forms */
+  .auth-back {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--text3); cursor: pointer;
+    margin-bottom: 20px; background: none; border: none;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+    text-transform: uppercase; transition: color .2s;
+  }
+  .auth-back:hover { color: var(--amber); }
 
   .form-group { margin-bottom: 16px; }
   .form-label {
@@ -120,6 +167,10 @@
   }
   .form-input:focus { border-color: var(--amber); }
   .form-input::placeholder { color: var(--text3); }
+  select.form-input option { padding: 6px 10px; }
+  select.form-input[size] { height: auto; padding: 0; }
+  select.form-input[size] option { padding: 8px 12px; cursor: pointer; }
+  select.form-input[size] option:checked { background: var(--amber-dim); color: var(--amber); }
 
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -137,9 +188,10 @@
     transition: all .2s; border-radius: 2px;
   }
   .btn-primary {
-    background: var(--amber); color: #0b0e14; width: 100%; margin-top: 8px;
+    background: var(--grad); color: #fff; width: 100%; margin-top: 8px;
+    border: none; letter-spacing: 1.5px;
   }
-  .btn-primary:hover { background: var(--amber2); }
+  .btn-primary:hover { background: linear-gradient(135deg, #0284c7 0%, #059669 100%); box-shadow: 0 2px 12px rgba(14,165,233,.3); }
   .btn-primary:active { transform: scale(.98); }
   .btn-sm {
     padding: 5px 12px; font-size: 11px; letter-spacing: 1px;
@@ -151,12 +203,86 @@
   .btn-danger:hover { background: rgba(239,68,68,.1); }
   .btn-success { background: transparent; color: var(--green); border: 1px solid var(--green); }
   .btn-success:hover { background: rgba(16,185,129,.1); }
+
+  /* ── INVENTORY MODULE ── */
+  .inv-subtabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+  }
+  .inv-subtab {
+    padding: 8px 20px; border: none; background: none; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text3);
+    border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .2s;
+  }
+  .inv-subtab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .inv-subtab:hover:not(.active) { color: var(--text2); }
+  .inv-pane { display: none; }
+  .inv-pane.active { display: block; }
+
+  .stock-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stock-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 3px;
+    padding: 18px 20px; position: relative; overflow: hidden;
+  }
+  .stock-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--grad);
+  }
+  .stock-fuel-label {
+    font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 700;
+    letter-spacing: 1px; color: var(--text); margin-bottom: 6px;
+  }
+  .stock-volume { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: var(--amber); }
+  .stock-unit   { font-size: 11px; color: var(--text3); margin-left: 4px; }
+  .stock-updated { font-size: 10px; color: var(--text3); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
+
+  .inv-table-wrap { overflow-x: auto; }
+  .inv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .inv-table th {
+    padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text3); white-space: nowrap;
+  }
+  .inv-table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle;
+  }
+  .inv-table tr:last-child td { border-bottom: none; }
+  .inv-table tr:hover td { background: var(--bg3); }
+  .tx-type-arrival   { color: var(--green); font-weight: 600; }
+  .tx-type-departure { color: var(--amber); font-weight: 600; }
+
+  .report-summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-bottom: 24px;
+  }
+  .summary-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; padding: 16px 20px;
+  }
+  .summary-fuel { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border);
+  }
+  .summary-row:last-child { border-bottom: none; font-weight: 600; }
+  .summary-label { color: var(--text3); }
+  .summary-val { font-family: 'IBM Plex Mono', monospace; color: var(--text2); }
+  .summary-val.green { color: var(--green); }
+  .summary-val.amber { color: var(--amber); }
+  .inv-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; }
+  .inv-filters .form-group { margin: 0; }
+  .inv-section-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--text3); margin-bottom: 12px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
   .btn-warn { background: transparent; color: var(--amber); border: 1px solid var(--amber); }
   .btn-warn:hover { background: var(--amber-dim); }
 
   .inline-error {
     background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
-    color: #fca5a5; padding: 10px 14px; font-size: 12px; border-radius: 2px;
+    color: #991b1b; padding: 10px 14px; font-size: 12px; border-radius: 2px;
     margin-top: 12px; font-family: 'IBM Plex Mono', monospace;
   }
 
@@ -165,12 +291,14 @@
 
   .topbar {
     background: var(--bg2); border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 8px rgba(14,165,233,.07);
     padding: 0 24px; display: flex; align-items: center; gap: 0;
     height: 56px; position: sticky; top: 0; z-index: 100;
   }
   .topbar-logo {
     font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
-    color: var(--amber); letter-spacing: 3px; margin-right: 32px;
+    background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; letter-spacing: 3px; margin-right: 32px;
     flex-shrink: 0;
   }
   .nav-tabs {
@@ -199,10 +327,10 @@
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     padding: 2px 8px; border-radius: 2px; text-transform: uppercase; letter-spacing: 1px;
   }
-  .role-admin   { background: rgba(239,68,68,.2);  color: #fca5a5; }
-  .role-manager { background: rgba(245,158,11,.2); color: #fcd34d; }
-  .role-driver  { background: rgba(168,85,247,.2); color: #d8b4fe; }
-  .role-client  { background: rgba(59,130,246,.2); color: #93c5fd; }
+  .role-admin   { background: rgba(239,68,68,.12);  color: #b91c1c; border: 1px solid rgba(239,68,68,.3); }
+  .role-manager { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.3); }
+  .role-driver  { background: rgba(124,58,237,.12); color: #6d28d9; border: 1px solid rgba(124,58,237,.3); }
+  .role-client  { background: rgba(16,185,129,.12); color: #047857; border: 1px solid rgba(16,185,129,.3); }
 
   .btn-logout {
     padding: 6px 14px; background: transparent; border: 1px solid var(--border2);
@@ -219,7 +347,7 @@
 
   /* ── ORDERS TAB ── */
   .toolbar {
-    display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
   }
   .toolbar-title {
     font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
@@ -232,6 +360,18 @@
     outline: none; cursor: pointer; border-radius: 2px; letter-spacing: 1px;
   }
   .filter-select:focus { border-color: var(--amber); }
+  .status-checkboxes {
+    display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center;
+  }
+  .status-cb-label {
+    display: flex; align-items: center; gap: 4px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--text2); cursor: pointer; white-space: nowrap;
+    padding: 4px 8px; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 2px; transition: border-color .15s;
+  }
+  .status-cb-label:hover { border-color: var(--amber); }
+  .status-cb-label input[type="checkbox"] { accent-color: var(--amber); margin: 0; }
 
   .orders-grid { display: flex; flex-direction: column; gap: 8px; }
 
@@ -261,6 +401,11 @@
     color: var(--text3); white-space: nowrap;
   }
   .order-date { font-size: 12px; color: var(--text3); white-space: nowrap; }
+  .order-comment-hint {
+    font-size: 11px; color: var(--text3); max-width: 180px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    opacity: .8;
+  }
   .priority-dot {
     width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
   }
@@ -344,8 +489,9 @@
   /* ── CREATE ORDER TAB ── */
   .form-card {
     background: var(--bg2); border: 1px solid var(--border);
-    border-top: 2px solid var(--amber);
-    padding: 32px; max-width: 640px;
+    border-top: 3px solid transparent; border-image: var(--grad) 1;
+    padding: 32px; max-width: 640px; border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(14,165,233,.05);
   }
   .form-card-title {
     font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700;
@@ -395,7 +541,7 @@
   pre.json-view {
     background: var(--bg3); border: 1px solid var(--border);
     padding: 18px; font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px; color: #93c5fd; overflow-x: auto;
+    font-size: 12px; color: #0369a1; overflow-x: auto;
     line-height: 1.6; border-radius: 2px;
   }
 
@@ -423,27 +569,34 @@
   /* ── TRIPS ── */
   .trip-card {
     background: var(--bg2); border: 1px solid var(--border);
-    border-left: 3px solid var(--border); padding: 14px 18px;
-    border-radius: 2px; display: flex; align-items: center; gap: 16px;
-    transition: border-color .2s;
+    border-left: 4px solid var(--border); padding: 16px 20px;
+    border-radius: 2px; transition: border-color .2s;
   }
-  .trip-card.status-planned   { border-left-color: var(--s-new); }
-  .trip-card.status-in_transit { border-left-color: var(--s-transit); }
+  .trip-card.status-planned    { border-left-color: var(--s-new); }
+  .trip-card.status-in_transit { border-left-color: var(--amber); }
   .trip-card.status-completed  { border-left-color: var(--green); }
-  .trip-card.status-cancelled  { border-left-color: var(--s-closed); }
-  .trip-order-id {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text3);
-    min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  .trip-card.status-cancelled  { border-left-color: var(--s-closed); opacity: .7; }
+  .trip-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .trip-card-body { display: flex; flex-direction: column; gap: 6px; }
+  .trip-order-ref { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--text); }
+  .trip-fuel-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    background: rgba(255,180,0,.12); color: var(--amber);
+    padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(255,180,0,.25);
   }
-  .trip-vol { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text2); white-space: nowrap; }
-  .trip-addr { font-size: 12px; color: var(--text3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .trip-date { font-size: 11px; color: var(--text3); white-space: nowrap; }
+  .trip-vol-line { font-size: 13px; color: var(--text2); }
+  .trip-addr-line { font-size: 12px; color: var(--text3); }
+  .trip-meta { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+  .trip-meta-row { font-size: 11px; color: var(--text3); display: flex; gap: 8px; }
+  .trip-meta-label { color: var(--text3); min-width: 72px; opacity: .7; }
   .trip-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
   /* ── REPORT ── */
   .report-card {
     background: var(--bg2); border: 1px solid var(--border);
-    border-top: 2px solid var(--amber); padding: 28px; max-width: 860px;
+    border-top: 3px solid transparent; border-image: var(--grad) 1;
+    padding: 28px; max-width: 860px; border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(14,165,233,.05);
   }
   .report-stats {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -465,14 +618,15 @@
   /* ── MODAL ── */
   .modal-overlay {
     display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
+    background: rgba(15,23,42,.45); backdrop-filter: blur(4px);
     z-index: 1000; align-items: center; justify-content: center;
   }
   .modal-overlay.open { display: flex; }
   .modal {
     background: var(--bg2); border: 1px solid var(--border);
-    border-top: 2px solid var(--amber);
+    border-top: 3px solid transparent; border-image: var(--grad) 1;
     padding: 28px; min-width: 340px; max-width: 480px; width: 90%;
+    border-radius: 4px; box-shadow: 0 8px 40px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
   }
   .modal-title {
     font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700;
@@ -526,7 +680,7 @@
     position:fixed; top:60px; right:20px; width:340px; max-height:480px;
     background:var(--bg2); border:1px solid var(--border); border-top:2px solid var(--amber);
     z-index:500; display:none; flex-direction:column; overflow:hidden;
-    box-shadow:0 8px 32px rgba(0,0,0,.5);
+    box-shadow:0 8px 32px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
   }
   .notif-panel.open { display:flex; }
   .notif-panel-header {
@@ -604,8 +758,8 @@
     padding: 1px 5px; border-radius: 2px; border: 1px solid;
     text-transform: uppercase; flex-shrink: 0;
   }
-  .conv-type-client_support { color: #93c5fd; border-color: #3b82f6; }
-  .conv-type-internal       { color: #d8b4fe; border-color: #a855f7; }
+  .conv-type-client_support { color: #1d4ed8; border-color: #3b82f6; background: rgba(59,130,246,.07); }
+  .conv-type-internal       { color: #7c3aed; border-color: #a855f7; background: rgba(168,85,247,.07); }
 
   .chat-main {
     display: flex; flex-direction: column; overflow: hidden;
@@ -635,7 +789,7 @@
     padding: 8px 12px; border-radius: 2px; max-width: 100%;
   }
   .msg-row.mine .msg-bubble {
-    background: var(--amber-dim); border-color: rgba(245,158,11,.3);
+    background: var(--amber-dim); border-color: rgba(14,165,233,.25);
   }
   .msg-meta {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
@@ -674,14 +828,215 @@
   /* new conv modal */
   .new-conv-type { display: flex; gap: 8px; }
 
+  /* ── CLIENTS TAB ── */
+  .client-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 18px 20px; display: flex; align-items: center; gap: 14px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .client-card:hover {
+    border-color: var(--amber); box-shadow: 0 2px 12px var(--amber-dim);
+  }
+  .client-avatar {
+    width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+    background: var(--grad); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .client-info { flex: 1; min-width: 0; }
+  .client-name {
+    font-size: 14px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .client-email {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--text3); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .client-phone {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--text2); margin-top: 2px;
+  }
+  .client-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn-primary-outline {
+    background: transparent; color: var(--amber);
+    border: 1px solid var(--amber); border-radius: 2px;
+  }
+  .btn-primary-outline:hover { background: var(--amber-dim); }
+
+  .clients-search-wrap {
+    position: relative; max-width: 360px; margin-bottom: 20px;
+  }
+  .clients-search-wrap input { padding-left: 34px; }
+  .clients-search-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text3); font-size: 14px; pointer-events: none;
+  }
+
+  /* ── BURGER MENU ───────────────────────────────────────────── */
+  .burger-btn {
+    display: none; /* shown via @media below */
+    background: none; border: none; color: var(--text); font-size: 24px;
+    cursor: pointer; padding: 0 10px; height: 56px; flex-shrink: 0;
+    line-height: 1;
+  }
+  .burger-btn:hover { color: var(--amber); }
+
+  .burger-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.55); z-index: 300;
+    backdrop-filter: blur(2px);
+  }
+  .burger-overlay.open { display: block; }
+
+  .burger-drawer {
+    position: fixed; top: 0; right: -300px; width: 280px; height: 100dvh;
+    background: var(--bg2); border-left: 1px solid var(--border);
+    z-index: 301; display: flex; flex-direction: column;
+    transition: right .25s cubic-bezier(.4,0,.2,1);
+    box-shadow: -4px 0 24px rgba(0,0,0,.4);
+  }
+  .burger-drawer.open { right: 0; }
+
+  .burger-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; height: 56px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .burger-logo {
+    font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 18px;
+    color: var(--amber); letter-spacing: 2px;
+  }
+  .burger-close-btn {
+    background: none; border: none; color: var(--text3); font-size: 18px;
+    cursor: pointer; padding: 6px 8px; border-radius: 3px;
+  }
+  .burger-close-btn:hover { color: var(--text); background: var(--bg3); }
+
+  .burger-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
+
+  .burger-nav-item {
+    display: flex; align-items: center; width: 100%; text-align: left;
+    background: none; border: none; border-left: 3px solid transparent;
+    padding: 13px 20px; color: var(--text2);
+    font-size: 14px; font-family: 'Rajdhani', sans-serif;
+    font-weight: 600; letter-spacing: .5px; cursor: pointer;
+    transition: all .15s;
+  }
+  .burger-nav-item:hover { color: var(--text); background: var(--bg3); }
+  .burger-nav-item.active {
+    color: var(--amber); border-left-color: var(--amber);
+    background: rgba(245,168,45,.1);
+  }
+
+  .burger-foot {
+    border-top: 1px solid var(--border); padding: 14px 16px; flex-shrink: 0;
+  }
+  .burger-user-info { font-size: 12px; color: var(--text3); margin-bottom: 10px; line-height: 1.5; }
+  .burger-logout-btn {
+    width: 100%; background: none; border: 1px solid var(--border);
+    color: var(--text2); padding: 8px 16px; border-radius: 3px; cursor: pointer;
+    font-size: 12px; font-family: 'Rajdhani', sans-serif; font-weight: 600;
+    letter-spacing: .5px; transition: all .15s;
+  }
+  .burger-logout-btn:hover { color: var(--red); border-color: var(--red); }
+
+  /* ── RESPONSIVE / MOBILE ───────────────────────────────────── */
+
   @media (max-width: 640px) {
-    .topbar { padding: 0 14px; }
-    .app-content { padding: 16px 14px; }
+    /* Topbar — burger replaces nav tabs */
+    .topbar { padding: 0 10px; gap: 0; }
+    .topbar-logo { font-size: 15px; letter-spacing: 1px; flex-shrink: 0; }
+    .nav-tabs { display: none; }          /* ← hidden on mobile */
+    .burger-btn { display: flex; align-items: center; } /* ← shown on mobile */
+    .topbar-right { flex-shrink: 0; gap: 4px; }
+    .user-badge { display: none; }
+
+    /* Content */
+    .app-content { padding: 12px 10px; }
+
+    /* Orders list */
     .order-date, .order-volume { display: none; }
-    .nav-tab { padding: 0 12px; font-size: 10px; }
-    .chat-shell { grid-template-columns: 1fr; }
-    .chat-sidebar { display: none; }
-    .chat-sidebar.active { display: flex; }
+    .order-card { padding: 10px 12px; }
+    .order-card-top { flex-wrap: wrap; gap: 4px; }
+    .order-number { font-size: 11px; }
+    .status-chip { font-size: 10px; padding: 2px 7px; }
+    .order-card-body { font-size: 11px; }
+
+    /* Order detail (expanded card body) */
+    .order-body { padding: 12px; }
+    .order-details-grid { grid-template-columns: 1fr; gap: 8px; }
+    .detail-item { font-size: 11px; }
+    .detail-label { font-size: 10px; }
+
+    /* Action bar buttons */
+    .action-bar { flex-wrap: wrap; gap: 6px; }
+    .btn { font-size: 11px; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    /* Chat */
+    .chat-shell { grid-template-columns: 1fr; height: calc(100vh - 56px - 56px); }
+    .chat-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border);
+      position: fixed; inset: 56px 0 0 0; z-index: 90; background: var(--bg2);
+      display: none; flex-direction: column; }
+    .chat-sidebar.mobile-visible { display: flex; }
+    .chat-main { height: 100%; }
+    .chat-main-header { padding: 10px 12px; }
+    .chat-messages { padding: 10px 12px; }
+    .chat-input-area { padding: 8px 10px; }
+    .chat-input { font-size: 13px; }
+
+    /* Vehicles / Trips tables */
+    .vehicle-card, .trip-card { padding: 10px 12px; }
+    .vehicle-plate { font-size: 15px; }
+
+    /* Tables */
+    .report-table-wrap, .inv-table-wrap { overflow-x: auto; }
+    .report-table th, .report-table td { font-size: 10px; padding: 5px 6px; white-space: nowrap; }
+
+    /* Inventory / fuel stocks */
+    .stocks-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stock-card { padding: 12px; }
+
+    /* Auth */
+    .auth-wrap { padding: 12px; }
+    .auth-card { padding: 24px 20px; max-width: 100%; }
+    .auth-mode-btns { gap: 6px; }
+    .auth-mode-btn { font-size: 13px; padding: 8px 14px; }
+
+    /* Modal */
+    .modal { width: calc(100vw - 24px); padding: 20px 16px; }
+
+    /* Profile */
+    .profile-card { padding: 20px 14px; }
+
+    /* Clients grid */
+    .clients-grid { grid-template-columns: 1fr; }
+    .client-card { padding: 12px; }
+
+    /* Users table */
+    .users-table-wrap { overflow-x: auto; }
+    .users-table th, .users-table td { font-size: 10px; padding: 5px 6px; white-space: nowrap; }
+
+    /* Report summary grid */
+    .report-summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .summary-card { padding: 12px; }
+
+    /* Misc */
+    .form-input, .form-select { font-size: 14px; }
+    .form-label { font-size: 11px; }
+    .section-title { font-size: 13px; }
+    .inv-section-title { font-size: 12px; }
+  }
+
+  @media (max-width: 420px) {
+    .stocks-grid { grid-template-columns: 1fr; }
+    .report-summary-grid { grid-template-columns: 1fr; }
+    .detail-grid { grid-template-columns: 1fr; }
+    .auth-mode-btns { flex-direction: column; }
+    .auth-mode-btn { width: 100%; }
+    .topbar-logo { display: none; }
   }
 </style>
 </head>
@@ -695,32 +1050,50 @@
     <div class="auth-logo">BALTOIL</div>
     <div class="auth-subtitle">Система управления доставкой топлива</div>
 
-    <div class="auth-tabs">
-      <button class="auth-tab active" onclick="switchAuthTab('login')">Вход</button>
-      <button class="auth-tab" onclick="switchAuthTab('reg-individual')">Физ. лицо</button>
-      <button class="auth-tab" onclick="switchAuthTab('reg-company')">Юр. лицо</button>
+    <!-- Step 1: Войти / Зарегистрироваться -->
+    <div id="auth-mode-picker">
+      <div class="auth-mode-btns">
+        <button class="auth-mode-btn active" onclick="switchAuthMode('login')">Войти</button>
+        <button class="auth-mode-btn" onclick="switchAuthMode('register')">Регистрация</button>
+      </div>
+
+      <!-- Login form -->
+      <div id="auth-login">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Пароль</label>
+          <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter') doLogin()">
+        </div>
+        <div id="login-error"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
+      </div>
+
+      <!-- Register: choose type -->
+      <div id="auth-reg-picker" style="display:none">
+        <div class="reg-type-btns">
+          <button class="reg-type-btn" onclick="switchAuthTab('reg-individual')">
+            <span class="reg-type-icon">👤</span>
+            Физическое<br>лицо
+          </button>
+          <button class="reg-type-btn" onclick="switchAuthTab('reg-company')">
+            <span class="reg-type-icon">🏢</span>
+            Юридическое<br>лицо / ИП
+          </button>
+        </div>
+      </div>
     </div>
 
-    <!-- Login -->
-    <div id="auth-login">
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" id="login-email" class="form-input" placeholder="admin@baltoil.biz" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Пароль</label>
-        <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password">
-      </div>
-      <div id="login-error"></div>
-      <button class="btn btn-primary" onclick="doLogin()">Войти</button>
-    </div>
-
-    <!-- Register Individual -->
+    <!-- Register Individual (step 2) -->
     <div id="auth-reg-individual" style="display:none">
+      <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email</label>
-          <input type="email" id="ri-email" class="form-input" placeholder="user@example.com">
+          <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
         </div>
         <div class="form-group">
           <label class="form-label">Телефон</label>
@@ -733,7 +1106,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Пароль</label>
-        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов">
+        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
       </div>
       <div class="section-divider">Необязательно</div>
       <div class="form-group">
@@ -751,15 +1124,16 @@
         </div>
       </div>
       <div id="ri-error"></div>
-      <button class="btn btn-primary" onclick="doRegisterIndividual()">Зарегистрироваться</button>
+      <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
     </div>
 
-    <!-- Register Company -->
+    <!-- Register Company (step 2) -->
     <div id="auth-reg-company" style="display:none">
+      <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email</label>
-          <input type="email" id="rc-email" class="form-input" placeholder="ceo@company.ru">
+          <input type="email" id="rc-email" class="form-input" placeholder="ceo@company.ru" autocomplete="email">
         </div>
         <div class="form-group">
           <label class="form-label">Телефон</label>
@@ -772,7 +1146,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Пароль</label>
-        <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов">
+        <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
       </div>
       <div class="section-divider">Реквизиты организации</div>
       <div class="form-group">
@@ -809,13 +1183,28 @@
         <input type="text" id="rc-bank-name" class="form-input" placeholder="ПАО Сбербанк">
       </div>
       <div id="rc-error"></div>
-      <button class="btn btn-primary" onclick="doRegisterCompany()">Зарегистрировать организацию</button>
+      <button class="btn btn-primary" style="width:100%" onclick="doRegisterCompany()">Зарегистрировать организацию</button>
     </div>
   </div>
 </div>
 
 <!-- ════════════════════════════════ APP SCREEN ════════════════════════════════ -->
 <div id="app-screen">
+
+  <!-- ── Burger drawer (mobile) ── -->
+  <div class="burger-overlay" id="burger-overlay" onclick="closeBurger()"></div>
+  <div class="burger-drawer" id="burger-drawer">
+    <div class="burger-head">
+      <span class="burger-logo">BALTOIL</span>
+      <button class="burger-close-btn" onclick="closeBurger()">✕</button>
+    </div>
+    <nav class="burger-nav" id="burger-nav"></nav>
+    <div class="burger-foot">
+      <div class="burger-user-info" id="burger-user-info"></div>
+      <button class="burger-logout-btn" onclick="closeBurger();doLogout()">Выйти</button>
+    </div>
+  </div>
+
   <div class="topbar">
     <div class="topbar-logo">BALTOIL</div>
     <div class="nav-tabs">
@@ -824,11 +1213,15 @@
       <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')">ТС</button>
       <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
+      <button class="nav-tab" data-tab="inventory" id="tab-inventory-btn" onclick="switchTab('inventory')">Склад</button>
       <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
+      <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат</button>
       <button class="nav-tab" data-tab="profile" onclick="switchTab('profile')">Профиль</button>
     </div>
+    <!-- Burger button: visible only on mobile via CSS -->
+    <button class="burger-btn" id="burger-btn" onclick="openBurger()" aria-label="Меню">☰</button>
     <div class="topbar-right">
       <div class="notif-bell-wrap">
         <button class="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">🔔</button>
@@ -859,17 +1252,16 @@
     <div class="tab-pane active" id="pane-orders">
       <div class="toolbar">
         <div class="toolbar-title">Заявки</div>
-        <select class="filter-select" id="status-filter" onchange="loadOrders()">
-          <option value="">Все статусы</option>
-          <option value="new">Новые</option>
-          <option value="in_progress">В работе</option>
-          <option value="assigned">Назначены</option>
-          <option value="in_transit">В рейсе</option>
-          <option value="delivered">Доставлены</option>
-          <option value="partially_delivered">Частично</option>
-          <option value="closed">Закрыты</option>
-          <option value="rejected">Отклонены</option>
-        </select>
+        <div class="status-checkboxes" id="status-filter-group">
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="new" checked onchange="loadOrders()"> Новые</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_progress" checked onchange="loadOrders()"> В работе</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="assigned" onchange="loadOrders()"> Назначены</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" onchange="loadOrders()"> В рейсе</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="delivered" checked onchange="loadOrders()"> Доставлены</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="rejected" onchange="loadOrders()"> Отклонены</label>
+        </div>
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
         </button>
@@ -890,8 +1282,10 @@
           <div class="section-divider">Параметры менеджера</div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">UUID клиента <span style="color:var(--text3)">(необязательно)</span></label>
-              <input type="text" id="c-client-id" class="form-input" placeholder="Оставьте пустым — заявка на себя">
+              <label class="form-label">Клиент <span style="color:var(--red)">*</span></label>
+              <select id="c-client-id" class="form-input">
+                <option value="">— выберите клиента —</option>
+              </select>
             </div>
             <div class="form-group">
               <label class="form-label">Приоритет</label>
@@ -989,13 +1383,11 @@
       <div class="toolbar">
         <div class="toolbar-title">Рейсы</div>
         <select class="filter-select" id="trip-status-filter" onchange="loadTrips()">
-          <option value="">Все статусы</option>
-          <option value="planned">Запланированы</option>
-          <option value="in_transit">В пути</option>
-          <option value="completed">Завершены</option>
-          <option value="cancelled">Отменены</option>
+          <option value="in_transit">Активные (в пути)</option>
+          <option value="">Все рейсы</option>
+          <option value="completed">Завершённые</option>
+          <option value="cancelled">Отменённые</option>
         </select>
-        <button class="btn btn-sm btn-warn" id="btn-add-trip" onclick="promptAddTrip()">+ Создать рейс</button>
         <button class="btn btn-sm btn-ghost" onclick="loadTrips()">↻ Обновить</button>
       </div>
       <div id="trips-list" style="display:flex;flex-direction:column;gap:8px">
@@ -1006,11 +1398,13 @@
     <!-- REPORT TAB -->
     <div class="tab-pane" id="pane-report">
       <div class="report-card">
-        <div class="form-card-title">Отчёт по рейсам</div>
+        <div class="form-card-title">Отчёт по рейсам водителя</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
           <div class="form-group" style="margin:0;flex:1;min-width:220px">
-            <label class="form-label">UUID водителя</label>
-            <input type="text" id="rpt-driver-id" class="form-input" placeholder="Оставьте пустым — свой отчёт">
+            <label class="form-label">Водитель</label>
+            <select id="rpt-driver-id" class="form-input">
+              <option value="">— загрузка... —</option>
+            </select>
           </div>
           <div class="form-group" style="margin:0">
             <label class="form-label">С</label>
@@ -1020,9 +1414,170 @@
             <label class="form-label">По</label>
             <input type="date" id="rpt-to" class="form-input">
           </div>
-          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReport()">Сформировать</button>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">📊 Показать отчёт</button>
+          <button class="btn btn-ghost" style="width:auto;padding:10px 18px" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
         </div>
-        <div id="report-result" style="margin-top:24px"></div>
+        <p style="margin-top:10px;font-size:11px;color:var(--text3)">
+          «Показать отчёт» — данные отобразятся сразу ниже. «Скачать XLSX» — файл придёт в уведомления.
+        </p>
+      </div>
+      <div id="report-inline" style="margin-top:16px"></div>
+    </div>
+
+    <!-- INVENTORY TAB -->
+    <div class="tab-pane" id="pane-inventory">
+      <div class="toolbar">
+        <div class="toolbar-title">Склад — <span>Учёт топлива</span></div>
+        <button class="btn btn-sm btn-ghost" onclick="loadInventoryActive()" style="margin-left:auto">↻ Обновить</button>
+      </div>
+
+      <div class="inv-subtabs">
+        <button class="inv-subtab active" data-inv="stock"        onclick="switchInvTab('stock')">Остатки</button>
+        <button class="inv-subtab"        data-inv="transactions" onclick="switchInvTab('transactions')">Операции</button>
+        <button class="inv-subtab"        data-inv="arrival"      onclick="switchInvTab('arrival')">+ Приход</button>
+        <button class="inv-subtab"        data-inv="invreport"    onclick="switchInvTab('invreport')">Отчёт</button>
+      </div>
+
+      <!-- SUB: ОСТАТКИ -->
+      <div class="inv-pane active" id="inv-pane-stock">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="inv-section-title" style="margin:0;border:none;padding:0">Текущие остатки на складе</div>
+          <button id="reconcile-btn" class="btn btn-sm btn-warn" style="display:none" onclick="doReconcile()" title="Пересчитать остатки по истории транзакций">⟳ Сверка</button>
+        </div>
+        <div id="inv-stock-grid" class="stock-grid">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+      </div>
+
+      <!-- SUB: ОПЕРАЦИИ -->
+      <div class="inv-pane" id="inv-pane-transactions">
+        <div class="inv-filters">
+          <div class="form-group">
+            <label class="form-label">Вид топлива</label>
+            <select id="inv-ft-filter" class="filter-select">
+              <option value="">Все</option>
+              <option value="diesel_summer">ДТ-Л</option>
+              <option value="diesel_winter">ДТ-З</option>
+              <option value="petrol_92">АИ-92</option>
+              <option value="petrol_95">АИ-95</option>
+              <option value="fuel_oil">М-100</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Тип</label>
+            <select id="inv-type-filter" class="filter-select">
+              <option value="">Все</option>
+              <option value="arrival">Приход</option>
+              <option value="departure">Расход</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">С</label>
+            <input type="date" id="inv-tf-from" class="form-input" style="width:140px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">По</label>
+            <input type="date" id="inv-tf-to" class="form-input" style="width:140px">
+          </div>
+          <button class="btn btn-sm btn-warn" onclick="loadTransactions()">Найти</button>
+        </div>
+        <div class="inv-section-title">Список операций</div>
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Тип</th>
+                <th>Топливо</th>
+                <th>Объём (л)</th>
+                <th>Заявка</th>
+                <th>Клиент</th>
+                <th>Водитель</th>
+                <th>Поставщик</th>
+                <th>Накладная</th>
+                <th>Примечание</th>
+              </tr>
+            </thead>
+            <tbody id="inv-tx-body">
+              <tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">Нажмите «Найти» для загрузки</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SUB: ПРИХОД -->
+      <div class="inv-pane" id="inv-pane-arrival">
+        <div class="form-card" style="max-width:560px">
+          <div class="form-card-title">Оприходовать топливо</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Вид топлива</label>
+              <select id="arr-fuel" class="form-input">
+                <option value="diesel_summer">ДТ-Л — Летнее дизельное</option>
+                <option value="diesel_winter">ДТ-З — Зимнее дизельное</option>
+                <option value="petrol_92">АИ-92 — Бензин Регуляр</option>
+                <option value="petrol_95">АИ-95 — Бензин Премиум</option>
+                <option value="fuel_oil">М-100 — Топочный мазут</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Объём (литры)</label>
+              <input type="number" id="arr-volume" class="form-input" placeholder="10000" min="1" step="100">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Дата операции</label>
+              <input type="datetime-local" id="arr-date" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Номер накладной</label>
+              <input type="text" id="arr-invoice" class="form-input" placeholder="ТТН-2026-001">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Поставщик</label>
+            <input type="text" id="arr-supplier" class="form-input" placeholder="ООО «НефтеТрейд»">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Примечание</label>
+            <textarea id="arr-notes" class="form-input" placeholder="Дополнительная информация..." rows="2"></textarea>
+          </div>
+          <div id="arr-error"></div>
+          <button class="btn btn-primary" onclick="doRecordArrival()">Оприходовать</button>
+        </div>
+      </div>
+
+      <!-- SUB: ОТЧЁТ -->
+      <div class="inv-pane" id="inv-pane-invreport">
+        <div class="form-card" style="max-width:680px;margin-bottom:24px">
+          <div class="form-card-title">Сводный отчёт за период</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">С</label>
+              <input type="date" id="irpt-from" class="form-input">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">По</label>
+              <input type="date" id="irpt-to" class="form-input">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Вид топлива</label>
+              <select id="irpt-fuel" class="filter-select">
+                <option value="">Все виды</option>
+                <option value="diesel_summer">ДТ-Л</option>
+                <option value="diesel_winter">ДТ-З</option>
+                <option value="petrol_92">АИ-92</option>
+                <option value="petrol_95">АИ-95</option>
+                <option value="fuel_oil">М-100</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">📊 Запросить XLSX</button>
+          </div>
+          <p style="margin-top:10px;font-size:11px;color:var(--text3)">
+            Отчёт будет сформирован и придёт в уведомления со ссылкой для скачивания.
+          </p>
+        </div>
       </div>
     </div>
 
@@ -1032,6 +1587,19 @@
         <div class="toolbar-title">Справочник топлива</div>
       </div>
       <div id="fuel-grid" class="fuel-grid">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- CLIENTS TAB -->
+    <div class="tab-pane" id="pane-clients">
+      <div class="toolbar">
+        <div class="toolbar-title">Клиенты</div>
+        <input type="text" id="clients-search" class="form-input" placeholder="Поиск по имени, email или UUID..."
+          oninput="filterClients()" style="max-width:260px;margin-left:auto">
+        <button class="btn btn-sm btn-ghost" onclick="loadClients()">↻ Обновить</button>
+      </div>
+      <div id="clients-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px">
         <div class="empty-state"><div class="loading"></div></div>
       </div>
     </div>
@@ -1050,6 +1618,8 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer">
           <input type="checkbox" id="users-show-inactive" onchange="loadUsers()"> Неактивные
         </label>
+        <input type="text" id="users-search" class="form-input" placeholder="Поиск по имени, email или UUID..."
+          oninput="filterUsers()" style="max-width:260px">
         <button class="btn btn-sm btn-ghost" onclick="loadUsers()">↻ Обновить</button>
         <button class="btn btn-sm btn-warn" id="btn-create-user" onclick="promptCreateUser()" style="margin-left:auto">+ Создать</button>
       </div>
@@ -1076,7 +1646,7 @@
     <div class="tab-pane" id="pane-chat">
       <div class="chat-shell">
         <!-- Sidebar: conversation list -->
-        <div class="chat-sidebar">
+        <div class="chat-sidebar" id="chat-sidebar">
           <div class="chat-sidebar-header">
             <span class="chat-sidebar-title">Диалоги</span>
             <button class="btn btn-sm btn-warn" onclick="promptNewConv()" style="font-size:10px;padding:4px 10px">+ Новый</button>
@@ -1091,14 +1661,24 @@
           <div class="chat-empty" id="chat-empty">
             <div style="font-size:32px;opacity:.3">💬</div>
             <span>Выберите диалог</span>
+            <button class="btn btn-sm btn-warn" id="btn-show-conv-list"
+              onclick="showChatSidebar()" style="margin-top:12px;display:none">☰ Диалоги</button>
           </div>
-          <div id="chat-window" style="display:none;flex:1;flex-direction:column;overflow:hidden;display:none">
+          <div id="chat-window" style="display:none;flex-direction:column;flex:1;overflow:hidden">
             <div class="chat-main-header">
-              <div>
-                <div class="chat-main-title" id="chat-conv-title">—</div>
-                <div class="chat-main-sub" id="chat-conv-sub"></div>
+              <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+                <button class="btn btn-sm btn-ghost" id="btn-chat-back"
+                  onclick="showChatSidebar()" style="display:none;flex-shrink:0">← Диалоги</button>
+                <div style="min-width:0">
+                  <div class="chat-main-title" id="chat-conv-title">—</div>
+                  <div class="chat-main-sub" id="chat-conv-sub"></div>
+                </div>
               </div>
-              <span class="ws-status ws-offline" id="ws-status-badge">● OFFLINE</span>
+              <span class="ws-status ws-offline" id="ws-status-badge" style="flex-shrink:0">● OFFLINE</span>
+              <button class="btn btn-sm btn-ghost" id="btn-archive-conv"
+                onclick="archiveCurrentConv()"
+                title="Удалить диалог (архивировать)"
+                style="flex-shrink:0;color:var(--text3);display:none">🗑</button>
             </div>
             <div class="chat-messages" id="chat-messages"></div>
             <div class="chat-input-area">
@@ -1150,6 +1730,47 @@ const CHAT_URL     = `http://${_H}:8004`;
 let currentUser = null;
 let modalCallback = null;
 
+// ═══════════════════════════════════════════════════════════════
+// BURGER MENU
+// ═══════════════════════════════════════════════════════════════
+function openBurger() {
+  document.getElementById('burger-overlay').classList.add('open');
+  document.getElementById('burger-drawer').classList.add('open');
+}
+function closeBurger() {
+  document.getElementById('burger-overlay').classList.remove('open');
+  document.getElementById('burger-drawer').classList.remove('open');
+}
+function buildBurgerMenu() {
+  if (!currentUser) return;
+  const role = currentUser.role;
+  const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab || 'orders';
+
+  const tabs = [
+    { tab: 'orders',    label: '📋 Заявки',           show: true },
+    { tab: 'create',    label: '➕ Создать заявку',   show: true },
+    { tab: 'vehicles',  label: '🚛 Транспорт',        show: role !== 'client' },
+    { tab: 'trips',     label: '🗺️  Рейсы',            show: role !== 'client' },
+    { tab: 'report',    label: '📊 Отчёт',            show: role === 'manager' || role === 'admin' },
+    { tab: 'inventory', label: '🛢️  Склад',             show: role === 'manager' || role === 'admin' },
+    { tab: 'fuels',     label: '⛽ Топливо',          show: true },
+    { tab: 'clients',   label: '👥 Клиенты',          show: role === 'manager' || role === 'admin' },
+    { tab: 'users',     label: '👤 Пользователи',     show: role === 'admin' },
+    { tab: 'chat',      label: '💬 Чат',              show: true },
+    { tab: 'profile',   label: '⚙️  Профиль',          show: true },
+  ];
+
+  document.getElementById('burger-nav').innerHTML = tabs
+    .filter(t => t.show)
+    .map(t => `<button class="burger-nav-item${t.tab === activeTab ? ' active' : ''}"
+        data-tab="${t.tab}"
+        onclick="closeBurger();switchTab('${t.tab}')">${t.label}</button>`)
+    .join('');
+
+  document.getElementById('burger-user-info').innerHTML =
+    `<strong>${escHtml(currentUser.full_name)}</strong><br>${escHtml(currentUser.role)}`;
+}
+
 const FUEL_LABELS = {
   diesel_summer: 'ДТ-Л (Летнее)',
   diesel_winter: 'ДТ-З (Зимнее)',
@@ -1172,11 +1793,33 @@ const STATUS_LABELS = {
 // TOAST
 // ═══════════════════════════════════════════════════════════════
 function copyUUID(uuid, btn) {
-  navigator.clipboard.writeText(uuid).then(() => {
-    btn.textContent = '✓';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
-  }).catch(() => toast('Не удалось скопировать', 'error'));
+  const doCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(uuid);
+    }
+    // Fallback for HTTP (clipboard API requires HTTPS)
+    const ta = document.createElement('textarea');
+    ta.value = uuid;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok ? Promise.resolve() : Promise.reject(new Error('execCommand failed'));
+    } catch (e) {
+      document.body.removeChild(ta);
+      return Promise.reject(e);
+    }
+  };
+  doCopy()
+    .then(() => {
+      btn.textContent = '✓';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+    })
+    .catch(() => toast('Не удалось скопировать', 'error'));
 }
 
 function uuidCell(uuid) {
@@ -1256,13 +1899,36 @@ function chatDelete(path) {
 // ═══════════════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════════════
-function switchAuthTab(tab) {
-  document.querySelectorAll('.auth-tab').forEach((t, i) => {
-    t.classList.toggle('active', ['login','reg-individual','reg-company'][i] === tab);
+// Switch top-level mode: 'login' or 'register'
+function switchAuthMode(mode) {
+  document.querySelectorAll('.auth-mode-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', (i === 0) === (mode === 'login'));
   });
-  document.getElementById('auth-login').style.display          = tab === 'login'          ? '' : 'none';
+  document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
+  document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
+  // Hide form panels when switching top mode
+  document.getElementById('auth-reg-individual').style.display = 'none';
+  document.getElementById('auth-reg-company').style.display    = 'none';
+}
+
+// Switch to a specific sub-panel within auth
+function switchAuthTab(tab) {
+  // reg-picker = back to choose individual/company
+  const isPicker = tab === 'reg-picker';
+  document.getElementById('auth-mode-picker').style.display   = isPicker || tab === 'login' ? '' : 'none';
   document.getElementById('auth-reg-individual').style.display = tab === 'reg-individual' ? '' : 'none';
   document.getElementById('auth-reg-company').style.display    = tab === 'reg-company'    ? '' : 'none';
+
+  if (tab === 'login') {
+    switchAuthMode('login');
+  } else if (isPicker) {
+    // show register mode with picker visible
+    document.querySelectorAll('.auth-mode-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i === 1);
+    });
+    document.getElementById('auth-login').style.display      = 'none';
+    document.getElementById('auth-reg-picker').style.display = '';
+  }
 }
 
 async function doLogin() {
@@ -1295,8 +1961,9 @@ async function doRegisterIndividual() {
   try {
     await authPost('/auth/register/individual', body);
     toast('Регистрация успешна! Войдите в систему.');
-    switchAuthTab('login');
+    switchAuthMode('login');
     document.getElementById('login-email').value = body.email;
+    document.getElementById('login-password').focus();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -1322,8 +1989,9 @@ async function doRegisterCompany() {
   try {
     await authPost('/auth/register/company', body);
     toast('Организация зарегистрирована! Войдите в систему.');
-    switchAuthTab('login');
+    switchAuthMode('login');
     document.getElementById('login-email').value = body.email;
+    document.getElementById('login-password').focus();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -1388,6 +2056,14 @@ async function initApp() {
   document.getElementById('tab-users-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Inventory (Склад) — admin + manager only
+  document.getElementById('tab-inventory-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+
+  // Clients — admin + manager only
+  document.getElementById('tab-clients-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
 
@@ -1396,6 +2072,7 @@ async function initApp() {
   if (btnCreate) btnCreate.style.display = role === 'admin' ? '' : 'none';
 
   initNotifications();
+  buildBurgerMenu();
   switchTab('orders');
 }
 
@@ -1407,27 +2084,48 @@ function switchTab(tab) {
     t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.tab-pane').forEach(p =>
     p.classList.toggle('active', p.id === `pane-${tab}`));
+  // Sync burger menu active state
+  document.querySelectorAll('.burger-nav-item').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tab));
 
-  if (tab === 'orders')   loadOrders();
-  if (tab === 'vehicles') loadVehicles();
-  if (tab === 'trips')    loadTrips();
-  if (tab === 'report')   initReport();
-  if (tab === 'fuels')    loadFuels();
-  if (tab === 'profile')  loadProfile();
-  if (tab === 'chat')     loadConversations();
-  if (tab === 'users')    loadUsers();
+  if (tab === 'orders')    loadOrders();
+  if (tab === 'create')    loadClientSelectForOrder();
+  if (tab === 'vehicles')  loadVehicles();
+  if (tab === 'trips')     loadTrips();
+  if (tab === 'report')    initReport();
+  if (tab === 'inventory') initInventory();
+  if (tab === 'clients')   loadClients();
+  if (tab === 'fuels')     loadFuels();
+  if (tab === 'profile')   loadProfile();
+  if (tab === 'chat')      loadConversations();
+  if (tab === 'users')     loadUsers();
+  // Stop chat poll when leaving the chat tab
+  if (tab !== 'chat') stopChatPoll();
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
 async function loadOrders() {
-  const status = document.getElementById('status-filter').value;
+  const checked = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
-    const qs = status ? `?status=${status}&limit=100` : '?limit=100';
-    const orders = await orderGet(`/orders${qs}`);
+    let qs;
+    if (checked.length === 0) {
+      // No filter selected — show nothing meaningful, but don't crash
+      el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
+      return;
+    } else if (checked.length === 1) {
+      qs = `?status=${checked[0]}&limit=100`;
+    } else {
+      // Multiple statuses: fetch all and filter client-side
+      qs = '?limit=200';
+    }
+    let orders = await orderGet(`/orders${qs}`);
+    if (checked.length > 1) {
+      orders = orders.filter(o => checked.includes(o.status));
+    }
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -1451,31 +2149,33 @@ function fmtDate(dt) {
 function orderCardHTML(o) {
   const statusLabel = STATUS_LABELS[o.status] || o.status;
   const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
+  const isStaff     = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   return `
   <div class="order-card" id="card-${o.id}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
       <div class="priority-dot priority-${o.priority}"></div>
       <div class="order-number">${o.order_number}</div>
-      <div class="order-fuel">${fuelLabel} · ${o.delivery_address}</div>
+      <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
       <div class="order-volume">${Number(o.volume_requested).toLocaleString('ru')} л</div>
+      ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">💬 ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       <div class="order-date">${fmtDate(o.created_at)}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
-        <div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>
-        ${(currentUser?.role === 'manager' || currentUser?.role === 'admin') ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
+        ${isStaff ? `<div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>` : ''}
+        ${isStaff ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Топливо</div><div class="detail-value">${fuelLabel}</div></div>
         <div class="detail-item"><div class="detail-label">Объём заказан</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${o.delivery_address}</div></div>
+        <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${fmtDate(o.desired_date)}</div></div>
         <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${o.payment_type === 'prepaid' ? 'Предоплата' : 'Кредит'}</div></div>
         <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? '🔴 Срочно' : 'Обычный'}</div></div>
-        ${o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
-        ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${o.client_comment}</div></div>` : ''}
-        ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${o.manager_comment}</div></div>` : ''}
-        ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${o.rejection_reason}</div></div>` : ''}
+        ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
+        ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
+        ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
+        ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
       </div>
       ${actionBarHTML(o)}
       <div class="timeline-section" id="timeline-${o.id}">
@@ -1514,7 +2214,7 @@ async function loadTimeline(orderId) {
             ${l.from_status ? `<span style="color:var(--text3)">${STATUS_LABELS[l.from_status]||l.from_status}</span> → ` : ''}
             <span class="status-badge status-${l.to_status}" style="font-size:9px">${STATUS_LABELS[l.to_status]||l.to_status}</span>
           </div>
-          ${l.comment ? `<div class="tl-comment">${l.comment}</div>` : ''}
+          ${l.comment ? `<div class="tl-comment">${escHtml(l.comment)}</div>` : ''}
         </div>
         <div class="tl-role">${l.changed_by_role || ''}</div>
       </div>`).join('');
@@ -1546,11 +2246,14 @@ function actionBarHTML(o) {
 
   if (role === 'driver') {
     if (s === 'assigned' && o.driver_id === currentUser.id)
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_transit',{comment:'Рейс начат'})">▶ Начать рейс</button>`);
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="startOrderTrip('${o.id}')">▶ Начать рейс</button>`);
     if (s === 'in_transit')
-      btns.push(`<button class="btn btn-sm btn-success" onclick="promptVolume('${o.id}','delivered')">✓ Доставлено</button>`);
-    if (s === 'in_transit')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptVolume('${o.id}','partially_delivered')">~ Частично</button>`);
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">🚚 Перейти к рейсу</button>`);
+  }
+
+  if (role === 'client') {
+    // Chat with manager — auto-create or navigate to existing conversation
+    btns.push(`<button class="btn btn-sm btn-primary-outline" onclick="openOrderChat('${o.id}','${(o.order_number||'').replace(/'/g,'&#39;')}',${o.manager_id ? `'${o.manager_id}'` : 'null'})">💬 Написать менеджеру</button>`);
   }
 
   if (!btns.length) return '';
@@ -1567,6 +2270,20 @@ async function transitionOrder(orderId, toStatus, extra = {}) {
     await loadOrders();
   } catch (e) {
     toast(e.message, 'error');
+  }
+}
+
+async function startOrderTrip(orderId) {
+  // Перевести заявку в in_transit — order_service автоматически создаст рейс
+  // и спишет топливо через delivery_service.
+  try {
+    await orderPost(`/orders/${orderId}/transition`, { to_status: 'in_transit', comment: 'Рейс начат' });
+    toast('Рейс начат! Перехожу к активным рейсам…');
+    // Переключаемся на вкладку рейсов чтобы водитель видел активный рейс
+    switchTab('trips');
+  } catch (e) {
+    toast(e.message, 'error');
+    await loadOrders(); // перезагрузить чтобы снять спиннер если был
   }
 }
 
@@ -1588,21 +2305,68 @@ function promptReject(orderId) {
 function promptAssign(orderId) {
   openModal('Назначить водителя',
     `<div class="form-group">
-      <label class="form-label">UUID водителя</label>
-      <input type="text" id="modal-driver" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus>
+      <label class="form-label">Водитель <span style="color:var(--red)">*</span></label>
+      <input type="text" id="modal-driver-search" class="form-input" placeholder="Поиск по имени..."
+             oninput="filterDriverSelect()" autocomplete="off"
+             style="margin-bottom:4px;border-bottom-left-radius:0;border-bottom-right-radius:0">
+      <select id="modal-driver" class="form-input" size="5"
+              style="border-top:none;border-top-left-radius:0;border-top-right-radius:0;
+                     height:auto;padding:0;overflow-y:auto">
+        <option value="">— загрузка... —</option>
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">Комментарий (необязательно)</label>
       <input type="text" id="modal-assign-comment" class="form-input" placeholder="...">
     </div>`,
     async () => {
-      const driver_id = document.getElementById('modal-driver').value.trim();
+      const driver_id = document.getElementById('modal-driver').value;
       const comment   = document.getElementById('modal-assign-comment').value.trim() || undefined;
-      if (!driver_id) { toast('Укажите UUID водителя', 'error'); return; }
+      if (!driver_id) { toast('Выберите водителя', 'error'); return; }
       closeModal();
       await transitionOrder(orderId, 'assigned', { driver_id, comment });
     }
   );
+  loadDriverSelectForAssign();
+}
+
+let _allDrivers = [];
+
+async function loadDriverSelectForAssign() {
+  const sel = document.getElementById('modal-driver');
+  if (!sel) return;
+  try {
+    _allDrivers = await authGet('/users?role=driver&limit=200&include_inactive=false');
+    _renderDriverOptions(_allDrivers);
+    // Focus the search box
+    const searchEl = document.getElementById('modal-driver-search');
+    if (searchEl) setTimeout(() => searchEl.focus(), 60);
+  } catch {
+    if (sel) sel.innerHTML = '<option value="">— ошибка загрузки —</option>';
+  }
+}
+
+function filterDriverSelect() {
+  const q = (document.getElementById('modal-driver-search')?.value || '').toLowerCase();
+  const filtered = q
+    ? _allDrivers.filter(d =>
+        (d.full_name || '').toLowerCase().includes(q) ||
+        (d.email || '').toLowerCase().includes(q))
+    : _allDrivers;
+  _renderDriverOptions(filtered);
+}
+
+function _renderDriverOptions(drivers) {
+  const sel = document.getElementById('modal-driver');
+  if (!sel) return;
+  const cur = sel.value;
+  if (!drivers.length) {
+    sel.innerHTML = '<option value="" disabled>Водителей не найдено</option>';
+    return;
+  }
+  sel.innerHTML = drivers.map(d =>
+    `<option value="${d.id}"${d.id === cur ? ' selected' : ''}>${escHtml(d.full_name || d.email)}${d.phone ? ' · ' + escHtml(d.phone) : ''}</option>`
+  ).join('');
 }
 
 function promptVolume(orderId, toStatus) {
@@ -1641,6 +2405,19 @@ function updateStatusUI() {
   document.getElementById('status-progress-label')?.classList.toggle('selected', val === 'in_progress');
 }
 
+async function loadClientSelectForOrder() {
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  if (!isStaff) return;
+  const sel = document.getElementById('c-client-id');
+  if (!sel) return;
+  try {
+    const clients = await api(`${AUTH_URL}/users?role=client&limit=200&include_inactive=false`);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— выберите клиента —</option>' +
+      clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+  } catch { /* тихо, не блокируем форму */ }
+}
+
 async function doCreateOrder() {
   const errEl = document.getElementById('create-error');
   errEl.innerHTML = '';
@@ -1658,11 +2435,31 @@ async function doCreateOrder() {
   };
 
   if (isStaff) {
-    const clientId = document.getElementById('c-client-id').value.trim();
-    if (clientId) body.client_id = clientId;
+    const clientId = document.getElementById('c-client-id').value;
+    if (!clientId) {
+      errEl.innerHTML = '<div class="inline-error">Выберите клиента</div>';
+      return;
+    }
+    body.client_id        = clientId;
     body.priority         = document.getElementById('c-priority').value;
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
     body.start_in_progress = document.querySelector('input[name="init-status"]:checked')?.value === 'in_progress';
+  }
+
+  // Stock pre-check: warn if insufficient fuel in stock
+  try {
+    const stock = await deliveryGet('/inventory/stock');
+    const item = stock.find(s => s.fuel_type === body.fuel_type);
+    const available = item ? Number(item.current_volume) : 0;
+    if (body.volume_requested > available) {
+      const avlFmt = available.toLocaleString('ru');
+      const reqFmt = Number(body.volume_requested).toLocaleString('ru');
+      errEl.innerHTML = `<div class="inline-error">Недостаточно топлива на складе: запрошено ${reqFmt} л, доступно ${avlFmt} л. Пополните склад или уменьшите объём.</div>`;
+      return;
+    }
+  } catch (_) {
+    // If stock check fails (service unavailable), allow the order to proceed
+    // The hard check will happen when the trip is started
   }
 
   try {
@@ -1711,8 +2508,9 @@ async function loadProfile() {
   try {
     const me = await authGet('/auth/me');
     // Render as structured card instead of raw JSON
+    const isClient = me.role === 'client';
     const fields = [
-      ['ID пользователя', uuidCell(me.id)],
+      ...(!isClient ? [['ID пользователя', uuidCell(me.id)]] : []),
       ['Email', me.email],
       ['Телефон', me.phone || '—'],
       ['Роль', `<span class="role-chip role-${me.role}">${me.role}</span>`],
@@ -1743,6 +2541,8 @@ function openModal(title, bodyHTML, onConfirm) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = bodyHTML;
   modalCallback = onConfirm;
+  const confirmBtn = document.getElementById('modal-confirm');
+  if (confirmBtn) confirmBtn.style.display = onConfirm ? '' : 'none';
   document.getElementById('modal-overlay').classList.add('open');
   // Focus first input
   setTimeout(() => {
@@ -1801,14 +2601,14 @@ function vehicleCardHTML(v) {
     </div>` : '';
   return `
     <div class="vehicle-card" id="vehicle-${v.id}">
-      <div class="vehicle-plate">${v.plate_number}</div>
-      <div class="vehicle-model">${v.model}</div>
+      <div class="vehicle-plate">${escHtml(v.plate_number)}</div>
+      <div class="vehicle-model">${escHtml(v.model)}</div>
       <div class="vehicle-meta">
         ${statusBadge}
         ${driverBadge}
         <span class="vehicle-badge">${Number(v.capacity_liters).toLocaleString('ru')} л</span>
       </div>
-      ${v.notes ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">${v.notes}</div>` : ''}
+      ${v.notes ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">${escHtml(v.notes)}</div>` : ''}
       ${actions}
     </div>`;
 }
@@ -1862,20 +2662,20 @@ function promptEditVehicle(v) {
     `<div class="form-row">
       <div class="form-group">
         <label class="form-label">Госномер</label>
-        <input type="text" id="ev-plate" class="form-input" value="${v.plate_number}">
+        <input type="text" id="ev-plate" class="form-input" value="${escHtml(v.plate_number)}">
       </div>
       <div class="form-group">
         <label class="form-label">Объём (л)</label>
-        <input type="number" id="ev-cap" class="form-input" value="${v.capacity_liters}">
+        <input type="number" id="ev-cap" class="form-input" value="${Number(v.capacity_liters)}">
       </div>
     </div>
     <div class="form-group">
       <label class="form-label">Модель</label>
-      <input type="text" id="ev-model" class="form-input" value="${v.model}">
+      <input type="text" id="ev-model" class="form-input" value="${escHtml(v.model)}">
     </div>
     <div class="form-group">
       <label class="form-label">UUID водителя</label>
-      <input type="text" id="ev-driver" class="form-input" value="${v.assigned_driver_id || ''}">
+      <input type="text" id="ev-driver" class="form-input" value="${escHtml(v.assigned_driver_id || '')}">
     </div>
     <div class="form-group">
       <label class="form-label">Статус</label>
@@ -1931,115 +2731,111 @@ async function loadTrips() {
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   const status = document.getElementById('trip-status-filter').value;
   try {
-    const qs = status ? `?status=${status}&limit=100` : '?limit=100';
-    const trips = await deliveryGet(`/trips${qs}`);
+    const qs = new URLSearchParams({ limit: 100 });
+    if (status) qs.set('status', status);
+    const trips = await deliveryGet(`/trips?${qs}`);
     if (!trips.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🚚</div>Рейсов нет</div>';
+      const msg = status === 'in_transit'
+        ? 'Нет активных рейсов. Начните рейс со страницы «Заявки».'
+        : 'Рейсов нет';
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🚚</div>${msg}</div>`;
       return;
     }
-    el.innerHTML = trips.map(t => tripRowHTML(t)).join('');
+    el.innerHTML = trips.map(t => tripCardHTML(t)).join('');
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
 }
 
-function tripRowHTML(t) {
-  const statusLabel = TRIP_STATUS_LABELS[t.status] || t.status;
-  const vol = t.volume_actual != null
-    ? `${Number(t.volume_actual).toLocaleString('ru')} / ${Number(t.volume_planned).toLocaleString('ru')} л`
-    : `план: ${Number(t.volume_planned).toLocaleString('ru')} л`;
+const FUEL_LABELS_SHORT = {
+  diesel_summer: 'ДТ-Л',
+  diesel_winter: 'ДТ-З',
+  petrol_92:     'АИ-92',
+  petrol_95:     'АИ-95',
+  fuel_oil:      'М-100',
+};
 
-  const actions = tripActionsHTML(t);
+function tripCardHTML(t) {
+  const role       = currentUser?.role;
+  const statusBadge = {
+    planned:    '<span class="status-badge status-new">Запланирован</span>',
+    in_transit: '<span class="status-badge status-in_transit">🚚 В пути</span>',
+    completed:  '<span class="status-badge status-delivered">✓ Завершён</span>',
+    cancelled:  '<span class="status-badge status-closed">Отменён</span>',
+  }[t.status] || t.status;
+
+  const orderRef = t.inv_order_number
+    ? `<strong>${escHtml(t.inv_order_number)}</strong>`
+    : `<span style="font-size:11px;color:var(--text3)">${t.order_id.slice(0,8)}…</span>`;
+
+  const fuelLabel = t.inv_fuel_type ? (FUEL_LABELS_SHORT[t.inv_fuel_type] || t.inv_fuel_type) : '—';
+
+  const volPlanned = Number(t.volume_planned).toLocaleString('ru');
+  const volActual  = t.volume_actual != null ? Number(t.volume_actual).toLocaleString('ru') : null;
+  const volStr = volActual
+    ? `факт <strong>${volActual} л</strong> / план ${volPlanned} л`
+    : `план <strong>${volPlanned} л</strong>`;
+
+  const addr = t.delivery_address ? escHtml(t.delivery_address) : '—';
+
+  const driverLine = (role === 'manager' || role === 'admin') && t.inv_driver_name
+    ? `<div class="trip-meta-row"><span class="trip-meta-label">Водитель</span>${escHtml(t.inv_driver_name)}</div>`
+    : '';
+
+  const clientLine = (role === 'manager' || role === 'admin') && t.inv_client_name
+    ? `<div class="trip-meta-row"><span class="trip-meta-label">Клиент</span>${escHtml(t.inv_client_name)}</div>`
+    : '';
+
+  const departedLine = t.departed_at
+    ? `<div class="trip-meta-row"><span class="trip-meta-label">Выехал</span>${fmtDate(t.departed_at)}</div>`
+    : '';
+
+  const arrivedLine = t.arrived_at
+    ? `<div class="trip-meta-row"><span class="trip-meta-label">Прибыл</span>${fmtDate(t.arrived_at)}</div>`
+    : '';
+
+  // Action buttons
+  const btns = [];
+  if (t.status === 'in_transit') {
+    btns.push(`<button class="btn btn-success" style="min-width:160px"
+      onclick="promptCompleteTrip('${t.id}', ${t.volume_planned})">✓ Подтвердить доставку</button>`);
+  }
+  if ((t.status === 'in_transit') && (role === 'manager' || role === 'admin')) {
+    btns.push(`<button class="btn btn-sm btn-danger" onclick="doCancelTrip('${t.id}')">Отменить рейс</button>`);
+  }
+
+  const actionsRow = btns.length
+    ? `<div class="trip-actions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">${btns.join('')}</div>`
+    : '';
+
   return `
     <div class="trip-card status-${t.status}">
-      <div>
-        <span class="status-badge status-${t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed'}">${statusLabel}</span>
+      <div class="trip-card-head">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${statusBadge}
+          <span class="trip-order-ref">${orderRef}</span>
+          <span class="trip-fuel-badge">${fuelLabel}</span>
+        </div>
       </div>
-      <div class="trip-order-id">Заявка: ${uuidCell(t.order_id)}</div>
-      <div class="trip-vol">${vol}</div>
-      <div class="trip-addr">${t.delivery_address}</div>
-      <div class="trip-date">${fmtDate(t.created_at)}</div>
-      <div class="trip-actions">${actions}</div>
+      <div class="trip-card-body">
+        <div class="trip-vol-line">${volStr}</div>
+        <div class="trip-addr-line">📍 ${addr}</div>
+        <div class="trip-meta">
+          ${driverLine}${clientLine}${departedLine}${arrivedLine}
+        </div>
+      </div>
+      ${actionsRow}
     </div>`;
 }
 
-function tripActionsHTML(t) {
-  const role = currentUser?.role;
-  const btns = [];
-  if (role === 'driver' || role === 'admin' || role === 'manager') {
-    if (t.status === 'planned')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="doStartTrip('${t.id}')">▶ Выехать</button>`);
-    if (t.status === 'in_transit')
-      btns.push(`<button class="btn btn-sm btn-success" onclick="promptCompleteTrip('${t.id}')">✓ Завершить</button>`);
-    if (t.status === 'planned' || t.status === 'in_transit')
-      btns.push(`<button class="btn btn-sm btn-danger" onclick="doCancelTrip('${t.id}')">✗ Отменить</button>`);
-  }
-  return btns.join('');
-}
-
-function promptAddTrip() {
-  openModal('Создать рейс',
-    `<div class="form-group">
-      <label class="form-label">UUID заявки (Order ID)</label>
-      <input type="text" id="nt-order" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus>
-    </div>
-    <div class="form-group">
-      <label class="form-label">UUID транспортного средства</label>
-      <input type="text" id="nt-vehicle" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-    </div>
+function promptCompleteTrip(tripId, volPlanned) {
+  openModal('Подтвердить доставку',
+    `<p style="color:var(--text2);font-size:13px;margin-bottom:16px">
+      Укажите фактически доставленный объём. Данные будут переданы в заявку и скорректируют остаток на складе.</p>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Плановый объём (л)</label>
-        <input type="number" id="nt-vol" class="form-input" placeholder="5000" min="1">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Показания одометра (км)</label>
-        <input type="number" id="nt-odo" class="form-input" placeholder="необязательно">
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Адрес доставки</label>
-      <input type="text" id="nt-addr" class="form-input" placeholder="г. Санкт-Петербург, ...">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Примечания водителя</label>
-      <input type="text" id="nt-notes" class="form-input" placeholder="...">
-    </div>`,
-    async () => {
-      const body = {
-        order_id:       document.getElementById('nt-order').value.trim(),
-        vehicle_id:     document.getElementById('nt-vehicle').value.trim(),
-        volume_planned: parseFloat(document.getElementById('nt-vol').value),
-        delivery_address: document.getElementById('nt-addr').value.trim(),
-        odometer_start: parseFloat(document.getElementById('nt-odo').value) || null,
-        driver_notes:   document.getElementById('nt-notes').value.trim() || null,
-      };
-      if (!body.order_id || !body.vehicle_id || !body.volume_planned || !body.delivery_address)
-        return toast('Заполните обязательные поля', 'error');
-      closeModal();
-      try {
-        await deliveryPost('/trips', body);
-        toast('Рейс создан');
-        loadTrips();
-      } catch (e) { toast(e.message, 'error'); }
-    }
-  );
-}
-
-async function doStartTrip(tripId) {
-  try {
-    await deliveryPost(`/trips/${tripId}/start`, {});
-    toast('Рейс начат — в пути');
-    loadTrips();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function promptCompleteTrip(tripId) {
-  openModal('Завершить рейс',
-    `<div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Фактический объём (л)</label>
-        <input type="number" id="ct-vol" class="form-input" placeholder="4800" min="1" autofocus>
+        <label class="form-label">Фактический объём (л) <span style="color:var(--red)">*</span></label>
+        <input type="number" id="ct-vol" class="form-input" value="${volPlanned || ''}" min="1" autofocus>
       </div>
       <div class="form-group">
         <label class="form-label">Конечный одометр (км)</label>
@@ -2052,7 +2848,7 @@ function promptCompleteTrip(tripId) {
     </div>`,
     async () => {
       const vol = parseFloat(document.getElementById('ct-vol').value);
-      if (!vol) return toast('Укажите фактический объём', 'error');
+      if (!vol || vol <= 0) return toast('Укажите фактический объём', 'error');
       const body = {
         volume_actual: vol,
         odometer_end:  parseFloat(document.getElementById('ct-odo').value) || null,
@@ -2061,8 +2857,10 @@ function promptCompleteTrip(tripId) {
       closeModal();
       try {
         await deliveryPost(`/trips/${tripId}/complete`, body);
-        toast('Рейс завершён');
+        toast('Доставка подтверждена! Заявка переведена в «Доставлено».');
         loadTrips();
+        // Обновляем заявки если вкладка открыта
+        if (document.getElementById('pane-orders')?.classList.contains('active')) loadOrders();
       } catch (e) { toast(e.message, 'error'); }
     }
   );
@@ -2070,12 +2868,12 @@ function promptCompleteTrip(tripId) {
 
 async function doCancelTrip(tripId) {
   openModal('Отменить рейс?',
-    '<p style="color:var(--text2);font-size:13px">Рейс будет отмечен как отменённый.</p>',
+    '<p style="color:var(--text2);font-size:13px">Рейс будет отменён, списанное топливо вернётся на склад. Статус заявки останется «В рейсе» — скорректируйте его вручную.</p>',
     async () => {
       closeModal();
       try {
         await deliveryPost(`/trips/${tripId}/cancel`, {});
-        toast('Рейс отменён');
+        toast('Рейс отменён, топливо возвращено на склад');
         loadTrips();
       } catch (e) { toast(e.message, 'error'); }
     }
@@ -2085,42 +2883,93 @@ async function doCancelTrip(tripId) {
 // ═══════════════════════════════════════════════════════════════
 // REPORT
 // ═══════════════════════════════════════════════════════════════
-function initReport() {
+async function initReport() {
   // Pre-fill dates: current month
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   document.getElementById('rpt-from').value = from.toISOString().slice(0, 10);
   document.getElementById('rpt-to').value   = to.toISOString().slice(0, 10);
-  // Pre-fill driver id for driver role
+
+  const sel = document.getElementById('rpt-driver-id');
   if (currentUser?.role === 'driver') {
-    document.getElementById('rpt-driver-id').value = currentUser.id;
-    document.getElementById('rpt-driver-id').readOnly = true;
+    // Driver sees only themselves
+    sel.innerHTML = `<option value="${currentUser.id}">Я (${escHtml(currentUser.full_name || currentUser.email)})</option>`;
+    sel.disabled = true;
+  } else {
+    // Manager/admin: load driver list
+    try {
+      const drivers = await authGet('/users?role=driver&limit=200&include_inactive=false');
+      sel.innerHTML = '<option value="">— выберите водителя —</option>' +
+        drivers.map(d => `<option value="${d.id}">${escHtml(d.full_name || d.email)}</option>`).join('');
+    } catch {
+      sel.innerHTML = '<option value="">— ошибка загрузки —</option>';
+    }
   }
 }
 
-async function loadReport() {
-  const el = document.getElementById('report-result');
-  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
-
-  const driverId = document.getElementById('rpt-driver-id').value.trim()
-    || (currentUser?.role === 'driver' ? currentUser.id : '');
+async function loadReportInline() {
+  const driverId = document.getElementById('rpt-driver-id').value;
   const dateFrom = document.getElementById('rpt-from').value;
   const dateTo   = document.getElementById('rpt-to').value;
 
-  if (!driverId) { el.innerHTML = '<div class="inline-error">Укажите UUID водителя</div>'; return; }
-  if (!dateFrom || !dateTo) { el.innerHTML = '<div class="inline-error">Укажите период</div>'; return; }
+  if (!driverId) { toast('Выберите водителя', 'error'); return; }
+  if (!dateFrom || !dateTo) { toast('Укажите период', 'error'); return; }
+
+  const el = document.getElementById('report-inline');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
 
   try {
     const qs = new URLSearchParams({
       driver_id: driverId,
-      date_from: new Date(dateFrom).toISOString(),
-      date_to:   new Date(dateTo + 'T23:59:59').toISOString(),
+      date_from: dateFrom + 'T00:00:00',
+      date_to:   dateTo   + 'T23:59:59',
     });
-    const r = await deliveryGet(`/reports/driver?${qs}`);
-    el.innerHTML = reportHTML(r);
+    const rpt = await deliveryGet(`/reports/driver?${qs}`);
+    el.innerHTML = reportHTML(rpt);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function requestReportXlsx() {
+  const driverId = document.getElementById('rpt-driver-id').value;
+  const dateFrom = document.getElementById('rpt-from').value;
+  const dateTo   = document.getElementById('rpt-to').value;
+
+  if (!driverId) { toast('Выберите водителя', 'error'); return; }
+  if (!dateFrom || !dateTo) { toast('Укажите период', 'error'); return; }
+
+  try {
+    const qs = new URLSearchParams({
+      driver_id: driverId,
+      date_from: dateFrom + 'T00:00:00',
+      date_to:   dateTo   + 'T23:59:59',
+    });
+    await api(`${DELIVERY_URL}/reports/driver/xlsx?${qs}`,
+      { method: 'POST', body: '{}' });
+    toast('Отчёт формируется — вы получите уведомление', 'success');
+  } catch (e) {
+    toast('Ошибка генерации отчёта: ' + e.message, 'error');
+  }
+}
+
+async function requestInvReportXlsx() {
+  const from = document.getElementById('irpt-from').value;
+  const to   = document.getElementById('irpt-to').value;
+  const fuel = document.getElementById('irpt-fuel').value;
+
+  if (!from || !to) { toast('Укажите период', 'error'); return; }
+
+  try {
+    const params = { date_from: from + 'T00:00:00', date_to: to + 'T23:59:59' };
+    if (fuel) params.fuel_type = fuel;
+    const qs = new URLSearchParams(params);
+    await api(`${DELIVERY_URL}/inventory/report/xlsx?${qs}`,
+      { method: 'POST', body: '{}' });
+    toast('Отчёт формируется — вы получите уведомление', 'success');
+  } catch (e) {
+    toast('Ошибка генерации отчёта: ' + e.message, 'error');
   }
 }
 
@@ -2128,17 +2977,31 @@ function reportHTML(r) {
   const distStr = r.total_distance_km != null
     ? `${Number(r.total_distance_km).toFixed(1)} км`
     : '—';
-  const tripRows = r.trips.map(t => `
+  const tripRows = r.trips.map(t => {
+    const sl = TRIP_STATUS_LABELS[t.status] || t.status;
+    const sb = t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed';
+    const vol = t.volume_actual != null
+      ? `факт ${Number(t.volume_actual).toLocaleString('ru')} л / план ${Number(t.volume_planned).toLocaleString('ru')} л`
+      : `план ${Number(t.volume_planned).toLocaleString('ru')} л`;
+    const addr = t.delivery_address ? escHtml(t.delivery_address) : '—';
+    const orderRef = t.inv_order_number ? escHtml(t.inv_order_number) : t.order_id.slice(0,8)+'…';
+    const fuel = t.inv_fuel_type ? (FUEL_LABELS_SHORT[t.inv_fuel_type] || t.inv_fuel_type) : '';
+    return `
     <div class="trip-card status-${t.status}" style="margin-top:6px">
-      <div><span class="status-badge status-${t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed'}">${TRIP_STATUS_LABELS[t.status]}</span></div>
-      <div class="trip-order-id">Заявка: ${uuidCell(t.order_id)}</div>
-      <div class="trip-vol">
-        ${t.volume_actual != null ? Number(t.volume_actual).toLocaleString('ru') : '—'} /
-        ${Number(t.volume_planned).toLocaleString('ru')} л
+      <div class="trip-card-head">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="status-badge status-${sb}">${sl}</span>
+          <span class="trip-order-ref">${orderRef}</span>
+          ${fuel ? `<span class="trip-fuel-badge">${fuel}</span>` : ''}
+        </div>
+        <span style="font-size:11px;color:var(--text3)">${fmtDate(t.created_at)}</span>
       </div>
-      <div class="trip-addr">${t.delivery_address}</div>
-      <div class="trip-date">${fmtDate(t.created_at)}</div>
-    </div>`).join('');
+      <div class="trip-card-body">
+        <div class="trip-vol-line">${vol}</div>
+        <div class="trip-addr-line">📍 ${addr}</div>
+      </div>
+    </div>`;
+  }).join('');
 
   return `
     <div class="report-stats">
@@ -2179,19 +3042,35 @@ function reportHTML(r) {
 // ═══════════════════════════════════════════════════════════════
 const ROLE_LABELS = { admin:'Admin', manager:'Manager', driver:'Driver', client:'Client' };
 
+let _allUsers = [];
+
 async function loadUsers() {
   const tbody = document.getElementById('users-tbody');
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px"><div class="loading"></div></td></tr>';
   const role     = document.getElementById('users-role-filter').value;
   const inactive = document.getElementById('users-show-inactive').checked;
+  // сбросить поиск при перезагрузке
+  const searchEl = document.getElementById('users-search');
+  if (searchEl) searchEl.value = '';
   try {
     let qs = `?limit=200&include_inactive=${inactive}`;
     if (role) qs += `&role=${role}`;
     const users = await authGet(`/users${qs}`);
-    renderUsersTable(users);
+    _allUsers = Array.isArray(users) ? users : (users.items || []);
+    renderUsersTable(_allUsers);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6"><div class="inline-error">${escHtml(e.message)}</div></td></tr>`;
   }
+}
+
+function filterUsers() {
+  const q = (document.getElementById('users-search')?.value || '').trim().toLowerCase();
+  if (!q) { renderUsersTable(_allUsers); return; }
+  renderUsersTable(_allUsers.filter(u =>
+    (u.full_name || '').toLowerCase().includes(q) ||
+    (u.email || '').toLowerCase().includes(q) ||
+    (u.id || '').toLowerCase().includes(q)
+  ));
 }
 
 function renderUsersTable(users) {
@@ -2216,7 +3095,7 @@ function renderUsersTable(users) {
     return `<tr>
       <td>${dot}${u.is_active ? 'Активен' : 'Неактивен'}</td>
       <td>${escHtml(u.full_name)}</td>
-      <td style="font-family:monospace;font-size:12px">${u.email}</td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(u.email)}</td>
       <td>${roleChip}</td>
       <td>${uuidCell(u.id)}</td>
       <td>${actions}</td>
@@ -2299,6 +3178,7 @@ const NOTIF_TYPE_LABELS = {
   chat_message:        'Новое сообщение',
   trip_assigned:       'Назначен рейс',
   trip_status:         'Статус рейса',
+  report_ready:        '📊 Отчёт готов',
 };
 
 function initNotifications() {
@@ -2335,12 +3215,22 @@ function renderNotifPanel() {
     el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет уведомлений</div>';
     return;
   }
-  el.innerHTML = notifList.map(n => `
+  el.innerHTML = notifList.map(n => {
+    const isReport = n.type === 'report_ready' && n.entity_type === 'xlsx_download' && n.entity_id;
+    const dlBtn = isReport
+      ? `<button class="btn btn-sm btn-primary-outline" style="margin-top:6px;font-size:10px;padding:3px 10px"
+           onclick="event.stopPropagation();downloadReport('${n.entity_id}')">⬇ Скачать XLSX</button>`
+      : '';
+    // Strip markdown link from body for display
+    const bodyText = n.body.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    return `
     <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="readNotif('${n.id}')">
       <div class="notif-item-title">${NOTIF_TYPE_LABELS[n.type] || n.type}</div>
-      <div class="notif-item-body">${escHtml(n.body)}</div>
+      <div class="notif-item-body">${escHtml(bodyText)}</div>
+      ${dlBtn}
       <div class="notif-item-time">${fmtTime(n.created_at)}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function toggleNotifPanel() {
@@ -2356,6 +3246,32 @@ async function readNotif(id) {
     if (n) n.is_read = true;
     renderNotifPanel();
   } catch {}
+}
+
+async function downloadReport(fileId) {
+  try {
+    const token = localStorage.getItem('access_token');
+    const res = await fetch(`${DELIVERY_URL}/reports/download/${fileId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(err.detail || 'Файл не найден или уже скачан', 'error');
+      return;
+    }
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const nameMatch = disposition.match(/filename="([^"]+)"/);
+    const filename = nameMatch ? nameMatch[1] : 'report.xlsx';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast('Ошибка скачивания: ' + e.message, 'error');
+  }
 }
 
 async function markAllNotifsRead() {
@@ -2395,6 +3311,7 @@ function connectNotifSSE() {
 let activeConvId  = null;
 let chatWs        = null;
 let chatWsRetry   = null;
+let _chatPoll     = null;   // polling interval for new messages
 
 const CONV_TYPE_LABELS = {
   client_support: 'Клиент',
@@ -2410,9 +3327,62 @@ function fmtTime(dt) {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 }
 
+// ── Chat polling fallback (for when WebSocket is offline) ───────
+function startChatPoll(convId) {
+  stopChatPoll();
+  _chatPoll = setInterval(async () => {
+    if (activeConvId !== convId) { stopChatPoll(); return; }
+    try {
+      // GET last 30 messages and append any not yet in DOM
+      const msgs = await chatGet(`/conversations/${convId}/messages?limit=30`);
+      if (!Array.isArray(msgs)) return;
+      let appended = false;
+      for (const msg of msgs) {
+        if (!document.getElementById(`msg-${msg.id}`)) {
+          appendMessage(msg);
+          appended = true;
+        }
+      }
+      if (appended) {
+        // Update unread sidebar badge silently
+        chatGet('/conversations').then(renderConvList).catch(() => {});
+      }
+    } catch (_) {}
+  }, 3000); // poll every 3 seconds
+}
+function stopChatPoll() {
+  if (_chatPoll) { clearInterval(_chatPoll); _chatPoll = null; }
+}
+
+// ── Mobile chat helpers ─────────────────────────────────────────
+function isMobileChat() {
+  return window.innerWidth <= 640;
+}
+
+function showChatSidebar() {
+  const sidebar = document.getElementById('chat-sidebar');
+  sidebar.classList.add('mobile-visible');
+  // Hide back button since sidebar is now shown
+  const backBtn = document.getElementById('btn-chat-back');
+  if (backBtn) backBtn.style.display = 'none';
+}
+
+function hideChatSidebar() {
+  const sidebar = document.getElementById('chat-sidebar');
+  sidebar.classList.remove('mobile-visible');
+  // Show back button and "show conversations" button on mobile
+  if (isMobileChat()) {
+    const backBtn = document.getElementById('btn-chat-back');
+    if (backBtn) backBtn.style.display = '';
+  }
+}
+
 async function loadConversations() {
   const el = document.getElementById('conv-list');
   el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
+  // Show "Диалоги" button on mobile when no chat is selected
+  const showListBtn = document.getElementById('btn-show-conv-list');
+  if (showListBtn) showListBtn.style.display = isMobileChat() ? '' : 'none';
   try {
     const convs = await chatGet('/conversations');
     renderConvList(convs);
@@ -2452,6 +3422,13 @@ async function openConversation(convId) {
   document.querySelectorAll('.conv-item').forEach(el =>
     el.classList.toggle('active', el.onclick?.toString().includes(convId)));
 
+  // On mobile: hide sidebar, show back button
+  if (isMobileChat()) {
+    hideChatSidebar();
+    const backBtn = document.getElementById('btn-chat-back');
+    if (backBtn) backBtn.style.display = '';
+  }
+
   // Show chat window
   document.getElementById('chat-empty').style.display = 'none';
   const win = document.getElementById('chat-window');
@@ -2473,6 +3450,11 @@ async function openConversation(convId) {
 
     renderMessages(conv.messages);
 
+    // Show delete button for managers/admins only
+    const archiveBtn = document.getElementById('btn-archive-conv');
+    const isStaffRole = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    if (archiveBtn) archiveBtn.style.display = isStaffRole ? '' : 'none';
+
     // Mark as read
     chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
     // Update unread badge in sidebar
@@ -2482,7 +3464,34 @@ async function openConversation(convId) {
       `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
   }
 
+  // Connect WebSocket for real-time delivery from other users
   connectWs(convId);
+  // Start polling fallback — catches messages when WS is offline
+  startChatPoll(convId);
+}
+
+async function archiveCurrentConv() {
+  if (!activeConvId) return;
+  openModal('Удалить диалог?',
+    '<p style="color:var(--text2);font-size:13px">Диалог будет архивирован и исчезнет из списка у всех участников.</p>',
+    async () => {
+      closeModal();
+      try {
+        await api(`${CHAT_URL}/conversations/${activeConvId}`, { method: 'DELETE' });
+        toast('Диалог удалён');
+        // Reset chat UI
+        activeConvId = null;
+        stopChatPoll();
+        if (chatWs) { chatWs.close(); chatWs = null; }
+        document.getElementById('chat-empty').style.display = '';
+        document.getElementById('chat-window').style.display = 'none';
+        document.getElementById('btn-archive-conv').style.display = 'none';
+        await loadConversations();
+      } catch (e) {
+        toast('Ошибка: ' + e.message, 'error');
+      }
+    }
+  );
 }
 
 function renderMessages(msgs) {
@@ -2499,7 +3508,7 @@ function msgHTML(m) {
   const mine = currentUser && m.sender_id === currentUser.id;
   const initials = (m.sender_name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
   return `
-  <div class="msg-row ${mine ? 'mine' : ''}">
+  <div class="msg-row ${mine ? 'mine' : ''}" id="msg-${m.id}">
     <div class="msg-avatar">${escHtml(initials)}</div>
     <div class="msg-bubble">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
@@ -2568,11 +3577,12 @@ function appendMessage(msg) {
   const empty = el.querySelector('.empty-state');
   if (empty) empty.remove();
 
+  // Skip if already rendered (e.g. already appended by poll)
+  if (document.getElementById(`msg-${msg.id}`)) return;
   const tmp = document.createElement('div');
   tmp.innerHTML = msgHTML(msg);
   const row = tmp.firstElementChild;
   if (row) {
-    row.id = `msg-${msg.id}`;
     el.appendChild(row);
   }
   el.scrollTop = el.scrollHeight;
@@ -2592,22 +3602,85 @@ async function sendChatMessage() {
   if (!text) return;
   inp.value = '';
 
-  // Optimistic: send via WS if connected, else via REST
-  if (chatWs && chatWs.readyState === WebSocket.OPEN) {
-    chatWs.send(text);
-  } else {
-    try {
-      const msg = await chatPost(`/conversations/${activeConvId}/messages`, { text });
+  // Always save via REST for guaranteed delivery + immediate UI feedback.
+  // WebSocket is used only for RECEIVING messages from other users.
+  try {
+    const msg = await chatPost(`/conversations/${activeConvId}/messages`, { text });
+    if (!document.getElementById(`msg-${msg.id}`)) {
       appendMessage(msg);
-    } catch (e) {
-      toast(e.message, 'error');
-      inp.value = text;
     }
+  } catch (e) {
+    toast(e.message, 'error');
+    inp.value = text;
   }
 }
 
 function promptNewConv() {
-  const isStaff = currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager');
+  const role = currentUser?.role;
+  const isStaff = role === 'admin' || role === 'manager';
+  const isClient = role === 'client';
+  const isDriver = role === 'driver';
+
+  // Drivers can only create internal chats (with staff)
+  if (isDriver) {
+    openModal('Новый внутренний чат',
+      `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+        Создайте внутренний чат — для общения с менеджером или диспетчером.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Тема <span style="color:var(--text3)">(необязательно)</span></label>
+        <input type="text" id="nc-title" class="form-input" placeholder="Вопрос по заявке, маршруту...">
+      </div>`,
+      async () => {
+        const title = document.getElementById('nc-title').value.trim() || null;
+        closeModal();
+        try {
+          const conv = await chatPost('/conversations', {
+            type: 'internal',
+            title,
+            participant_ids: [],
+          });
+          toast('Чат создан');
+          await loadConversations();
+          openConversation(conv.id);
+        } catch (e) {
+          toast('Ошибка: ' + e.message, 'error');
+        }
+      }
+    );
+    return;
+  }
+
+  // Clients get a simplified form — they create a support request; managers see all convs automatically
+  if (isClient) {
+    openModal('Обращение в поддержку',
+      `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+        Создайте обращение — менеджер увидит его и ответит.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Тема <span style="color:var(--text3)">(необязательно)</span></label>
+        <input type="text" id="nc-title" class="form-input" placeholder="Вопрос по доставке, оплате...">
+      </div>`,
+      async () => {
+        const title = document.getElementById('nc-title').value.trim() || 'Обращение в поддержку';
+        closeModal();
+        try {
+          const conv = await chatPost('/conversations', {
+            type: 'client_support',
+            title,
+            participant_ids: [],
+          });
+          toast('Обращение создано — менеджер ответит в ближайшее время');
+          await loadConversations();
+          openConversation(conv.id);
+        } catch (e) {
+          toast('Ошибка: ' + e.message, 'error');
+        }
+      }
+    );
+    return;
+  }
+
   openModal('Новый диалог', `
     <div class="form-group">
       <label class="form-label">Тип</label>
@@ -2667,6 +3740,437 @@ function updateNewConvUI() {
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
   document.getElementById('nc-internal-label')?.classList.toggle(
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENTS (Список клиентов — для менеджера/админа)
+// ═══════════════════════════════════════════════════════════════
+let _allClients = [];
+
+async function loadClients() {
+  const el = document.getElementById('clients-grid');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const users = await authGet('/users?role=client&limit=200&include_inactive=false');
+    _allClients = Array.isArray(users) ? users : (users.items || []);
+    renderClients(_allClients);
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function filterClients() {
+  const q = document.getElementById('clients-search').value.trim().toLowerCase();
+  if (!q) { renderClients(_allClients); return; }
+  renderClients(_allClients.filter(u =>
+    (u.full_name || '').toLowerCase().includes(q) ||
+    (u.email || '').toLowerCase().includes(q) ||
+    (u.id || '').toLowerCase().includes(q)
+  ));
+}
+
+function renderClients(clients) {
+  const el = document.getElementById('clients-grid');
+  if (!clients.length) {
+    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">👤</div>Клиентов не найдено</div>';
+    return;
+  }
+  el.innerHTML = clients.map(u => clientCardHTML(u)).join('');
+}
+
+function clientCardHTML(u) {
+  const initials = (u.full_name || u.email || '?')
+    .split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+
+  const safeName = escHtml(u.full_name || u.email);
+  return `
+  <div class="client-card" style="cursor:pointer" onclick="openClientOrders('${u.id}', '${safeName}')">
+    <div class="client-avatar">${escHtml(initials)}</div>
+    <div class="client-info">
+      <div class="client-name">${safeName}</div>
+      <div class="client-email">${escHtml(u.email)}</div>
+      ${u.phone ? `<div class="client-phone">${escHtml(u.phone)}</div>` : ''}
+    </div>
+    <div class="client-actions">
+      <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();copyUUID('${u.id}', this)" title="Скопировать UUID">ID</button>
+      <button class="btn btn-sm btn-primary-outline" onclick="event.stopPropagation();startClientChat('${u.id}', '${safeName}')">
+        💬 Чат
+      </button>
+    </div>
+  </div>`;
+}
+
+async function openClientOrders(clientId, clientName) {
+  const STATUS_LABELS = {
+    new: 'Новая', in_progress: 'В работе', assigned: 'Назначена',
+    in_transit: 'В рейсе', delivered: 'Доставлена',
+    partially_delivered: 'Частично', rejected: 'Отклонена', closed: 'Закрыта',
+  };
+  openModal(`Заявки клиента: ${clientName}`,
+    `<div id="co-list"><div class="empty-state"><div class="loading"></div></div></div>`,
+    null
+  );
+  try {
+    const orders = await api(`${ORDER_URL}/orders?client_id=${clientId}&limit=50`);
+    const el = document.getElementById('co-list');
+    if (!orders.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:30px">Заявок не найдено</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto;padding:2px 0">
+        ${orders.map(o => `
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);font-weight:600">
+                ${escHtml(o.order_number || o.id.slice(0,8))}
+              </span>
+              <span class="status-badge status-${o.status}">${STATUS_LABELS[o.status] || o.status}</span>
+              <span style="font-size:11px;color:var(--text3);margin-left:auto">${fmtDate(o.created_at)}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2)">${escHtml(o.delivery_address || '—')}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">
+              ${escHtml(o.fuel_type || '')} · ${Number(o.volume_requested).toLocaleString('ru')} л
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } catch (e) {
+    const el = document.getElementById('co-list');
+    if (el) el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function startClientChat(clientId, clientName) {
+  openModal('Новый диалог с клиентом',
+    `<p style="color:var(--text2);font-size:13px;margin-bottom:14px">
+      Будет создан диалог типа <b>client_support</b> с клиентом <b>${escHtml(clientName)}</b>.
+    </p>
+    <div class="form-group">
+      <label class="form-label">UUID заявки (необязательно)</label>
+      <input type="text" id="scc-order-id" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Тема диалога</label>
+      <input type="text" id="scc-title" class="form-input" placeholder="Уточнение по доставке...">
+    </div>`,
+    async () => {
+      const orderId = document.getElementById('scc-order-id').value.trim() || null;
+      const title   = document.getElementById('scc-title').value.trim() || null;
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations', {
+          type: 'client_support',
+          title: title || `Чат с ${clientName}`,
+          order_id: orderId,
+          participant_ids: [clientId],
+        });
+        toast(`Диалог с ${clientName} создан`);
+        switchTab('chat');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
+}
+
+/**
+ * Клиент нажимает "Написать менеджеру" на своей заявке.
+ * Ищем существующий чат по этой заявке; если нет — создаём с менеджером.
+ */
+async function openOrderChat(orderId, orderNumber, managerId) {
+  if (!managerId) {
+    // No manager yet — still let client open a support chat for this order
+    try {
+      const conv = await chatPost('/conversations', {
+        type: 'client_support',
+        title: `Заявка ${orderNumber}`,
+        order_id: orderId,
+        participant_ids: [],
+      });
+      toast('Чат создан — менеджер ответит после назначения');
+      switchTab('chat');
+      await loadConversations();
+      openConversation(conv.id);
+    } catch (e) {
+      toast('Ошибка создания чата: ' + e.message, 'error');
+    }
+    return;
+  }
+  try {
+    // Ищем уже существующий чат по этой заявке (среди чатов, где клиент — участник)
+    const existing = await chatGet(`/conversations?order_id=${orderId}`);
+    if (existing && existing.length > 0) {
+      switchTab('chat');
+      await loadConversations();
+      openConversation(existing[0].id);
+      return;
+    }
+    // Создаём новый чат с менеджером
+    const conv = await chatPost('/conversations', {
+      type: 'client_support',
+      title: `Заявка ${orderNumber}`,
+      order_id: orderId,
+      participant_ids: [managerId],
+    });
+    toast('Чат с менеджером создан');
+    switchTab('chat');
+    await loadConversations();
+    openConversation(conv.id);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INVENTORY (Учёт топлива)
+// ═══════════════════════════════════════════════════════════════
+let _invActiveSubtab = 'stock';
+
+function switchInvTab(tab) {
+  _invActiveSubtab = tab;
+  document.querySelectorAll('.inv-subtab').forEach(b =>
+    b.classList.toggle('active', b.dataset.inv === tab));
+  document.querySelectorAll('.inv-pane').forEach(p =>
+    p.classList.toggle('active', p.id === `inv-pane-${tab}`));
+  if (tab === 'stock')        loadInvStock();
+  if (tab === 'transactions') {} // загрузка по кнопке «Найти»
+  if (tab === 'invreport')    {} // загрузка по кнопке «Сформировать»
+}
+
+function loadInventoryActive() {
+  if (_invActiveSubtab === 'stock')        loadInvStock();
+  if (_invActiveSubtab === 'transactions') loadTransactions();
+}
+
+function initInventory() {
+  // Показать/скрыть таб только для manager/admin
+  const isAllowed = currentUser && (currentUser.role === 'manager' || currentUser.role === 'admin');
+  document.getElementById('tab-inventory-btn').style.display = isAllowed ? '' : 'none';
+  if (!isAllowed) { switchTab('orders'); return; }
+  // Кнопка сверки — только для admin
+  const reconcileBtn = document.getElementById('reconcile-btn');
+  if (reconcileBtn) reconcileBtn.style.display = currentUser.role === 'admin' ? '' : 'none';
+  switchInvTab('stock');
+}
+
+async function doReconcile() {
+  if (!confirm('Пересчитать все остатки по истории транзакций? Это перезапишет текущие значения в fuel_stock.')) return;
+  try {
+    const res = await deliveryPost('/inventory/reconcile', {});
+    toast('Сверка выполнена: ' + (Array.isArray(res) ? res.length : 0) + ' позиций обновлено', 'success');
+    loadInvStock();
+  } catch (e) {
+    toast('Ошибка сверки: ' + e.message, 'error');
+  }
+}
+
+// ── Остатки ─────────────────────────────────────────────────────
+async function loadInvStock() {
+  const el = document.getElementById('inv-stock-grid');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const stocks = await deliveryGet('/inventory/stock');
+    if (!stocks.length) {
+      el.innerHTML = '<div class="empty-state">Нет данных об остатках</div>';
+      return;
+    }
+    el.innerHTML = stocks.map(s => `
+      <div class="stock-card">
+        <div class="stock-fuel-label">${escHtml(s.fuel_label)}</div>
+        <div>
+          <span class="stock-volume">${Number(s.current_volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</span>
+          <span class="stock-unit">л</span>
+        </div>
+        <div class="stock-updated">обновлено ${fmtDate(s.last_updated)}</div>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Операции (список) ────────────────────────────────────────────
+async function loadTransactions() {
+  const ft   = document.getElementById('inv-ft-filter').value;
+  const type = document.getElementById('inv-type-filter').value;
+  const from = document.getElementById('inv-tf-from').value;
+  const to   = document.getElementById('inv-tf-to').value;
+
+  const body = document.getElementById('inv-tx-body');
+  body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px"><div class="loading"></div></td></tr>';
+
+  try {
+    let qs = '?limit=500';
+    if (ft)   qs += `&fuel_type=${ft}`;
+    if (type) qs += `&type=${type}`;
+    if (from) qs += `&date_from=${from}T00:00:00`;
+    if (to)   qs += `&date_to=${to}T23:59:59`;
+
+    const txs = await deliveryGet(`/inventory/transactions${qs}`);
+    if (!txs.length) {
+      body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text3)">Операций не найдено</td></tr>';
+      return;
+    }
+    body.innerHTML = txs.map(tx => `
+      <tr>
+        <td style="white-space:nowrap">${fmtDate(tx.transaction_date)}</td>
+        <td><span class="tx-type-${tx.type}">${tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
+        <td>${escHtml(tx.fuel_label)}</td>
+        <td style="font-family:monospace;text-align:right">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
+        <td style="font-family:monospace;font-size:11px">${tx.order_number ? escHtml(tx.order_number) : (tx.order_id ? uuidCell(tx.order_id) : '—')}</td>
+        <td>${tx.client_name ? escHtml(tx.client_name) : (tx.client_id ? uuidCell(tx.client_id) : '—')}</td>
+        <td>${tx.driver_name ? escHtml(tx.driver_name) : (tx.driver_id ? uuidCell(tx.driver_id) : '—')}</td>
+        <td>${tx.supplier_name ? escHtml(tx.supplier_name) : '—'}</td>
+        <td style="font-family:monospace;font-size:11px">${tx.invoice_number ? escHtml(tx.invoice_number) : '—'}</td>
+        <td>${tx.notes ? escHtml(tx.notes) : '—'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="10"><div class="inline-error">${escHtml(e.message)}</div></td></tr>`;
+  }
+}
+
+// ── Оприходование ────────────────────────────────────────────────
+async function doRecordArrival() {
+  const fuel    = document.getElementById('arr-fuel').value;
+  const volume  = parseFloat(document.getElementById('arr-volume').value);
+  const dateVal = document.getElementById('arr-date').value;
+  const invoice = document.getElementById('arr-invoice').value.trim();
+  const supplier= document.getElementById('arr-supplier').value.trim();
+  const notes   = document.getElementById('arr-notes').value.trim();
+  const errEl   = document.getElementById('arr-error');
+
+  errEl.innerHTML = '';
+  if (!volume || volume <= 0) {
+    errEl.innerHTML = '<div class="inline-error">Укажите объём (литры &gt; 0)</div>';
+    return;
+  }
+
+  const body = {
+    fuel_type: fuel,
+    volume,
+    transaction_date: dateVal ? new Date(dateVal).toISOString() : undefined,
+    invoice_number: invoice || undefined,
+    supplier_name: supplier || undefined,
+    notes: notes || undefined,
+  };
+
+  try {
+    await deliveryPost('/inventory/arrivals', body);
+    toast('Приход оприходован');
+    // Сбросить форму
+    document.getElementById('arr-volume').value = '';
+    document.getElementById('arr-date').value = '';
+    document.getElementById('arr-invoice').value = '';
+    document.getElementById('arr-supplier').value = '';
+    document.getElementById('arr-notes').value = '';
+    // Обновить остатки
+    loadInvStock();
+    switchInvTab('stock');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Сводный отчёт ────────────────────────────────────────────────
+async function loadInvReport() {
+  const from = document.getElementById('irpt-from').value;
+  const to   = document.getElementById('irpt-to').value;
+  const fuel = document.getElementById('irpt-fuel').value;
+  const el   = document.getElementById('inv-report-result');
+
+  if (!from || !to) { toast('Укажите период', 'error'); return; }
+
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const params = { date_from: from + 'T00:00:00', date_to: to + 'T23:59:59' };
+    if (fuel) params.fuel_type = fuel;
+    const qs = new URLSearchParams(params);
+
+    const rpt = await deliveryGet(`/inventory/report?${qs}`);
+    el.innerHTML = renderInvReport(rpt, from, to);
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderInvReport(rpt, from, to) {
+  const hasTxs = rpt.transactions && rpt.transactions.length > 0;
+  const hasSummary = rpt.summary && rpt.summary.some(s =>
+    s.total_arrivals > 0 || s.total_departures > 0 || s.opening_balance > 0);
+
+  let html = `
+  <div style="margin-bottom:16px">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">
+      Период: ${escHtml(from)} — ${escHtml(to)}
+      ${rpt.fuel_type_filter ? ' · ' + escHtml(rpt.fuel_type_filter) : ' · Все виды топлива'}
+    </span>
+  </div>`;
+
+  if (hasSummary) {
+    html += `<div class="inv-section-title">Сводка по видам топлива</div>
+    <div class="report-summary-grid">` +
+    rpt.summary.map(s => `
+      <div class="summary-card">
+        <div class="summary-fuel">${escHtml(s.fuel_label)}</div>
+        <div class="summary-row">
+          <span class="summary-label">Остаток на начало</span>
+          <span class="summary-val">${Number(s.opening_balance).toLocaleString('ru-RU')} л</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Приход</span>
+          <span class="summary-val green">+${Number(s.total_arrivals).toLocaleString('ru-RU')} л</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Расход</span>
+          <span class="summary-val amber">−${Number(s.total_departures).toLocaleString('ru-RU')} л</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Остаток на конец</span>
+          <span class="summary-val">${Number(s.closing_balance).toLocaleString('ru-RU')} л</span>
+        </div>
+      </div>`).join('') + `</div>`;
+  }
+
+  if (hasTxs) {
+    html += `<div class="inv-section-title" style="margin-top:8px">Детализация операций (${rpt.transactions.length})</div>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Тип</th>
+            <th>Топливо</th>
+            <th>Объём (л)</th>
+            <th>Заявка</th>
+            <th>Клиент</th>
+            <th>Водитель / ТС</th>
+            <th>Поставщик / Накладная</th>
+          </tr>
+        </thead>
+        <tbody>` +
+    rpt.transactions.map(tx => `
+          <tr>
+            <td style="white-space:nowrap">${fmtDate(tx.transaction_date)}</td>
+            <td><span class="tx-type-${tx.type}">${tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
+            <td>${escHtml(tx.fuel_label)}</td>
+            <td style="font-family:monospace;text-align:right">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
+            <td style="font-size:11px">${tx.order_number ? `<span style="font-family:monospace">${escHtml(tx.order_number)}</span>` : '—'}</td>
+            <td>${tx.client_name ? escHtml(tx.client_name) : '—'}</td>
+            <td>${tx.driver_name ? escHtml(tx.driver_name) : '—'}</td>
+            <td style="font-size:11px">${
+              tx.type === 'arrival'
+                ? [tx.supplier_name, tx.invoice_number].filter(Boolean).map(escHtml).join(' / ') || '—'
+                : (tx.trip_id ? uuidCell(tx.trip_id) : '—')
+            }</td>
+          </tr>`).join('') +
+        `</tbody>
+      </table>
+    </div>`;
+  } else {
+    html += '<div class="empty-state" style="padding:30px 0">За выбранный период операций не найдено</div>';
+  }
+  return html;
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -304,7 +304,9 @@ async def update_client_profile(
     *,
     actor: User,
 ) -> ClientProfile:
-    # Only the client themselves or admin/manager
+    # Only the client themselves, or admin / manager — driver role is not allowed
+    if actor.role == UserRole.DRIVER:
+        raise ForbiddenError("Водитель не может редактировать профиль клиента")
     if actor.role == UserRole.CLIENT and actor.id != user_id:
         raise ForbiddenError()
 

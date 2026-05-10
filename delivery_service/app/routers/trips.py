@@ -6,16 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.trip import TripStatus
-from app.core.dependencies import CurrentUser
-from app.schemas.trip import TripResponse, TripCreateRequest, TripStartRequest, TripCompleteRequest
+from app.core.dependencies import CurrentUser, require_roles, ROLE_ADMIN, ROLE_MANAGER, ROLE_DRIVER
+from app.schemas.trip import TripResponse, TripCreateRequest, TripStartRequest, TripCompleteRequest, TripAutoStartRequest
 from app.services import trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
+# Только персонал (водитель, менеджер, администратор) — клиенты не допускаются
+StaffOnly = Annotated[CurrentUser, Depends(require_roles(ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN))]
+
 
 @router.get("", response_model=list[TripResponse])
 async def list_trips(
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
     driver_id: uuid.UUID | None = Query(None),
     order_id: uuid.UUID | None = Query(None),
@@ -33,10 +36,23 @@ async def list_trips(
     )
 
 
+@router.post("/auto-start", response_model=TripResponse, status_code=201)
+async def auto_start_trip(
+    data: TripAutoStartRequest,
+    current_user: StaffOnly,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Авто-создать и запустить рейс при переводе заявки в in_transit.
+    Вызывается из order_service — синхронно проверяет и списывает топливо.
+    Возвращает 422 если топлива недостаточно.
+    """
+    return await trip_service.auto_create_and_start(db, data, current_user)
+
+
 @router.post("", response_model=TripResponse, status_code=201)
 async def create_trip(
     data: TripCreateRequest,
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await trip_service.create_trip(db, data, current_user)
@@ -45,7 +61,7 @@ async def create_trip(
 @router.get("/{trip_id}", response_model=TripResponse)
 async def get_trip(
     trip_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await trip_service.get_trip_by_id(db, trip_id, current_user)
@@ -55,7 +71,7 @@ async def get_trip(
 async def start_trip(
     trip_id: uuid.UUID,
     data: TripStartRequest,
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Водитель начинает рейс — статус PLANNED → IN_TRANSIT."""
@@ -66,7 +82,7 @@ async def start_trip(
 async def complete_trip(
     trip_id: uuid.UUID,
     data: TripCompleteRequest,
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Водитель фиксирует доставку — статус IN_TRANSIT → COMPLETED."""
@@ -76,7 +92,7 @@ async def complete_trip(
 @router.post("/{trip_id}/cancel", response_model=TripResponse)
 async def cancel_trip(
     trip_id: uuid.UUID,
-    current_user: CurrentUser,
+    current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await trip_service.cancel_trip(db, trip_id, current_user)

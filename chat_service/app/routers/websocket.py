@@ -97,6 +97,11 @@ async def websocket_endpoint(
         while True:
             text = await websocket.receive_text()
 
+            # Validate message length (mirrors Pydantic schema max_length=4000)
+            if len(text) > 4000:
+                await websocket.send_text(json.dumps({"error": "Сообщение слишком длинное (макс. 4000 символов)"}))
+                continue
+
             # Persist message to DB
             async with AsyncSessionLocal() as db:
                 msg = await send_message(db, conv_id, text, actor)

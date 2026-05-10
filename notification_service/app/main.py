@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Add new enum values if not present (safe to run multiple times)
+    async with engine.begin() as conn:
+        await conn.execute(
+            __import__("sqlalchemy").text(
+                "DO $$ BEGIN "
+                "  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'report_ready' "
+                "    AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'notificationtype')) "
+                "  THEN ALTER TYPE notificationtype ADD VALUE 'report_ready'; END IF; "
+                "END $$;"
+            )
+        )
     # Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
