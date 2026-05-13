@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey, func, Text
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey, func, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -14,15 +14,19 @@ class ConversationType(str, enum.Enum):
 
 class Conversation(Base):
     __tablename__ = "conversations"
+    __table_args__ = (
+        # Уникальность по набору участников: один чат на один состав
+        UniqueConstraint("participants_hash", name="uq_conversation_participants_hash"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     type: Mapped[ConversationType] = mapped_column(SAEnum(ConversationType), nullable=False, index=True)
 
-    # Ссылка на заявку (cross-service UUID, без FK)
-    order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    # Хэш (sha256) от отсортированных UUID участников — для upsert-дедупликации
+    participants_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    # Заголовок (для внутренних чатов)
+    # Заголовок
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

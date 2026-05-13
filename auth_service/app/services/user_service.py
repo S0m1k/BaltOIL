@@ -321,3 +321,27 @@ async def update_client_profile(
         setattr(profile, field, value)
 
     return profile
+
+
+async def update_client_tariff(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    data,
+    *,
+    actor: User,
+) -> ClientProfile:
+    """Изменение тарифных коэффициентов — только admin."""
+    if actor.role != UserRole.ADMIN:
+        raise ForbiddenError("Только администратор может менять тарифы")
+
+    result = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == user_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundError("Профиль клиента не найден")
+
+    for field, value in data.model_dump(exclude_none=True).items():
+        setattr(profile, field, value)
+
+    return profile

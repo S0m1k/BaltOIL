@@ -16,19 +16,18 @@ class ParticipantResponse(BaseModel):
 
 class ConversationCreateRequest(BaseModel):
     type: ConversationType = ConversationType.CLIENT_SUPPORT
-    order_id: uuid.UUID | None = None
     title: str | None = None
-    # Дополнительные участники (их UUID), создатель добавляется автоматически
+    # Дополнительные участники; создатель добавляется автоматически
     participant_ids: list[uuid.UUID] = []
 
 
 class ConversationListResponse(BaseModel):
     id: uuid.UUID
     type: ConversationType
-    order_id: uuid.UUID | None
     title: str | None
     created_by_id: uuid.UUID
     created_by_role: str
+    participant_ids: list[str] = []
     unread_count: int = 0
     last_message: MessageResponse | None = None
     updated_at: datetime
@@ -39,7 +38,6 @@ class ConversationListResponse(BaseModel):
 class ConversationResponse(BaseModel):
     id: uuid.UUID
     type: ConversationType
-    order_id: uuid.UUID | None
     title: str | None
     created_by_id: uuid.UUID
     created_by_role: str

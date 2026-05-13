@@ -51,6 +51,10 @@ class RegisterIndividualRequest(BaseModel):
     def password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Пароль должен быть не менее 8 символов")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну букву")
         return v
 
 
@@ -75,6 +79,10 @@ class RegisterCompanyRequest(BaseModel):
     def password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Пароль должен быть не менее 8 символов")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну букву")
         return v
 
     @field_validator("inn")
@@ -105,6 +113,10 @@ class CreateUserRequest(BaseModel):
     def password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Пароль должен быть не менее 8 символов")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну букву")
         return v
 
 

@@ -25,7 +25,6 @@ class TripCreateRequest(BaseModel):
     vehicle_id: uuid.UUID | None = None
     volume_planned: float = Field(..., gt=0, le=1_000_000)
     delivery_address: str = Field(default="", max_length=500)
-    odometer_start: float | None = Field(None, ge=0, le=10_000_000)
     driver_notes: str | None = Field(None, max_length=1000)
     driver_id: uuid.UUID | None = None
     inv_fuel_type: str | None = Field(None, max_length=50)
@@ -36,13 +35,11 @@ class TripCreateRequest(BaseModel):
 
 
 class TripStartRequest(BaseModel):
-    odometer_start: float | None = Field(None, ge=0, le=10_000_000)
     driver_notes: str | None = Field(None, max_length=1000)
 
 
 class TripCompleteRequest(BaseModel):
     volume_actual: float = Field(..., gt=0, le=1_000_000)
-    odometer_end: float | None = Field(None, ge=0, le=10_000_000)
     driver_notes: str | None = Field(None, max_length=1000)
 
 
@@ -54,8 +51,6 @@ class TripResponse(BaseModel):
     status: TripStatus
     volume_planned: float
     volume_actual: float | None
-    odometer_start: float | None
-    odometer_end: float | None
     departed_at: datetime | None
     arrived_at: datetime | None
     delivery_address: str | None

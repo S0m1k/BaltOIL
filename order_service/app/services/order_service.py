@@ -119,13 +119,13 @@ async def list_orders(
     if actor.role == ROLE_CLIENT:
         conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
-        # Водитель видит: назначенные на него + все свободные in_progress/assigned
+        # Водитель видит: свои заявки + свободные in_progress (биржа)
         from sqlalchemy import or_
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
-                    Order.status.in_([OrderStatus.IN_PROGRESS, OrderStatus.ASSIGNED]),
+                    Order.status == OrderStatus.IN_PROGRESS,
                     Order.driver_id == None,  # noqa: E711
                 ),
             )
@@ -140,9 +140,11 @@ async def list_orders(
         conditions.append(Order.client_id == client_id)
 
     result = await db.execute(
-        select(Order).where(and_(*conditions))
-        .order_by(Order.created_at.desc())
-        .offset(offset).limit(limit)
+        _with_logs(
+            select(Order).where(and_(*conditions))
+            .order_by(Order.created_at.desc())
+            .offset(offset).limit(limit)
+        )
     )
     return list(result.scalars().all())
 
@@ -165,13 +167,14 @@ async def create_order(
             raise ForbiddenError("Клиент не может указывать client_id")
         client_id = actor.id
 
-    # Клиент не может оформить заказ в кредит — только менеджер вправе это разрешить
-    if not is_staff and data.payment_type == PaymentType.CREDIT:
-        raise ValidationError("Клиент не может оформить заказ с типом оплаты «кредит»")
+    # Клиент не может выбрать «по счёту» — только менеджер/админ для юрлиц
+    if not is_staff and data.payment_type == PaymentType.INVOICE:
+        raise ValidationError("Тип оплаты «по счёту» назначается менеджером")
 
     # Дата доставки не может быть в прошлом
     if data.desired_date:
-        if data.desired_date.replace(tzinfo=None) < datetime.now(timezone.utc).replace(tzinfo=None):
+        desired_utc = data.desired_date if data.desired_date.tzinfo else data.desired_date.replace(tzinfo=timezone.utc)
+        if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     order_number = await generate_order_number(db)
@@ -256,12 +259,52 @@ async def update_order(
         order.priority = data.priority
     if data.manager_comment is not None:
         order.manager_comment = data.manager_comment
-    if data.driver_id is not None:
-        order.driver_id = data.driver_id
     if data.desired_date is not None:
         order.desired_date = data.desired_date
+    # driver_id больше не назначается менеджером — водители берут заявки через /claim
 
     return order
+
+
+async def claim_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> Order:
+    """Водитель берёт свободную заявку из биржи (IN_PROGRESS, driver_id IS NULL).
+    Атомарная операция: UPDATE ... WHERE driver_id IS NULL защищает от гонки.
+    """
+    if actor.role != ROLE_DRIVER:
+        raise ForbiddenError("Взять заявку может только водитель")
+
+    result = await db.execute(
+        _with_logs(
+            select(Order).where(
+                Order.id == order_id,
+                Order.is_archived == False,  # noqa: E712
+                Order.status == OrderStatus.IN_PROGRESS,
+                Order.driver_id == None,  # noqa: E711
+            )
+        )
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise NotFoundError("Заявка не найдена или уже занята другим водителем")
+
+    order.driver_id = actor.id
+    await db.flush()
+
+    db.add(OrderStatusLog(
+        order_id=order.id,
+        from_status=order.status,
+        to_status=order.status,
+        changed_by_id=actor.id,
+        changed_by_role=actor.role,
+        comment="Заявка взята водителем",
+    ))
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    return result.scalar_one()
 
 
 async def transition_status(
@@ -281,14 +324,11 @@ async def transition_status(
     if data.to_status == OrderStatus.IN_TRANSIT:
         await _auto_start_trip(order, actor)
 
-    if data.to_status == OrderStatus.ASSIGNED:
-        driver_id = data.driver_id or order.driver_id
-        if not driver_id:
+    # При переводе in_progress → in_transit водитель должен быть уже в driver_id (через /claim)
+    if data.to_status == OrderStatus.IN_TRANSIT and actor.role == ROLE_DRIVER:
+        if not order.driver_id or order.driver_id != actor.id:
             from app.core.exceptions import StatusTransitionError
-            raise StatusTransitionError("Для назначения укажите driver_id")
-        order.driver_id = driver_id
-        if not order.manager_id:
-            order.manager_id = actor.id
+            raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
 
     if data.to_status == OrderStatus.REJECTED:
         if not data.rejection_reason:

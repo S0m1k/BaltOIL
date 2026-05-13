@@ -38,10 +38,6 @@ class Trip(Base):
     volume_planned: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     volume_actual: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
 
-    # Одометр (показания счётчика)
-    odometer_start: Mapped[float | None] = mapped_column(Numeric(10, 1), nullable=True)
-    odometer_end: Mapped[float | None] = mapped_column(Numeric(10, 1), nullable=True)
-
     # Временные метки рейса
     departed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

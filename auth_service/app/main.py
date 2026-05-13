@@ -19,7 +19,7 @@ settings = get_settings()
 
 
 async def _bootstrap_admin() -> None:
-    """Create the default admin on first startup if no users exist."""
+    """Create the default admin (and dev test users) on first startup."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.role == UserRole.ADMIN).limit(1))
         if result.scalar_one_or_none():
@@ -32,13 +32,37 @@ async def _bootstrap_admin() -> None:
             role=UserRole.ADMIN,
         )
         db.add(admin)
-        await db.commit()
         print(f"[bootstrap] Admin created: {settings.bootstrap_admin_email}")
+
+        if settings.app_env == "development":
+            from app.models.client_profile import ClientProfile, ClientType
+            dev_users = [
+                User(email="admin@baltoil.ru",   hashed_password=hash_password("Admin1234!"),  full_name="Иван Петров",    role=UserRole.ADMIN),
+                User(email="manager@baltoil.ru", hashed_password=hash_password("Manager1!"),   full_name="Мария Сидорова", role=UserRole.MANAGER),
+                User(email="driver@baltoil.ru",  hashed_password=hash_password("Driver11!"),   full_name="Алексей Кузнецов", role=UserRole.DRIVER),
+                User(email="client@baltoil.ru",  hashed_password=hash_password("Client1!"),    full_name="ООО Тест",       role=UserRole.CLIENT),
+            ]
+            for u in dev_users:
+                db.add(u)
+            await db.flush()
+            # Создаём профиль для тестового клиента
+            client_user = next(u for u in dev_users if u.role == UserRole.CLIENT)
+            db.add(ClientProfile(
+                user_id=client_user.id,
+                client_type=ClientType.COMPANY,
+                company_name="ООО Тест",
+                delivery_address="г. Калининград, ул. Тестовая, 1",
+            ))
+            print("[bootstrap] Dev test users created: admin/manager/driver/client @baltoil.ru")
+
+        await db.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup: проверяем небезопасную CORS-конфигурацию
+    if settings.app_env == "production" and "*" in settings.cors_origins:
+        raise RuntimeError("CORS wildcard '*' запрещён в production. Задайте ALLOWED_ORIGINS явно.")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _bootstrap_admin()

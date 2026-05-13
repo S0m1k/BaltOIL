@@ -7,10 +7,10 @@ from .order_status_log import OrderStatusLogResponse
 
 class OrderCreateRequest(BaseModel):
     fuel_type: FuelType
-    volume_requested: float = Field(..., gt=0, description="Объём в литрах, минимум 1000")
+    volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 1000, максимум 200 000")
     delivery_address: str
     desired_date: datetime | None = None
-    payment_type: PaymentType = PaymentType.PREPAID
+    payment_type: PaymentType = PaymentType.ON_DELIVERY
     client_comment: str | None = None
 
     # Только для менеджера/админа: создать от имени конкретного клиента
@@ -29,10 +29,9 @@ class OrderCreateRequest(BaseModel):
 
 
 class OrderUpdateRequest(BaseModel):
-    """Менеджер может обновить приоритет, комментарий, назначить водителя."""
+    """Менеджер может обновить приоритет, комментарий и желаемую дату."""
     priority: OrderPriority | None = None
     manager_comment: str | None = None
-    driver_id: uuid.UUID | None = None
     desired_date: datetime | None = None
 
 
@@ -58,6 +57,7 @@ class OrderResponse(BaseModel):
     delivery_address: str
     desired_date: datetime | None
     payment_type: PaymentType
+    payment_status: str
     status: OrderStatus
     priority: OrderPriority
     manager_id: uuid.UUID | None
@@ -79,10 +79,16 @@ class OrderListResponse(BaseModel):
     client_id: uuid.UUID
     fuel_type: FuelType
     volume_requested: float
+    volume_delivered: float | None
     delivery_address: str
     status: OrderStatus
     priority: OrderPriority
+    manager_id: uuid.UUID | None
     driver_id: uuid.UUID | None
+    client_comment: str | None
+    manager_comment: str | None
+    payment_type: PaymentType
+    payment_status: str
     desired_date: datetime | None
     created_at: datetime
 

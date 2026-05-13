@@ -1,14 +1,18 @@
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Query
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import UserRole
 from app.core.dependencies import CurrentUser, require_roles, get_request_meta
+
+limiter = Limiter(key_func=get_remote_address)
 from app.schemas.auth import ChangePasswordRequest
 from app.schemas.user import UserResponse, UserShortResponse, CreateUserRequest, UpdateUserRequest
-from app.schemas.client_profile import ClientProfileResponse, UpdateClientProfileRequest
+from app.schemas.client_profile import ClientProfileResponse, UpdateClientProfileRequest, UpdateClientTariffRequest
 from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -87,13 +91,28 @@ async def archive_user(
 
 
 @router.patch("/{user_id}/profile", response_model=ClientProfileResponse)
+@limiter.limit("30/minute")
 async def update_client_profile(
     user_id: uuid.UUID,
     data: UpdateClientProfileRequest,
     current_user: CurrentUser,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await user_service.update_client_profile(
+        db, user_id, data, actor=current_user
+    )
+
+
+@router.patch("/{user_id}/tariff", response_model=ClientProfileResponse)
+async def update_client_tariff(
+    user_id: uuid.UUID,
+    data: UpdateClientTariffRequest,
+    current_user: CurrentUser,
+    _: AdminOnly,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await user_service.update_client_tariff(
         db, user_id, data, actor=current_user
     )
 

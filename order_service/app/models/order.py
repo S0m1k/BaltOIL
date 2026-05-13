@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import (
     String, Text, Numeric, DateTime, Enum as SAEnum,
-    Integer, Boolean, func, ForeignKey
+    Integer, Boolean, func
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -21,8 +21,7 @@ class FuelType(str, enum.Enum):
 class OrderStatus(str, enum.Enum):
     NEW = "new"                                   # Новая
     IN_PROGRESS = "in_progress"                   # В работе (менеджер принял)
-    ASSIGNED = "assigned"                         # Назначена водителю
-    IN_TRANSIT = "in_transit"                     # В рейсе
+    IN_TRANSIT = "in_transit"                     # В рейсе (водитель взял и выехал)
     DELIVERED = "delivered"                       # Доставлена
     PARTIALLY_DELIVERED = "partially_delivered"   # Частично доставлена
     CLOSED = "closed"                             # Закрыта
@@ -30,8 +29,8 @@ class OrderStatus(str, enum.Enum):
 
 
 class PaymentType(str, enum.Enum):
-    PREPAID = "prepaid"       # Предоплата
-    CREDIT = "credit"         # Товарный кредит (только для юр. лиц с договором)
+    INVOICE = "invoice"         # По счёту (для юридических лиц)
+    ON_DELIVERY = "on_delivery" # По факту, при прибытии (для физических лиц)
 
 
 class OrderPriority(str, enum.Enum):
@@ -81,6 +80,11 @@ class Order(Base):
     client_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     manager_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Статус оплаты (отдельно от статуса заявки)
+    payment_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unpaid", index=True
+    )  # unpaid | paid | partially_paid
 
     # Мягкое удаление
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

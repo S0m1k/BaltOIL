@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Поставщикам · СЗТК — Северо-Западная Топливная Компания</title>
+<meta name="description" content="Поставщикам нефтепродуктов, оборудования и автотранспорта. Предложения о сотрудничестве направляйте в отдел закупок СЗТК на sz_tk@mail.ru.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ═══════════════════════════════════════════════════════════
+   MOBILE-FIRST: base styles target the smallest screens,
+   then progressively enhance with min-width media queries.
+══════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --paper:       #ffffff;
+  --paper-deep:  #f1f5f9;
+  --paper-edge:  #cbd5e1;
+  --ink:         #0a2540;
+  --ink-soft:    #1e293b;
+  --ink-mute:    #64748b;
+  --accent:      #1565c0;
+  --accent-2:    #1e5fbe;
+  --accent-bright: #3b82f6;
+  --rule:        #cbd5e1;
+  --rule-soft:   rgba(10,37,64,.10);
+
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body:    "IBM Plex Sans", system-ui, sans-serif;
+  --mono:    "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: var(--body);
+  font-weight: 400;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.6;
+  font-feature-settings: "ss01","ss02","kern";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: -20vmin; right: -20vmin;
+  width: 80vmin; height: 80vmin;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle, rgba(30,95,190,0.10), transparent 65%);
+}
+
+::selection { background: var(--accent); color: #fff; }
+
+a { color: inherit; }
+
+/* ─── TYPOGRAPHY ─── */
+.display {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+  letter-spacing: -0.025em;
+  line-height: 0.95;
+}
+.mono {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  font-weight: 500;
+}
+.eyebrow::before {
+  content: '';
+  width: 24px; height: 1px;
+  background: var(--accent);
+}
+
+/* ─── WRAP (mobile-first: tight padding, larger on bigger screens) ─── */
+.wrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 20px;
+  position: relative;
+  z-index: 2;
+}
+@media (min-width: 640px)  { .wrap { padding: 0 32px; } }
+@media (min-width: 1024px) { .wrap { padding: 0 48px; } }
+
+/* ─── NAV ─── */
+.nav {
+  position: sticky; top: 0;
+  z-index: 100;
+  background: rgba(255,255,255,0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--rule-soft);
+  transition: padding .25s ease;
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+}
+.nav.compact .nav-inner { padding: 10px 0; }
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--ink);
+  min-width: 0;
+}
+.brand-logo {
+  height: 44px;
+  width: auto;
+  display: block;
+  transition: height .25s ease;
+}
+.nav.compact .brand-logo { height: 36px; }
+.brand-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  font-weight: 500;
+  border-left: 1px solid var(--rule);
+  padding-left: 12px;
+  line-height: 1.35;
+  display: none;
+}
+
+.nav-links { display: none; }
+.nav-actions { display: flex; align-items: center; gap: 10px; }
+
+@media (min-width: 700px) {
+  .brand-logo { height: 52px; }
+  .brand-tag { display: block; }
+}
+@media (min-width: 1024px) {
+  .nav-inner { gap: 32px; }
+  .nav-links {
+    display: flex;
+    gap: 28px;
+    flex: 1;
+    justify-content: center;
+  }
+  .nav-links a {
+    font-family: var(--body);
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    position: relative;
+    padding: 4px 0;
+    transition: color .2s ease;
+  }
+  .nav-links a::after {
+    content: '';
+    position: absolute;
+    left: 0; bottom: 0;
+    width: 0; height: 1px;
+    background: var(--accent);
+    transition: width .25s ease;
+  }
+  .nav-links a.active,
+  .nav-links a:hover { color: var(--ink); }
+  .nav-links a.active::after,
+  .nav-links a:hover::after { width: 100%; }
+}
+
+/* ─── BUTTONS ─── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 18px;
+  font-family: var(--body);
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: transform .15s ease, background .2s ease, color .2s ease, box-shadow .2s ease;
+  white-space: nowrap;
+  letter-spacing: -0.005em;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--ink); color: #fff; }
+.btn-primary:hover { background: var(--accent); }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-accent:hover { background: var(--ink); }
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.btn-ghost:hover { background: var(--ink); color: #fff; }
+.btn-lg { padding: 16px 26px; font-size: 15px; }
+
+@media (min-width: 700px) {
+  .btn { padding: 13px 22px; }
+}
+
+/* ─── HERO ─── */
+.hero {
+  padding: 48px 0 56px;
+  position: relative;
+  overflow: hidden;
+}
+.hero-grid { display: grid; gap: 36px; }
+
+.hero-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 28;
+  font-size: clamp(40px, 12vw, 92px);
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+.hero-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--accent);
+}
+.hero-sub {
+  margin-top: 22px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: 56ch;
+}
+.hero-sub b {
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px dashed var(--accent);
+}
+.hero-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+}
+.hero-cta .btn { width: 100%; }
+
+@media (min-width: 540px) {
+  .hero-cta { flex-direction: row; flex-wrap: wrap; }
+  .hero-cta .btn { width: auto; }
+}
+@media (min-width: 768px) {
+  .hero { padding: 80px 0 88px; }
+  .hero-sub { font-size: 18px; margin-top: 32px; }
+  .hero-cta { margin-top: 40px; gap: 16px; }
+}
+@media (min-width: 1024px) {
+  .hero { padding: 96px 0 120px; }
+  .hero-grid { grid-template-columns: 1.4fr 1fr; gap: 64px; align-items: end; }
+}
+
+/* hero side card */
+.hero-card {
+  background: var(--paper-deep);
+  border: 1px solid var(--rule-soft);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.hero-card h3 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 32, "SOFT" 30;
+  font-size: 20px;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.hero-card .mono-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-mute);
+}
+.hero-card .email-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.hero-card .email-row a {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  word-break: break-all;
+}
+.hero-card .email-row a:hover { text-decoration: underline; }
+
+/* ─── SECTION FRAME ─── */
+.section { padding: 64px 0; position: relative; }
+@media (min-width: 768px) { .section { padding: 96px 0; } }
+@media (min-width: 1024px) { .section { padding: 120px 0; } }
+
+.section-head { margin-bottom: 36px; display: grid; gap: 20px; }
+.section-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 12px;
+}
+.section-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 25;
+  font-size: clamp(32px, 7vw, 72px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+}
+.section-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--accent);
+}
+.section-desc {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  max-width: 60ch;
+}
+@media (min-width: 768px) {
+  .section-head { grid-template-columns: 1fr 1fr; gap: 36px; align-items: end; margin-bottom: 56px; }
+  .section-desc { justify-self: end; max-width: 44ch; }
+}
+
+/* ─── CATEGORIES (mobile-first single column → 3 cols) ─── */
+.cats {
+  background: var(--paper-deep);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.cats-grid {
+  display: grid;
+  gap: 16px;
+}
+.cat {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 28px 24px 32px;
+  position: relative;
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+}
+.cat:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: 0 20px 48px -28px rgba(10,37,64,.25);
+}
+.cat-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+.cat-icon {
+  width: 44px; height: 44px;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+.cat-icon svg { width: 100%; height: 100%; }
+.cat h3 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 32, "SOFT" 30;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin-bottom: 12px;
+}
+.cat ul { list-style: none; }
+.cat li {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  padding-left: 16px;
+  position: relative;
+  margin-bottom: 6px;
+}
+.cat li::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px;
+  width: 8px; height: 1px;
+  background: var(--accent);
+}
+@media (min-width: 700px) {
+  .cats-grid { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+}
+@media (min-width: 1024px) {
+  .cats-grid { grid-template-columns: repeat(3, 1fr); gap: 24px; }
+}
+
+/* ─── PROCESS (3 steps, vertical on mobile, horizontal on desktop) ─── */
+.process {
+  background: var(--ink);
+  color: var(--paper);
+  position: relative;
+  overflow: hidden;
+}
+.process::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+.process .section-title { color: var(--paper); }
+.process .section-title em { color: var(--accent-bright); }
+.process .section-desc { color: rgba(255,255,255,0.7); }
+.process .section-num { color: var(--accent-bright); }
+
+.steps {
+  display: grid;
+  gap: 0;
+  position: relative;
+  z-index: 2;
+}
+.step {
+  padding: 28px 0;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  position: relative;
+}
+.step:last-child { border-bottom: 1px solid rgba(255,255,255,0.12); }
+.step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--accent-bright);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+.step-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin-bottom: 10px;
+}
+.step-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.7);
+  max-width: 50ch;
+}
+@media (min-width: 900px) {
+  .steps {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  .step {
+    padding: 36px 28px 36px 0;
+    border-top: none;
+    border-right: 1px solid rgba(255,255,255,0.12);
+    border-left: none;
+  }
+  .step::before {
+    content: '';
+    position: absolute;
+    top: 36px; left: 0;
+    width: 32px; height: 1px;
+    background: var(--accent-bright);
+  }
+  .step:first-child { padding-left: 0; }
+  .step:first-child::before { left: 0; }
+  .step:last-child { border-right: none; border-bottom: none; }
+}
+
+/* ─── NOTE BLOCK ─── */
+.note {
+  padding: 24px 22px;
+  background: var(--paper-deep);
+  border-left: 3px solid var(--accent);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.note strong { color: var(--ink); font-weight: 600; }
+.note .note-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+@media (min-width: 768px) {
+  .note { padding: 28px 32px; font-size: 15px; }
+}
+
+/* ─── CONTACT BLOCK ─── */
+.contact {
+  background: var(--paper-deep);
+}
+.contact-grid {
+  display: grid;
+  gap: 28px;
+}
+.contact-info h3 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+  font-size: clamp(26px, 5vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin-bottom: 18px;
+}
+.contact-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+  padding: 16px 0;
+  border-top: 1px solid var(--rule-soft);
+  align-items: baseline;
+}
+.contact-row:last-child { border-bottom: 1px solid var(--rule-soft); }
+.contact-row dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.contact-row dd {
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.contact-row dd a {
+  text-decoration: none;
+  color: var(--ink);
+  border-bottom: 1px dashed var(--accent);
+}
+.contact-row dd a:hover { color: var(--accent); }
+.contact-row dd.mono { font-family: var(--mono); font-size: 14px; letter-spacing: 0.02em; }
+
+.contact-form-card {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 28px 24px;
+}
+.contact-form-card h4 {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 32, "SOFT" 30;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  margin-bottom: 14px;
+}
+.contact-form-card p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-bottom: 22px;
+}
+.contact-form-card .btn { width: 100%; }
+@media (min-width: 768px) {
+  .contact-grid { grid-template-columns: 1.3fr 1fr; gap: 48px; align-items: start; }
+  .contact-form-card { padding: 36px 32px; }
+  .contact-form-card .btn { width: auto; }
+}
+
+/* ─── CTA STRIP ─── */
+.cta-strip {
+  padding: 56px 0;
+  background: var(--paper);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  position: relative;
+  overflow: hidden;
+}
+.cta-strip-inner {
+  display: grid;
+  gap: 20px;
+  align-items: center;
+}
+.cta-strip-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 25;
+  font-size: clamp(28px, 5vw, 52px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.cta-strip-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--accent);
+}
+@media (min-width: 768px) {
+  .cta-strip { padding: 80px 0; }
+  .cta-strip-inner { grid-template-columns: 1fr auto; gap: 36px; }
+}
+
+/* ─── FOOTER ─── */
+.foot {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 56px 0 24px;
+}
+.foot-grid {
+  display: grid;
+  gap: 32px;
+  margin-bottom: 40px;
+}
+.foot h4 {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+.foot p, .foot a {
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.85);
+  text-decoration: none;
+  display: block;
+  margin-bottom: 6px;
+}
+.foot a:hover { color: var(--accent-bright); }
+.foot-brand {
+  font-family: var(--display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 60, "SOFT" 30;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+  color: var(--paper);
+}
+.foot-tagline {
+  font-size: 13px;
+  color: rgba(255,255,255,0.6);
+  max-width: 280px;
+}
+.foot-phone {
+  font-family: var(--mono);
+  font-size: 17px !important;
+  font-weight: 500;
+  color: var(--paper) !important;
+  margin-bottom: 6px !important;
+}
+.foot-base {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.5);
+}
+@media (min-width: 640px) {
+  .foot-grid { grid-template-columns: 1fr 1fr; gap: 36px; }
+  .foot-base { flex-direction: row; justify-content: space-between; align-items: center; }
+}
+@media (min-width: 1024px) {
+  .foot { padding: 72px 0 28px; }
+  .foot-grid { grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 48px; margin-bottom: 56px; }
+}
+
+/* ─── REVEAL ANIMATION ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1);
+}
+.reveal.visible { opacity: 1; transform: none; }
+.reveal-d1 { transition-delay: .08s; }
+.reveal-d2 { transition-delay: .16s; }
+.reveal-d3 { transition-delay: .24s; }
+
+/* Hero entrance */
+.hero-title, .hero-sub, .hero-cta, .hero-card {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: heroIn .85s cubic-bezier(.2,.7,.2,1) forwards;
+}
+.hero-title { animation-delay: .1s; }
+.hero-sub   { animation-delay: .3s; }
+.hero-cta   { animation-delay: .45s; }
+.hero-card  { animation-delay: .55s; }
+@keyframes heroIn { to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════ NAV ═══════ -->
+<header class="nav" id="nav">
+  <div class="wrap">
+    <nav class="nav-inner">
+      <a href="landing.html" class="brand" aria-label="СЗТК — на главную">
+        <img class="brand-logo"
+             src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
+             alt="СЗТК — Северо-Западная Топливная Компания">
+        <span class="brand-tag">Северо-Западная<br>Топливная компания</span>
+      </a>
+      <div class="nav-links">
+        <a href="landing.html#fuels">Топливо</a>
+        <a href="landing.html#process">Доставка</a>
+        <a href="landing.html#audience">Для кого</a>
+        <a href="suppliers.html" class="active">Поставщикам</a>
+        <a href="landing.html#contacts">Контакты</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/index.html" class="btn btn-accent">Личный кабинет</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<!-- ═══════ HERO ═══════ -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow" style="margin-bottom: 24px;">Отдел закупок СЗТК</div>
+        <h1 class="hero-title">
+          Поставщикам<br>
+          <em>нефтепродуктов,</em><br>
+          оборудования,<br>
+          автотранспорта.
+        </h1>
+        <p class="hero-sub">
+          Если у&nbsp;вас есть предложение по&nbsp;поставкам нефтепродуктов, оборудования
+          или&nbsp;автотранспорта&nbsp;— направляйте его&nbsp;<b>в&nbsp;отдел закупок</b>
+          СЗТК. Рассматриваем системно, отвечаем по&nbsp;существу.
+        </p>
+        <div class="hero-cta">
+          <a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA"
+             class="btn btn-primary btn-lg">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+              <rect x="1.5" y="3" width="13" height="10"/>
+              <path d="M1.5 4l6.5 5 6.5-5"/>
+            </svg>
+            Написать в отдел закупок
+          </a>
+          <a href="#categories" class="btn btn-ghost btn-lg">Что мы закупаем</a>
+        </div>
+      </div>
+
+      <aside class="hero-card">
+        <div>
+          <div class="mono-label">тема письма</div>
+          <h3 style="margin-top: 6px;">«В&nbsp;отдел закупок»</h3>
+        </div>
+        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.6;">
+          Укажите номенклатуру, объёмы, базис, цену, условия оплаты,
+          реквизиты компании и&nbsp;контактное лицо.
+        </p>
+        <div class="email-row">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" style="color: var(--accent); flex-shrink: 0;">
+            <rect x="1.5" y="3" width="13" height="10"/>
+            <path d="M1.5 4l6.5 5 6.5-5"/>
+          </svg>
+          <a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA">sz_tk@mail.ru</a>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ CATEGORIES ═══════ -->
+<section class="section cats" id="categories">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/01 — Номенклатура</span>
+        <h2 class="section-title reveal">Что мы <em>закупаем</em></h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Три основных направления. Рассматриваем как разовые поставки,
+        так&nbsp;и&nbsp;долгосрочные контракты на&nbsp;конкурентных условиях.
+      </p>
+    </header>
+
+    <div class="cats-grid">
+      <article class="cat reveal">
+        <div class="cat-num">01 / Топливо</div>
+        <div class="cat-icon" aria-hidden="true">
+          <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="10" width="20" height="28"/>
+            <path d="M6 16h20"/>
+            <path d="M26 18l5 4v14a3 3 0 0 1-3 3"/>
+            <path d="M31 22h4v6"/>
+          </svg>
+        </div>
+        <h3>Нефтепродукты</h3>
+        <ul>
+          <li>Дизельное топливо ДТ-Л, ДТ-Е, ДТ-З (ГОСТ&nbsp;305)</li>
+          <li>Бензины АИ-92, АИ-95 (К5)</li>
+          <li>Мазут топочный М-100</li>
+          <li>Керосин ТС-1, печное топливо</li>
+          <li>СУГ (пропан-бутан) для&nbsp;промышленных нужд</li>
+        </ul>
+      </article>
+
+      <article class="cat reveal reveal-d1">
+        <div class="cat-num">02 / Оборудование</div>
+        <div class="cat-icon" aria-hidden="true">
+          <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="22" cy="22" r="6"/>
+            <path d="M22 4v6M22 34v6M4 22h6M34 22h6M9 9l4 4M31 31l4 4M9 35l4-4M31 13l4-4"/>
+          </svg>
+        </div>
+        <h3>Оборудование</h3>
+        <ul>
+          <li>Топливораздаточные колонки и&nbsp;счётчики</li>
+          <li>Резервуары, ёмкости, цистерны</li>
+          <li>Насосное оборудование, фильтры</li>
+          <li>ЗИП для&nbsp;бензовозов, КИПиА</li>
+          <li>Средства учёта и&nbsp;контроля качества</li>
+        </ul>
+      </article>
+
+      <article class="cat reveal reveal-d2">
+        <div class="cat-num">03 / Транспорт</div>
+        <div class="cat-icon" aria-hidden="true">
+          <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 30V14h22v16"/>
+            <path d="M25 18h10l6 6v6H25"/>
+            <circle cx="12" cy="32" r="4"/>
+            <circle cx="32" cy="32" r="4"/>
+          </svg>
+        </div>
+        <h3>Автотранспорт</h3>
+        <ul>
+          <li>Бензовозы 4×2, 6×4, 8×4 от&nbsp;3,5 до&nbsp;25&nbsp;м³</li>
+          <li>Полуприцепы-цистерны</li>
+          <li>Шасси и&nbsp;тягачи</li>
+          <li>Спецтехника для&nbsp;нефтебазы</li>
+          <li>Сервисное и&nbsp;ремонтное обслуживание парка</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ PROCESS ═══════ -->
+<section class="section process" id="process">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/02 — Как мы рассматриваем</span>
+        <h2 class="section-title reveal">Три шага<br>до&nbsp;<em>сделки</em></h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Прозрачная процедура. Понимаем ценность вашего времени&nbsp;—
+        не&nbsp;затягиваем, не&nbsp;водим по&nbsp;кругу, не&nbsp;«посоветуйтесь с&nbsp;коллегами».
+      </p>
+    </header>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-num">шаг&nbsp;01</div>
+        <h3 class="step-title">Письмо с&nbsp;предложением</h3>
+        <p class="step-text">
+          Отправьте КП на&nbsp;<b style="color: #fff;">sz_tk@mail.ru</b> с&nbsp;темой «В&nbsp;отдел закупок».
+          Приложите спецификацию, прайс, реквизиты, контактное лицо.
+        </p>
+      </div>
+      <div class="step reveal reveal-d1">
+        <div class="step-num">шаг&nbsp;02</div>
+        <h3 class="step-title">Внутреннее рассмотрение</h3>
+        <p class="step-text">
+          Закупщик сверяет вашу позицию с&nbsp;потребностью и&nbsp;текущими контрактами.
+          При совпадении интересов&nbsp;— возвращается с&nbsp;вопросами и&nbsp;встречей.
+        </p>
+      </div>
+      <div class="step reveal reveal-d2">
+        <div class="step-num">шаг&nbsp;03</div>
+        <h3 class="step-title">Договор и&nbsp;поставка</h3>
+        <p class="step-text">
+          Согласование условий, тестовая партия (если применимо), затем рамочный
+          договор. Платим вовремя&nbsp;— это часть нашей репутации.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ NOTE ═══════ -->
+<section class="section" style="padding-top: 0;">
+  <div class="wrap">
+    <div class="note reveal">
+      <span class="note-label">Важно</span>
+      <strong>Отдел продаж не&nbsp;принимает решения по&nbsp;сотрудничеству с&nbsp;поставщиками.</strong>
+      Не&nbsp;звоните менеджерам по&nbsp;продажам и&nbsp;не&nbsp;пишите им&nbsp;с&nbsp;коммерческими предложениями&nbsp;—
+      это&nbsp;только удлинит цикл. Все предложения принимаются исключительно письменно
+      на&nbsp;<a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA"
+                style="color: var(--accent); border-bottom: 1px dashed var(--accent); text-decoration: none;">sz_tk@mail.ru</a>
+      с&nbsp;пометкой <strong>«В&nbsp;отдел закупок»</strong>.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ CONTACT ═══════ -->
+<section class="section contact" id="contact">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/03 — Контакты</span>
+        <h2 class="section-title reveal">Отдел<br><em>закупок</em></h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Письма обрабатываются в&nbsp;течение 5&nbsp;рабочих дней. Если ваше
+        предложение интересно&nbsp;— с&nbsp;вами свяжется закупщик профильного направления.
+      </p>
+    </header>
+
+    <div class="contact-grid">
+      <dl class="contact-info reveal">
+        <h3>Куда направлять предложения</h3>
+        <div class="contact-row">
+          <dt>E-mail</dt>
+          <dd><a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA">sz_tk@mail.ru</a></dd>
+        </div>
+        <div class="contact-row">
+          <dt>Тема</dt>
+          <dd>В&nbsp;отдел закупок</dd>
+        </div>
+        <div class="contact-row">
+          <dt>Телефон</dt>
+          <dd class="mono"><a href="tel:+78129171517">+7 812 917-15-17</a></dd>
+        </div>
+        <div class="contact-row">
+          <dt>Доп. линия</dt>
+          <dd class="mono"><a href="tel:+79219171517">+7 921 917-15-17</a></dd>
+        </div>
+        <div class="contact-row">
+          <dt>Регион</dt>
+          <dd>Санкт-Петербург, Ленинградская область</dd>
+        </div>
+      </dl>
+
+      <aside class="contact-form-card reveal reveal-d1">
+        <h4>Что приложить к&nbsp;письму</h4>
+        <p>
+          Карточка организации с&nbsp;ОГРН/ИНН, спецификация на&nbsp;продукцию (ГОСТ/ТУ,
+          производитель, паспорт качества), прайс, минимальная партия, условия поставки
+          (FCA/DAP/CPT), способ оплаты, контактное лицо.
+        </p>
+        <a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA&body=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%2C%20%D0%BA%D0%BE%D0%BB%D0%BB%D0%B5%D0%B3%D0%B8.%0D%0A%0D%0A%D0%9A%D0%BE%D0%BC%D0%BF%D0%B0%D0%BD%D0%B8%D1%8F%3A%20%0D%0A%D0%9E%D0%93%D0%A0%D0%9D%2F%D0%98%D0%9D%D0%9D%3A%20%0D%0A%D0%9D%D0%BE%D0%BC%D0%B5%D0%BD%D0%BA%D0%BB%D0%B0%D1%82%D1%83%D1%80%D0%B0%3A%20%0D%0A%D0%9E%D0%B1%D1%8A%D1%91%D0%BC%2C%20%D0%BB%2F%D1%82%3A%20%0D%0A%D0%91%D0%B0%D0%B7%D0%B8%D1%81%20(FCA%2FDAP%2FCPT)%3A%20%0D%0A%D0%A6%D0%B5%D0%BD%D0%B0%2C%20%D1%80%D1%83%D0%B1%2F%D0%BB%3A%20%0D%0A%D0%A3%D1%81%D0%BB%D0%BE%D0%B2%D0%B8%D1%8F%20%D0%BE%D0%BF%D0%BB%D0%B0%D1%82%D1%8B%3A%20%0D%0A%D0%9A%D0%BE%D0%BD%D1%82%D0%B0%D0%BA%D1%82%D0%BD%D0%BE%D0%B5%20%D0%BB%D0%B8%D1%86%D0%BE%2C%20%D1%82%D0%B5%D0%BB%D0%B5%D1%84%D0%BE%D0%BD%3A%20%0D%0A%0D%0A%D0%A1%20%D1%83%D0%B2%D0%B0%D0%B6%D0%B5%D0%BD%D0%B8%D0%B5%D0%BC%2C"
+           class="btn btn-accent btn-lg">
+          Открыть шаблон письма
+        </a>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ CTA STRIP ═══════ -->
+<section class="cta-strip">
+  <div class="wrap">
+    <div class="cta-strip-inner">
+      <h2 class="cta-strip-title reveal">
+        Готовы предложить?<br>
+        <em>Напишите</em> в&nbsp;отдел&nbsp;закупок.
+      </h2>
+      <a href="mailto:sz_tk@mail.ru?subject=%D0%92%20%D0%BE%D1%82%D0%B4%D0%B5%D0%BB%20%D0%B7%D0%B0%D0%BA%D1%83%D0%BF%D0%BE%D0%BA"
+         class="btn btn-primary btn-lg">
+        sz_tk@mail.ru
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ FOOTER ═══════ -->
+<footer class="foot" id="contacts">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-brand">СЗТК</div>
+        <p class="foot-tagline">
+          Северо-Западная Топливная Компания.<br>
+          Дизель и&nbsp;нефтепродукты по&nbsp;СПб и&nbsp;Ленобласти.
+        </p>
+      </div>
+      <div>
+        <h4>Связь</h4>
+        <a href="tel:+78129171517" class="foot-phone">+7 812 917-15-17</a>
+        <a href="tel:+79219171517" class="foot-phone" style="margin-bottom: 14px !important;">+7 921 917-15-17</a>
+        <a href="mailto:sz_tk@mail.ru">sz_tk@mail.ru</a>
+      </div>
+      <div>
+        <h4>Навигация</h4>
+        <a href="landing.html">Главная</a>
+        <a href="landing.html#fuels">Прайс-лист</a>
+        <a href="landing.html#process">Доставка</a>
+        <a href="suppliers.html">Поставщикам</a>
+      </div>
+      <div>
+        <h4>Кабинет</h4>
+        <a href="/index.html">Войти</a>
+        <a href="/index.html#register">Регистрация</a>
+        <a href="landing.html#contacts">Контакты</a>
+      </div>
+    </div>
+    <div class="foot-base">
+      <div>© 2011—2026 · СЗТК</div>
+      <div>Санкт-Петербург</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Compact nav on scroll
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 32) nav.classList.add('compact');
+    else nav.classList.remove('compact');
+  }, { passive: true });
+
+  // Reveal-on-scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>

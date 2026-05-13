@@ -55,7 +55,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 14px;
+    font-size: 16px;
     min-height: 100vh;
     background-image:
       linear-gradient(rgba(14,165,233,.025) 1px, transparent 1px),
@@ -161,7 +161,7 @@
   .form-input {
     width: 100%; padding: 10px 14px;
     background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px;
+    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 15px;
     outline: none; transition: border-color .2s;
     border-radius: 2px;
   }
@@ -1070,6 +1070,30 @@
         </div>
         <div id="login-error"></div>
         <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
+
+        <!-- Тестовые реквизиты (только в dev) -->
+        <div id="dev-credentials" style="display:none;margin-top:16px;padding:12px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text2)">
+          <div style="font-weight:600;margin-bottom:8px;color:var(--text);font-family:'IBM Plex Mono',monospace">Тестовые аккаунты</div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('admin@baltoil.ru','Admin1234!')">
+              <span style="background:var(--amber-dim);color:var(--amber2);padding:1px 6px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:11px">ADMIN</span>
+              <span style="color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px">admin@baltoil.ru / Admin1234!</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('manager@baltoil.ru','Manager1!')">
+              <span style="background:var(--accent-dim);color:var(--accent2);padding:1px 6px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:11px">MANAGER</span>
+              <span style="color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px">manager@baltoil.ru / Manager1!</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('driver@baltoil.ru','Driver11!')">
+              <span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 6px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:11px">DRIVER</span>
+              <span style="color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px">driver@baltoil.ru / Driver11!</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('client@baltoil.ru','Client1!')">
+              <span style="background:rgba(59,130,246,.1);color:#2563eb;padding:1px 6px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:11px">CLIENT</span>
+              <span style="color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px">client@baltoil.ru / Client1!</span>
+            </div>
+          </div>
+          <div style="margin-top:7px;font-size:10px;color:var(--text3)">Нажмите на строку — поля заполнятся автоматически</div>
+        </div>
       </div>
 
       <!-- Register: choose type -->
@@ -1112,16 +1136,6 @@
       <div class="form-group">
         <label class="form-label">Адрес доставки</label>
         <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Серия паспорта</label>
-          <input type="text" id="ri-passport-s" class="form-input" placeholder="4520">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Номер паспорта</label>
-          <input type="text" id="ri-passport-n" class="form-input" placeholder="123456">
-        </div>
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
@@ -1255,8 +1269,7 @@
         <div class="status-checkboxes" id="status-filter-group">
           <label class="status-cb-label"><input type="checkbox" name="sf" value="new" checked onchange="loadOrders()"> Новые</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="in_progress" checked onchange="loadOrders()"> В работе</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="assigned" onchange="loadOrders()"> Назначены</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" onchange="loadOrders()"> В рейсе</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" checked onchange="loadOrders()"> В рейсе</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="delivered" checked onchange="loadOrders()"> Доставлены</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
@@ -1345,13 +1358,13 @@
         <div class="form-group">
           <label class="form-label">Тип оплаты</label>
           <div class="radio-group">
-            <label class="radio-label selected" id="pay-prepaid-label">
-              <input type="radio" name="payment" value="prepaid" checked onchange="updatePaymentUI()">
-              Предоплата
+            <label class="radio-label selected" id="pay-ondelivery-label">
+              <input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()">
+              По факту (при прибытии)
             </label>
-            <label class="radio-label" id="pay-credit-label">
-              <input type="radio" name="payment" value="credit" onchange="updatePaymentUI()">
-              Товарный кредит
+            <label class="radio-label" id="pay-invoice-label">
+              <input type="radio" name="payment" value="invoice" onchange="updatePaymentUI()">
+              По счёту (для юр. лиц)
             </label>
           </div>
         </div>
@@ -1718,11 +1731,13 @@
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════════
-const _H = window.location.hostname;
-const AUTH_URL     = `http://${_H}:8001/api/v1`;
-const ORDER_URL    = `http://${_H}:8002/api/v1`;
-const DELIVERY_URL = `http://${_H}:8003/api/v1`;
-const CHAT_URL     = `http://${_H}:8004`;
+const _H     = window.location.hostname;
+const _proto  = location.protocol === 'https:' ? 'https' : 'http';
+const _wsproto = location.protocol === 'https:' ? 'wss' : 'ws';
+const AUTH_URL     = `${_proto}://${_H}:8001/api/v1`;
+const ORDER_URL    = `${_proto}://${_H}:8002/api/v1`;
+const DELIVERY_URL = `${_proto}://${_H}:8003/api/v1`;
+const CHAT_URL     = `${_proto}://${_H}:8004`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -1781,12 +1796,16 @@ const FUEL_LABELS = {
 const STATUS_LABELS = {
   new:                 'Новая',
   in_progress:         'В работе',
-  assigned:            'Назначена',
   in_transit:          'В рейсе',
   delivered:           'Доставлена',
   partially_delivered: 'Частично',
   closed:              'Закрыта',
   rejected:            'Отклонена',
+};
+
+const PAYMENT_LABELS = {
+  on_delivery: 'По факту (при прибытии)',
+  invoice:     'По счёту (юр. лицо)',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -1931,6 +1950,17 @@ function switchAuthTab(tab) {
   }
 }
 
+function setTestCredentials(email, password) {
+  document.getElementById('login-email').value = email;
+  document.getElementById('login-password').value = password;
+}
+
+// Показывать тестовые реквизиты только в dev-окружении
+if (['localhost', '127.0.0.1'].includes(location.hostname)) {
+  const el = document.getElementById('dev-credentials');
+  if (el) el.style.display = 'block';
+}
+
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
@@ -1953,17 +1983,15 @@ async function doRegisterIndividual() {
     full_name:       document.getElementById('ri-fullname').value.trim(),
     password:        document.getElementById('ri-password').value,
     delivery_address: document.getElementById('ri-address').value.trim() || undefined,
-    passport_series:  document.getElementById('ri-passport-s').value.trim() || undefined,
-    passport_number:  document.getElementById('ri-passport-n').value.trim() || undefined,
   };
   const errEl = document.getElementById('ri-error');
   errEl.innerHTML = '';
   try {
-    await authPost('/auth/register/individual', body);
-    toast('Регистрация успешна! Войдите в систему.');
-    switchAuthMode('login');
-    document.getElementById('login-email').value = body.email;
-    document.getElementById('login-password').focus();
+    const tokens = await authPost('/auth/register/individual', body);
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    toast('Регистрация успешна! Добро пожаловать.');
+    await initApp();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -1987,11 +2015,11 @@ async function doRegisterCompany() {
   const errEl = document.getElementById('rc-error');
   errEl.innerHTML = '';
   try {
-    await authPost('/auth/register/company', body);
-    toast('Организация зарегистрирована! Войдите в систему.');
-    switchAuthMode('login');
-    document.getElementById('login-email').value = body.email;
-    document.getElementById('login-password').focus();
+    const tokens = await authPost('/auth/register/company', body);
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    toast('Организация зарегистрирована! Добро пожаловать.');
+    await initApp();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -2001,6 +2029,7 @@ async function doLogout() {
   if (chatWs) { chatWs.close(); chatWs = null; }
   if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
   if (notifSSE) { notifSSE.close(); notifSSE = null; }
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
   notifList = [];
   activeConvId = null;
   try {
@@ -2156,7 +2185,10 @@ function orderCardHTML(o) {
       <div class="priority-dot priority-${o.priority}"></div>
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
-      <div class="order-volume">${Number(o.volume_requested).toLocaleString('ru')} л</div>
+      <div class="order-volume">
+        ${Number(o.volume_requested).toLocaleString('ru')} л
+        ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
+      </div>
       ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">💬 ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       <div class="order-date">${fmtDate(o.created_at)}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
@@ -2170,7 +2202,7 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${fmtDate(o.desired_date)}</div></div>
-        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${o.payment_type === 'prepaid' ? 'Предоплата' : 'Кредит'}</div></div>
+        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
         <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? '🔴 Срочно' : 'Обычный'}</div></div>
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
@@ -2234,20 +2266,20 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','in_progress',{comment:'Принято менеджером'})">✓ Принять</button>`);
     if (s === 'new' || s === 'in_progress')
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptReject('${o.id}')">✗ Отклонить</button>`);
-    if (s === 'in_progress')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Назначить водителя</button>`);
-    if (s === 'assigned')
-      btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','in_progress',{comment:'Снят с водителя'})">↩ Вернуть в работу</button>`);
     if (s === 'delivered' || s === 'partially_delivered')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
     if (s === 'partially_delivered')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Повторный рейс</button>`);
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_progress',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
   }
 
   if (role === 'driver') {
-    if (s === 'assigned' && o.driver_id === currentUser.id)
+    // Свободная заявка — водитель может взять
+    if (s === 'in_progress' && !o.driver_id)
+      btns.push(`<button class="btn btn-sm btn-success" onclick="claimOrder('${o.id}')">✋ Взять заявку</button>`);
+    // Своя заявка — можно начать рейс
+    if (s === 'in_progress' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-warn" onclick="startOrderTrip('${o.id}')">▶ Начать рейс</button>`);
-    if (s === 'in_transit')
+    if (s === 'in_transit' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">🚚 Перейти к рейсу</button>`);
   }
 
@@ -2267,6 +2299,16 @@ async function transitionOrder(orderId, toStatus, extra = {}) {
   try {
     await orderPost(`/orders/${orderId}/transition`, { to_status: toStatus, ...extra });
     toast(`Статус изменён → ${STATUS_LABELS[toStatus] || toStatus}`);
+    await loadOrders();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function claimOrder(orderId) {
+  try {
+    await orderPost(`/orders/${orderId}/claim`, {});
+    toast('Заявка взята! Теперь нажмите «Начать рейс».');
     await loadOrders();
   } catch (e) {
     toast(e.message, 'error');
@@ -2395,8 +2437,8 @@ function promptVolume(orderId, toStatus) {
 // ═══════════════════════════════════════════════════════════════
 function updatePaymentUI() {
   const val = document.querySelector('input[name="payment"]:checked').value;
-  document.getElementById('pay-prepaid-label').classList.toggle('selected', val === 'prepaid');
-  document.getElementById('pay-credit-label').classList.toggle('selected', val === 'credit');
+  document.getElementById('pay-ondelivery-label').classList.toggle('selected', val === 'on_delivery');
+  document.getElementById('pay-invoice-label').classList.toggle('selected', val === 'invoice');
 }
 
 function updateStatusUI() {
@@ -3168,8 +3210,9 @@ function promptCreateUser() {
 // ═══════════════════════════════════════════════════════════════
 // NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════
-const NOTIF_URL = `http://${_H}:8005/api/v1`;
-let notifSSE = null;
+const NOTIF_URL = `${_proto}://${_H}:8005/api/v1`;
+let notifSSE = null;       // SSE connection (kept for close() on logout)
+let _notifPollTimer = null; // polling fallback timer
 let notifList = [];
 
 const NOTIF_TYPE_LABELS = {
@@ -3282,27 +3325,36 @@ async function markAllNotifsRead() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// SSE передаёт токен в URL (попадает в логи) — используем polling через Authorization header
 function connectNotifSSE() {
   if (notifSSE) { notifSSE.close(); notifSSE = null; }
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-  try {
-    notifSSE = new EventSource(`${NOTIF_URL}/notifications/stream?token=${encodeURIComponent(token)}`);
-    notifSSE.onmessage = (e) => {
-      try {
-        const notif = JSON.parse(e.data);
-        if (notif.type === 'ping') return;
-        notifList.unshift(notif);
-        if (notifList.length > 50) notifList.pop();
-        renderNotifPanel();
-        // Mini toast
-        toast(`${NOTIF_TYPE_LABELS[notif.type] || notif.type}: ${notif.body}`, 'success');
-      } catch {}
-    };
-    notifSSE.onerror = () => {
-      // SSE reconnects automatically; no action needed
-    };
-  } catch {}
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
+  if (!localStorage.getItem('access_token')) return;
+
+  let _lastSeenId = null;
+
+  async function _pollNotifs() {
+    try {
+      const url = _lastSeenId
+        ? `${NOTIF_URL}/notifications?unread_only=true&after_id=${_lastSeenId}&limit=20`
+        : `${NOTIF_URL}/notifications?unread_only=true&limit=20`;
+      const fresh = await api(url);
+      if (!Array.isArray(fresh) || fresh.length === 0) return;
+      // Новые уведомления (которых ещё нет в notifList)
+      const knownIds = new Set(notifList.map(n => n.id));
+      const newOnes = fresh.filter(n => !knownIds.has(n.id));
+      if (newOnes.length === 0) return;
+      newOnes.forEach(n => {
+        notifList.unshift(n);
+        toast(`${NOTIF_TYPE_LABELS[n.type] || n.type}: ${n.body}`, 'success');
+      });
+      if (notifList.length > 50) notifList.length = 50;
+      _lastSeenId = notifList[0]?.id ?? null;
+      renderNotifPanel();
+    } catch { /* сеть недоступна — тихо пропускаем */ }
+  }
+
+  _notifPollTimer = setInterval(_pollNotifs, 15_000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3470,30 +3522,6 @@ async function openConversation(convId) {
   startChatPoll(convId);
 }
 
-async function archiveCurrentConv() {
-  if (!activeConvId) return;
-  openModal('Удалить диалог?',
-    '<p style="color:var(--text2);font-size:13px">Диалог будет архивирован и исчезнет из списка у всех участников.</p>',
-    async () => {
-      closeModal();
-      try {
-        await api(`${CHAT_URL}/conversations/${activeConvId}`, { method: 'DELETE' });
-        toast('Диалог удалён');
-        // Reset chat UI
-        activeConvId = null;
-        stopChatPoll();
-        if (chatWs) { chatWs.close(); chatWs = null; }
-        document.getElementById('chat-empty').style.display = '';
-        document.getElementById('chat-window').style.display = 'none';
-        document.getElementById('btn-archive-conv').style.display = 'none';
-        await loadConversations();
-      } catch (e) {
-        toast('Ошибка: ' + e.message, 'error');
-      }
-    }
-  );
-}
-
 function renderMessages(msgs) {
   const el = document.getElementById('chat-messages');
   if (!msgs.length) {
@@ -3534,7 +3562,7 @@ function connectWs(convId) {
   const token = localStorage.getItem('access_token');
   if (!token) return;
 
-  const wsUrl = `ws://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${_wsproto}://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
   const badge = document.getElementById('ws-status-badge');
 
   function connect() {
@@ -3699,33 +3727,31 @@ function promptNewConv() {
       <label class="form-label">Заголовок <span style="color:var(--text3)">(необязательно)</span></label>
       <input type="text" id="nc-title" class="form-input" placeholder="Тема разговора...">
     </div>
-    <div class="form-group" id="nc-order-group">
-      <label class="form-label">UUID заявки <span style="color:var(--text3)">(необязательно)</span></label>
-      <input type="text" id="nc-order-id" class="form-input" placeholder="Привязать к заявке">
-    </div>
     <div class="form-group">
-      <label class="form-label">Участники (UUID через запятую)</label>
-      <input type="text" id="nc-participants" class="form-input" placeholder="Оставьте пустым — только вы">
+      <label class="form-label">Участники <span style="color:var(--text3)">(поиск и выбор)</span></label>
+      <input type="text" id="nc-user-search" class="form-input" placeholder="Поиск по имени..."
+             oninput="filterNewConvUsers()" style="margin-bottom:4px"
+             autocomplete="off">
+      <select id="nc-user-select" class="form-input" size="5" multiple
+              style="height:auto;padding:0">
+        <option disabled>— загрузка... —</option>
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Ctrl/Cmd+клик для выбора нескольких</div>
     </div>`,
     async () => {
       const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
       const title = document.getElementById('nc-title').value.trim() || null;
-      const orderIdRaw = document.getElementById('nc-order-id')?.value.trim();
-      const participantsRaw = document.getElementById('nc-participants').value.trim();
+      const sel = document.getElementById('nc-user-select');
+      const participant_ids = sel
+        ? [...sel.selectedOptions].map(o => o.value).filter(Boolean)
+        : [];
 
-      const body = {
-        type,
-        title,
-        order_id: orderIdRaw || null,
-        participant_ids: participantsRaw
-          ? participantsRaw.split(',').map(s => s.trim()).filter(Boolean)
-          : [],
-      };
+      const body = { type, title, participant_ids };
 
       closeModal();
       try {
         const conv = await chatPost('/conversations', body);
-        toast('Диалог создан');
+        toast('Диалог создан (или открыт существующий)');
         await loadConversations();
         openConversation(conv.id);
       } catch (e) {
@@ -3733,6 +3759,7 @@ function promptNewConv() {
       }
     }
   );
+  loadNewConvUserSelect();
 }
 
 function updateNewConvUI() {
@@ -3740,6 +3767,92 @@ function updateNewConvUI() {
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
   document.getElementById('nc-internal-label')?.classList.toggle(
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+}
+
+let _allChatUsers = [];
+
+async function loadNewConvUserSelect() {
+  const sel = document.getElementById('nc-user-select');
+  if (!sel) return;
+  try {
+    const users = await authGet('/users?limit=200&include_inactive=false');
+    _allChatUsers = users.filter(u => u.id !== currentUser?.id);
+    _renderNewConvUsers(_allChatUsers);
+    document.getElementById('nc-user-search')?.focus();
+  } catch {
+    if (sel) sel.innerHTML = '<option disabled>— ошибка загрузки —</option>';
+  }
+}
+
+function filterNewConvUsers() {
+  const q = (document.getElementById('nc-user-search')?.value || '').toLowerCase();
+  _renderNewConvUsers(q
+    ? _allChatUsers.filter(u =>
+        (u.full_name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u.role || '').toLowerCase().includes(q))
+    : _allChatUsers);
+}
+
+function _renderNewConvUsers(users) {
+  const sel = document.getElementById('nc-user-select');
+  if (!sel) return;
+  if (!users.length) {
+    sel.innerHTML = '<option disabled>Нет пользователей</option>';
+    return;
+  }
+  sel.innerHTML = users.map(u =>
+    `<option value="${u.id}">[${escHtml(u.role)}] ${escHtml(u.full_name || u.email)}</option>`
+  ).join('');
+}
+
+async function archiveCurrentConv() {
+  if (!activeConvId) return;
+  const isAdmin = currentUser?.role === 'admin';
+  if (isAdmin) {
+    openModal('Управление диалогом',
+      `<p style="color:var(--text2);font-size:13px">Выберите действие:</p>`,
+      null
+    );
+    // Заменяем тело модала кастомным
+    document.getElementById('modal-body').innerHTML = `
+      <p style="color:var(--text2);font-size:13px;margin-bottom:14px">Диалог: <b>${escHtml(activeConvId)}</b></p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-sm btn-danger" onclick="closeModal();doDeleteConv('${activeConvId}')">🗑 Удалить диалог полностью</button>
+        <button class="btn btn-sm btn-warn" onclick="closeModal();doClearConv('${activeConvId}')">🧹 Очистить историю сообщений</button>
+      </div>`;
+    document.getElementById('modal-confirm').style.display = 'none';
+  } else {
+    if (!confirm('Архивировать диалог?')) return;
+    try {
+      await chatDelete(`/conversations/${activeConvId}`);
+      toast('Диалог архивирован');
+      activeConvId = null;
+      document.getElementById('chat-window').style.display = 'none';
+      document.getElementById('chat-empty').style.display = '';
+      await loadConversations();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+}
+
+async function doDeleteConv(convId) {
+  try {
+    await chatDelete(`/conversations/${convId}`);
+    toast('Диалог удалён');
+    activeConvId = null;
+    document.getElementById('chat-window').style.display = 'none';
+    document.getElementById('chat-empty').style.display = '';
+    await loadConversations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function doClearConv(convId) {
+  try {
+    await chatPost(`/conversations/${convId}/clear`, {});
+    toast('История очищена');
+    document.getElementById('chat-messages').innerHTML =
+      '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════

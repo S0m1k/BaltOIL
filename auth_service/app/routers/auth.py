@@ -8,7 +8,7 @@ from app.database import get_db
 from app.core.dependencies import CurrentUser, get_request_meta
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest
 from app.schemas.user import (
-    RegisterIndividualRequest, RegisterCompanyRequest, UserResponse
+    RegisterIndividualRequest, RegisterCompanyRequest, UserResponse,
 )
 from app.services import auth_service, user_service
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
 
 
-@router.post("/register/individual", response_model=UserResponse, status_code=201)
+@router.post("/register/individual", response_model=TokenResponse, status_code=201)
 @limiter.limit("10/minute")
 async def register_individual(
     data: RegisterIndividualRequest,
@@ -24,11 +24,12 @@ async def register_individual(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     meta = get_request_meta(request)
-    user = await user_service.register_individual(db, data, **meta)
-    return user
+    await user_service.register_individual(db, data, **meta)
+    # Автоматически входим после регистрации
+    return await auth_service.login(db, email=data.email, password=data.password, **meta)
 
 
-@router.post("/register/company", response_model=UserResponse, status_code=201)
+@router.post("/register/company", response_model=TokenResponse, status_code=201)
 @limiter.limit("10/minute")
 async def register_company(
     data: RegisterCompanyRequest,
@@ -36,8 +37,9 @@ async def register_company(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     meta = get_request_meta(request)
-    user = await user_service.register_company(db, data, **meta)
-    return user
+    await user_service.register_company(db, data, **meta)
+    # Автоматически входим после регистрации
+    return await auth_service.login(db, email=data.email, password=data.password, **meta)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -52,6 +54,7 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh(
     data: RefreshRequest,
     request: Request,
