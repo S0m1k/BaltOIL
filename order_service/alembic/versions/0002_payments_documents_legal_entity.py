@@ -33,6 +33,9 @@ def upgrade() -> None:
     # the same transaction ("unsafe use of new value").  To avoid this we skip
     # ADD VALUE entirely and do a single type-swap with a CASE expression that
     # maps INVOICE → postpaid and normalises all labels to lowercase in one shot.
+    # Drop column default before type swap — PG cannot auto-cast the old
+    # 'INVOICE'::paymenttype_old default to the new type.
+    op.execute("ALTER TABLE orders ALTER COLUMN payment_type DROP DEFAULT")
     op.execute("ALTER TYPE paymenttype RENAME TO paymenttype_old")
     op.execute("CREATE TYPE paymenttype AS ENUM ('prepaid', 'on_delivery', 'trade_credit', 'postpaid')")
     op.execute(
@@ -43,6 +46,8 @@ def upgrade() -> None:
         "END)::paymenttype"
     )
     op.execute("DROP TYPE paymenttype_old")
+    # Restore default using new enum value
+    op.execute("ALTER TABLE orders ALTER COLUMN payment_type SET DEFAULT 'on_delivery'")
 
     # ── orders: new columns ───────────────────────────────────────────────────
     op.add_column("orders", sa.Column("expected_amount", sa.Numeric(12, 2), nullable=True))
