@@ -354,7 +354,37 @@
     display: flex; align-items: center; gap: 8px;
     padding: 4px 12px; background: var(--bg3); border: 1px solid var(--border);
     border-radius: 2px;
+    cursor: pointer; user-select: none;
+    transition: border-color .15s, background .15s;
   }
+  .user-badge:hover { border-color: var(--amber); }
+  .user-badge .caret {
+    font-size: 9px; color: var(--text3); margin-left: 2px;
+    transition: transform .15s;
+  }
+  .user-badge.open .caret { transform: rotate(180deg); }
+  .user-menu-wrap { position: relative; }
+  .user-menu {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    min-width: 200px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+    padding: 4px 0;
+    z-index: 1000;
+    display: none;
+  }
+  .user-menu.open { display: block; }
+  .user-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 14px;
+    background: none; border: none; cursor: pointer;
+    font-size: 13px; color: var(--text); text-align: left;
+    transition: background .12s;
+  }
+  .user-menu-item:hover { background: var(--bg3); }
+  .user-menu-item.danger { color: var(--red); }
+  .user-menu-item.danger:hover { background: rgba(239,68,68,.08); }
+  .user-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
   .user-name { font-size: 13px; color: var(--text2); }
   .role-chip {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
@@ -1282,7 +1312,6 @@
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат</button>
-      <button class="nav-tab" data-tab="profile" onclick="switchTab('profile')">Профиль</button>
     </div>
     <!-- Burger button: visible only on mobile via CSS -->
     <button class="burger-btn" id="burger-btn" onclick="openBurger()" aria-label="Меню">☰</button>
@@ -1295,11 +1324,25 @@
         <button class="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">🔔</button>
         <div class="notif-count" id="notif-count" style="display:none">0</div>
       </div>
-      <div class="user-badge">
-        <span id="header-name" class="user-name"></span>
-        <span id="header-role" class="role-chip"></span>
+      <div class="user-menu-wrap">
+        <div class="user-badge" id="user-badge" onclick="toggleUserMenu(event)" role="button" tabindex="0"
+             aria-haspopup="true" aria-expanded="false">
+          <span id="header-name" class="user-name"></span>
+          <span id="header-role" class="role-chip"></span>
+          <span class="caret">▼</span>
+        </div>
+        <div class="user-menu" id="user-menu" role="menu">
+          <button class="user-menu-item" role="menuitem"
+                  onclick="closeUserMenu();switchTab('profile')">
+            <span>⚙️</span><span>Профиль</span>
+          </button>
+          <div class="user-menu-divider"></div>
+          <button class="user-menu-item danger" role="menuitem"
+                  onclick="closeUserMenu();doLogout()">
+            <span>↪</span><span>Выход</span>
+          </button>
+        </div>
       </div>
-      <button class="btn-logout" onclick="doLogout()">ВЫХОД</button>
     </div>
 
     <!-- Notification panel (outside app-content for fixed positioning) -->
@@ -1482,7 +1525,7 @@
             <input type="date" id="rpt-to" class="form-input">
           </div>
           <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">📊 Показать отчёт</button>
-          <button class="btn btn-ghost" style="width:auto;padding:10px 18px" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px;background:var(--green);border-color:var(--green)" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
         </div>
         <p style="margin-top:10px;font-size:11px;color:var(--text3)">
           «Показать отчёт» — данные отобразятся сразу ниже. «Скачать XLSX» — файл придёт в уведомления.
@@ -1866,6 +1909,32 @@ let currentUser = null;
 let modalCallback = null;
 
 // ═══════════════════════════════════════════════════════════════
+// USER MENU DROPDOWN
+// ═══════════════════════════════════════════════════════════════
+function toggleUserMenu(e) {
+  if (e) e.stopPropagation();
+  const badge = document.getElementById('user-badge');
+  const menu  = document.getElementById('user-menu');
+  if (!badge || !menu) return;
+  const willOpen = !menu.classList.contains('open');
+  menu.classList.toggle('open', willOpen);
+  badge.classList.toggle('open', willOpen);
+  badge.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+function closeUserMenu() {
+  document.getElementById('user-menu')?.classList.remove('open');
+  const b = document.getElementById('user-badge');
+  if (b) { b.classList.remove('open'); b.setAttribute('aria-expanded', 'false'); }
+}
+document.addEventListener('click', (e) => {
+  const wrap = document.querySelector('.user-menu-wrap');
+  if (wrap && !wrap.contains(e.target)) closeUserMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeUserMenu();
+});
+
+// ═══════════════════════════════════════════════════════════════
 // BURGER MENU
 // ═══════════════════════════════════════════════════════════════
 function openBurger() {
@@ -1893,7 +1962,6 @@ function buildBurgerMenu() {
     { tab: 'clients',   label: '👥 Клиенты',          show: role === 'manager' || role === 'admin' },
     { tab: 'users',     label: '👤 Пользователи',     show: role === 'admin' },
     { tab: 'chat',      label: '💬 Чат',              show: true },
-    { tab: 'profile',   label: '⚙️  Профиль',          show: true },
   ];
 
   document.getElementById('burger-nav').innerHTML = tabs
