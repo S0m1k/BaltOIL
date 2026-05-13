@@ -26,27 +26,21 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ── PaymentType enum ──────────────────────────────────────────────────────
-    # Rename INVOICE → POSTPAID, add PREPAID and TRADE_CREDIT
-    # PostgreSQL doesn't support removing enum values, so we:
-    # 1. Add new values to the existing type
-    # 2. Migrate data
-    # 3. Drop old value via ALTER TYPE … RENAME VALUE (PG ≥ 10)
-    op.execute("ALTER TYPE paymenttype ADD VALUE IF NOT EXISTS 'prepaid'")
-    op.execute("ALTER TYPE paymenttype ADD VALUE IF NOT EXISTS 'trade_credit'")
-    op.execute("ALTER TYPE paymenttype ADD VALUE IF NOT EXISTS 'postpaid'")
-
-    # Migrate existing INVOICE records to 'postpaid'.
-    # Old enum used UPPERCASE labels (INVOICE, ON_DELIVERY) — compare as text.
-    op.execute("UPDATE orders SET payment_type = 'postpaid' WHERE payment_type::text = 'INVOICE'")
-
-    # Remove old value: requires a full type swap (PG doesn't support DROP VALUE).
-    # Split into separate execute() calls — asyncpg rejects multi-statement strings.
+    # Old DB enum: INVOICE, ON_DELIVERY (uppercase labels, legacy)
+    # New DB enum: prepaid, on_delivery, trade_credit, postpaid (lowercase)
+    #
+    # PG restriction: newly ADD VALUE-d labels cannot be used in DML within
+    # the same transaction ("unsafe use of new value").  To avoid this we skip
+    # ADD VALUE entirely and do a single type-swap with a CASE expression that
+    # maps INVOICE → postpaid and normalises all labels to lowercase in one shot.
     op.execute("ALTER TYPE paymenttype RENAME TO paymenttype_old")
     op.execute("CREATE TYPE paymenttype AS ENUM ('prepaid', 'on_delivery', 'trade_credit', 'postpaid')")
-    # lower() converts legacy UPPERCASE labels (ON_DELIVERY→on_delivery) to new lowercase enum.
     op.execute(
         "ALTER TABLE orders ALTER COLUMN payment_type TYPE paymenttype "
-        "USING lower(payment_type::text)::paymenttype"
+        "USING (CASE lower(payment_type::text) "
+        "  WHEN 'invoice' THEN 'postpaid' "
+        "  ELSE lower(payment_type::text) "
+        "END)::paymenttype"
     )
     op.execute("DROP TYPE paymenttype_old")
 
