@@ -92,12 +92,9 @@ def upgrade() -> None:
     )
 
     # ── DocumentType / DocumentStatus enums & documents table ────────────────
-    documenttype = postgresql.ENUM("invoice", "upd", "ttn", name="documenttype")
-    documenttype.create(op.get_bind(), checkfirst=True)
-
-    documentstatus = postgresql.ENUM("draft", "ready", "sent", "cancelled", name="documentstatus")
-    documentstatus.create(op.get_bind(), checkfirst=True)
-
+    # Do NOT call .create() explicitly — op.create_table() emits CREATE TYPE
+    # automatically via sa.Enum(name=...). Explicit pre-creation causes a
+    # DuplicateObjectError within the same transaction.
     op.create_table(
         "documents",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -105,11 +102,11 @@ def upgrade() -> None:
             "order_id", postgresql.UUID(as_uuid=True),
             sa.ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
         ),
-        sa.Column("doc_type", sa.Enum("invoice", "upd", "ttn", name="documenttype"), nullable=False),
+        sa.Column("doc_type", sa.Enum("invoice", "upd", "ttn", name="documenttype", create_type=True), nullable=False),
         sa.Column("doc_number", sa.String(50), nullable=False, unique=True),
         sa.Column(
             "status",
-            sa.Enum("draft", "ready", "sent", "cancelled", name="documentstatus"),
+            sa.Enum("draft", "ready", "sent", "cancelled", name="documentstatus", create_type=True),
             nullable=False,
             server_default="draft",
         ),
