@@ -120,7 +120,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
-    op.create_index("ix_documents_order_id", "documents", ["order_id"])
+    # index is already created via index=True on the order_id column definition above
 
 
 def downgrade() -> None:
