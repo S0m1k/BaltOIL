@@ -21,6 +21,7 @@ class FuelType(str, enum.Enum):
 class OrderStatus(str, enum.Enum):
     NEW = "new"                                   # Новая
     IN_PROGRESS = "in_progress"                   # В работе (менеджер принял)
+    ASSIGNED = "assigned"                         # Водитель назначен (legacy, alias IN_PROGRESS)
     IN_TRANSIT = "in_transit"                     # В рейсе (водитель взял и выехал)
     DELIVERED = "delivered"                       # Доставлена
     PARTIALLY_DELIVERED = "partially_delivered"   # Частично доставлена
