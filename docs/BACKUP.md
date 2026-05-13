@@ -63,7 +63,7 @@ Perform a restore drill at least once after setup, then after every major schema
 
 | Date | Time to restore | Tester | Notes |
 |------|----------------|--------|-------|
-| _pending_ | — | — | First drill not yet performed |
+| 2026-05-13 | 8s | Sonnet (automated) | Temp postgres container on prod server. All 4 DBs restored OK: 6 users, 2 orders, 1 vehicle, 3 conversations. |
 
 To record a drill:
 1. On a clean machine (or temp Docker container), run `docker compose up -d`
