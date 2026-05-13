@@ -43,7 +43,7 @@ async def send_message(
         sender_name=actor.name,
         msg_type=msg_type,
         text=text,
-        metadata=metadata,
+        msg_metadata=metadata,
     )
     db.add(msg)
 

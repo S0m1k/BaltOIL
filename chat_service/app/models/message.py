@@ -23,7 +23,8 @@ class Message(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Для msg_type="document": {doc_id, doc_number, doc_type, order_id, download_path}
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 'metadata' is reserved by SQLAlchemy's Declarative API — use msg_metadata as attr name.
+    msg_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
 
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from typing import Literal
 
 
@@ -18,7 +18,12 @@ class MessageResponse(BaseModel):
     sender_name: str
     msg_type: str
     text: str
-    metadata: dict | None
+    # ORM attr is msg_metadata (metadata is reserved in SQLAlchemy Declarative).
+    # validation_alias accepts both names; serialization output key is always 'metadata'.
+    metadata: dict | None = Field(
+        None,
+        validation_alias=AliasChoices("metadata", "msg_metadata"),
+    )
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
