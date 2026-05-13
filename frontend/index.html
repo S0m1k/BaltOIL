@@ -49,6 +49,35 @@
     --s-rejected: #dc2626;
   }
 
+  /* ── ТЁМНАЯ ТЕМА ── */
+  html.dark {
+    --bg:        #0f172a;
+    --bg2:       #1e293b;
+    --bg3:       #1a2236;
+    --border:    #334155;
+    --border2:   #475569;
+
+    --amber:     #38bdf8;
+    --amber2:    #0ea5e9;
+    --amber-dim: rgba(56,189,248,.12);
+
+    --accent:    #34d399;
+    --accent2:   #10b981;
+    --accent-dim:rgba(52,211,153,.12);
+
+    --grad:      linear-gradient(135deg, #38bdf8 0%, #34d399 100%);
+    --grad-soft: linear-gradient(135deg, rgba(56,189,248,.1) 0%, rgba(52,211,153,.1) 100%);
+
+    --text:  #f1f5f9;
+    --text2: #cbd5e1;
+    --text3: #64748b;
+
+    --red:   #f87171;
+    --green: #34d399;
+
+    --grid-line: rgba(56,189,248,.04);
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
@@ -57,10 +86,12 @@
     font-family: 'IBM Plex Sans', sans-serif;
     font-size: 16px;
     min-height: 100vh;
+    --grid-line: rgba(14,165,233,.025);
     background-image:
-      linear-gradient(rgba(14,165,233,.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(14,165,233,.025) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 40px 40px;
+    transition: background-color .25s ease, color .25s ease;
   }
 
   /* ── TOAST ── */
@@ -76,6 +107,8 @@
   }
   .toast.success { background: rgba(16,185,129,.12); border-color: var(--green); color: #065f46; }
   .toast.error   { background: rgba(239,68,68,.10);  border-color: var(--red);   color: #991b1b; }
+  html.dark .toast.success { color: #6ee7b7; background: rgba(52,211,153,.1); }
+  html.dark .toast.error   { color: #fca5a5; background: rgba(248,113,113,.1); }
   @keyframes slideIn { from { transform: translateX(60px); opacity:0; } to { transform: translateX(0); opacity:1; } }
   @keyframes slideOut { from { opacity:1; } to { transform: translateX(60px); opacity:0; } }
 
@@ -331,6 +364,22 @@
   .role-manager { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.3); }
   .role-driver  { background: rgba(124,58,237,.12); color: #6d28d9; border: 1px solid rgba(124,58,237,.3); }
   .role-client  { background: rgba(16,185,129,.12); color: #047857; border: 1px solid rgba(16,185,129,.3); }
+  html.dark .role-admin   { color: #fca5a5; }
+  html.dark .role-manager { color: #7dd3fc; }
+  html.dark .role-driver  { color: #c4b5fd; }
+  html.dark .role-client  { color: #6ee7b7; }
+
+  /* ── ТЕМА: кнопка переключения ── */
+  .btn-theme {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--border);
+    border-radius: 2px; cursor: pointer;
+    color: var(--text3); font-size: 15px;
+    transition: border-color .2s, color .2s, background .2s;
+    flex-shrink: 0;
+  }
+  .btn-theme:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
 
   .btn-logout {
     padding: 6px 14px; background: transparent; border: 1px solid var(--border2);
@@ -1237,6 +1286,10 @@
     <!-- Burger button: visible only on mobile via CSS -->
     <button class="burger-btn" id="burger-btn" onclick="openBurger()" aria-label="Меню">☰</button>
     <div class="topbar-right">
+      <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Тёмная/светлая тема" aria-label="Переключить тему">
+        <svg id="theme-icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg id="theme-icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
       <div class="notif-bell-wrap">
         <button class="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">🔔</button>
         <div class="notif-count" id="notif-count" style="display:none">0</div>
@@ -1728,6 +1781,33 @@
 </div>
 
 <script>
+// ═══════════════════════════════════════════════════════════════
+// DARK THEME
+// ═══════════════════════════════════════════════════════════════
+(function () {
+  const saved = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (saved === 'dark' || (!saved && prefersDark)) {
+    document.documentElement.classList.add('dark');
+  }
+})();
+
+function _syncThemeIcon() {
+  const dark = document.documentElement.classList.contains('dark');
+  document.getElementById('theme-icon-moon').style.display = dark ? 'block' : 'none';
+  document.getElementById('theme-icon-sun').style.display  = dark ? 'none'  : 'block';
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  html.classList.toggle('dark');
+  localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+  _syncThemeIcon();
+}
+
+// Sync icon on load
+document.addEventListener('DOMContentLoaded', _syncThemeIcon);
+
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════════

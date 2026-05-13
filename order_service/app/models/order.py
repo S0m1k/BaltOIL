@@ -61,7 +61,7 @@ class Order(Base):
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
-        SAEnum(PaymentType), nullable=False, default=PaymentType.PREPAID
+        SAEnum(PaymentType), nullable=False, default=PaymentType.INVOICE
     )
 
     # Статус и приоритет
