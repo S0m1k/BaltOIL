@@ -1,0 +1,9 @@
+# BaltOIL automated backups
+# Install on prod server: crontab -e  (or: sudo crontab -u root -e)
+# Assumes repo is cloned to /opt/baltoil
+
+# Backup twice daily (04:00 and 16:00)
+0 4,16 * * * /opt/baltoil/scripts/backup_db.sh >> /var/log/baltoil-backup.log 2>&1
+
+# Cleanup backups older than 14 days (runs at 05:00)
+30 5 * * * /opt/baltoil/scripts/cleanup_backups.sh >> /var/log/baltoil-backup.log 2>&1

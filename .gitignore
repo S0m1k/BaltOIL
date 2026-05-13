@@ -31,3 +31,9 @@ docker-compose.override.yml
 .DS_Store
 Thumbs.db
 .claude/
+
+# Claude Code personal working context — not project documentation
+CLAUDE.md
+
+# Backup cloud credentials — contains secrets
+scripts/backup.env
