@@ -35,16 +35,18 @@ def upgrade() -> None:
     op.execute("ALTER TYPE paymenttype ADD VALUE IF NOT EXISTS 'trade_credit'")
     op.execute("ALTER TYPE paymenttype ADD VALUE IF NOT EXISTS 'postpaid'")
 
-    # Migrate existing 'invoice' records to 'postpaid'
-    op.execute("UPDATE orders SET payment_type = 'postpaid' WHERE payment_type = 'invoice'")
+    # Migrate existing INVOICE records to 'postpaid'.
+    # Old enum used UPPERCASE labels (INVOICE, ON_DELIVERY) — compare as text.
+    op.execute("UPDATE orders SET payment_type = 'postpaid' WHERE payment_type::text = 'INVOICE'")
 
     # Remove old value: requires a full type swap (PG doesn't support DROP VALUE).
     # Split into separate execute() calls — asyncpg rejects multi-statement strings.
     op.execute("ALTER TYPE paymenttype RENAME TO paymenttype_old")
     op.execute("CREATE TYPE paymenttype AS ENUM ('prepaid', 'on_delivery', 'trade_credit', 'postpaid')")
+    # lower() converts legacy UPPERCASE labels (ON_DELIVERY→on_delivery) to new lowercase enum.
     op.execute(
         "ALTER TABLE orders ALTER COLUMN payment_type TYPE paymenttype "
-        "USING payment_type::text::paymenttype"
+        "USING lower(payment_type::text)::paymenttype"
     )
     op.execute("DROP TYPE paymenttype_old")
 
