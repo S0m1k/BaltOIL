@@ -16,6 +16,7 @@ class TokenUser:
     """Данные пользователя, извлечённые из JWT — без обращения к auth_service."""
     id: uuid.UUID
     role: str
+    token: str = ""  # raw JWT — нужен для inter-service calls
 
 
 async def get_current_user(
@@ -39,7 +40,7 @@ async def get_current_user(
     if not user_id or not role:
         raise AuthError("Некорректный токен")
 
-    return TokenUser(id=uuid.UUID(user_id), role=role)
+    return TokenUser(id=uuid.UUID(user_id), role=role, token=credentials.credentials)
 
 
 CurrentUser = Annotated[TokenUser, Depends(get_current_user)]

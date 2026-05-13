@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import Text, Boolean, DateTime, ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -17,7 +17,13 @@ class Message(Base):
     sender_role: Mapped[str] = mapped_column(String(20), nullable=False)
     sender_name: Mapped[str] = mapped_column(String(255), nullable=False)  # денормализовано для истории
 
+    # "text" | "document"
+    msg_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
+
     text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Для msg_type="document": {doc_id, doc_number, doc_type, order_id, download_path}
+    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

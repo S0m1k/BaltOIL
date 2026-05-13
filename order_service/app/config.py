@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_port: int = 8002
     allowed_origins: str = "http://localhost:8080"
+    chat_service_url: str = "http://chat_service:8004"
 
     @property
     def cors_origins(self) -> list[str]:

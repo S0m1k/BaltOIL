@@ -20,6 +20,8 @@ async def send_message(
     conv_id: uuid.UUID,
     text: str,
     actor: TokenUser,
+    msg_type: str = "text",
+    metadata: dict | None = None,
 ) -> Message:
     # Load conversation with participants
     from sqlalchemy.orm import selectinload
@@ -39,7 +41,9 @@ async def send_message(
         sender_id=actor.id,
         sender_role=actor.role,
         sender_name=actor.name,
+        msg_type=msg_type,
         text=text,
+        metadata=metadata,
     )
     db.add(msg)
 

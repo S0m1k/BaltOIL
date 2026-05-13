@@ -1276,6 +1276,7 @@
       <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')">ТС</button>
       <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
+      <button class="nav-tab" data-tab="finance" id="tab-finance-btn" onclick="switchTab('finance')">Финансы</button>
       <button class="nav-tab" data-tab="inventory" id="tab-inventory-btn" onclick="switchTab('inventory')">Склад</button>
       <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
@@ -1647,6 +1648,45 @@
       </div>
     </div>
 
+    <!-- FINANCE TAB -->
+    <div class="tab-pane" id="pane-finance">
+      <div class="toolbar">
+        <div class="toolbar-title">Финансы</div>
+        <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+          <input type="date" id="fin-from" class="form-input" style="width:140px;padding:6px 10px">
+          <input type="date" id="fin-to"   class="form-input" style="width:140px;padding:6px 10px">
+          <button class="btn btn-sm btn-primary" onclick="loadFinance()">Показать</button>
+          <button class="btn btn-sm btn-ghost"   onclick="exportFinanceCsv()">⬇ CSV</button>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div id="fin-summary-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+
+      <!-- Payments table -->
+      <div class="inv-table-wrap">
+        <table class="inv-table" id="fin-payments-table">
+          <thead>
+            <tr>
+              <th>Заявка</th>
+              <th>Тип оплаты</th>
+              <th>Вид</th>
+              <th>Статус</th>
+              <th>Метод</th>
+              <th style="text-align:right">Сумма, ₽</th>
+              <th>Дата оплаты</th>
+              <th>Создан</th>
+            </tr>
+          </thead>
+          <tbody id="fin-payments-body">
+            <tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Выберите период и нажмите «Показать»</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- FUELS TAB -->
     <div class="tab-pane" id="pane-fuels">
       <div class="toolbar">
@@ -1847,6 +1887,7 @@ function buildBurgerMenu() {
     { tab: 'vehicles',  label: '🚛 Транспорт',        show: role !== 'client' },
     { tab: 'trips',     label: '🗺️  Рейсы',            show: role !== 'client' },
     { tab: 'report',    label: '📊 Отчёт',            show: role === 'manager' || role === 'admin' },
+    { tab: 'finance',   label: '💰 Финансы',          show: role === 'manager' || role === 'admin' },
     { tab: 'inventory', label: '🛢️  Склад',             show: role === 'manager' || role === 'admin' },
     { tab: 'fuels',     label: '⛽ Топливо',          show: true },
     { tab: 'clients',   label: '👥 Клиенты',          show: role === 'manager' || role === 'admin' },
@@ -1884,8 +1925,10 @@ const STATUS_LABELS = {
 };
 
 const PAYMENT_LABELS = {
-  on_delivery: 'По факту (при прибытии)',
-  invoice:     'По счёту (юр. лицо)',
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту (при прибытии)',
+  trade_credit: 'Товарный кредит',
+  postpaid:     'Постоплата (по счёту)',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -2173,6 +2216,10 @@ async function initApp() {
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Finance — admin + manager only
+  document.getElementById('tab-finance-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
 
@@ -2204,6 +2251,7 @@ function switchTab(tab) {
   if (tab === 'report')    initReport();
   if (tab === 'inventory') initInventory();
   if (tab === 'clients')   loadClients();
+  if (tab === 'finance')   loadFinance();
   if (tab === 'fuels')     loadFuels();
   if (tab === 'profile')   loadProfile();
   if (tab === 'chat')      loadConversations();
@@ -2294,6 +2342,10 @@ function orderCardHTML(o) {
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
+      ${isStaff ? `<div class="timeline-section" id="docs-${o.id}">
+        <div class="timeline-title">Документы</div>
+        <div class="loading"></div>
+      </div>` : ''}
     </div>
   </div>`;
 }
@@ -2306,6 +2358,8 @@ async function toggleCard(orderId) {
   if (!isExpanded) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
+    const role = currentUser?.role;
+    if (role === 'manager' || role === 'admin') loadDocs(orderId);
   }
 }
 
@@ -2333,6 +2387,73 @@ async function loadTimeline(orderId) {
     el.innerHTML = `<div class="timeline-title">История статусов</div><div class="timeline">${items}</div>`;
   } catch (e) {
     el.innerHTML = `<div class="timeline-title">История статусов</div><div style="color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+  }
+}
+
+const DOC_TYPE_LABELS = { invoice: 'Счёт', ttn: 'ТТН', upd: 'УПД' };
+const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
+const DOC_STATUS_COLORS = { draft: 'var(--text3)', ready: 'var(--green)', sent: 'var(--amber)', cancelled: 'var(--red)' };
+
+async function loadDocs(orderId) {
+  const el = document.getElementById(`docs-${orderId}`);
+  if (!el) return;
+  try {
+    const docs = await orderGet(`/orders/${orderId}/documents`);
+    if (!docs.length) {
+      el.innerHTML = `<div class="timeline-title">Документы</div>
+        <div style="font-size:12px;color:var(--text3)">Документов ещё нет</div>`;
+      return;
+    }
+    const rows = docs.map(d => {
+      const typeLabel   = escHtml(DOC_TYPE_LABELS[d.doc_type]  || d.doc_type);
+      const statusLabel = escHtml(DOC_STATUS_LABELS[d.status]  || d.status);
+      const statusColor = DOC_STATUS_COLORS[d.status] || 'inherit';
+      const canDownload = d.status === 'ready' || d.status === 'sent';
+      const canSend     = d.status === 'ready';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:18px">📄</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace">${escHtml(d.doc_number)}</span></div>
+          <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
+        </div>
+        ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+            onclick="downloadDoc('${orderId}','${d.id}')">⬇ PDF</button>` : ''}
+        ${canSend ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
+            onclick="sendDocToChat('${orderId}','${d.id}',this)">💬 В чат</button>` : ''}
+      </div>`;
+    }).join('');
+    el.innerHTML = `<div class="timeline-title">Документы</div>${rows}`;
+  } catch(e) {
+    el.innerHTML = `<div class="timeline-title">Документы</div>
+      <div style="font-size:12px;color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function downloadDoc(orderId, docId) {
+  const token = localStorage.getItem('access_token');
+  const url = `${window.ORDER_API || '/api/v1'}/orders/${orderId}/documents/${docId}/download`;
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `document_${docId.slice(0,8)}.pdf`;
+      a.click();
+    })
+    .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
+}
+
+async function sendDocToChat(orderId, docId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await orderPost(`/orders/${orderId}/documents/${docId}/send`, {});
+    toast('Документ отправлен в чат');
+    loadDocs(orderId);
+  } catch(e) {
+    toast('Ошибка: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '💬 В чат';
   }
 }
 
@@ -3615,12 +3736,33 @@ function renderMessages(msgs) {
 function msgHTML(m) {
   const mine = currentUser && m.sender_id === currentUser.id;
   const initials = (m.sender_name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+
+  let bodyHtml;
+  if (m.msg_type === 'document' && m.metadata) {
+    const meta = m.metadata;
+    const typeLabel = {invoice:'Счёт', ttn:'ТТН', upd:'УПД'}[meta.doc_type] || 'Документ';
+    bodyHtml = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:220px">
+        <div style="font-size:22px">📄</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_number)}</div>
+          <div style="font-size:11px;color:var(--text3)">Заявка ${escHtml(meta.order_number || '')}</div>
+        </div>
+        <a href="${escHtml(meta.download_path || '#')}" target="_blank"
+           style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border-radius:6px;text-decoration:none;white-space:nowrap">
+          ⬇ PDF
+        </a>
+      </div>`;
+  } else {
+    bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
+  }
+
   return `
   <div class="msg-row ${mine ? 'mine' : ''}" id="msg-${m.id}">
     <div class="msg-avatar">${escHtml(initials)}</div>
     <div class="msg-bubble">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
-      <div class="msg-text">${escHtml(m.text)}</div>
+      ${bodyHtml}
       <div class="msg-time">${fmtTime(m.created_at)}</div>
     </div>
   </div>`;
@@ -4376,6 +4518,123 @@ function renderInvReport(rpt, from, to) {
   }
   document.getElementById('auth-screen').style.display = 'flex';
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// FINANCE TAB
+// ═══════════════════════════════════════════════════════════════
+
+const PAYMENT_TYPE_LABELS = {
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту',
+  trade_credit: 'Товарный кредит',
+  postpaid:     'Постоплата',
+};
+const PAYMENT_STATUS_LABELS = {
+  unpaid:         'Не оплачено',
+  partially_paid: 'Частично',
+  paid:           'Оплачено',
+  overpaid:       'Переплата',
+};
+const PAYMENT_STATUS_COLORS = {
+  unpaid:         'var(--red)',
+  partially_paid: 'var(--s-progress)',
+  paid:           'var(--green)',
+  overpaid:       'var(--amber)',
+};
+
+function _finDateParams() {
+  const from = document.getElementById('fin-from').value;
+  const to   = document.getElementById('fin-to').value;
+  const p = new URLSearchParams();
+  if (from) p.set('date_from', new Date(from).toISOString());
+  if (to)   p.set('date_to',   new Date(to + 'T23:59:59').toISOString());
+  return p.toString() ? '?' + p.toString() : '';
+}
+
+async function loadFinance() {
+  const qs = _finDateParams();
+
+  // Summary cards
+  const cards = document.getElementById('fin-summary-cards');
+  cards.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const s = await orderGet('/finance/summary' + qs);
+    cards.innerHTML = `
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Заявок всего</div>
+        <div style="font-size:22px;font-weight:700">${s.total_orders}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Не оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${s.unpaid_count}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Частично оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--s-progress)">${s.partially_paid_count}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${s.paid_count}</div>
+      </div>
+      ${s.overpaid_count ? `<div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Переплата</div>
+        <div style="font-size:22px;font-weight:700;color:var(--amber)">${s.overpaid_count}</div>
+      </div>` : ''}
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Получено, ₽</div>
+        <div style="font-size:20px;font-weight:700;color:var(--green)">${s.total_paid_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Ожидается, ₽</div>
+        <div style="font-size:20px;font-weight:700;color:var(--amber)">${s.total_pending_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+    `;
+  } catch(e) {
+    cards.innerHTML = `<div class="empty-state" style="color:var(--red)">Ошибка загрузки сводки</div>`;
+  }
+
+  // Payments table
+  const tbody = document.getElementById('fin-payments-body');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px"><div class="loading"></div></td></tr>';
+  try {
+    const payments = await orderGet('/finance/payments' + qs);
+    if (!payments.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Нет платежей за выбранный период</td></tr>';
+      return;
+    }
+    tbody.innerHTML = payments.map(p => `
+      <tr>
+        <td><strong>${escHtml(p.order_number)}</strong></td>
+        <td>${escHtml(PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type)}</td>
+        <td style="color:var(--text3);font-size:11px">${escHtml(p.kind)}</td>
+        <td><span style="color:${PAYMENT_STATUS_COLORS[p.status]||'inherit'};font-weight:600">${escHtml(PAYMENT_STATUS_LABELS[p.status]||p.status)}</span></td>
+        <td style="color:var(--text3);font-size:11px">${escHtml(p.method||'—')}</td>
+        <td style="text-align:right;font-weight:600">${p.amount.toLocaleString('ru-RU',{minimumFractionDigits:2})}</td>
+        <td style="color:var(--text3);font-size:11px">${p.paid_at ? new Date(p.paid_at).toLocaleDateString('ru-RU') : '—'}</td>
+        <td style="color:var(--text3);font-size:11px">${new Date(p.created_at).toLocaleDateString('ru-RU')}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:16px">Ошибка загрузки платежей</td></tr>`;
+  }
+}
+
+function exportFinanceCsv() {
+  const qs = _finDateParams();
+  const token = localStorage.getItem('access_token');
+  // Создаём временную ссылку с токеном в query (т.к. FileResponse не принимает заголовок)
+  // В продакшне лучше signed URL, но для внутреннего инструмента это приемлемо
+  const url = `${window.ORDER_API || '/api/v1'}/finance/export.csv${qs}`;
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => r.blob())
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `payments_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    })
+    .catch(() => showToast('Ошибка экспорта CSV', 'error'));
+}
 </script>
 </body>
 </html>

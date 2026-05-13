@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
 from app.models.order import FuelType, OrderStatus, PaymentType, OrderPriority
 from .order_status_log import OrderStatusLogResponse
@@ -11,6 +12,7 @@ class OrderCreateRequest(BaseModel):
     delivery_address: str
     desired_date: datetime | None = None
     payment_type: PaymentType = PaymentType.ON_DELIVERY
+    expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
 
     # Только для менеджера/админа: создать от имени конкретного клиента
@@ -29,10 +31,13 @@ class OrderCreateRequest(BaseModel):
 
 
 class OrderUpdateRequest(BaseModel):
-    """Менеджер может обновить приоритет, комментарий и желаемую дату."""
+    """Менеджер может обновить приоритет, комментарий, желаемую дату и финансовые поля."""
     priority: OrderPriority | None = None
     manager_comment: str | None = None
     desired_date: datetime | None = None
+    expected_amount: Decimal | None = Field(None, ge=0)
+    final_amount: Decimal | None = Field(None, ge=0)
+    trade_credit_contract_signed: bool | None = None
 
 
 class OrderStatusTransitionRequest(BaseModel):
@@ -58,6 +63,9 @@ class OrderResponse(BaseModel):
     desired_date: datetime | None
     payment_type: PaymentType
     payment_status: str
+    expected_amount: Decimal | None
+    final_amount: Decimal | None
+    trade_credit_contract_signed: bool
     status: OrderStatus
     priority: OrderPriority
     manager_id: uuid.UUID | None
@@ -89,6 +97,8 @@ class OrderListResponse(BaseModel):
     manager_comment: str | None
     payment_type: PaymentType
     payment_status: str
+    expected_amount: Decimal | None
+    final_amount: Decimal | None
     desired_date: datetime | None
     created_at: datetime
 

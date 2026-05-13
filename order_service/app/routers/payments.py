@@ -134,5 +134,6 @@ async def get_invoice_html(
     # Пока передаём заглушку; фронтенд может обогатить
     client_info = {"name": str(payment.client_id), "inn": "—", "address": "—"}
 
-    html = payment_service.generate_invoice_html(payment, order, client_info)
+    seller_info = await payment_service.get_seller_snapshot(db)
+    html = payment_service.generate_invoice_html(payment, order, client_info, seller_info)
     return HTMLResponse(content=html)

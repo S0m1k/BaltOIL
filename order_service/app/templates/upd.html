@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}УПД {{ doc_number }}{% endblock %}
+{% block content %}
+
+<h1>УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ ДОКУМЕНТ</h1>
+<div class="subtitle">№ {{ doc_number }} от {{ issued_at }} &nbsp;|&nbsp; Статус 2 (без НДС)</div>
+
+<div class="req-grid">
+  <div class="req-block">
+    <b>Продавец:</b>
+    <p>{{ seller.name }}</p>
+    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
+    {% if seller.ogrn %}<p>ОГРН: {{ seller.ogrn }}</p>{% endif %}
+    <p>{{ seller.address }}</p>
+    {% if seller.phone %}<p>Тел.: {{ seller.phone }}</p>{% endif %}
+    <p><b>Банк:</b> {{ seller.bank }}, р/с {{ seller.rs }}, к/с {{ seller.ks }}, БИК {{ seller.bik }}</p>
+  </div>
+  <div class="req-block">
+    <b>Покупатель:</b>
+    <p>{{ buyer.name }}</p>
+    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
+    {% if buyer.kpp %}<p>КПП: {{ buyer.kpp }}</p>{% endif %}
+    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
+  </div>
+</div>
+
+<table>
+  <tr>
+    <th style="width:5%">№</th>
+    <th>Наименование</th>
+    <th style="width:10%">Ед.</th>
+    <th style="width:12%">Кол-во</th>
+    <th style="width:13%">Цена (₽)</th>
+    <th style="width:13%">Сумма (₽)</th>
+    <th style="width:10%">НДС</th>
+  </tr>
+  <tr>
+    <td class="text-center">1</td>
+    <td>{{ fuel_name }}<br>
+      <small>Заявка: {{ order_number }}, доставка: {{ delivery_address }}</small>
+    </td>
+    <td class="text-center">л</td>
+    <td class="text-right">{{ volume_delivered | format_number }}</td>
+    <td class="text-right">{{ unit_price | format_number }}</td>
+    <td class="text-right">{{ amount | format_money }}</td>
+    <td class="text-center">Без НДС</td>
+  </tr>
+  <tr class="total-row">
+    <td colspan="5" class="text-right">ИТОГО:</td>
+    <td class="text-right">{{ amount | format_money }} ₽</td>
+    <td class="text-center">—</td>
+  </tr>
+</table>
+
+<table style="margin-top:8px; font-size:9.5pt">
+  <tr>
+    <th style="width:30%">Основание передачи</th>
+    <th style="width:25%">Дата отгрузки</th>
+    <th>Заявка / договор</th>
+  </tr>
+  <tr>
+    <td>Доставка топлива</td>
+    <td class="text-center">{{ issued_at }}</td>
+    <td>{{ order_number }}</td>
+  </tr>
+</table>
+
+<div class="sign-area" style="margin-top:24px">
+  <div class="sign-item">
+    <div>Передал ({{ seller.director_title or "Руководитель" }})</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">{{ seller.director_name or "" }}</div>
+  </div>
+  <div class="sign-item">
+    <div>Получил (Покупатель)</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">&nbsp;</div>
+  </div>
+</div>
+
+<p class="footer-note">
+  НДС не исчисляется (ст. 346.11 НК РФ, применяется УСН).
+  Документ сформирован при закрытии заявки.
+</p>
+
+{% endblock %}

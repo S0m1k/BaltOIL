@@ -6,6 +6,7 @@ import html as _html
 import logging
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 
@@ -13,26 +14,44 @@ log = logging.getLogger(__name__)
 
 from app.models.order import Order, OrderStatus
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
+from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 
 ROLE_ADMIN = "admin"
 ROLE_MANAGER = "manager"
 
-# ── Реквизиты продавца (тестовые) ────────────────────────────────────────────
-SELLER_INFO = {
-    "name":    'ООО "Северо-Западная Топливная Компания"',
-    "inn":     "7811123456",           # тестовый ИНН
-    "kpp":     "781101001",            # тестовый КПП
-    "ogrn":    "1027800000001",        # тестовый ОГРН
-    "address": "190000, г. Санкт-Петербург, Лиговский пр., д. 1, офис 1",
-    "phone":   "+7 (812) 917-15-17",
-    "email":   "sz_tk@mail.ru",
-    "bank":    "ПАО Сбербанк",
-    "rs":      "40702810900000000001",  # тестовый р/с
-    "ks":      "30101810400000000225",  # тестовый к/с
-    "bik":     "044030653",            # тестовый БИК
-}
+
+async def get_seller_snapshot(db: AsyncSession) -> dict:
+    """Загрузить реквизиты продавца из БД для подстановки в документы и счета."""
+    from sqlalchemy import select as _select
+    result = await db.execute(
+        _select(LegalEntity)
+        .where(LegalEntity.effective_to.is_(None), LegalEntity.is_active.is_(True))
+        .order_by(LegalEntity.effective_from.desc())
+        .limit(1)
+    )
+    entity = result.scalar_one_or_none()
+    if entity is None:
+        raise ValidationError(
+            "Реквизиты продавца не заполнены. "
+            "Администратор должен добавить юридическое лицо через /api/v1/admin/legal-entity"
+        )
+    return {
+        "name":    entity.name,
+        "inn":     entity.inn or "—",
+        "kpp":     entity.kpp or "—",
+        "ogrn":    entity.ogrn or "—",
+        "address": entity.legal_address or entity.actual_address or "—",
+        "phone":   entity.phone or "—",
+        "email":   entity.email or "—",
+        "bank":    entity.bank_name or "—",
+        "rs":      entity.checking_account or "—",
+        "ks":      entity.correspondent_account or "—",
+        "bik":     entity.bik or "—",
+        "director_name":  entity.director_name or "—",
+        "director_title": entity.director_title or "Директор",
+    }
 
 # Базовые цены топлива (₽/л) — тестовые, из прайса сайта
 BASE_FUEL_PRICES = {
@@ -43,6 +62,61 @@ BASE_FUEL_PRICES = {
     "fuel_oil":      24.0,   # мазут — за литр (условно)
 }
 BASE_DELIVERY_PRICE_PER_LITER = 3.0  # ₽/л (тестовое)
+
+
+# ── Payment status computation ────────────────────────────────────────────────
+
+def compute_payment_status(
+    paid_total: Decimal,
+    expected_amount: Decimal | None,
+    final_amount: Decimal | None,
+) -> str:
+    """Вычислить payment_status заявки по сумме оплаченных платежей.
+
+    Приоритет цели: final_amount (факт) > expected_amount (план).
+    Если цель не задана — факт наличия хоть какой-то оплаты даёт 'paid'.
+
+    Returns: 'unpaid' | 'partially_paid' | 'paid' | 'overpaid'
+    """
+    target = final_amount if final_amount is not None else expected_amount
+
+    if paid_total <= Decimal(0):
+        return "unpaid"
+
+    if target is None:
+        # Нет плановой суммы — любая оплата закрывает долг
+        return "paid"
+
+    if paid_total < target:
+        return "partially_paid"
+    if paid_total > target:
+        return "overpaid"
+    return "paid"
+
+
+async def recompute_and_save(db: AsyncSession, order: Order) -> str:
+    """Пересчитать payment_status по фактически оплаченным платежам и записать в order.
+
+    Не делает commit — вызывающий код обязан его выполнить (или flush).
+    """
+    result = await db.execute(
+        select(func.coalesce(func.sum(Payment.amount), 0)).where(
+            Payment.order_id == order.id,
+            Payment.status == PaymentStatus.PAID,
+        )
+    )
+    paid_total = Decimal(str(result.scalar() or 0))
+
+    expected = Decimal(str(order.expected_amount)) if order.expected_amount is not None else None
+    final = Decimal(str(order.final_amount)) if order.final_amount is not None else None
+
+    status = compute_payment_status(paid_total, expected, final)
+    order.payment_status = status
+    log.debug(
+        "recompute_and_save: order=%s paid_total=%s expected=%s final=%s → %s",
+        order.id, paid_total, expected, final, status,
+    )
+    return status
 
 
 async def _generate_invoice_number(db: AsyncSession) -> str:
@@ -166,8 +240,8 @@ async def record_payment(
         )
         db.add(payment)
 
-    # Обновить payment_status заявки
-    order.payment_status = "paid"
+    # Пересчитать payment_status по всем оплаченным платежам
+    await recompute_and_save(db, order)
     await db.flush()
     await db.refresh(payment)
     log.info("Payment recorded: order=%s amount=%s method=%s actor=%s", order_id, amount, method, actor.id)
@@ -248,7 +322,7 @@ async def payment_report(
     }
 
 
-def generate_invoice_html(payment: Payment, order: Order, client_info: dict) -> str:
+def generate_invoice_html(payment: Payment, order: Order, client_info: dict, seller_info: dict) -> str:
     """Генерация HTML-счёта. Возвращается как строка для отображения/печати."""
     fuel_labels = {
         "diesel_summer": "Дизельное топливо летнее (ДТ-Л)",
@@ -265,7 +339,7 @@ def generate_invoice_html(payment: Payment, order: Order, client_info: dict) -> 
     unit_price = round(float(payment.amount) / volume, 2) if volume else 0
 
     date_str = (payment.created_at or datetime.now(timezone.utc)).strftime("%d.%m.%Y")
-    s = SELLER_INFO
+    s = seller_info
     client_name = _html.escape(client_info.get("name", "—"))
     client_inn  = _html.escape(client_info.get("inn", "—"))
     client_addr = _html.escape(client_info.get("address", "—"))

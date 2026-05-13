@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Счёт № {{ doc_number }}{% endblock %}
+{% block content %}
+
+<h1>СЧЁТ НА ОПЛАТУ № {{ doc_number }} от {{ issued_at }}</h1>
+<div class="subtitle">{{ basis_label }}</div>
+
+<div class="req-grid">
+  <div class="req-block">
+    <b>Поставщик:</b>
+    <p>{{ seller.name }}</p>
+    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
+    <p>{{ seller.address }}</p>
+    {% if seller.phone %}<p>Тел.: {{ seller.phone }}</p>{% endif %}
+  </div>
+  <div class="req-block">
+    <b>Покупатель:</b>
+    <p>{{ buyer.name }}</p>
+    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
+    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
+  </div>
+</div>
+
+<div class="req-block" style="margin-bottom:14px">
+  <b>Банковские реквизиты поставщика:</b>
+  <p>Банк: {{ seller.bank }}
+     &nbsp;|&nbsp; Р/с: {{ seller.rs }}
+     &nbsp;|&nbsp; К/с: {{ seller.ks }}
+     &nbsp;|&nbsp; БИК: {{ seller.bik }}</p>
+</div>
+
+<table>
+  <tr>
+    <th style="width:5%">№</th>
+    <th>Наименование товара / услуги</th>
+    <th style="width:12%">Кол-во (л)</th>
+    <th style="width:14%">Цена (₽/л)</th>
+    <th style="width:14%">Сумма (₽)</th>
+  </tr>
+  <tr>
+    <td class="text-center">1</td>
+    <td>{{ fuel_name }}<br><small>Заявка {{ order_number }}, доставка: {{ delivery_address }}</small></td>
+    <td class="text-right">{{ volume | format_number }}</td>
+    <td class="text-right">{{ unit_price | format_number }}</td>
+    <td class="text-right">{{ amount | format_money }}</td>
+  </tr>
+  <tr class="total-row">
+    <td colspan="4" class="text-right">ИТОГО К ОПЛАТЕ:</td>
+    <td class="text-right">{{ amount | format_money }} ₽</td>
+  </tr>
+</table>
+
+<p class="footer-note">
+  Оплатить до: {{ payment_due }}.
+  НДС не предусмотрен (применяется УСН).
+</p>
+
+<div class="sign-area">
+  <div class="sign-item">
+    <div>{{ seller.director_title or "Руководитель" }}</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">{{ seller.director_name or "" }}</div>
+  </div>
+  <div class="sign-item">
+    <div>Бухгалтер</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">&nbsp;</div>
+  </div>
+</div>
+
+{% endblock %}

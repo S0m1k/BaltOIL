@@ -16,6 +16,8 @@ from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest
 from app.services.order_number import generate_order_number
+from app.services.payment_service import recompute_and_save
+from app.services import document_service
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -261,6 +263,16 @@ async def update_order(
         order.manager_comment = data.manager_comment
     if data.desired_date is not None:
         order.desired_date = data.desired_date
+    if data.expected_amount is not None:
+        order.expected_amount = data.expected_amount
+    if data.trade_credit_contract_signed is not None:
+        order.trade_credit_contract_signed = data.trade_credit_contract_signed
+
+    # final_amount меняет цель — пересчитываем payment_status
+    if data.final_amount is not None:
+        order.final_amount = data.final_amount
+        await recompute_and_save(db, order)
+
     # driver_id больше не назначается менеджером — водители берут заявки через /claim
 
     return order
@@ -319,6 +331,19 @@ async def transition_status(
 
     # Бизнес-проверки при конкретных переходах
 
+    # Шлагбаум закрытия: заявка не закрывается без оплаты.
+    # Исключение: товарный кредит с подписанным договором — закрывается авансом.
+    if data.to_status == OrderStatus.CLOSED:
+        trade_credit_bypass = (
+            order.payment_type == PaymentType.TRADE_CREDIT
+            and order.trade_credit_contract_signed
+        )
+        if order.payment_status != "paid" and not trade_credit_bypass:
+            raise StatusTransitionError(
+                f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
+                "Зафиксируйте оплату или, для товарного кредита, отметьте подписание договора."
+            )
+
     # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
     # Если delivery_service вернёт ошибку (нет топлива, недоступен) — прерываем переход.
     if data.to_status == OrderStatus.IN_TRANSIT:
@@ -363,6 +388,20 @@ async def transition_status(
         comment=data.comment,
     ))
     await db.flush()
+
+    # Авто-генерация документов при ключевых переходах.
+    # Ошибки PDF-рендера не прерывают переход — документ остаётся в статусе DRAFT.
+    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
+        try:
+            await document_service.generate_ttn(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-TTN generation failed for order %s: %s", order.id, exc)
+
+    if data.to_status == OrderStatus.CLOSED:
+        try:
+            await document_service.generate_upd(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-UPD generation failed for order %s: %s", order.id, exc)
 
     # Re-fetch to include the new log in the response
     result = await db.execute(

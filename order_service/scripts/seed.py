@@ -22,6 +22,7 @@ sys.path.insert(0, "/app")
 from app.config import get_settings
 from app.models import Order, OrderStatus, FuelType, PaymentType, OrderPriority, OrderStatusLog, OrderYearCounter
 from app.models import Payment, PaymentStatus, PaymentMethod, PaymentKind
+from app.models import LegalEntity
 
 settings = get_settings()
 
@@ -50,81 +51,82 @@ ORDERS = [
         client_id=USERS["client_pre"], manager_id=USERS["manager1"],
         fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("5000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.NEW,
-        payment_status="unpaid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.PREPAID, expected_amount=Decimal("95000"),
+        status=OrderStatus.NEW, payment_status="unpaid", priority=OrderPriority.NORMAL,
         desired_date=now + timedelta(days=2),
     ),
-    # 2. NEW — urgent
+    # 2. NEW — urgent, on_delivery
     dict(
         id=ORDER_IDS["ord_2"], order_number="ORD-2026-000002",
         client_id=USERS["client_del"], manager_id=None,
         fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
-        payment_type=PaymentType.ON_DELIVERY, status=OrderStatus.NEW,
-        payment_status="unpaid", priority=OrderPriority.URGENT,
+        payment_type=PaymentType.ON_DELIVERY,
+        status=OrderStatus.NEW, payment_status="unpaid", priority=OrderPriority.URGENT,
     ),
-    # 3. IN_PROGRESS
+    # 3. IN_PROGRESS — trade_credit client
     dict(
         id=ORDER_IDS["ord_3"], order_number="ORD-2026-000003",
         client_id=USERS["client_tc"], manager_id=USERS["manager1"],
         fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("10000"),
         delivery_address="г. Москва, ул. Ленина, 10",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.IN_PROGRESS,
-        payment_status="unpaid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
+        status=OrderStatus.IN_PROGRESS, payment_status="unpaid", priority=OrderPriority.NORMAL,
     ),
-    # 4. IN_PROGRESS — partially paid
+    # 4. IN_PROGRESS — postpaid, partially paid
     dict(
         id=ORDER_IDS["ord_4"], order_number="ORD-2026-000004",
         client_id=USERS["client_mix"], manager_id=USERS["manager2"],
         fuel_type=FuelType.PETROL_92, volume_requested=Decimal("3000"),
         delivery_address="г. Москва, Лесная ул., 25",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.IN_PROGRESS,
-        payment_status="partially_paid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.POSTPAID, expected_amount=Decimal("90000"),
+        status=OrderStatus.IN_PROGRESS, payment_status="partially_paid", priority=OrderPriority.NORMAL,
     ),
-    # 5. IN_TRANSIT
+    # 5. IN_TRANSIT — prepaid, fully paid upfront
     dict(
         id=ORDER_IDS["ord_5"], order_number="ORD-2026-000005",
         client_id=USERS["client_pre"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
         fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("8000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.IN_TRANSIT,
-        payment_status="paid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.PREPAID, expected_amount=Decimal("120000"),
+        status=OrderStatus.IN_TRANSIT, payment_status="paid", priority=OrderPriority.NORMAL,
     ),
-    # 6. DELIVERED — fully paid (can be closed)
+    # 6. DELIVERED — on_delivery, fully paid (can be closed)
     dict(
         id=ORDER_IDS["ord_6"], order_number="ORD-2026-000006",
         client_id=USERS["client_del"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
         fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"), volume_delivered=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
-        payment_type=PaymentType.ON_DELIVERY, status=OrderStatus.DELIVERED,
-        payment_status="paid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.ON_DELIVERY, final_amount=Decimal("56000"),
+        status=OrderStatus.DELIVERED, payment_status="paid", priority=OrderPriority.NORMAL,
     ),
-    # 7. DELIVERED — unpaid (awaiting payment — cannot be closed)
+    # 7. DELIVERED — postpaid, unpaid (awaiting payment — cannot be closed)
     dict(
         id=ORDER_IDS["ord_7"], order_number="ORD-2026-000007",
         client_id=USERS["client_post"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
         fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("6000"), volume_delivered=Decimal("6000"),
         delivery_address="г. Москва, ул. Садовая, 7",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.DELIVERED,
-        payment_status="unpaid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.POSTPAID, final_amount=Decimal("126000"),
+        status=OrderStatus.DELIVERED, payment_status="unpaid", priority=OrderPriority.NORMAL,
     ),
-    # 8. PARTIALLY_DELIVERED — overpaid (client paid 100k, delivered less = 80k)
+    # 8. PARTIALLY_DELIVERED — prepaid, overpaid (paid 100k, delivered for 80k)
     dict(
         id=ORDER_IDS["ord_8"], order_number="ORD-2026-000008",
         client_id=USERS["client_pre"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
         fuel_type=FuelType.PETROL_92, volume_requested=Decimal("5000"), volume_delivered=Decimal("4000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.PARTIALLY_DELIVERED,
-        payment_status="overpaid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.PREPAID, expected_amount=Decimal("100000"), final_amount=Decimal("80000"),
+        status=OrderStatus.PARTIALLY_DELIVERED, payment_status="overpaid", priority=OrderPriority.NORMAL,
     ),
-    # 9. CLOSED — all done
+    # 9. CLOSED — trade_credit, contract signed, paid
     dict(
         id=ORDER_IDS["ord_9"], order_number="ORD-2026-000009",
         client_id=USERS["client_tc"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
         fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("15000"), volume_delivered=Decimal("15000"),
         delivery_address="г. Москва, ул. Ленина, 10",
-        payment_type=PaymentType.INVOICE, status=OrderStatus.CLOSED,
-        payment_status="paid", priority=OrderPriority.NORMAL,
+        payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
+        expected_amount=Decimal("315000"), final_amount=Decimal("315000"),
+        status=OrderStatus.CLOSED, payment_status="paid", priority=OrderPriority.NORMAL,
     ),
     # 10. REJECTED
     dict(
@@ -179,6 +181,28 @@ async def main():
         await session.execute(text("DELETE FROM order_status_logs WHERE order_id = ANY(:ids)"), {"ids": order_ids})
         await session.execute(text("DELETE FROM orders WHERE id = ANY(:ids)"), {"ids": order_ids})
         await session.execute(text("DELETE FROM order_year_counters WHERE year = 2026"))
+        # Сброс реквизитов юр. лица (seed добавит актуальную версию)
+        await session.execute(text("DELETE FROM legal_entities"))
+        await session.commit()
+
+        # Реквизиты юридического лица (тестовые)
+        session.add(LegalEntity(
+            name='ООО "Северо-Западная Топливная Компания"',
+            short_name="ООО СЗТК",
+            inn="7811123456",
+            kpp="781101001",
+            ogrn="1027800000001",
+            bank_name="ПАО Сбербанк",
+            bik="044030653",
+            checking_account="40702810900000000001",
+            correspondent_account="30101810400000000225",
+            legal_address="190000, г. Санкт-Петербург, Лиговский пр., д. 1, офис 1",
+            phone="+7 (812) 917-15-17",
+            email="sz_tk@mail.ru",
+            director_name="Иванов Иван Иванович",
+            director_title="Генеральный директор",
+            is_active=True,
+        ))
         await session.commit()
 
         # Year counter
@@ -192,6 +216,9 @@ async def main():
             o.setdefault("client_comment", None)
             o.setdefault("manager_comment", None)
             o.setdefault("rejection_reason", None)
+            o.setdefault("expected_amount", None)
+            o.setdefault("final_amount", None)
+            o.setdefault("trade_credit_contract_signed", False)
             session.add(Order(**o))
         await session.commit()
 
@@ -204,7 +231,7 @@ async def main():
         await session.commit()
 
     await engine.dispose()
-    print(f"[seed:orders] Created {len(ORDERS)} orders, {len(PAYMENTS)} payments")
+    print(f"[seed:orders] Created legal_entity, {len(ORDERS)} orders, {len(PAYMENTS)} payments")
 
 
 if __name__ == "__main__":

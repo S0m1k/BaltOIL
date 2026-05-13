@@ -90,7 +90,11 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    return await message_service.send_message(db, conv_id, data.text, actor)
+    return await message_service.send_message(
+        db, conv_id, data.text, actor,
+        msg_type=data.msg_type,
+        metadata=data.metadata,
+    )
 
 
 @router.delete("/{conv_id}/messages/{msg_id}", status_code=204)

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}{% endblock %}</title>
+  <style>
+    @page { size: A4; margin: 20mm 15mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Liberation Sans", Arial, sans-serif;
+      font-size: 11pt;
+      color: #000;
+      margin: 0;
+    }
+    h1 { font-size: 14pt; text-align: center; margin: 0 0 4px; }
+    .subtitle { text-align: center; font-size: 10pt; color: #444; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th, td { border: 1px solid #888; padding: 5px 8px; font-size: 10pt; }
+    th { background: #f0f0f0; font-weight: bold; text-align: center; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .total-row td { font-weight: bold; background: #f7f7f7; }
+    .req-grid { display: flex; gap: 30px; margin-bottom: 14px; }
+    .req-block { flex: 1; }
+    .req-block b { display: block; margin-bottom: 3px; font-size: 10pt; }
+    .req-block p { margin: 2px 0; font-size: 9.5pt; }
+    .sign-area { margin-top: 30px; display: flex; justify-content: space-between; }
+    .sign-item { width: 45%; }
+    .sign-line { border-bottom: 1px solid #000; margin-top: 24px; }
+    .sign-label { font-size: 9pt; color: #555; margin-top: 4px; }
+    .footer-note { font-size: 8.5pt; color: #666; margin-top: 10px; }
+  </style>
+</head>
+<body>
+{% block content %}{% endblock %}
+</body>
+</html>

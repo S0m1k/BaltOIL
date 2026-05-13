@@ -1,6 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import (
     String, Text, Numeric, DateTime, Enum as SAEnum,
     Integer, Boolean, func
@@ -30,8 +31,10 @@ class OrderStatus(str, enum.Enum):
 
 
 class PaymentType(str, enum.Enum):
-    INVOICE = "invoice"         # По счёту (для юридических лиц)
-    ON_DELIVERY = "on_delivery" # По факту, при прибытии (для физических лиц)
+    PREPAID = "prepaid"             # Предоплата
+    ON_DELIVERY = "on_delivery"     # По факту, при прибытии
+    TRADE_CREDIT = "trade_credit"   # Товарный кредит
+    POSTPAID = "postpaid"           # Постоплата (по счёту)
 
 
 class OrderPriority(str, enum.Enum):
@@ -62,8 +65,14 @@ class Order(Base):
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
-        SAEnum(PaymentType), nullable=False, default=PaymentType.INVOICE
+        SAEnum(PaymentType), nullable=False, default=PaymentType.ON_DELIVERY
     )
+    # Ожидаемая сумма (для prepaid — сумма предоплаты; для остальных — расчётная)
+    expected_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Итоговая сумма после закрытия (по факту доставки)
+    final_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Для trade_credit: подписан ли договор (разблокирует закрытие без оплаты)
+    trade_credit_contract_signed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Статус и приоритет
     status: Mapped[OrderStatus] = mapped_column(
@@ -102,5 +111,15 @@ class Order(Base):
     status_logs: Mapped[list["OrderStatusLog"]] = relationship(
         "OrderStatusLog", back_populates="order",
         order_by="OrderStatusLog.created_at",
+        cascade="all, delete-orphan",
+    )
+    payments: Mapped[list["Payment"]] = relationship(
+        "Payment", back_populates="order",
+        order_by="Payment.created_at",
+        cascade="all, delete-orphan",
+    )
+    documents: Mapped[list["Document"]] = relationship(
+        "Document", back_populates="order",
+        order_by="Document.created_at",
         cascade="all, delete-orphan",
     )
