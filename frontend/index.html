@@ -4,75 +4,72 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BaltOIL — Панель управления</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:        #f6f9fc;
+    --bg:        #eef2fb;
     --bg2:       #ffffff;
-    --bg3:       #f0f4f8;
-    --border:    #e3e8ee;
-    --border2:   #c4cdd6;
+    --bg3:       #f4f7fd;
+    --border:    #dde3f0;
+    --border2:   #c8d2e8;
 
-    /* Primary — Stripe indigo (заменяет amber везде) */
-    --amber:     #533afd;
-    --amber2:    #4434d4;
-    --amber-dim: rgba(83,58,253,.08);
+    --amber:     #0ea5e9;
+    --amber2:    #0284c7;
+    --amber-dim: rgba(14,165,233,.10);
 
-    /* Accent — зелёный остаётся */
     --accent:     #10b981;
     --accent2:    #059669;
-    --accent-dim: rgba(16,185,129,.08);
+    --accent-dim: rgba(16,185,129,.10);
 
-    /* Gradients */
-    --grad:      linear-gradient(135deg, #533afd 0%, #4434d4 100%);
-    --grad-soft: linear-gradient(135deg, rgba(83,58,253,.06) 0%, rgba(68,52,212,.06) 100%);
+    --grad:      linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
+    --grad-soft: linear-gradient(135deg, rgba(14,165,233,.08) 0%, rgba(16,185,129,.08) 100%);
 
-    /* Текст */
-    --text:  #0d253d;
-    --text2: #425168;
-    --text3: #64748d;
+    --text:  #0f172a;
+    --text2: #334155;
+    --text3: #94a3b8;
 
-    /* Системные */
-    --red:   #ea2261;
+    --red:   #ef4444;
     --green: #10b981;
 
-    /* Статусы заявок */
-    --s-new:      #533afd;
+    --s-new:      #3b82f6;
     --s-progress: #d97706;
     --s-assigned: #ea580c;
     --s-transit:  #7c3aed;
     --s-delivered:#0d9488;
     --s-partial:  #d97706;
     --s-closed:   #6b7280;
-    --s-rejected: #ea2261;
+    --s-rejected: #dc2626;
   }
 
   /* ── ТЁМНАЯ ТЕМА ── */
   html.dark {
-    --bg:        #0e0e2a;
-    --bg2:       #13133a;
-    --bg3:       #171745;
-    --border:    #252560;
-    --border2:   #32327a;
+    --bg:        #0f172a;
+    --bg2:       #1e293b;
+    --bg3:       #1a2236;
+    --border:    #334155;
+    --border2:   #475569;
 
-    --amber:     #7c6bff;
-    --amber2:    #9f92ff;
-    --amber-dim: rgba(124,107,255,.15);
+    --amber:     #38bdf8;
+    --amber2:    #0ea5e9;
+    --amber-dim: rgba(56,189,248,.12);
 
     --accent:    #34d399;
     --accent2:   #10b981;
     --accent-dim:rgba(52,211,153,.12);
 
-    --grad:      linear-gradient(135deg, #7c6bff 0%, #9f92ff 100%);
-    --grad-soft: linear-gradient(135deg, rgba(124,107,255,.1) 0%, rgba(159,146,255,.1) 100%);
+    --grad:      linear-gradient(135deg, #38bdf8 0%, #34d399 100%);
+    --grad-soft: linear-gradient(135deg, rgba(56,189,248,.10) 0%, rgba(52,211,153,.10) 100%);
 
-    --text:  #e8e6ff;
-    --text2: #b0acdd;
-    --text3: #6b6898;
+    --text:  #f1f5f9;
+    --text2: #cbd5e1;
+    --text3: #64748b;
 
-    --red:   #ff4d8a;
+    --red:   #f87171;
     --green: #34d399;
 
-    --grid-line: rgba(124,107,255,.04);
+    --grid-line: rgba(56,189,248,.04);
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -80,8 +77,8 @@
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif;
-    font-size: 16px;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: 17px;
     min-height: 100vh;
     transition: background-color .25s ease, color .25s ease;
   }
@@ -128,7 +125,7 @@
     background: var(--bg2);
   }
   .auth-logo {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 28px; font-weight: 700; letter-spacing: 3px;
     background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text; margin-bottom: 4px;
@@ -162,7 +159,7 @@
     padding: 18px 12px; cursor: pointer; border: 1px solid var(--border);
     background: var(--bg3); color: var(--text2); border-radius: 8px;
     font-size: 13px; text-align: center; transition: all .2s;
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
   .reg-type-btn:hover { border-color: var(--amber); color: var(--amber); }
   .reg-type-btn .reg-type-icon { font-size: 28px; display: block; margin-bottom: 8px; }
@@ -186,7 +183,7 @@
   .form-input {
     width: 100%; padding: 10px 14px;
     background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 15px;
+    color: var(--text); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
     outline: none; transition: border-color .2s;
     border-radius: 6px;
   }
@@ -208,7 +205,7 @@
 
   .btn {
     padding: 11px 22px; border: none; cursor: pointer;
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 15px; font-weight: 600;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px; font-weight: 600;
     letter-spacing: 1.5px; text-transform: uppercase;
     transition: all .2s; border-radius: 9999px;
   }
@@ -257,7 +254,7 @@
     background: var(--grad);
   }
   .stock-fuel-label {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 17px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 17px; font-weight: 700;
     letter-spacing: 1px; color: var(--text); margin-bottom: 6px;
   }
   .stock-volume { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 22px; font-weight: 500; color: var(--amber); }
@@ -286,7 +283,7 @@
   .summary-card {
     background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px;
   }
-  .summary-fuel { font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .summary-fuel { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
   .summary-row {
     display: flex; justify-content: space-between; align-items: center;
     padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border);
@@ -323,7 +320,7 @@
     position: sticky; top: 0; z-index: 100; overflow: hidden;
   }
   .topbar-logo {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text; letter-spacing: 3px;
     padding: 22px 20px 16px; flex-shrink: 0;
@@ -433,7 +430,7 @@
     display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
   }
   .toolbar-title {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     letter-spacing: 1px; color: var(--text);
   }
   .toolbar-title span { color: var(--amber); }
@@ -577,7 +574,7 @@
     box-shadow: 0 2px 12px rgba(14,165,233,.05);
   }
   .form-card-title {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 20px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 20px; font-weight: 700;
     letter-spacing: 1px; color: var(--text); margin-bottom: 24px;
   }
 
@@ -603,7 +600,7 @@
   }
   .fuel-card:hover { border-color: var(--amber); transform: translateY(-2px); }
   .fuel-short {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 32px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 32px; font-weight: 700;
     color: var(--amber); letter-spacing: 1px;
   }
   .fuel-name { font-size: 13px; color: var(--text2); margin-top: 4px; }
@@ -618,7 +615,7 @@
     padding: 24px; max-width: 640px;
   }
   .profile-card-title {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 18px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
     color: var(--text); margin-bottom: 16px; letter-spacing: 1px;
   }
   pre.json-view {
@@ -636,7 +633,7 @@
   }
   .vehicle-card:hover { border-color: var(--border2); }
   .vehicle-plate {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     color: var(--amber); letter-spacing: 2px;
   }
   .vehicle-model { font-size: 13px; color: var(--text2); margin: 4px 0 10px; }
@@ -694,7 +691,7 @@
     color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px;
   }
   .stat-value {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 26px; font-weight: 700; color: var(--amber);
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 26px; font-weight: 700; color: var(--amber);
   }
   .stat-unit { font-size: 12px; color: var(--text3); }
 
@@ -712,7 +709,7 @@
     border-radius: 4px; box-shadow: 0 8px 40px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
   }
   .modal-title {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 18px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
     color: var(--text); margin-bottom: 20px; letter-spacing: 1px;
   }
   .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
@@ -770,7 +767,7 @@
     padding:12px 16px; border-bottom:1px solid var(--border);
     display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
   }
-  .notif-panel-title { font-family:'SF Pro Display', -apple-system, system-ui, sans-serif,sans-serif; font-size:15px; font-weight:700; color:var(--text); letter-spacing:1px; }
+  .notif-panel-title { font-family:'Plus Jakarta Sans', system-ui, sans-serif,sans-serif; font-size:15px; font-weight:700; color:var(--text); letter-spacing:1px; }
   .notif-list { overflow-y:auto; flex:1; }
   .notif-item {
     padding:12px 16px; border-bottom:1px solid var(--border);
@@ -809,7 +806,7 @@
     flex-shrink: 0;
   }
   .chat-sidebar-title {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 16px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 16px; font-weight: 700;
     color: var(--text); letter-spacing: 1px;
   }
   .conv-list { flex: 1; overflow-y: auto; }
@@ -864,7 +861,7 @@
     width: 32px; height: 32px; border-radius: 2px; flex-shrink: 0;
     background: var(--bg3); border: 1px solid var(--border2);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 13px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 700;
     color: var(--amber);
   }
   .msg-bubble {
@@ -889,7 +886,7 @@
   .chat-input {
     flex: 1; padding: 10px 14px;
     background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 14px;
+    color: var(--text); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 14px;
     outline: none; resize: none; border-radius: 2px;
     transition: border-color .2s; height: 42px; overflow-y: hidden;
   }
@@ -924,7 +921,7 @@
     width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
     background: var(--grad); color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-size: 17px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 17px; font-weight: 700;
     letter-spacing: 1px;
   }
   .client-info { flex: 1; min-width: 0; }
@@ -988,7 +985,7 @@
     flex-shrink: 0;
   }
   .burger-logo {
-    font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-weight: 700; font-size: 18px;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 700; font-size: 18px;
     color: var(--amber); letter-spacing: 2px;
   }
   .burger-close-btn {
@@ -1003,7 +1000,7 @@
     display: flex; align-items: center; width: 100%; text-align: left;
     background: none; border: none; border-left: 3px solid transparent;
     padding: 13px 20px; color: var(--text2);
-    font-size: 14px; font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif;
+    font-size: 14px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-weight: 600; letter-spacing: .5px; cursor: pointer;
     transition: all .15s;
   }
@@ -1020,7 +1017,7 @@
   .burger-logout-btn {
     width: 100%; background: none; border: 1px solid var(--border);
     color: var(--text2); padding: 8px 16px; border-radius: 8px; cursor: pointer;
-    font-size: 12px; font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif; font-weight: 600;
+    font-size: 12px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 600;
     letter-spacing: .5px; transition: all .15s;
   }
   .burger-logout-btn:hover { color: var(--red); border-color: var(--red); }
