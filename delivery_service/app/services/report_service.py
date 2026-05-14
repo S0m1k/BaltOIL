@@ -37,12 +37,6 @@ async def driver_report(
     total_volume_planned = sum(float(t.volume_planned) for t in trips)
     total_volume_actual  = sum(float(t.volume_actual) for t in completed if t.volume_actual)
 
-    distances = []
-    for t in completed:
-        if t.odometer_start is not None and t.odometer_end is not None:
-            distances.append(float(t.odometer_end) - float(t.odometer_start))
-    total_distance = sum(distances) if distances else None
-
     return DriverReportResponse(
         driver_id=driver_id,
         period_from=date_from,
@@ -52,6 +46,6 @@ async def driver_report(
         cancelled_trips=len(cancelled),
         total_volume_planned=total_volume_planned,
         total_volume_actual=total_volume_actual,
-        total_distance_km=total_distance,
+        total_distance_km=None,
         trips=trips,
     )
