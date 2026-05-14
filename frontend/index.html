@@ -4744,7 +4744,7 @@ async function loadFinance() {
 // TARIFFS TAB
 // ═══════════════════════════════════════════════════════════════
 
-const FUEL_LABELS = {
+const FUEL_LABELS_TARIFF = {
   DIESEL_SUMMER: 'ДТ летнее',
   DIESEL_WINTER: 'ДТ зимнее',
   PETROL_92:     'АИ-92',
@@ -4786,7 +4786,7 @@ function renderDefaultTariffBlock(tariff) {
   // Price inputs
   block.innerHTML = tariff.fuel_prices.map(fp => `
     <div style="display:flex;flex-direction:column;gap:4px">
-      <label style="font-size:11px;color:var(--text3)">${escHtml(FUEL_LABELS[fp.fuel_type] || fp.fuel_type)}</label>
+      <label style="font-size:11px;color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</label>
       <div style="display:flex;align-items:center;gap:4px">
         <input type="number" step="0.01" min="0.01"
           class="form-input" style="width:100px;font-size:13px"
@@ -4873,7 +4873,7 @@ function renderTariffsList(tariffs) {
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         ${t.fuel_prices.map(fp => `
           <div style="background:var(--bg3);border-radius:4px;padding:4px 10px;font-size:12px">
-            <span style="color:var(--text3)">${escHtml(FUEL_LABELS[fp.fuel_type] || fp.fuel_type)}</span>
+            <span style="color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</span>
             <span style="font-weight:600;margin-left:6px">${Number(fp.price_per_liter).toFixed(2)} ₽/л</span>
           </div>`).join('')}
       </div>
@@ -4919,7 +4919,7 @@ function promptCreateTariff() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${fuels.map(f => `
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS[f])}</span>
+            <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
             <input type="number" step="0.01" min="0.01" class="form-input" id="nt-price-${f}"
               style="width:80px;font-size:13px" placeholder="0.00">
             <span style="font-size:12px;color:var(--text3)">₽/л</span>
@@ -4970,7 +4970,7 @@ async function promptEditTariff(tariffId) {
           const fp = tariff.fuel_prices.find(p => p.fuel_type === f);
           return `
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS[f])}</span>
+              <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
               <input type="number" step="0.01" min="0.01" class="form-input" id="et-price-${f}"
                 style="width:80px;font-size:13px" value="${fp ? Number(fp.price_per_liter).toFixed(2) : ''}">
               <span style="font-size:12px;color:var(--text3)">₽/л</span>
