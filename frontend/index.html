@@ -517,17 +517,6 @@
   .status-closed           { color: var(--s-closed);    border-color: var(--s-closed);    background: rgba(107,114,128,.1); }
   .status-rejected         { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
 
-  /* Payment status badges */
-  .pay-badge {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .8px;
-    text-transform: uppercase; padding: 2px 7px; border-radius: 2px;
-    white-space: nowrap; flex-shrink: 0; border: 1px solid;
-  }
-  .pay-unpaid   { color: var(--red);    border-color: var(--red);    background: rgba(239,68,68,.1); }
-  .pay-partial  { color: var(--amber);  border-color: var(--amber);  background: rgba(245,158,11,.1); }
-  .pay-paid     { color: var(--green);  border-color: var(--green);  background: rgba(34,197,94,.1); }
-  .pay-overpaid { color: var(--amber);  border-color: var(--amber);  background: rgba(245,158,11,.1); }
-
   .order-body {
     display: none; padding: 0 18px 18px;
     border-top: 1px solid var(--border);
@@ -1400,13 +1389,6 @@
           <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="rejected" onchange="loadOrders()"> Отклонены</label>
         </div>
-        <div class="status-checkboxes" id="pay-filter-group" style="border-left:1px solid var(--border);padding-left:10px;margin-left:4px">
-          <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">Оплата:</span>
-          <label class="status-cb-label"><input type="checkbox" name="pf" value="unpaid" checked onchange="loadOrders()"> <span style="color:var(--red)">Не оплачено</span></label>
-          <label class="status-cb-label"><input type="checkbox" name="pf" value="partially_paid" checked onchange="loadOrders()"> <span style="color:var(--amber)">Частично</span></label>
-          <label class="status-cb-label"><input type="checkbox" name="pf" value="paid" checked onchange="loadOrders()"> <span style="color:var(--green)">Оплачено</span></label>
-          <label class="status-cb-label"><input type="checkbox" name="pf" value="overpaid" onchange="loadOrders()"> <span style="color:var(--amber)">Переплата</span></label>
-        </div>
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
         </button>
@@ -1742,6 +1724,23 @@
       <!-- Summary cards -->
       <div id="fin-summary-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
         <div class="empty-state"><div class="loading"></div></div>
+      </div>
+
+      <!-- Payment status tracking for orders -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="font-weight:600;font-size:14px">Статусы оплаты заявок</span>
+          <div class="status-checkboxes" id="pay-filter-group" style="display:flex;gap:14px;flex-wrap:wrap" onchange="loadFinancePaymentOrders()">
+            <label><input type="checkbox" name="pf" value="unpaid" checked> Не оплачено</label>
+            <label><input type="checkbox" name="pf" value="partially_paid" checked> Частично</label>
+            <label><input type="checkbox" name="pf" value="paid"> Оплачено</label>
+            <label><input type="checkbox" name="pf" value="overpaid"> Переплата</label>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="loadFinancePaymentOrders()" style="margin-left:auto">↻ Обновить</button>
+        </div>
+        <div id="fin-pay-orders-list">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
       </div>
 
       <!-- Payments table -->
@@ -2416,20 +2415,16 @@ function switchTab(tab) {
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
 async function loadOrders() {
-  const statusFilter  = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
-  const payFilter     = [...document.querySelectorAll('input[name="pf"]:checked')].map(cb => cb.value);
+  const statusFilter = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
-  if (statusFilter.length === 0 || payFilter.length === 0) {
+  if (statusFilter.length === 0) {
     el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
     return;
   }
   try {
     let orders = await orderGet('/orders?limit=200');
-    orders = orders.filter(o =>
-      statusFilter.includes(o.status) &&
-      payFilter.includes(o.payment_status || 'unpaid')
-    );
+    orders = orders.filter(o => statusFilter.includes(o.status));
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -2467,7 +2462,6 @@ function orderCardHTML(o) {
       ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">💬 ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       <div class="order-date">${fmtDate(o.created_at)}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
-      ${(()=>{const ps=o.payment_status||'unpaid';const cls={unpaid:'pay-unpaid',partially_paid:'pay-partial',paid:'pay-paid',overpaid:'pay-overpaid'}[ps]||'pay-unpaid';const lbl=PAYMENT_STATUS_LABELS[ps]||ps;return ps==='paid'?'':`<span class="pay-badge ${cls}">${escHtml(lbl)}</span>`;})()}
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
@@ -4755,22 +4749,83 @@ async function loadFinance() {
     const payments = await orderGet('/finance/payments' + qs);
     if (!payments.length) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Нет платежей за выбранный период</td></tr>';
-      return;
+    } else {
+      tbody.innerHTML = payments.map(p => `
+        <tr>
+          <td><strong>${escHtml(p.order_number)}</strong></td>
+          <td>${escHtml(PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type)}</td>
+          <td style="color:var(--text3);font-size:11px">${escHtml(p.kind)}</td>
+          <td><span style="color:${PAYMENT_STATUS_COLORS[p.status]||'inherit'};font-weight:600">${escHtml(PAYMENT_STATUS_LABELS[p.status]||p.status)}</span></td>
+          <td style="color:var(--text3);font-size:11px">${escHtml(p.method||'—')}</td>
+          <td style="text-align:right;font-weight:600">${p.amount.toLocaleString('ru-RU',{minimumFractionDigits:2})}</td>
+          <td style="color:var(--text3);font-size:11px">${p.paid_at ? new Date(p.paid_at).toLocaleDateString('ru-RU') : '—'}</td>
+          <td style="color:var(--text3);font-size:11px">${new Date(p.created_at).toLocaleDateString('ru-RU')}</td>
+        </tr>
+      `).join('');
     }
-    tbody.innerHTML = payments.map(p => `
-      <tr>
-        <td><strong>${escHtml(p.order_number)}</strong></td>
-        <td>${escHtml(PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type)}</td>
-        <td style="color:var(--text3);font-size:11px">${escHtml(p.kind)}</td>
-        <td><span style="color:${PAYMENT_STATUS_COLORS[p.status]||'inherit'};font-weight:600">${escHtml(PAYMENT_STATUS_LABELS[p.status]||p.status)}</span></td>
-        <td style="color:var(--text3);font-size:11px">${escHtml(p.method||'—')}</td>
-        <td style="text-align:right;font-weight:600">${p.amount.toLocaleString('ru-RU',{minimumFractionDigits:2})}</td>
-        <td style="color:var(--text3);font-size:11px">${p.paid_at ? new Date(p.paid_at).toLocaleDateString('ru-RU') : '—'}</td>
-        <td style="color:var(--text3);font-size:11px">${new Date(p.created_at).toLocaleDateString('ru-RU')}</td>
-      </tr>
-    `).join('');
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:16px">Ошибка загрузки платежей</td></tr>`;
+  }
+
+  // Payment-status order tracking (separate fetch — orders endpoint, not payments)
+  loadFinancePaymentOrders();
+}
+
+// Render orders grouped by payment status — driven by the pf checkboxes inside Finance tab.
+async function loadFinancePaymentOrders() {
+  const payFilter = [...document.querySelectorAll('#pay-filter-group input[name="pf"]:checked')].map(cb => cb.value);
+  const box = document.getElementById('fin-pay-orders-list');
+  if (!box) return;
+  if (payFilter.length === 0) {
+    box.innerHTML = '<div class="empty-state" style="padding:14px">Выберите хотя бы один статус оплаты</div>';
+    return;
+  }
+  box.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    let orders = await orderGet('/orders?limit=200');
+    orders = orders.filter(o => payFilter.includes(o.payment_status || 'unpaid'));
+    if (!orders.length) {
+      box.innerHTML = '<div class="empty-state" style="padding:14px">Нет заявок с выбранными статусами оплаты</div>';
+      return;
+    }
+    box.innerHTML = `
+      <div class="inv-table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr>
+              <th>Заявка</th>
+              <th>Дата</th>
+              <th>Топливо</th>
+              <th style="text-align:right">Объём, л</th>
+              <th>Тип оплаты</th>
+              <th>Статус оплаты</th>
+              <th>Статус заявки</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${orders.map(o => {
+              const ps = o.payment_status || 'unpaid';
+              const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
+              const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
+              const statusLbl = STATUS_LABELS[o.status] || o.status;
+              return `
+                <tr style="cursor:pointer" onclick="switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)">
+                  <td><strong>${escHtml(o.order_number)}</strong></td>
+                  <td style="color:var(--text3);font-size:11px">${fmtDate(o.created_at)}</td>
+                  <td>${escHtml(FUEL_LABELS[o.fuel_type] || o.fuel_type)}</td>
+                  <td style="text-align:right">${Number(o.volume_requested).toLocaleString('ru')}</td>
+                  <td>${escHtml(PAYMENT_LABELS[o.payment_type] || o.payment_type)}</td>
+                  <td><span style="color:${psColor};font-weight:600">${escHtml(psLbl)}</span></td>
+                  <td><span class="status-badge status-${o.status}">${escHtml(statusLbl)}</span></td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
 }
 
