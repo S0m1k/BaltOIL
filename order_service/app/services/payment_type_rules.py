@@ -1,14 +1,14 @@
 """Validation matrix: which payment_type is allowed for a given actor + client context.
 
-Rules (agreed 2026-05-14):
+Rules (agreed 2026-05-14, revised):
 ┌──────────────┬────────────┬─────────┬──────────────────────┬───────────────────────┐
 │ payment_type │ INDIVIDUAL │ COMPANY │ requires credit_allowed │ who can select      │
 ├──────────────┼────────────┼─────────┼──────────────────────┼───────────────────────┤
 │ prepaid      │     ✓      │    ✓    │          —           │ client, manager, admin│
 │ on_delivery  │     ✓      │    ✗    │          —           │ client, manager, admin│
 │ postpaid     │     ✗      │    ✓    │          —           │ manager, admin        │
-│ trade_credit │     ✗      │    ✓    │          —           │ manager, admin        │
-│ debt         │     ✓      │    ✓    │         yes          │ manager, admin        │
+│ trade_credit │     ✗      │    ✓    │          —           │ client (company), mgr │
+│ debt         │     ✓      │    ✓    │         yes          │ client (if allowed)   │
 └──────────────┴────────────┴─────────┴──────────────────────┴───────────────────────┘
 """
 from app.models.order import PaymentType
@@ -22,8 +22,8 @@ _RULES: dict[PaymentType, tuple[set[str], bool, bool]] = {
     PaymentType.PREPAID:       ({"individual", "company"}, False, False),
     PaymentType.ON_DELIVERY:   ({"individual"},            False, False),
     PaymentType.POSTPAID:      ({"company"},               True,  False),
-    PaymentType.TRADE_CREDIT:  ({"company"},               True,  False),
-    PaymentType.DEBT:          ({"individual", "company"}, True,  True),
+    PaymentType.TRADE_CREDIT:  ({"company"},               False, False),  # company clients pick it themselves
+    PaymentType.DEBT:          ({"individual", "company"}, False, True),   # any client, only if admin enabled
 }
 
 
