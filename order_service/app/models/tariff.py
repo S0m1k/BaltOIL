@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String, Text, Boolean, Numeric, DateTime, func, UniqueConstraint
+from sqlalchemy import String, Text, Boolean, Numeric, DateTime, ForeignKey, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -47,10 +47,8 @@ class TariffFuelPrice(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     tariff_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        # FK defined without SA ForeignKey to keep models importable without full migration state
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), ForeignKey("tariffs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
     )
     # Stored as string matching FuelType enum VALUES ('DIESEL_SUMMER' etc.)
     fuel_type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -69,7 +67,8 @@ class TariffVolumeTier(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     tariff_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("tariffs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
     )
     # Lower bound (inclusive) in litres for this discount tier
     min_volume: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)

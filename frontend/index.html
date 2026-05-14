@@ -320,35 +320,43 @@
   }
 
   /* ── APP SHELL ── */
-  #app-screen { display: none; flex-direction: column; min-height: 100vh; }
+  #app-screen { display: none; flex-direction: row; min-height: 100vh; }
 
   .topbar {
-    background: var(--bg2); border-bottom: 1px solid var(--border);
-    box-shadow: 0 1px 8px rgba(14,165,233,.07);
-    padding: 0 24px; display: flex; align-items: center; gap: 0;
-    height: 56px; position: sticky; top: 0; z-index: 100;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    box-shadow: 1px 0 8px rgba(14,165,233,.06);
+    display: flex; flex-direction: column; align-items: stretch;
+    width: 220px; min-width: 220px; height: 100vh;
+    position: sticky; top: 0; z-index: 100; overflow: hidden;
   }
   .topbar-logo {
     font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
     background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text; letter-spacing: 3px; margin-right: 32px;
-    flex-shrink: 0;
+    background-clip: text; letter-spacing: 3px;
+    padding: 22px 20px 16px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
   }
   .nav-tabs {
-    display: flex; gap: 0; height: 100%; flex: 1;
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1; overflow-y: auto; padding: 8px 0;
   }
   .nav-tab {
-    padding: 0 20px; border: none; background: none; cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
-    text-transform: uppercase; color: var(--text3);
-    border-bottom: 2px solid transparent; height: 100%;
-    transition: all .2s; white-space: nowrap;
+    padding: 9px 20px; border: none; background: none; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--text3); text-align: left;
+    border-left: 3px solid transparent;
+    transition: all .15s; white-space: nowrap;
   }
-  .nav-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
-  .nav-tab:hover:not(.active) { color: var(--text2); }
+  .nav-tab.active {
+    color: var(--amber); border-left-color: var(--amber);
+    background: rgba(245,158,11,.07);
+  }
+  .nav-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
 
   .topbar-right {
-    display: flex; align-items: center; gap: 16px; margin-left: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    margin-top: auto; padding: 14px 16px 18px;
+    border-top: 1px solid var(--border);
   }
   .user-badge {
     display: flex; align-items: center; gap: 8px;
@@ -365,7 +373,7 @@
   .user-badge.open .caret { transform: rotate(180deg); }
   .user-menu-wrap { position: relative; }
   .user-menu {
-    position: absolute; top: calc(100% + 6px); right: 0;
+    position: absolute; bottom: calc(100% + 6px); left: 0;
     min-width: 200px;
     background: var(--bg2); border: 1px solid var(--border);
     border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
@@ -1023,13 +1031,22 @@
 
   /* ── RESPONSIVE / MOBILE ───────────────────────────────────── */
 
-  @media (max-width: 640px) {
-    /* Topbar — burger replaces nav tabs */
-    .topbar { padding: 0 10px; gap: 0; }
-    .topbar-logo { font-size: 15px; letter-spacing: 1px; flex-shrink: 0; }
-    .nav-tabs { display: none; }          /* ← hidden on mobile */
-    .burger-btn { display: flex; align-items: center; } /* ← shown on mobile */
-    .topbar-right { flex-shrink: 0; gap: 4px; }
+  @media (max-width: 768px) {
+    /* On mobile: sidebar collapses to a horizontal topbar */
+    #app-screen { flex-direction: column; }
+    .topbar {
+      width: 100%; min-width: 0; height: 48px;
+      flex-direction: row; align-items: center;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding: 0 10px; overflow: visible;
+    }
+    .topbar-logo { padding: 0; font-size: 15px; letter-spacing: 1px; border-bottom: none; }
+    .nav-tabs { display: none; }
+    .burger-btn { display: flex; align-items: center; }
+    .topbar-right {
+      flex-direction: row; margin-top: 0; margin-left: auto;
+      padding: 0; border-top: none; gap: 4px;
+    }
     .user-badge { display: none; }
 
     /* Content */
