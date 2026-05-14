@@ -38,7 +38,8 @@ def _make_service_token(actor: TokenUser) -> str:
 async def _update_order_status(order_id: uuid.UUID, actor: TokenUser, **kwargs) -> None:
     """Обновить статус заявки в order_service (fire-and-forget).
     kwargs передаются как поля тела запроса вместе с to_status.
-    Ошибки только логируются — не прерывают текущую операцию.
+    Ошибки логируются на уровне ERROR — не прерывают текущую операцию,
+    но должны попасть в мониторинг, так как order может зависнуть в IN_TRANSIT.
     """
     try:
         token = _make_service_token(actor)
@@ -49,9 +50,15 @@ async def _update_order_status(order_id: uuid.UUID, actor: TokenUser, **kwargs) 
                 headers={"Authorization": f"Bearer {token}"},
             )
             if r.status_code not in (200, 400, 422):
-                log.warning("_update_order_status: unexpected %s for order %s", r.status_code, order_id)
+                log.error(
+                    "_update_order_status: unexpected HTTP %s for order %s — order may be stuck. body=%s",
+                    r.status_code, order_id, r.text[:300],
+                )
     except Exception as exc:
-        log.warning("_update_order_status failed for order %s: %s", order_id, exc)
+        log.error(
+            "_update_order_status failed for order %s — order may be stuck in current status: %s",
+            order_id, exc,
+        )
 
 
 async def get_trip_by_id(

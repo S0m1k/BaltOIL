@@ -329,7 +329,7 @@ async def claim_order(
                 Order.is_archived == False,  # noqa: E712
                 Order.status == OrderStatus.IN_PROGRESS,
                 Order.driver_id == None,  # noqa: E711
-            )
+            ).with_for_update()
         )
     )
     order = result.scalar_one_or_none()
@@ -370,6 +370,9 @@ async def transition_status(
     # Исключение: кредитные типы (trade_credit / debt) с подписанным договором —
     # закрываются без оплаты (долг фиксируется в отчётности).
     if data.to_status == OrderStatus.CLOSED:
+        # Пересчитываем статус оплаты по актуальным данным из БД,
+        # чтобы не полагаться на кешированное поле order.payment_status
+        await recompute_and_save(db, order)
         is_credit_payment = order.payment_type in (
             PaymentType.TRADE_CREDIT, PaymentType.DEBT
         )

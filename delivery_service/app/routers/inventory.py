@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -118,7 +119,7 @@ async def request_inventory_report_xlsx(
     )
 
     rpt_dict = rpt.model_dump(mode="json")
-    xlsx_bytes = inventory_report_xlsx(rpt_dict)
+    xlsx_bytes = await asyncio.to_thread(inventory_report_xlsx, rpt_dict)
 
     date_label = date_from.strftime("%Y%m%d") + "-" + date_to.strftime("%Y%m%d")
     fuel_label = f"_{fuel_type}" if fuel_type else ""

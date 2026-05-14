@@ -180,13 +180,15 @@ async def recompute_and_save(db: AsyncSession, order: Order) -> str:
 
 
 async def _generate_invoice_number(db: AsyncSession) -> str:
-    """Генерация номера счёта: INV-2026-000001."""
+    """Генерация номера счёта: INV-2026-000001.
+
+    Использует PG SEQUENCE вместо COUNT(*) — атомарно, без race condition.
+    """
+    from sqlalchemy import text
     year = datetime.now(timezone.utc).year
-    result = await db.execute(
-        select(func.count()).where(Payment.invoice_number.like(f"INV-{year}-%"))
-    )
-    count = (result.scalar() or 0) + 1
-    return f"INV-{year}-{count:06d}"
+    result = await db.execute(text("SELECT nextval('invoice_number_seq')"))
+    seq = result.scalar()
+    return f"INV-{year}-{seq:06d}"
 
 
 def _calc_amount(order: Order, basis: str, fuel_coeff: float, delivery_coeff: float) -> float:
@@ -399,10 +401,14 @@ def generate_invoice_html(payment: Payment, order: Order, client_info: dict, sel
     unit_price = round(float(payment.amount) / volume, 2) if volume else 0
 
     date_str = (payment.created_at or datetime.now(timezone.utc)).strftime("%d.%m.%Y")
-    s = seller_info
-    client_name = _html.escape(client_info.get("name", "—"))
-    client_inn  = _html.escape(client_info.get("inn", "—"))
-    client_addr = _html.escape(client_info.get("address", "—"))
+    # Escape ALL user/DB-sourced values to prevent XSS in rendered invoice HTML
+    _e = _html.escape
+    s = {k: _e(str(v)) for k, v in seller_info.items()}
+    client_name = _e(client_info.get("name", "—"))
+    client_inn  = _e(client_info.get("inn", "—"))
+    client_addr = _e(client_info.get("address", "—"))
+    order_number  = _e(order.order_number or "")
+    delivery_addr = _e(order.delivery_address or "—")
 
     return f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8">
@@ -464,7 +470,7 @@ def generate_invoice_html(payment: Payment, order: Order, client_info: dict, sel
   </tr>
 </table>
 
-<p>Заявка: <b>{order.order_number}</b> · Адрес доставки: {order.delivery_address}</p>
+<p>Заявка: <b>{order_number}</b> · Адрес доставки: {delivery_addr}</p>
 
 <div class="sign">
   <div>Руководитель ________________ <div class="sign-line"></div></div>

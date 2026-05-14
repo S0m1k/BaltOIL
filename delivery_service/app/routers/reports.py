@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Annotated
 from datetime import datetime
@@ -54,7 +55,8 @@ async def request_driver_report_xlsx(
     )
 
     rpt_dict = rpt.model_dump(mode="json")
-    xlsx_bytes = driver_report_xlsx(rpt_dict)
+    # openpyxl is CPU-bound — run in thread pool to avoid blocking the event loop
+    xlsx_bytes = await asyncio.to_thread(driver_report_xlsx, rpt_dict)
 
     date_label = date_from.strftime("%Y%m%d") + "-" + date_to.strftime("%Y%m%d")
     filename   = f"driver_report_{date_label}.xlsx"

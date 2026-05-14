@@ -216,6 +216,10 @@ async def update_user(
 ) -> User:
     user = await get_user_by_id(db, user_id)
 
+    # Non-admin can only edit their own profile
+    if actor.role != UserRole.ADMIN and actor.id != user_id:
+        raise ForbiddenError("Редактирование чужого профиля запрещено")
+
     # Only admin can change roles or deactivate others
     if data.role is not None and actor.role != UserRole.ADMIN:
         raise ForbiddenError("Изменение роли доступно только администратору")

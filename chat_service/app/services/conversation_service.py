@@ -131,42 +131,78 @@ async def list_conversations(
     result = await db.execute(q)
     conversations = result.scalars().all()
 
-    output = []
-    for conv in conversations:
-        pr = await db.execute(
-            select(ConversationParticipant).where(
-                ConversationParticipant.conversation_id == conv.id,
-                ConversationParticipant.user_id == actor.id,
-            )
-        )
-        participant = pr.scalar_one_or_none()
-        last_read_at = participant.last_read_at if participant else None
+    if not conversations:
+        return []
 
-        unread_q = select(func.count()).where(
-            Message.conversation_id == conv.id,
+    conv_ids = [c.id for c in conversations]
+
+    # ── Запрос 1: все участники + last_read_at текущего актора за один SELECT ──
+    parts_result = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id.in_(conv_ids)
+        )
+    )
+    all_parts = parts_result.scalars().all()
+
+    # Индекс: conv_id → [participants], conv_id → actor's last_read_at
+    parts_by_conv: dict[uuid.UUID, list[ConversationParticipant]] = {}
+    actor_read_at: dict[uuid.UUID, datetime | None] = {}
+    for p in all_parts:
+        parts_by_conv.setdefault(p.conversation_id, []).append(p)
+        if p.user_id == actor.id:
+            actor_read_at[p.conversation_id] = p.last_read_at
+
+    # ── Запрос 2: последнее сообщение на каждый диалог (MAX created_at + JOIN) ──
+    max_ts_subq = (
+        select(
+            Message.conversation_id.label("conv_id"),
+            func.max(Message.created_at).label("max_ts"),
+        )
+        .where(
+            Message.conversation_id.in_(conv_ids),
+            Message.is_archived == False,  # noqa: E712
+        )
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+    last_msgs_result = await db.execute(
+        select(Message).join(
+            max_ts_subq,
+            and_(
+                Message.conversation_id == max_ts_subq.c.conv_id,
+                Message.created_at == max_ts_subq.c.max_ts,
+            ),
+        ).where(Message.is_archived == False)  # noqa: E712
+    )
+    last_msgs: dict[uuid.UUID, Message] = {
+        m.conversation_id: m for m in last_msgs_result.scalars().all()
+    }
+
+    # ── Запрос 3: непрочитанные — получаем (conv_id, created_at) от других,
+    # фильтруем по last_read_at в Python (last_read_at различается по диалогу) ──
+    unread_rows = await db.execute(
+        select(
+            Message.conversation_id,
+            Message.id,
+            Message.created_at,
+        ).where(
+            Message.conversation_id.in_(conv_ids),
             Message.is_archived == False,  # noqa: E712
             Message.sender_id != actor.id,
         )
-        if last_read_at:
-            unread_q = unread_q.where(Message.created_at > last_read_at)
-        unread_count = (await db.execute(unread_q)).scalar() or 0
+    )
+    # Group by conv, count only messages newer than actor's last_read_at
+    unread_counts: dict[uuid.UUID, int] = {cid: 0 for cid in conv_ids}
+    for row in unread_rows:
+        cid = row.conversation_id
+        last_read = actor_read_at.get(cid)
+        if last_read is None or row.created_at > last_read:
+            unread_counts[cid] = unread_counts.get(cid, 0) + 1
 
-        last_msg_result = await db.execute(
-            select(Message)
-            .where(Message.conversation_id == conv.id, Message.is_archived == False)  # noqa: E712
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        )
-        last_msg = last_msg_result.scalar_one_or_none()
-
-        # Загрузить участников
-        parts_result = await db.execute(
-            select(ConversationParticipant).where(
-                ConversationParticipant.conversation_id == conv.id
-            )
-        )
-        parts = parts_result.scalars().all()
-
+    output = []
+    for conv in conversations:
+        parts = parts_by_conv.get(conv.id, [])
+        last_msg = last_msgs.get(conv.id)
         output.append({
             "id": conv.id,
             "type": conv.type,
@@ -174,7 +210,7 @@ async def list_conversations(
             "created_by_id": conv.created_by_id,
             "created_by_role": conv.created_by_role,
             "participant_ids": [str(p.user_id) for p in parts],
-            "unread_count": unread_count,
+            "unread_count": unread_counts.get(conv.id, 0),
             "last_message": MessageResponse.model_validate(last_msg) if last_msg else None,
             "updated_at": conv.updated_at,
         })

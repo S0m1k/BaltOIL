@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import engine, Base
 from app.routers import vehicles, trips, reports, inventory, downloads
+from app.routers.downloads import _purge_loop
 
 settings = get_settings()
 
@@ -13,7 +15,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    purge_task = asyncio.create_task(_purge_loop())
     yield
+    purge_task.cancel()
     await engine.dispose()
 
 
