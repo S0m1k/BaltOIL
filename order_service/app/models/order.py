@@ -65,7 +65,10 @@ class Order(Base):
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
-        SAEnum(PaymentType), nullable=False, default=PaymentType.ON_DELIVERY
+        # values_callable ensures SQLAlchemy uses enum VALUES ('prepaid' etc.)
+        # not member NAMES ('PREPAID') for the DB ↔ Python mapping.
+        SAEnum(PaymentType, values_callable=lambda x: [e.value for e in x], name="paymenttype"),
+        nullable=False, default=PaymentType.ON_DELIVERY
     )
     # Ожидаемая сумма (для prepaid — сумма предоплаты; для остальных — расчётная)
     expected_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
