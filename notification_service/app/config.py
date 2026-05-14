@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     internal_api_secret: str = "internal-shared-secret-change-me"
+    auth_service_url: str = "http://auth_service:8001/api/v1"
     allowed_origins: str = "http://localhost:8080"
     app_env: str = "development"
     app_port: int = 8005

@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text
+from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -41,7 +41,16 @@ class ClientProfile(Base):
     bik: Mapped[str | None] = mapped_column(String(9), nullable=True)
     correspondent_account: Mapped[str | None] = mapped_column(String(20), nullable=True)
     contract_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    credit_allowed: Mapped[bool] = mapped_column(default=False, nullable=False)  # товарный кредит
+    credit_allowed: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # Ссылка на тариф в order_service БД (soft FK — разные БД, FK не создаётся).
+    # NULL означает «использовать default-тариф» — order_service делает fallback сам.
+    tariff_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Устаревшие коэффициенты — оставлены для возможного отката; не используются в новой логике.
+    # Удалить после стабилизации тарифной системы на проде (≥ 1 недели).
+    fuel_coefficient: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False, default=1.0)
+    delivery_coefficient: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False, default=1.0)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

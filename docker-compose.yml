@@ -41,6 +41,7 @@ services:
         condition: service_healthy
     volumes:
       - ./auth_service:/app
+    entrypoint: ["sh", "/app/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
   order_service:
@@ -55,6 +56,7 @@ services:
         condition: service_healthy
     volumes:
       - ./order_service:/app
+    entrypoint: ["sh", "/app/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
 
   delivery_service:
@@ -69,6 +71,7 @@ services:
         condition: service_healthy
     volumes:
       - ./delivery_service:/app
+    entrypoint: ["sh", "/app/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 
   chat_service:
@@ -85,6 +88,7 @@ services:
         condition: service_healthy
     volumes:
       - ./chat_service:/app
+    entrypoint: ["sh", "/app/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
 
   notification_service:

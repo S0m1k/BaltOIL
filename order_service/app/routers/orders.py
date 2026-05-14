@@ -70,6 +70,16 @@ async def transition_status(
     return await order_service.transition_status(db, order_id, data, current_user)
 
 
+@router.post("/{order_id}/claim", response_model=OrderResponse)
+async def claim_order(
+    order_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Водитель берёт свободную заявку (IN_PROGRESS, без водителя)."""
+    return await order_service.claim_order(db, order_id, current_user)
+
+
 @router.delete("/{order_id}", status_code=204)
 async def archive_order(
     order_id: uuid.UUID,

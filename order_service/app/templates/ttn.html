@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}ТТН {{ doc_number }}{% endblock %}
+{% block content %}
+
+<h1>ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ</h1>
+<div class="subtitle">№ {{ doc_number }} от {{ issued_at }}</div>
+
+<div class="req-grid">
+  <div class="req-block">
+    <b>Грузоотправитель (поставщик):</b>
+    <p>{{ seller.name }}</p>
+    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
+    <p>{{ seller.address }}</p>
+  </div>
+  <div class="req-block">
+    <b>Грузополучатель (покупатель):</b>
+    <p>{{ buyer.name }}</p>
+    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
+    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
+  </div>
+</div>
+
+<table>
+  <tr>
+    <th>Наименование груза</th>
+    <th style="width:14%">Ед. изм.</th>
+    <th style="width:14%">Кол-во (факт)</th>
+    <th style="width:16%">Сумма (₽)</th>
+  </tr>
+  <tr>
+    <td>{{ fuel_name }}<br>
+      <small>Заявка: {{ order_number }}</small>
+    </td>
+    <td class="text-center">л</td>
+    <td class="text-right">{{ volume_delivered | format_number }}</td>
+    <td class="text-right">{{ amount | format_money }}</td>
+  </tr>
+  <tr class="total-row">
+    <td colspan="3" class="text-right">ИТОГО:</td>
+    <td class="text-right">{{ amount | format_money }} ₽</td>
+  </tr>
+</table>
+
+<table style="margin-top:8px">
+  <tr>
+    <th style="width:25%">Заявка №</th>
+    <th style="width:25%">Дата доставки</th>
+    <th>Адрес доставки</th>
+    <th style="width:16%">Водитель</th>
+  </tr>
+  <tr>
+    <td class="text-center">{{ order_number }}</td>
+    <td class="text-center">{{ issued_at }}</td>
+    <td>{{ delivery_address }}</td>
+    <td class="text-center">{{ driver_name }}</td>
+  </tr>
+</table>
+
+<div class="sign-area" style="margin-top:24px">
+  <div class="sign-item">
+    <div>Сдал ({{ seller.director_title or "Поставщик" }})</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">{{ seller.director_name or "" }}</div>
+  </div>
+  <div class="sign-item">
+    <div>Принял (Покупатель)</div>
+    <div class="sign-line"></div>
+    <div class="sign-label">&nbsp;</div>
+  </div>
+</div>
+
+<p class="footer-note">
+  Документ сформирован автоматически при фиксации доставки.
+  Статус заявки: {{ order_status }}.
+</p>
+
+{% endblock %}

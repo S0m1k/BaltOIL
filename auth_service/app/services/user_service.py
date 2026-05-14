@@ -29,6 +29,17 @@ async def _check_email_unique(db: AsyncSession, email: str, exclude_id=None) -> 
         raise ConflictError("Пользователь с таким email уже существует")
 
 
+async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=None) -> None:
+    if not phone:
+        return
+    q = select(User).where(User.phone == phone)
+    if exclude_id:
+        q = q.where(User.id != exclude_id)
+    result = await db.execute(q)
+    if result.scalar_one_or_none():
+        raise ConflictError("Пользователь с таким номером телефона уже существует")
+
+
 async def register_individual(
     db: AsyncSession,
     data: RegisterIndividualRequest,
@@ -38,6 +49,7 @@ async def register_individual(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
@@ -81,6 +93,7 @@ async def register_company(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
@@ -130,6 +143,7 @@ async def create_user_by_admin(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
@@ -309,6 +323,30 @@ async def update_client_profile(
         raise ForbiddenError("Водитель не может редактировать профиль клиента")
     if actor.role == UserRole.CLIENT and actor.id != user_id:
         raise ForbiddenError()
+
+    result = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == user_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundError("Профиль клиента не найден")
+
+    for field, value in data.model_dump(exclude_none=True).items():
+        setattr(profile, field, value)
+
+    return profile
+
+
+async def update_client_tariff(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    data,
+    *,
+    actor: User,
+) -> ClientProfile:
+    """Назначение тарифа, credit_allowed и коэффициентов клиенту — только admin."""
+    if actor.role != UserRole.ADMIN:
+        raise ForbiddenError("Только администратор может менять тарифы")
 
     result = await db.execute(
         select(ClientProfile).where(ClientProfile.user_id == user_id)

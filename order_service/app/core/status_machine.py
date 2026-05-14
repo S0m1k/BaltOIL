@@ -2,9 +2,12 @@
 Статусная машина заявок.
 
 Жизненный цикл:
-  NEW → IN_PROGRESS → ASSIGNED → IN_TRANSIT → DELIVERED      → CLOSED
-                    ↘ REJECTED              ↘ PARTIALLY_DELIVERED → CLOSED
-                                                              ↘ ASSIGNED (повторный рейс)
+  NEW → IN_PROGRESS → IN_TRANSIT → DELIVERED      → CLOSED
+      ↘ REJECTED              ↘ PARTIALLY_DELIVERED → CLOSED
+                                                   ↘ IN_PROGRESS (повторный рейс)
+
+Статус ASSIGNED упразднён: водитель сам берёт заявку через /claim,
+затем сразу переводит в in_transit. Менеджер уже не назначает водителей.
 """
 from app.models.order import OrderStatus
 from app.core.exceptions import StatusTransitionError, ForbiddenError
@@ -22,13 +25,9 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
         OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.IN_PROGRESS: {
-        OrderStatus.ASSIGNED:    {ROLE_MANAGER, ROLE_ADMIN},
-        OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
-    },
-    OrderStatus.ASSIGNED: {
+        # Водитель взял заявку и начинает рейс
         OrderStatus.IN_TRANSIT:  {ROLE_DRIVER},
-        # Снять с водителя обратно в работу
-        OrderStatus.IN_PROGRESS: {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.IN_TRANSIT: {
         OrderStatus.DELIVERED:           {ROLE_DRIVER},
@@ -38,9 +37,9 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
         OrderStatus.CLOSED: {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.PARTIALLY_DELIVERED: {
-        # Закрыть или назначить повторный рейс
-        OrderStatus.CLOSED:   {ROLE_MANAGER, ROLE_ADMIN},
-        OrderStatus.ASSIGNED: {ROLE_MANAGER, ROLE_ADMIN},
+        # Закрыть или вернуть в работу для повторного рейса
+        OrderStatus.CLOSED:       {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.IN_PROGRESS:  {ROLE_MANAGER, ROLE_ADMIN},
     },
     # Терминальные — переходов нет
     OrderStatus.CLOSED:   {},

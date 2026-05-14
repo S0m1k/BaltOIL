@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_port: int = 8002
     allowed_origins: str = "http://localhost:8080"
+    chat_service_url: str = "http://chat_service:8004"
+    auth_service_url: str = "http://auth_service:8001"
+    internal_api_secret: str = "baltoil-internal-secret-2026"
 
     @property
     def cors_origins(self) -> list[str]:

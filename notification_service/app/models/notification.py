@@ -26,7 +26,8 @@ class Notification(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     type: Mapped[NotificationType] = mapped_column(
-        SAEnum(NotificationType), nullable=False, index=True
+        SAEnum(NotificationType, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body:  Mapped[str] = mapped_column(Text, nullable=False)

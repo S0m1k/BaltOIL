@@ -207,7 +207,6 @@ async def create_trip(
         vehicle_id=data.vehicle_id,
         volume_planned=data.volume_planned,
         delivery_address=data.delivery_address or None,
-        odometer_start=data.odometer_start,
         driver_notes=data.driver_notes,
         status=TripStatus.PLANNED,
         inv_fuel_type=inv_fuel,
@@ -236,8 +235,6 @@ async def start_trip(
 
     trip.status = TripStatus.IN_TRANSIT
     trip.departed_at = datetime.now(timezone.utc)
-    if data.odometer_start is not None:
-        trip.odometer_start = data.odometer_start
     if data.driver_notes is not None:
         trip.driver_notes = data.driver_notes
 
@@ -272,8 +269,6 @@ async def complete_trip(
     trip.status = TripStatus.COMPLETED
     trip.arrived_at = datetime.now(timezone.utc)
     trip.volume_actual = data.volume_actual
-    if data.odometer_end is not None:
-        trip.odometer_end = data.odometer_end
     if data.driver_notes is not None:
         trip.driver_notes = data.driver_notes
 

@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>СЗТК — Северо-Западная Топливная Компания · Дизель в СПб и области</title>
+<meta name="description" content="Оптовая поставка дизельного топлива, бензина и мазута по Санкт-Петербургу и Ленинградской области. От 100 до 25 000 литров. Доставка за 1 час. Личный кабинет.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ════════════════════════════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Corporate palette — deep navy + clean blue + white,
+     echoing the heritage 9171517.ru identity. */
+  --paper:       #ffffff;
+  --paper-deep:  #f1f5f9;
+  --paper-edge:  #cbd5e1;
+  --ink:         #0a2540;          /* deep navy — primary text / dark surfaces */
+  --ink-soft:    #1e293b;
+  --ink-mute:    #64748b;
+  --petroleum:   #0a2540;
+  --petroleum-2: #1e5fbe;
+  --moss:        #1e5fbe;
+  --amber:       #1565c0;          /* primary accent (was warm amber) — now corporate blue */
+  --amber-warm:  #1e5fbe;
+  --amber-bright:#3b82f6;          /* bright blue, used on dark surfaces */
+  --rule:        #cbd5e1;
+  --rule-soft:   rgba(10,37,64,.10);
+
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body:    "IBM Plex Sans", system-ui, sans-serif;
+  --mono:    "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: var(--body);
+  font-weight: 400;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.55;
+  font-feature-settings: "ss01", "ss02", "kern";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Subtle blue wash in the top-right for atmosphere on the white canvas */
+body::before {
+  content: '';
+  position: fixed;
+  top: -20vmin; right: -20vmin;
+  width: 80vmin; height: 80vmin;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle, rgba(30,95,190,0.10), transparent 65%);
+}
+
+::selection { background: var(--amber); color: var(--paper); }
+
+/* ════════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+═══════════════════════════════════════════════════════════════ */
+.display {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+}
+.display-light {
+  font-family: var(--display);
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 70;
+  font-style: italic;
+  letter-spacing: -0.01em;
+}
+.mono {
+  font-family: var(--mono);
+  font-variation-settings: normal;
+  letter-spacing: 0.02em;
+}
+.label {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  font-weight: 500;
+}
+.eyebrow::before {
+  content: '';
+  width: 28px; height: 1px;
+  background: var(--amber);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LAYOUT
+═══════════════════════════════════════════════════════════════ */
+.wrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 48px;
+  position: relative;
+  z-index: 2;
+}
+@media (max-width: 768px) {
+  .wrap { padding: 0 22px; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   NAV
+═══════════════════════════════════════════════════════════════ */
+.nav {
+  position: sticky; top: 0;
+  z-index: 100;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--rule-soft);
+  transition: padding .25s ease, box-shadow .25s ease;
+}
+.nav.compact { box-shadow: 0 1px 16px rgba(10,37,64,.08); }
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  transition: padding .25s ease;
+}
+.nav.compact .nav-inner { padding: 10px 0; }
+
+/* Brand */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.brand-logo {
+  height: 48px;
+  width: auto;
+  display: block;
+  transition: height .25s ease;
+}
+.nav.compact .brand-logo { height: 38px; }
+.brand-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  font-weight: 500;
+  border-left: 1px solid var(--rule);
+  padding-left: 14px;
+  line-height: 1.4;
+  display: none;
+}
+
+/* Desktop nav links — hidden on mobile */
+.nav-links {
+  display: none;
+  gap: 28px;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+}
+.nav-links a {
+  font-family: var(--body);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  position: relative;
+  padding: 5px 0;
+  white-space: nowrap;
+  transition: color .2s ease;
+}
+.nav-links a::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 0; height: 2px;
+  background: var(--amber);
+  border-radius: 1px;
+  transition: width .22s ease;
+}
+.nav-links a:hover,
+.nav-links a.active { color: var(--ink); }
+.nav-links a:hover::after,
+.nav-links a.active::after { width: 100%; }
+
+/* Desktop actions */
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.nav-phone {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  display: none;
+}
+.nav-phone:hover { color: var(--amber); }
+
+/* Hamburger button — visible only on mobile */
+.nav-burger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 40px; height: 40px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background .2s ease;
+  flex-shrink: 0;
+}
+.nav-burger:hover { background: var(--paper-deep); }
+.nav-burger span {
+  display: block;
+  width: 100%; height: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+  transition: transform .28s cubic-bezier(.4,0,.2,1), opacity .2s ease, width .28s ease;
+  transform-origin: center;
+}
+.nav-burger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-burger.open span:nth-child(2) { opacity: 0; width: 0; }
+.nav-burger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* Mobile drawer */
+.nav-drawer {
+  position: fixed;
+  inset: 0; top: 0;
+  z-index: 99;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  transform: translateX(100%);
+  transition: transform .32s cubic-bezier(.4,0,.2,1);
+  overflow-y: auto;
+}
+.nav-drawer.open { transform: translateX(0); }
+
+.drawer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(14px);
+  position: sticky; top: 0;
+  z-index: 2;
+}
+.drawer-close {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer;
+  color: var(--ink); border-radius: 4px;
+  transition: background .2s ease;
+}
+.drawer-close:hover { background: var(--paper-deep); }
+
+.drawer-nav {
+  padding: 16px 0 32px;
+  flex: 1;
+}
+.drawer-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  font-family: var(--body);
+  font-weight: 500;
+  font-size: 18px;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule-soft);
+  transition: background .15s ease, color .15s ease;
+}
+.drawer-nav a:first-child { border-top: 1px solid var(--rule-soft); }
+.drawer-nav a:hover,
+.drawer-nav a.active { background: var(--paper-deep); color: var(--amber); }
+.drawer-nav a svg { opacity: .35; transition: opacity .15s ease, transform .15s ease; }
+.drawer-nav a:hover svg { opacity: 1; transform: translateX(3px); }
+
+.drawer-footer {
+  padding: 28px 24px;
+  border-top: 1px solid var(--rule-soft);
+  background: var(--paper-deep);
+}
+.drawer-footer .btn { width: 100%; margin-bottom: 14px; text-align: center; justify-content: center; }
+.drawer-phones { display: flex; flex-direction: column; gap: 6px; margin-top: 18px; }
+.drawer-phones a {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.drawer-phones a:hover { color: var(--amber); }
+
+/* Desktop breakpoints — show real nav, hide burger */
+@media (min-width: 860px) {
+  .brand-tag { display: block; }
+  .nav-phone { display: block; }
+  .nav-links { display: flex; }
+  .nav-burger { display: none; }
+}
+@media (min-width: 1100px) {
+  .nav-links { gap: 36px; }
+  .nav-phone { font-size: 14px; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BUTTON SYSTEM
+═══════════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 22px;
+  font-family: var(--body);
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: transform .15s ease, box-shadow .2s ease, background .2s ease, color .2s ease;
+  white-space: nowrap;
+  letter-spacing: -0.005em;
+}
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn-primary:hover { background: var(--amber); color: var(--paper); }
+
+.btn-amber {
+  background: var(--amber);
+  color: var(--paper);
+}
+.btn-amber:hover { background: var(--ink); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.btn-ghost:hover { background: var(--ink); color: var(--paper); }
+
+.btn-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+}
+.btn-arrow .arrow {
+  display: inline-block;
+  width: 0;
+  transition: width .25s ease, margin-left .25s ease;
+  margin-left: 0;
+}
+.btn-arrow:hover .arrow {
+  width: 18px;
+  margin-left: 8px;
+}
+
+.btn-lg { padding: 17px 28px; font-size: 15px; }
+
+/* ════════════════════════════════════════════════════════════════
+   HERO
+═══════════════════════════════════════════════════════════════ */
+.hero {
+  padding: 72px 0 120px;
+  position: relative;
+  overflow: hidden;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 64px;
+  align-items: end;
+}
+@media (max-width: 1024px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+}
+
+.hero-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 28;
+  font-size: clamp(54px, 11vw, 168px);
+  line-height: 0.88;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+.hero-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--amber);
+}
+.hero-title .struck {
+  position: relative;
+  display: inline-block;
+}
+.hero-title .struck::after {
+  content: '';
+  position: absolute;
+  left: -2%; right: -2%;
+  top: 52%; height: 4px;
+  background: var(--amber);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: strike 1.2s ease 1.2s forwards;
+}
+@keyframes strike { to { transform: scaleX(1); } }
+
+.hero-sub {
+  max-width: 540px;
+  margin-top: 40px;
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.hero-sub b {
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px dashed var(--amber);
+}
+
+.hero-cta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 44px;
+  flex-wrap: wrap;
+}
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  align-self: end;
+  padding-bottom: 8px;
+}
+.hero-side-block {
+  border-top: 1px solid var(--ink);
+  padding-top: 14px;
+}
+.hero-side-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-mute);
+  margin-bottom: 8px;
+}
+.hero-side-value {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 60, "SOFT" 30;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.hero-side-value .unit {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-mute);
+  margin-left: 4px;
+  letter-spacing: 0.03em;
+}
+
+/* Decorative SVG behind hero */
+.hero-decor {
+  position: absolute;
+  right: -120px; top: 40%;
+  width: 720px; height: 720px;
+  opacity: 0.07;
+  pointer-events: none;
+  z-index: 0;
+  transform: rotate(-12deg);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TICKER
+═══════════════════════════════════════════════════════════════ */
+.ticker {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 18px 0;
+  overflow: hidden;
+  position: relative;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+.ticker-track {
+  display: flex;
+  gap: 56px;
+  animation: ticker 38s linear infinite;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.ticker-item::after {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: var(--amber-bright);
+  margin-left: 56px;
+  align-self: center;
+  opacity: .6;
+}
+.ticker-item .price {
+  color: var(--amber-bright);
+  font-weight: 500;
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   STATS STRIP
+═══════════════════════════════════════════════════════════════ */
+.stats {
+  padding: 90px 0 60px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 48px;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 36px; }
+}
+.stat {
+  border-top: 1px solid var(--ink);
+  padding-top: 18px;
+}
+.stat-num {
+  font-family: var(--display);
+  font-weight: 400;
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+  font-size: clamp(48px, 6vw, 84px);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+}
+.stat-num .unit {
+  font-size: 0.4em;
+  font-family: var(--mono);
+  color: var(--ink-mute);
+  letter-spacing: 0.05em;
+  font-weight: 400;
+  margin-left: 4px;
+}
+.stat-label {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-soft);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SECTION FRAME
+═══════════════════════════════════════════════════════════════ */
+.section {
+  padding: 120px 0;
+  position: relative;
+}
+.section-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: end;
+  margin-bottom: 72px;
+}
+@media (max-width: 900px) {
+  .section-head { grid-template-columns: 1fr; gap: 32px; }
+}
+.section-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 25;
+  font-size: clamp(40px, 5.6vw, 88px);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+}
+.section-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--amber);
+}
+.section-desc {
+  max-width: 460px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  justify-self: end;
+}
+@media (max-width: 900px) {
+  .section-desc { justify-self: start; }
+}
+.section-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  margin-bottom: 18px;
+  text-transform: uppercase;
+  display: block;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FUELS
+═══════════════════════════════════════════════════════════════ */
+.fuels {
+  background: var(--paper-deep);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.fuel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  border-left: 1px solid var(--rule-soft);
+  border-top: 1px solid var(--rule-soft);
+}
+@media (max-width: 768px) {
+  .fuel-grid { grid-template-columns: 1fr; }
+}
+.fuel {
+  padding: 38px 36px;
+  border-right: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  position: relative;
+  transition: background .25s ease;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: center;
+}
+.fuel:hover { background: var(--paper); }
+.fuel-swatch {
+  width: 56px; height: 56px;
+  position: relative;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.fuel-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 1px dashed var(--rule);
+  border-radius: 50%;
+  opacity: 0.5;
+}
+.fuel-swatch.diesel-s { background: radial-gradient(circle at 30% 30%, #fbbf24, #b45309); }
+.fuel-swatch.diesel-w { background: radial-gradient(circle at 30% 30%, #93c5fd, #1e40af); }
+.fuel-swatch.diesel-m { background: radial-gradient(circle at 30% 30%, #fde68a, #6b7280); }
+.fuel-swatch.petrol-92  { background: radial-gradient(circle at 30% 30%, #fda4af, #9f1239); }
+.fuel-swatch.petrol-95  { background: radial-gradient(circle at 30% 30%, #fed7aa, #c2410c); }
+.fuel-swatch.mazut    { background: radial-gradient(circle at 30% 30%, #4b5563, #0a0d18); }
+.fuel-swatch.kerosene { background: radial-gradient(circle at 30% 30%, #d1d5db, #6b7280); }
+.fuel-swatch.gas      { background: radial-gradient(circle at 30% 30%, #bbf7d0, #14532d); }
+
+.fuel-info { min-width: 0; }
+.fuel-name {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 32, "SOFT" 30;
+  font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.fuel-spec {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-mute);
+  margin-top: 6px;
+}
+.fuel-price {
+  font-family: var(--display);
+  font-weight: 400;
+  font-variation-settings: "opsz" 60, "SOFT" 30;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.fuel-price .currency {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-mute);
+  font-weight: 400;
+  margin-left: 2px;
+  letter-spacing: 0.05em;
+}
+.fuel-price .perliter {
+  display: block;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  margin-top: 2px;
+  font-weight: 400;
+}
+
+.fuels-note {
+  margin-top: 48px;
+  padding: 20px 24px;
+  background: var(--paper);
+  border: 1px dashed var(--rule);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.fuels-note .label { font-size: 10px; }
+.fuels-note a {
+  color: var(--amber);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid currentColor;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BENEFITS
+═══════════════════════════════════════════════════════════════ */
+.benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+@media (max-width: 900px) {
+  .benefits-grid { grid-template-columns: 1fr; }
+}
+.benefit {
+  padding: 40px 36px 48px;
+  border-top: 1px solid var(--ink);
+  border-right: 1px solid var(--rule-soft);
+  position: relative;
+}
+.benefit:last-child { border-right: none; }
+@media (max-width: 900px) {
+  .benefit { border-right: none; }
+}
+.benefit-num {
+  font-family: var(--display);
+  font-weight: 300;
+  font-style: italic;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+  font-size: 64px;
+  line-height: 1;
+  color: var(--amber);
+  margin-bottom: 24px;
+  letter-spacing: -0.04em;
+}
+.benefit-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin-bottom: 14px;
+}
+.benefit-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PROCESS
+═══════════════════════════════════════════════════════════════ */
+.process {
+  background: var(--ink);
+  color: var(--paper);
+  position: relative;
+  overflow: hidden;
+}
+.process::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 56px 56px;
+  pointer-events: none;
+}
+.process .section-title { color: var(--paper); }
+.process .section-title em { color: var(--amber-bright); }
+.process .section-desc { color: rgba(255,255,255,0.7); }
+.process .section-num { color: var(--amber-bright); }
+
+.process-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  position: relative;
+  z-index: 2;
+}
+@media (max-width: 900px) {
+  .process-steps { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 540px) {
+  .process-steps { grid-template-columns: 1fr; }
+}
+.step {
+  padding: 36px 28px 36px 0;
+  border-right: 1px solid rgba(255,255,255,0.12);
+  position: relative;
+}
+.step:last-child { border-right: none; }
+.step::before {
+  content: '';
+  position: absolute;
+  top: 36px; left: 0;
+  width: 36px; height: 1px;
+  background: var(--amber-bright);
+}
+.step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--amber-bright);
+  margin-bottom: 24px;
+  text-transform: uppercase;
+}
+.step-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 48, "SOFT" 30;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin-bottom: 12px;
+  padding-right: 24px;
+}
+.step-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.65);
+  padding-right: 24px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   AUDIENCE
+═══════════════════════════════════════════════════════════════ */
+.audience-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .audience-grid { grid-template-columns: 1fr; }
+}
+.aud {
+  position: relative;
+  padding: 36px 32px 32px;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule-soft);
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+.aud:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 56px -28px rgba(10,13,24,.3);
+}
+.aud-icon {
+  width: 56px; height: 56px;
+  margin-bottom: 28px;
+  color: var(--amber);
+}
+.aud-icon svg { width: 100%; height: 100%; }
+.aud-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 32, "SOFT" 30;
+  font-size: 22px;
+  line-height: 1.15;
+  margin-bottom: 12px;
+  letter-spacing: -0.015em;
+}
+.aud-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CTA BIG
+═══════════════════════════════════════════════════════════════ */
+.cta-big {
+  padding: 140px 0;
+  background: var(--paper);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  position: relative;
+  overflow: hidden;
+}
+.cta-big::before {
+  content: 'СЗТК';
+  position: absolute;
+  bottom: -60px; right: -40px;
+  font-family: var(--display);
+  font-weight: 900;
+  font-variation-settings: "opsz" 144, "SOFT" 0;
+  font-size: 380px;
+  line-height: 1;
+  color: var(--ink);
+  opacity: 0.05;
+  pointer-events: none;
+  letter-spacing: -0.06em;
+}
+.cta-inner {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 48px;
+  align-items: end;
+}
+@media (max-width: 900px) {
+  .cta-inner { grid-template-columns: 1fr; }
+}
+.cta-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144, "SOFT" 25;
+  font-size: clamp(44px, 6vw, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  max-width: 900px;
+}
+.cta-title em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 80;
+  color: var(--amber);
+}
+.cta-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FOOTER
+═══════════════════════════════════════════════════════════════ */
+.foot {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 72px 0 32px;
+  position: relative;
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+}
+@media (max-width: 900px) {
+  .foot-grid { grid-template-columns: 1fr 1fr; gap: 36px; }
+}
+@media (max-width: 540px) {
+  .foot-grid { grid-template-columns: 1fr; }
+}
+.foot h4 {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 18px;
+  font-weight: 500;
+}
+.foot p, .foot a {
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.85);
+  text-decoration: none;
+  display: block;
+  margin-bottom: 6px;
+}
+.foot a:hover { color: var(--amber-bright); }
+
+.foot-brand {
+  font-family: var(--display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 60, "SOFT" 30;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+  color: var(--paper);
+}
+.foot-tagline {
+  font-size: 13px;
+  color: rgba(255,255,255,0.6);
+  max-width: 280px;
+}
+.foot-phone {
+  font-family: var(--mono);
+  font-size: 18px !important;
+  font-weight: 500;
+  color: var(--paper) !important;
+  letter-spacing: 0.01em;
+  margin-bottom: 8px !important;
+}
+.foot-phone:hover { color: var(--amber-bright) !important; }
+
+.foot-base {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 28px;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.5);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   REVEAL ANIMATION
+═══════════════════════════════════════════════════════════════ */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: none;
+}
+.reveal-d1 { transition-delay: .1s; }
+.reveal-d2 { transition-delay: .2s; }
+.reveal-d3 { transition-delay: .3s; }
+.reveal-d4 { transition-delay: .4s; }
+.reveal-d5 { transition-delay: .5s; }
+
+/* Hero entrance */
+.hero-title,
+.hero-sub,
+.hero-cta,
+.hero-side-block {
+  opacity: 0;
+  transform: translateY(28px);
+  animation: heroIn 1s cubic-bezier(.2,.7,.2,1) forwards;
+}
+.hero-title { animation-delay: .15s; }
+.hero-sub   { animation-delay: .45s; }
+.hero-cta   { animation-delay: .6s; }
+.hero-side-block:nth-of-type(1) { animation-delay: .7s; }
+.hero-side-block:nth-of-type(2) { animation-delay: .8s; }
+.hero-side-block:nth-of-type(3) { animation-delay: .9s; }
+@keyframes heroIn {
+  to { opacity: 1; transform: none; }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ NAV ════════════════════ -->
+<header class="nav" id="nav">
+  <div class="wrap">
+    <nav class="nav-inner" role="navigation" aria-label="Основная навигация">
+      <a href="#top" class="brand" aria-label="СЗТК — главная">
+        <img class="brand-logo"
+             src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
+             alt="СЗТК — Северо-Западная Топливная Компания">
+        <span class="brand-tag">Северо-Западная<br>Топливная компания</span>
+      </a>
+
+      <!-- Desktop links -->
+      <div class="nav-links">
+        <a href="#fuels">Топливо</a>
+        <a href="#process">Доставка</a>
+        <a href="#audience">Для кого</a>
+        <a href="suppliers.html">Поставщикам</a>
+        <a href="#contacts">Контакты</a>
+      </div>
+
+      <div class="nav-actions">
+        <a href="tel:+78129171517" class="nav-phone">+7 812 917-15-17</a>
+        <a href="/index.html" class="btn btn-primary" style="display:none;" id="nav-kabinet">Личный кабинет</a>
+        <!-- Hamburger — visible only on mobile -->
+        <button class="nav-burger" id="nav-burger" aria-label="Открыть меню" aria-expanded="false" aria-controls="nav-drawer">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<!-- Mobile drawer -->
+<div class="nav-drawer" id="nav-drawer" aria-hidden="true" role="dialog" aria-label="Меню навигации">
+  <div class="drawer-top">
+    <a href="#top" class="brand" onclick="closeDrawer()">
+      <img class="brand-logo" style="height:40px;"
+           src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
+           alt="СЗТК">
+    </a>
+    <button class="drawer-close" id="drawer-close" aria-label="Закрыть меню">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 4l12 12M16 4L4 16"/>
+      </svg>
+    </button>
+  </div>
+  <nav class="drawer-nav">
+    <a href="#fuels" onclick="closeDrawer()">
+      Топливо
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+    </a>
+    <a href="#process" onclick="closeDrawer()">
+      Доставка
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+    </a>
+    <a href="#audience" onclick="closeDrawer()">
+      Для кого
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+    </a>
+    <a href="suppliers.html">
+      Поставщикам
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+    </a>
+    <a href="#contacts" onclick="closeDrawer()">
+      Контакты
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+    </a>
+  </nav>
+  <div class="drawer-footer">
+    <a href="/index.html" class="btn btn-primary btn-lg">Личный кабинет</a>
+    <div class="drawer-phones">
+      <a href="tel:+78129171517">+7 812 917-15-17</a>
+      <a href="tel:+79219171517">+7 921 917-15-17</a>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ HERO ════════════════════ -->
+<section class="hero" id="top">
+  <!-- decorative droplet svg -->
+  <svg class="hero-decor" viewBox="0 0 600 600" fill="none" aria-hidden="true">
+    <path d="M300 60 C 420 200, 480 320, 480 420 C 480 520, 400 560, 300 560 C 200 560, 120 520, 120 420 C 120 320, 180 200, 300 60 Z"
+          stroke="#0a2540" stroke-width="2"/>
+    <path d="M300 130 C 380 230, 420 330, 420 410"
+          stroke="#0a2540" stroke-width="2" stroke-dasharray="4 6"/>
+    <circle cx="240" cy="380" r="40" stroke="#1565c0" stroke-width="2" fill="none"/>
+    <circle cx="240" cy="380" r="6" fill="#1565c0"/>
+  </svg>
+
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow" style="margin-bottom: 38px;">СПб · Ленобласть · 24/7</div>
+        <h1 class="hero-title">
+          Топливо<br>
+          <em>точно</em> к&nbsp;сроку.<br>
+          От ста литров.
+        </h1>
+        <p class="hero-sub">
+          Северо-Западная Топливная Компания поставляет <b>дизель, бензин и мазут</b>
+          бензовозами от&nbsp;100&nbsp;до&nbsp;25&nbsp;000 литров.
+          Заявка, документы, оплата и&nbsp;отслеживание&nbsp;— в&nbsp;личном&nbsp;кабинете.
+        </p>
+        <div class="hero-cta">
+          <a href="/index.html" class="btn btn-primary btn-lg btn-arrow">
+            Войти в личный кабинет
+            <svg class="arrow" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M1 7h12M8 2l5 5-5 5"/>
+            </svg>
+          </a>
+          <a href="tel:+78129171517" class="btn btn-ghost btn-lg">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M3 1.5h2l1.5 3-2 1.2c.8 1.7 2.2 3 3.8 3.8l1.2-2 3 1.5v2A1.5 1.5 0 0 1 11 12.5C5.8 12.5 1.5 8.2 1.5 3A1.5 1.5 0 0 1 3 1.5z"/>
+            </svg>
+            +7 812 917-15-17
+          </a>
+        </div>
+      </div>
+
+      <aside class="hero-side">
+        <div class="hero-side-block">
+          <div class="hero-side-label">от</div>
+          <div class="hero-side-value">100<span class="unit">литров</span></div>
+        </div>
+        <div class="hero-side-block">
+          <div class="hero-side-label">до</div>
+          <div class="hero-side-value">25 000<span class="unit">литров / рейс</span></div>
+        </div>
+        <div class="hero-side-block">
+          <div class="hero-side-label">скорость</div>
+          <div class="hero-side-value">1 час<span class="unit">подача авто</span></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ TICKER ════════════════════ -->
+<div class="ticker" aria-hidden="true">
+  <div class="ticker-track">
+    <span class="ticker-item">ДТ ЛЕТО · <span class="price">49,00 ₽/л</span></span>
+    <span class="ticker-item">ДТ ЗИМА · <span class="price">57,00 ₽/л</span></span>
+    <span class="ticker-item">ДТ МЕЖСЕЗОН · <span class="price">52,00 ₽/л</span></span>
+    <span class="ticker-item">АИ-92 · <span class="price">59,00 ₽/л</span></span>
+    <span class="ticker-item">АИ-95 · <span class="price">61,00 ₽/л</span></span>
+    <span class="ticker-item">МАЗУТ М-100 · <span class="price">24,00 ₽/л</span></span>
+    <span class="ticker-item">ТС-1 · <span class="price">по запросу</span></span>
+    <span class="ticker-item">ОПТ от 1000 л — индивидуальная цена</span>
+    <!-- duplicate for seamless loop -->
+    <span class="ticker-item">ДТ ЛЕТО · <span class="price">49,00 ₽/л</span></span>
+    <span class="ticker-item">ДТ ЗИМА · <span class="price">57,00 ₽/л</span></span>
+    <span class="ticker-item">ДТ МЕЖСЕЗОН · <span class="price">52,00 ₽/л</span></span>
+    <span class="ticker-item">АИ-92 · <span class="price">59,00 ₽/л</span></span>
+    <span class="ticker-item">АИ-95 · <span class="price">61,00 ₽/л</span></span>
+    <span class="ticker-item">МАЗУТ М-100 · <span class="price">24,00 ₽/л</span></span>
+    <span class="ticker-item">ТС-1 · <span class="price">по запросу</span></span>
+    <span class="ticker-item">ОПТ от 1000 л — индивидуальная цена</span>
+  </div>
+</div>
+
+<!-- ════════════════════ STATS ════════════════════ -->
+<section class="stats">
+  <div class="wrap">
+    <div class="stats-grid">
+      <div class="stat reveal">
+        <div class="stat-num">13+<span class="unit">лет</span></div>
+        <div class="stat-label">на рынке СЗФО</div>
+      </div>
+      <div class="stat reveal reveal-d1">
+        <div class="stat-num">8</div>
+        <div class="stat-label">видов топлива</div>
+      </div>
+      <div class="stat reveal reveal-d2">
+        <div class="stat-num">24/7</div>
+        <div class="stat-label">экстренная доставка</div>
+      </div>
+      <div class="stat reveal reveal-d3">
+        <div class="stat-num">14</div>
+        <div class="stat-label">собственных бензовозов</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ FUELS ════════════════════ -->
+<section class="section fuels" id="fuels">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/01 — Прайс</span>
+        <h2 class="section-title reveal">Что заливаем <em>в&nbsp;бак</em></h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Все партии — с&nbsp;паспортами качества от&nbsp;НПЗ. Цены — ориентир для&nbsp;розницы;
+        при&nbsp;объёме от&nbsp;1000&nbsp;л предложим индивидуальные условия в&nbsp;личном&nbsp;кабинете.
+      </p>
+    </header>
+
+    <div class="fuel-grid">
+      <article class="fuel reveal">
+        <span class="fuel-swatch diesel-s"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Дизельное топливо — лето</h3>
+          <p class="fuel-spec">ДТ-Л · ГОСТ 305-2013 · до +5°C</p>
+        </div>
+        <div class="fuel-price">49,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal reveal-d1">
+        <span class="fuel-swatch diesel-m"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Дизель межсезонный</h3>
+          <p class="fuel-spec">ДТ-Е · до −15°C</p>
+        </div>
+        <div class="fuel-price">52,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal">
+        <span class="fuel-swatch diesel-w"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Дизельное топливо — зима</h3>
+          <p class="fuel-spec">ДТ-З · до −32°C · депрессорные присадки</p>
+        </div>
+        <div class="fuel-price">57,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal reveal-d1">
+        <span class="fuel-swatch kerosene"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Керосин ТС-1</h3>
+          <p class="fuel-spec">авиационный · ГОСТ 10227-86</p>
+        </div>
+        <div class="fuel-price">по запросу<span class="perliter">партия от 5 000 л</span></div>
+      </article>
+
+      <article class="fuel reveal">
+        <span class="fuel-swatch petrol-92"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Бензин АИ-92</h3>
+          <p class="fuel-spec">Регуляр-92 · К5</p>
+        </div>
+        <div class="fuel-price">59,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal reveal-d1">
+        <span class="fuel-swatch petrol-95"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Бензин АИ-95</h3>
+          <p class="fuel-spec">Премиум-95 · К5</p>
+        </div>
+        <div class="fuel-price">61,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal">
+        <span class="fuel-swatch mazut"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Мазут М-100</h3>
+          <p class="fuel-spec">топочный · ГОСТ 10585-2013</p>
+        </div>
+        <div class="fuel-price">24,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
+      </article>
+
+      <article class="fuel reveal reveal-d1">
+        <span class="fuel-swatch gas"></span>
+        <div class="fuel-info">
+          <h3 class="fuel-name">Сжиженный газ (СУГ)</h3>
+          <p class="fuel-spec">ПБА / ПБТ · для котельных и АЗС</p>
+        </div>
+        <div class="fuel-price">по запросу<span class="perliter">от 3 000 л</span></div>
+      </article>
+    </div>
+
+    <div class="fuels-note">
+      <div>
+        <div class="label" style="margin-bottom: 6px;">ВАЖНО</div>
+        <span>Цены справочные. Реальная цена фиксируется в&nbsp;счёте после согласования объёма, базиса и&nbsp;условий оплаты.</span>
+      </div>
+      <a href="/index.html">Запросить КП в кабинете →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ BENEFITS ════════════════════ -->
+<section class="section" id="why">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/02 — Почему мы</span>
+        <h2 class="section-title reveal">Не самые <em>дешёвые</em>.<br>Самые точные.</h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Более 20&nbsp;лет на&nbsp;рынке нефтепродуктов СЗФО&nbsp;— не&nbsp;просто цифра.
+        Это наработанные прямые контракты с&nbsp;НПЗ, собственный автопарк и&nbsp;репутация
+        поставщика, к&nbsp;которому возвращаются снова. Мы знаем, что&nbsp;простой
+        техники без&nbsp;топлива стоит дороже любой скидки.
+      </p>
+    </header>
+
+    <div class="benefits-grid">
+      <div class="benefit reveal">
+        <div class="benefit-num">01</div>
+        <h3 class="benefit-title">Топливо с&nbsp;НПЗ, не&nbsp;с&nbsp;рынка</h3>
+        <p class="benefit-text">
+          Работаем напрямую с&nbsp;нефтеперерабатывающими заводами СЗФО. На&nbsp;каждую партию —
+          паспорт качества и&nbsp;ТТН. Никаких «бодяжных» цистерн от&nbsp;посредника.
+        </p>
+      </div>
+      <div class="benefit reveal reveal-d1">
+        <div class="benefit-num">02</div>
+        <h3 class="benefit-title">Свой автопарк, не&nbsp;аренда</h3>
+        <p class="benefit-text">
+          14 бензовозов от&nbsp;3,5 до&nbsp;25&nbsp;м³, водители в&nbsp;штате, диспетчер&nbsp;24/7.
+          Машина выезжает в&nbsp;течение часа после подтверждения заявки.
+        </p>
+      </div>
+      <div class="benefit reveal reveal-d2">
+        <div class="benefit-num">03</div>
+        <h3 class="benefit-title">Документы — день&nbsp;в&nbsp;день</h3>
+        <p class="benefit-text">
+          УПД, счёт-фактура и&nbsp;паспорт качества формируются в&nbsp;момент налива.
+          В&nbsp;личном кабинете — история, отслеживание машины и&nbsp;статус оплаты.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ PROCESS ════════════════════ -->
+<section class="section process" id="process">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/03 — Как мы работаем</span>
+        <h2 class="section-title reveal">От&nbsp;заявки до&nbsp;<em>налива</em><br>— четыре шага.</h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        Один раз заведите профиль — и&nbsp;каждая следующая заявка занимает 30&nbsp;секунд.
+        Все согласования, документы и&nbsp;координация водителя&nbsp;— внутри&nbsp;кабинета.
+      </p>
+    </header>
+
+    <div class="process-steps">
+      <div class="step reveal">
+        <div class="step-num">шаг&nbsp;01</div>
+        <h3 class="step-title">Создаёте заявку</h3>
+        <p class="step-text">
+          Тип топлива, объём, адрес, желаемое время. Минимум — 100&nbsp;л.
+        </p>
+      </div>
+      <div class="step reveal reveal-d1">
+        <div class="step-num">шаг&nbsp;02</div>
+        <h3 class="step-title">Менеджер согласует</h3>
+        <p class="step-text">
+          Цена, базис и&nbsp;окно подачи. Счёт или&nbsp;оплата по&nbsp;факту&nbsp;— на&nbsp;выбор.
+        </p>
+      </div>
+      <div class="step reveal reveal-d2">
+        <div class="step-num">шаг&nbsp;03</div>
+        <h3 class="step-title">Бензовоз выезжает</h3>
+        <p class="step-text">
+          Видите статус водителя и&nbsp;точку&nbsp;на&nbsp;карте в&nbsp;реальном времени.
+        </p>
+      </div>
+      <div class="step reveal reveal-d3">
+        <div class="step-num">шаг&nbsp;04</div>
+        <h3 class="step-title">Налив и&nbsp;документы</h3>
+        <p class="step-text">
+          Замер счётчиком, паспорт качества, УПД. Закрывающие&nbsp;— в&nbsp;кабинет.
+        </p>
+      </div>
+    </div>
+
+    <div style="margin-top: 72px; display: flex; justify-content: flex-start;">
+      <a href="/index.html" class="btn btn-amber btn-lg btn-arrow">
+        Оформить первую заявку
+        <svg class="arrow" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M1 7h12M8 2l5 5-5 5"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ AUDIENCE ════════════════════ -->
+<section class="section" id="audience">
+  <div class="wrap">
+    <header class="section-head">
+      <div>
+        <span class="section-num">/04 — Для кого</span>
+        <h2 class="section-title reveal">Кому возим<br><em>каждый день</em></h2>
+      </div>
+      <p class="section-desc reveal reveal-d1">
+        От&nbsp;генератора на&nbsp;даче до&nbsp;парка спецтехники на&nbsp;карьере&nbsp;—
+        условия и&nbsp;объёмы подбираем под&nbsp;задачу.
+      </p>
+    </header>
+
+    <div class="audience-grid">
+      <div class="aud reveal">
+        <div class="aud-icon">
+          <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 44V22l10-8h20l10 8v22"/>
+            <path d="M4 44h48"/>
+            <rect x="18" y="28" width="8" height="10"/>
+            <rect x="32" y="28" width="8" height="10"/>
+            <path d="M18 22h22"/>
+          </svg>
+        </div>
+        <h3 class="aud-title">Строительные площадки</h3>
+        <p class="aud-text">
+          Экскаваторы, краны, генераторы. Подаём бензовоз прямо к&nbsp;технике,
+          даже&nbsp;в&nbsp;грунт и&nbsp;без&nbsp;подъезда для&nbsp;легковых.
+        </p>
+      </div>
+      <div class="aud reveal reveal-d1">
+        <div class="aud-icon">
+          <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 48V26l22-16 22 16v22"/>
+            <path d="M2 48h52"/>
+            <rect x="22" y="32" width="12" height="16"/>
+            <circle cx="38" cy="22" r="2.5"/>
+          </svg>
+        </div>
+        <h3 class="aud-title">Частные дома и&nbsp;посёлки</h3>
+        <p class="aud-text">
+          Котлы, ёмкости, дизель-генераторы. Возим в&nbsp;тару&nbsp;от&nbsp;200&nbsp;л
+          и&nbsp;по&nbsp;графику&nbsp;— например, перед&nbsp;каждой зимой.
+        </p>
+      </div>
+      <div class="aud reveal reveal-d2">
+        <div class="aud-icon">
+          <svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="14" width="44" height="32"/>
+            <path d="M6 22h44M16 14V8M40 14V8"/>
+            <circle cx="18" cy="32" r="2"/>
+            <circle cx="28" cy="32" r="2"/>
+            <circle cx="38" cy="32" r="2"/>
+          </svg>
+        </div>
+        <h3 class="aud-title">Предприятия и&nbsp;парки</h3>
+        <p class="aud-text">
+          Лесозаготовка, логистика, карьеры, фермы. Долгосрочные контракты,
+          отсрочка, безнал, расходники&nbsp;и&nbsp;отчёт по&nbsp;каждому&nbsp;водителю.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ CTA BIG ════════════════════ -->
+<section class="cta-big">
+  <div class="wrap">
+    <div class="cta-inner">
+      <h2 class="cta-title reveal">
+        Готовы залить? <em>Заведите</em><br>
+        первую заявку за&nbsp;30&nbsp;секунд.
+      </h2>
+      <div class="cta-actions">
+        <a href="/index.html" class="btn btn-primary btn-lg btn-arrow" style="padding: 19px 32px; font-size: 16px;">
+          Войти в личный кабинет
+          <svg class="arrow" width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M1 7h12M8 2l5 5-5 5"/>
+          </svg>
+        </a>
+        <a href="/index.html#register" class="btn btn-ghost btn-lg">
+          Зарегистрироваться
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ FOOTER ════════════════════ -->
+<footer class="foot" id="contacts">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-brand">СЗТК</div>
+        <p class="foot-tagline">
+          Северо-Западная Топливная Компания.<br>
+          Дизель и&nbsp;нефтепродукты для&nbsp;тех, кому важно&nbsp;«вовремя».
+        </p>
+      </div>
+      <div>
+        <h4>Связь</h4>
+        <a href="tel:+78129171517" class="foot-phone">+7 812 917-15-17</a>
+        <a href="tel:+79219171517" class="foot-phone" style="margin-bottom: 14px !important;">+7 921 917-15-17</a>
+        <a href="mailto:sz_tk@mail.ru">sz_tk@mail.ru</a>
+      </div>
+      <div>
+        <h4>География</h4>
+        <p>Санкт-Петербург</p>
+        <p>Ленинградская область</p>
+        <p style="color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 8px;">
+          Кронштадт, Гатчина, Тосно,<br>Всеволожск, Выборг, Сертолово
+        </p>
+      </div>
+      <div>
+        <h4>Сотрудничество</h4>
+        <a href="/index.html">Войти в кабинет</a>
+        <a href="/index.html#register">Регистрация</a>
+        <a href="suppliers.html">Поставщикам</a>
+        <a href="#fuels">Прайс-лист</a>
+        <a href="#process">Как заказать</a>
+      </div>
+    </div>
+    <div class="foot-base">
+      <div>© 2011—2026 · СЗТК · ОГРН 1027800000001 (тест.)</div>
+      <div>Сделано в&nbsp;Санкт-Петербурге</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ── Compact nav on scroll ──
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    nav.classList.toggle('compact', window.scrollY > 40);
+  }, { passive: true });
+
+  // ── Show kabinet button on desktop ──
+  const kabinetBtn = document.getElementById('nav-kabinet');
+  function syncKabinet() {
+    kabinetBtn.style.display = window.innerWidth >= 860 ? 'inline-flex' : 'none';
+  }
+  syncKabinet();
+  window.addEventListener('resize', syncKabinet, { passive: true });
+
+  // ── Hamburger / drawer ──
+  const burger = document.getElementById('nav-burger');
+  const drawer = document.getElementById('nav-drawer');
+
+  function openDrawer() {
+    drawer.classList.add('open');
+    burger.classList.add('open');
+    burger.setAttribute('aria-expanded', 'true');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeDrawer() {
+    drawer.classList.remove('open');
+    burger.classList.remove('open');
+    burger.setAttribute('aria-expanded', 'false');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  burger.addEventListener('click', () => {
+    drawer.classList.contains('open') ? closeDrawer() : openDrawer();
+  });
+  document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+
+  // Close on backdrop click (outside drawer content)
+  drawer.addEventListener('click', (e) => {
+    if (e.target === drawer) closeDrawer();
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+  });
+
+  // ── Reveal-on-scroll ──
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>

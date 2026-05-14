@@ -16,6 +16,15 @@ from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest
 from app.services.order_number import generate_order_number
+from app.services.payment_service import (
+    recompute_and_save,
+    attach_payment_totals,
+    attach_payment_totals_one,
+)
+from app.services import document_service
+from app.services.client_context import get_client_context
+from app.services.payment_type_rules import validate_payment_type
+from app.services.pricing_service import compute_expected_amount
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -101,6 +110,7 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     if actor.role == ROLE_DRIVER and order.driver_id != actor.id:
         raise ForbiddenError()
 
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -119,13 +129,13 @@ async def list_orders(
     if actor.role == ROLE_CLIENT:
         conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
-        # Водитель видит: назначенные на него + все свободные in_progress/assigned
+        # Водитель видит: свои заявки + свободные in_progress (биржа)
         from sqlalchemy import or_
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
-                    Order.status.in_([OrderStatus.IN_PROGRESS, OrderStatus.ASSIGNED]),
+                    Order.status == OrderStatus.IN_PROGRESS,
                     Order.driver_id == None,  # noqa: E711
                 ),
             )
@@ -140,11 +150,15 @@ async def list_orders(
         conditions.append(Order.client_id == client_id)
 
     result = await db.execute(
-        select(Order).where(and_(*conditions))
-        .order_by(Order.created_at.desc())
-        .offset(offset).limit(limit)
+        _with_logs(
+            select(Order).where(and_(*conditions))
+            .order_by(Order.created_at.desc())
+            .offset(offset).limit(limit)
+        )
     )
-    return list(result.scalars().all())
+    orders = list(result.scalars().all())
+    await attach_payment_totals(db, orders)
+    return orders
 
 
 async def create_order(
@@ -165,13 +179,22 @@ async def create_order(
             raise ForbiddenError("Клиент не может указывать client_id")
         client_id = actor.id
 
-    # Клиент не может оформить заказ в кредит — только менеджер вправе это разрешить
-    if not is_staff and data.payment_type == PaymentType.CREDIT:
-        raise ValidationError("Клиент не может оформить заказ с типом оплаты «кредит»")
+    # Fetch client context (client_type, credit_allowed, tariff_id) from auth_service.
+    # Fails with 503 if auth_service is unreachable — we never silently skip this check.
+    ctx = await get_client_context(client_id)
+
+    # Validate payment_type against role × client_type × credit_allowed matrix
+    validate_payment_type(
+        data.payment_type,
+        actor_role=actor.role,
+        client_type=ctx.client_type,
+        credit_allowed=ctx.credit_allowed,
+    )
 
     # Дата доставки не может быть в прошлом
     if data.desired_date:
-        if data.desired_date.replace(tzinfo=None) < datetime.now(timezone.utc).replace(tzinfo=None):
+        desired_utc = data.desired_date if data.desired_date.tzinfo else data.desired_date.replace(tzinfo=timezone.utc)
+        if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     order_number = await generate_order_number(db)
@@ -180,6 +203,11 @@ async def create_order(
     initial_status = OrderStatus.NEW
     if is_staff and data.start_in_progress:
         initial_status = OrderStatus.IN_PROGRESS
+
+    # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
+    expected_amount = await compute_expected_amount(
+        db, data.fuel_type, data.volume_requested, ctx.tariff_id
+    )
 
     order = Order(
         order_number=order_number,
@@ -190,6 +218,7 @@ async def create_order(
         delivery_address=data.delivery_address,
         desired_date=data.desired_date,
         payment_type=data.payment_type,
+        expected_amount=expected_amount,
         priority=data.priority if is_staff else OrderPriority.NORMAL,
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
@@ -221,6 +250,13 @@ async def create_order(
 
     await db.flush()
 
+    # Auto-document: prepaid → invoice_preliminary at creation time
+    if order.payment_type == PaymentType.PREPAID:
+        try:
+            await document_service.generate_invoice_preliminary(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
+
     # Re-fetch with eager-loaded status_logs to avoid lazy-load error during serialization
     result = await db.execute(
         _with_logs(select(Order).where(Order.id == order.id))
@@ -238,6 +274,7 @@ async def create_order(
         "body": f"Новая заявка на доставку топлива: {order.delivery_address}",
     })
 
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -256,11 +293,64 @@ async def update_order(
         order.priority = data.priority
     if data.manager_comment is not None:
         order.manager_comment = data.manager_comment
-    if data.driver_id is not None:
-        order.driver_id = data.driver_id
     if data.desired_date is not None:
         order.desired_date = data.desired_date
+    if data.expected_amount is not None:
+        order.expected_amount = data.expected_amount
+    if data.trade_credit_contract_signed is not None:
+        order.trade_credit_contract_signed = data.trade_credit_contract_signed
 
+    # final_amount меняет цель — пересчитываем payment_status
+    if data.final_amount is not None:
+        order.final_amount = data.final_amount
+        await recompute_and_save(db, order)
+
+    # driver_id больше не назначается менеджером — водители берут заявки через /claim
+
+    await attach_payment_totals_one(db, order)
+    return order
+
+
+async def claim_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> Order:
+    """Водитель берёт свободную заявку из биржи (IN_PROGRESS, driver_id IS NULL).
+    Атомарная операция: UPDATE ... WHERE driver_id IS NULL защищает от гонки.
+    """
+    if actor.role != ROLE_DRIVER:
+        raise ForbiddenError("Взять заявку может только водитель")
+
+    result = await db.execute(
+        _with_logs(
+            select(Order).where(
+                Order.id == order_id,
+                Order.is_archived == False,  # noqa: E712
+                Order.status == OrderStatus.IN_PROGRESS,
+                Order.driver_id == None,  # noqa: E711
+            )
+        )
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise NotFoundError("Заявка не найдена или уже занята другим водителем")
+
+    order.driver_id = actor.id
+    await db.flush()
+
+    db.add(OrderStatusLog(
+        order_id=order.id,
+        from_status=order.status,
+        to_status=order.status,
+        changed_by_id=actor.id,
+        changed_by_role=actor.role,
+        comment="Заявка взята водителем",
+    ))
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -276,19 +366,31 @@ async def transition_status(
 
     # Бизнес-проверки при конкретных переходах
 
+    # Шлагбаум закрытия: заявка не закрывается без оплаты.
+    # Исключение: кредитные типы (trade_credit / debt) с подписанным договором —
+    # закрываются без оплаты (долг фиксируется в отчётности).
+    if data.to_status == OrderStatus.CLOSED:
+        is_credit_payment = order.payment_type in (
+            PaymentType.TRADE_CREDIT, PaymentType.DEBT
+        )
+        credit_bypass = is_credit_payment and order.trade_credit_contract_signed
+        if order.payment_status != "paid" and not credit_bypass:
+            raise StatusTransitionError(
+                f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
+                "Зафиксируйте оплату или, для товарного кредита / долга, "
+                "отметьте подписание договора."
+            )
+
     # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
     # Если delivery_service вернёт ошибку (нет топлива, недоступен) — прерываем переход.
     if data.to_status == OrderStatus.IN_TRANSIT:
         await _auto_start_trip(order, actor)
 
-    if data.to_status == OrderStatus.ASSIGNED:
-        driver_id = data.driver_id or order.driver_id
-        if not driver_id:
+    # При переводе in_progress → in_transit водитель должен быть уже в driver_id (через /claim)
+    if data.to_status == OrderStatus.IN_TRANSIT and actor.role == ROLE_DRIVER:
+        if not order.driver_id or order.driver_id != actor.id:
             from app.core.exceptions import StatusTransitionError
-            raise StatusTransitionError("Для назначения укажите driver_id")
-        order.driver_id = driver_id
-        if not order.manager_id:
-            order.manager_id = actor.id
+            raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
 
     if data.to_status == OrderStatus.REJECTED:
         if not data.rejection_reason:
@@ -324,6 +426,34 @@ async def transition_status(
     ))
     await db.flush()
 
+    # ── Авто-генерация документов ─────────────────────────────────────────────
+    # Ошибки PDF-рендера не прерывают переход — документ остаётся в статусе DRAFT.
+    #
+    # Матрица триггеров (SPEC 1.5.9):
+    #   IN_TRANSIT   + trade_credit/debt  → TTN предварительная
+    #   DELIVERED/*  + все типы           → invoice_final + UPD + TTN финальная
+    #   (prepaid получает invoice_preliminary при создании, не здесь)
+
+    _credit_types = (PaymentType.TRADE_CREDIT, PaymentType.DEBT)
+
+    if data.to_status == OrderStatus.IN_TRANSIT:
+        if order.payment_type in _credit_types:
+            try:
+                await document_service.generate_ttn(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-TTN (preliminary) failed for order %s: %s", order.id, exc)
+
+    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
+        for gen_fn, label in [
+            (document_service.generate_invoice_final, "invoice_final"),
+            (document_service.generate_upd, "UPD"),
+            (document_service.generate_ttn, "TTN"),
+        ]:
+            try:
+                await gen_fn(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
+
     # Re-fetch to include the new log in the response
     result = await db.execute(
         _with_logs(select(Order).where(Order.id == order.id))
@@ -341,6 +471,7 @@ async def transition_status(
         "body": f"Новый статус: {order.status.value}",
     })
 
+    await attach_payment_totals_one(db, order)
     return order
 
 

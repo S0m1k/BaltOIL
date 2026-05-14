@@ -11,8 +11,11 @@ Flow:
 
 import asyncio
 import json
+import logging
 import uuid
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+
+log = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
@@ -89,7 +92,7 @@ async def websocket_endpoint(
                     except Exception:
                         break
         except Exception:
-            pass
+            log.exception("Redis listener error for conv %s", conv_id)
 
     listener_task = asyncio.create_task(redis_listener())
 
@@ -122,7 +125,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        log.exception("WebSocket error for conv %s", conv_id)
     finally:
         listener_task.cancel()
         _connections[conv_key].discard(websocket)

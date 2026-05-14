@@ -1,6 +1,7 @@
+import hashlib
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,8 +17,10 @@ STAFF_ROLES = {"admin", "manager", "driver"}
 MANAGER_ROLES = {"admin", "manager"}
 
 
-def _is_staff(role: str) -> bool:
-    return role in STAFF_ROLES
+def _participants_hash(user_ids: list[uuid.UUID]) -> str:
+    """SHA-256 от отсортированных UUID участников — для upsert-дедупликации."""
+    sorted_ids = sorted(str(u) for u in user_ids)
+    return hashlib.sha256("|".join(sorted_ids).encode()).hexdigest()
 
 
 async def create_conversation(
@@ -25,44 +28,53 @@ async def create_conversation(
     data: ConversationCreateRequest,
     actor: TokenUser,
 ) -> Conversation:
-    # Clients can only create CLIENT_SUPPORT conversations
+    # Клиенты могут создавать только client_support
     if actor.role == "client" and data.type != ConversationType.CLIENT_SUPPORT:
-        raise ForbiddenError("Clients can only create client support conversations")
+        raise ForbiddenError("Клиент может создавать только чаты поддержки")
+
+    # Полный список участников (включая создателя)
+    participant_ids: list[uuid.UUID] = [actor.id]
+    for pid in data.participant_ids:
+        if pid not in participant_ids:
+            participant_ids.append(pid)
+
+    p_hash = _participants_hash(participant_ids)
+
+    # Upsert: если чат с таким составом уже есть — вернуть его
+    existing = await db.execute(
+        select(Conversation)
+        .options(
+            selectinload(Conversation.participants),
+            selectinload(Conversation.messages),
+        )
+        .where(
+            Conversation.participants_hash == p_hash,
+            Conversation.is_archived == False,  # noqa: E712
+        )
+    )
+    ex = existing.scalar_one_or_none()
+    if ex:
+        return ex
 
     conv = Conversation(
         type=data.type,
-        order_id=data.order_id,
         title=data.title,
+        participants_hash=p_hash,
         created_by_id=actor.id,
         created_by_role=actor.role,
     )
     db.add(conv)
-    await db.flush()  # get conv.id
+    await db.flush()
 
-    # Add creator as participant
-    creator_participant = ConversationParticipant(
-        conversation_id=conv.id,
-        user_id=actor.id,
-        user_role=actor.role,
-    )
-    db.add(creator_participant)
-
-    # Add additional participants (staff only for internal, anyone for client_support)
-    seen = {actor.id}
-    for pid in data.participant_ids:
-        if pid not in seen:
-            p = ConversationParticipant(
-                conversation_id=conv.id,
-                user_id=pid,
-                user_role="unknown",  # will be updated when they join via WS
-            )
-            db.add(p)
-            seen.add(pid)
+    for pid in participant_ids:
+        db.add(ConversationParticipant(
+            conversation_id=conv.id,
+            user_id=pid,
+            user_role="unknown",
+        ))
 
     await db.commit()
-    await db.refresh(conv)
 
-    # Eagerly load relations
     result = await db.execute(
         select(Conversation)
         .options(
@@ -85,12 +97,11 @@ async def get_conversation(
             selectinload(Conversation.participants),
             selectinload(Conversation.messages),
         )
-        .where(Conversation.id == conv_id, Conversation.is_archived == False)
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
     )
     conv = result.scalar_one_or_none()
     if not conv:
-        raise NotFoundError("Conversation not found")
-
+        raise NotFoundError("Диалог не найден")
     _check_access(conv, actor)
     return conv
 
@@ -100,11 +111,9 @@ async def list_conversations(
     actor: TokenUser,
     order_id: uuid.UUID | None = None,
 ) -> list[dict]:
-    """Returns conversations with unread_count and last_message."""
+    """Список диалогов с количеством непрочитанных и последним сообщением."""
+    q = select(Conversation).where(Conversation.is_archived == False)  # noqa: E712
 
-    q = select(Conversation).where(Conversation.is_archived == False)
-
-    # Managers/admins see ALL conversations; others see only theirs
     if actor.role not in MANAGER_ROLES:
         participant_subq = (
             select(ConversationParticipant.conversation_id)
@@ -118,17 +127,12 @@ async def list_conversations(
         elif actor.role == "driver":
             q = q.where(Conversation.type == ConversationType.INTERNAL)
 
-    if order_id:
-        q = q.where(Conversation.order_id == order_id)
-
     q = q.order_by(Conversation.updated_at.desc())
     result = await db.execute(q)
     conversations = result.scalars().all()
 
-    # Build response with unread counts and last messages
     output = []
     for conv in conversations:
-        # Get participant's last_read_at
         pr = await db.execute(
             select(ConversationParticipant).where(
                 ConversationParticipant.conversation_id == conv.id,
@@ -138,32 +142,38 @@ async def list_conversations(
         participant = pr.scalar_one_or_none()
         last_read_at = participant.last_read_at if participant else None
 
-        # Count unread messages
         unread_q = select(func.count()).where(
             Message.conversation_id == conv.id,
-            Message.is_archived == False,
+            Message.is_archived == False,  # noqa: E712
             Message.sender_id != actor.id,
         )
         if last_read_at:
             unread_q = unread_q.where(Message.created_at > last_read_at)
         unread_count = (await db.execute(unread_q)).scalar() or 0
 
-        # Get last message
         last_msg_result = await db.execute(
             select(Message)
-            .where(Message.conversation_id == conv.id, Message.is_archived == False)
+            .where(Message.conversation_id == conv.id, Message.is_archived == False)  # noqa: E712
             .order_by(Message.created_at.desc())
             .limit(1)
         )
         last_msg = last_msg_result.scalar_one_or_none()
 
+        # Загрузить участников
+        parts_result = await db.execute(
+            select(ConversationParticipant).where(
+                ConversationParticipant.conversation_id == conv.id
+            )
+        )
+        parts = parts_result.scalars().all()
+
         output.append({
             "id": conv.id,
             "type": conv.type,
-            "order_id": conv.order_id,
             "title": conv.title,
             "created_by_id": conv.created_by_id,
             "created_by_role": conv.created_by_role,
+            "participant_ids": [str(p.user_id) for p in parts],
             "unread_count": unread_count,
             "last_message": MessageResponse.model_validate(last_msg) if last_msg else None,
             "updated_at": conv.updated_at,
@@ -172,11 +182,7 @@ async def list_conversations(
     return output
 
 
-async def mark_read(
-    db: AsyncSession,
-    conv_id: uuid.UUID,
-    actor: TokenUser,
-) -> None:
+async def mark_read(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
     result = await db.execute(
         select(ConversationParticipant).where(
             ConversationParticipant.conversation_id == conv_id,
@@ -189,35 +195,56 @@ async def mark_read(
         await db.commit()
 
 
-async def archive_conversation(
-    db: AsyncSession,
-    conv_id: uuid.UUID,
-    actor: TokenUser,
-) -> None:
+async def archive_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+    """Архивировать диалог — только менеджер/админ."""
     result = await db.execute(
-        select(Conversation).where(Conversation.id == conv_id, Conversation.is_archived == False)
+        select(Conversation).where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
     )
     conv = result.scalar_one_or_none()
     if not conv:
-        raise NotFoundError("Conversation not found")
+        raise NotFoundError("Диалог не найден")
     if actor.role not in MANAGER_ROLES:
-        raise ForbiddenError("Only managers/admins can archive conversations")
+        raise ForbiddenError("Только менеджер или администратор может архивировать диалог")
     conv.is_archived = True
     await db.commit()
 
 
-def _check_access(conv: Conversation, actor: TokenUser) -> None:
-    """Raise ForbiddenError if actor cannot access this conversation."""
-    if actor.role in MANAGER_ROLES:
-        return  # managers/admins see everything
+async def delete_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+    """Hard-delete диалога — только администратор."""
+    if actor.role != "admin":
+        raise ForbiddenError("Удалить диалог полностью может только администратор")
+    result = await db.execute(select(Conversation).where(Conversation.id == conv_id))
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Диалог не найден")
+    await db.execute(delete(Message).where(Message.conversation_id == conv_id))
+    await db.execute(
+        delete(ConversationParticipant).where(ConversationParticipant.conversation_id == conv_id)
+    )
+    await db.delete(conv)
+    await db.commit()
 
-    # Check participation
+
+async def clear_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+    """Очистить историю сообщений — только администратор."""
+    if actor.role != "admin":
+        raise ForbiddenError("Очистить историю может только администратор")
+    result = await db.execute(
+        select(Conversation).where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    if not result.scalar_one_or_none():
+        raise NotFoundError("Диалог не найден")
+    await db.execute(delete(Message).where(Message.conversation_id == conv_id))
+    await db.commit()
+
+
+def _check_access(conv: Conversation, actor: TokenUser) -> None:
+    if actor.role in MANAGER_ROLES:
+        return
     participant_ids = {p.user_id for p in conv.participants}
     if actor.id not in participant_ids:
-        raise ForbiddenError("You are not a participant of this conversation")
-
+        raise ForbiddenError("Вы не участник этого диалога")
     if actor.role == "client" and conv.type != ConversationType.CLIENT_SUPPORT:
-        raise ForbiddenError("Clients can only access client support conversations")
-
+        raise ForbiddenError("Клиент может обращаться только в поддержку")
     if actor.role == "driver" and conv.type != ConversationType.INTERNAL:
-        raise ForbiddenError("Drivers can only access internal conversations")
+        raise ForbiddenError("Водитель может использовать только внутренний чат")

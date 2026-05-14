@@ -5,40 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BaltOIL — Панель управления</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* ── Светлая тема: зелёно-синие градиенты ── */
     --bg:        #eef2fb;
     --bg2:       #ffffff;
     --bg3:       #f4f7fd;
     --border:    #dde3f0;
     --border2:   #c8d2e8;
 
-    /* Первичный цвет — голубой (заменяет amber во всех местах) */
     --amber:     #0ea5e9;
     --amber2:    #0284c7;
-    --amber-dim: rgba(14,165,233,.1);
+    --amber-dim: rgba(14,165,233,.10);
 
-    /* Акцент — изумрудный зелёный */
     --accent:     #10b981;
     --accent2:    #059669;
-    --accent-dim: rgba(16,185,129,.1);
+    --accent-dim: rgba(16,185,129,.10);
 
-    /* Фоновый градиент для шапки/карточек */
-    --grad: linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
+    --grad:      linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
     --grad-soft: linear-gradient(135deg, rgba(14,165,233,.08) 0%, rgba(16,185,129,.08) 100%);
 
-    /* Текст */
     --text:  #0f172a;
     --text2: #334155;
     --text3: #94a3b8;
 
-    /* Системные цвета */
     --red:   #ef4444;
     --green: #10b981;
 
-    /* Статусы заявок */
     --s-new:      #3b82f6;
     --s-progress: #d97706;
     --s-assigned: #ea580c;
@@ -49,18 +43,44 @@
     --s-rejected: #dc2626;
   }
 
+  /* ── ТЁМНАЯ ТЕМА ── */
+  html.dark {
+    --bg:        #0f172a;
+    --bg2:       #1e293b;
+    --bg3:       #1a2236;
+    --border:    #334155;
+    --border2:   #475569;
+
+    --amber:     #38bdf8;
+    --amber2:    #0ea5e9;
+    --amber-dim: rgba(56,189,248,.12);
+
+    --accent:    #34d399;
+    --accent2:   #10b981;
+    --accent-dim:rgba(52,211,153,.12);
+
+    --grad:      linear-gradient(135deg, #38bdf8 0%, #34d399 100%);
+    --grad-soft: linear-gradient(135deg, rgba(56,189,248,.10) 0%, rgba(52,211,153,.10) 100%);
+
+    --text:  #f1f5f9;
+    --text2: #cbd5e1;
+    --text3: #64748b;
+
+    --red:   #f87171;
+    --green: #34d399;
+
+    --grid-line: rgba(56,189,248,.04);
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 14px;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: 17px;
     min-height: 100vh;
-    background-image:
-      linear-gradient(rgba(14,165,233,.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(14,165,233,.025) 1px, transparent 1px);
-    background-size: 40px 40px;
+    transition: background-color .25s ease, color .25s ease;
   }
 
   /* ── TOAST ── */
@@ -69,13 +89,15 @@
     display: flex; flex-direction: column; gap: 8px; pointer-events: none;
   }
   .toast {
-    padding: 12px 18px; border-radius: 4px; font-size: 13px; font-family: 'IBM Plex Mono', monospace;
+    padding: 12px 18px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
     pointer-events: auto; animation: slideIn .25s ease;
     border-left: 3px solid;
     backdrop-filter: blur(8px);
   }
   .toast.success { background: rgba(16,185,129,.12); border-color: var(--green); color: #065f46; }
   .toast.error   { background: rgba(239,68,68,.10);  border-color: var(--red);   color: #991b1b; }
+  html.dark .toast.success { color: #6ee7b7; background: rgba(52,211,153,.1); }
+  html.dark .toast.error   { color: #fca5a5; background: rgba(248,113,113,.1); }
   @keyframes slideIn { from { transform: translateX(60px); opacity:0; } to { transform: translateX(0); opacity:1; } }
   @keyframes slideOut { from { opacity:1; } to { transform: translateX(60px); opacity:0; } }
 
@@ -93,8 +115,8 @@
     border-image: var(--grad) 1;
     padding: 40px;
     position: relative;
-    box-shadow: 0 4px 24px rgba(14,165,233,.08), 0 1px 4px rgba(0,0,0,.04);
-    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(83,58,253,.08), 0 1px 4px rgba(0,0,0,.04);
+    border-radius: 12px;
   }
   .auth-card::before {
     content: '';
@@ -103,13 +125,13 @@
     background: var(--bg2);
   }
   .auth-logo {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 28px; font-weight: 700; letter-spacing: 3px;
     background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text; margin-bottom: 4px;
   }
   .auth-subtitle {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
     font-size: 10px; color: var(--text3); letter-spacing: 2px;
     text-transform: uppercase; margin-bottom: 32px;
   }
@@ -117,12 +139,12 @@
   .auth-mode-btns {
     display: grid; grid-template-columns: 1fr 1fr; gap: 0;
     margin-bottom: 28px;
-    border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
   }
   .auth-mode-btn {
     padding: 10px 0; font-size: 12px; cursor: pointer;
     color: var(--text3); border: none; background: none;
-    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; letter-spacing: 1px;
     transition: all .2s; text-transform: uppercase;
   }
   .auth-mode-btn.active { background: var(--amber); color: #000; font-weight: 600; }
@@ -135,9 +157,9 @@
   }
   .reg-type-btn {
     padding: 18px 12px; cursor: pointer; border: 1px solid var(--border);
-    background: var(--bg3); color: var(--text2); border-radius: 3px;
+    background: var(--bg3); color: var(--text2); border-radius: 8px;
     font-size: 13px; text-align: center; transition: all .2s;
-    font-family: 'IBM Plex Sans', sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
   .reg-type-btn:hover { border-color: var(--amber); color: var(--amber); }
   .reg-type-btn .reg-type-icon { font-size: 28px; display: block; margin-bottom: 8px; }
@@ -147,7 +169,7 @@
     display: inline-flex; align-items: center; gap: 5px;
     font-size: 11px; color: var(--text3); cursor: pointer;
     margin-bottom: 20px; background: none; border: none;
-    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; letter-spacing: 1px;
     text-transform: uppercase; transition: color .2s;
   }
   .auth-back:hover { color: var(--amber); }
@@ -156,14 +178,14 @@
   .form-label {
     display: block; font-size: 11px; color: var(--text3);
     text-transform: uppercase; letter-spacing: 1.5px;
-    font-family: 'IBM Plex Mono', monospace; margin-bottom: 6px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; margin-bottom: 6px;
   }
   .form-input {
     width: 100%; padding: 10px 14px;
     background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px;
+    color: var(--text); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px;
     outline: none; transition: border-color .2s;
-    border-radius: 2px;
+    border-radius: 6px;
   }
   .form-input:focus { border-color: var(--amber); }
   .form-input::placeholder { color: var(--text3); }
@@ -175,7 +197,7 @@
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   .section-divider {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); letter-spacing: 2px; text-transform: uppercase;
     border-top: 1px solid var(--border); padding-top: 12px;
     margin: 16px 0 12px;
@@ -183,9 +205,9 @@
 
   .btn {
     padding: 11px 22px; border: none; cursor: pointer;
-    font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 600;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px; font-weight: 600;
     letter-spacing: 1.5px; text-transform: uppercase;
-    transition: all .2s; border-radius: 2px;
+    transition: all .2s; border-radius: 9999px;
   }
   .btn-primary {
     background: var(--grad); color: #fff; width: 100%; margin-top: 8px;
@@ -195,7 +217,7 @@
   .btn-primary:active { transform: scale(.98); }
   .btn-sm {
     padding: 5px 12px; font-size: 11px; letter-spacing: 1px;
-    border: 1px solid; border-radius: 2px;
+    border: 1px solid; border-radius: 9999px;
   }
   .btn-ghost { background: transparent; color: var(--text2); border-color: var(--border2); }
   .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
@@ -210,7 +232,7 @@
   }
   .inv-subtab {
     padding: 8px 20px; border: none; background: none; cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px; letter-spacing: 1.5px;
     text-transform: uppercase; color: var(--text3);
     border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .2s;
   }
@@ -224,7 +246,7 @@
     margin-bottom: 24px;
   }
   .stock-card {
-    background: var(--bg2); border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
     padding: 18px 20px; position: relative; overflow: hidden;
   }
   .stock-card::before {
@@ -232,22 +254,23 @@
     background: var(--grad);
   }
   .stock-fuel-label {
-    font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 17px; font-weight: 700;
     letter-spacing: 1px; color: var(--text); margin-bottom: 6px;
   }
-  .stock-volume { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: var(--amber); }
+  .stock-volume { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 22px; font-weight: 500; color: var(--amber); }
   .stock-unit   { font-size: 11px; color: var(--text3); margin-left: 4px; }
-  .stock-updated { font-size: 10px; color: var(--text3); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
+  .stock-updated { font-size: 10px; color: var(--text3); margin-top: 6px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; }
 
   .inv-table-wrap { overflow-x: auto; }
   .inv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .inv-table th {
     padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1.5px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 1.5px;
     text-transform: uppercase; color: var(--text3); white-space: nowrap;
   }
   .inv-table td {
     padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle;
+    font-variant-numeric: tabular-nums;
   }
   .inv-table tr:last-child td { border-bottom: none; }
   .inv-table tr:hover td { background: var(--bg3); }
@@ -258,22 +281,22 @@
     display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-bottom: 24px;
   }
   .summary-card {
-    background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; padding: 16px 20px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px;
   }
-  .summary-fuel { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .summary-fuel { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
   .summary-row {
     display: flex; justify-content: space-between; align-items: center;
     padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border);
   }
   .summary-row:last-child { border-bottom: none; font-weight: 600; }
   .summary-label { color: var(--text3); }
-  .summary-val { font-family: 'IBM Plex Mono', monospace; color: var(--text2); }
+  .summary-val { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; color: var(--text2); }
   .summary-val.green { color: var(--green); }
   .summary-val.amber { color: var(--amber); }
   .inv-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; }
   .inv-filters .form-group { margin: 0; }
   .inv-section-title {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 2px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 2px;
     text-transform: uppercase; color: var(--text3); margin-bottom: 12px;
     padding-bottom: 6px; border-bottom: 1px solid var(--border);
   }
@@ -283,64 +306,149 @@
   .inline-error {
     background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
     color: #991b1b; padding: 10px 14px; font-size: 12px; border-radius: 2px;
-    margin-top: 12px; font-family: 'IBM Plex Mono', monospace;
+    margin-top: 12px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
   }
 
   /* ── APP SHELL ── */
-  #app-screen { display: none; flex-direction: column; min-height: 100vh; }
+  #app-screen { display: none; flex-direction: row; min-height: 100vh; }
 
   .topbar {
-    background: var(--bg2); border-bottom: 1px solid var(--border);
-    box-shadow: 0 1px 8px rgba(14,165,233,.07);
-    padding: 0 24px; display: flex; align-items: center; gap: 0;
-    height: 56px; position: sticky; top: 0; z-index: 100;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    box-shadow: 1px 0 8px rgba(14,165,233,.06);
+    display: flex; flex-direction: column; align-items: stretch;
+    width: 220px; min-width: 220px; height: 100vh;
+    position: sticky; top: 0; z-index: 100; overflow: hidden;
   }
   .topbar-logo {
-    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text; letter-spacing: 3px; margin-right: 32px;
-    flex-shrink: 0;
+    background-clip: text; letter-spacing: 3px;
+    padding: 22px 20px 16px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
   }
   .nav-tabs {
-    display: flex; gap: 0; height: 100%; flex: 1;
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1; overflow-y: auto; padding: 8px 0;
   }
   .nav-tab {
-    padding: 0 20px; border: none; background: none; cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
-    text-transform: uppercase; color: var(--text3);
-    border-bottom: 2px solid transparent; height: 100%;
-    transition: all .2s; white-space: nowrap;
+    padding: 9px 16px; border: none; background: none; cursor: pointer;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 500;
+    color: var(--text3); text-align: left;
+    border-left: 3px solid transparent;
+    transition: all .15s; white-space: nowrap; flex: 1;
   }
-  .nav-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
-  .nav-tab:hover:not(.active) { color: var(--text2); }
+  .nav-tab.active {
+    color: var(--amber); border-left-color: var(--amber);
+    background: var(--amber-dim);
+  }
+  .nav-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
+
+  /* Collapsible Заявки → Создать */
+  .nav-tab-group { display: flex; align-items: stretch; }
+  .nav-tab-caret {
+    padding: 9px 12px; border: none; background: none; cursor: pointer;
+    color: var(--text3); transition: all .15s; flex-shrink: 0;
+    display: flex; align-items: center;
+  }
+  .nav-tab-caret svg { transition: transform .2s; }
+  .nav-tab-caret.expanded svg { transform: rotate(180deg); }
+  .nav-tab-caret:hover { color: var(--amber); background: var(--bg3); }
+  .nav-sub-tab {
+    display: none;
+    padding: 8px 16px 8px 30px; border: none; background: none; cursor: pointer;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 12px; font-weight: 500;
+    color: var(--text3); text-align: left; transition: all .15s;
+    border-left: 3px solid transparent; white-space: nowrap; width: 100%;
+  }
+  .nav-sub-tab.active { color: var(--amber); border-left-color: var(--amber); background: var(--amber-dim); }
+  .nav-sub-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
+
+  /* Chat unread badge on nav tab */
+  .chat-tab-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; border-radius: 9999px;
+    padding: 0 4px; margin-left: 6px; vertical-align: middle;
+  }
 
   .topbar-right {
-    display: flex; align-items: center; gap: 16px; margin-left: auto;
+    position: fixed; top: 0; right: 0; z-index: 150;
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; height: 48px;
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
   .user-badge {
     display: flex; align-items: center; gap: 8px;
     padding: 4px 12px; background: var(--bg3); border: 1px solid var(--border);
     border-radius: 2px;
+    cursor: pointer; user-select: none;
+    transition: border-color .15s, background .15s;
   }
+  .user-badge:hover { border-color: var(--amber); }
+  .user-badge .caret {
+    font-size: 9px; color: var(--text3); margin-left: 2px;
+    transition: transform .15s;
+  }
+  .user-badge.open .caret { transform: rotate(180deg); }
+  .user-menu-wrap { position: relative; }
+  .user-menu {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    min-width: 200px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+    padding: 4px 0;
+    z-index: 1000;
+    display: none;
+  }
+  .user-menu.open { display: block; }
+  .user-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 14px;
+    background: none; border: none; cursor: pointer;
+    font-size: 13px; color: var(--text); text-align: left;
+    transition: background .12s;
+  }
+  .user-menu-item:hover { background: var(--bg3); }
+  .user-menu-item.danger { color: var(--red); }
+  .user-menu-item.danger:hover { background: rgba(239,68,68,.08); }
+  .user-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
   .user-name { font-size: 13px; color: var(--text2); }
   .role-chip {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     padding: 2px 8px; border-radius: 2px; text-transform: uppercase; letter-spacing: 1px;
   }
   .role-admin   { background: rgba(239,68,68,.12);  color: #b91c1c; border: 1px solid rgba(239,68,68,.3); }
   .role-manager { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.3); }
   .role-driver  { background: rgba(124,58,237,.12); color: #6d28d9; border: 1px solid rgba(124,58,237,.3); }
   .role-client  { background: rgba(16,185,129,.12); color: #047857; border: 1px solid rgba(16,185,129,.3); }
+  html.dark .role-admin   { color: #fca5a5; }
+  html.dark .role-manager { color: #7dd3fc; }
+  html.dark .role-driver  { color: #c4b5fd; }
+  html.dark .role-client  { color: #6ee7b7; }
+
+  /* ── ТЕМА: кнопка переключения ── */
+  .btn-theme {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--border);
+    border-radius: 2px; cursor: pointer;
+    color: var(--text3); font-size: 15px;
+    transition: border-color .2s, color .2s, background .2s;
+    flex-shrink: 0;
+  }
+  .btn-theme:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
 
   .btn-logout {
     padding: 6px 14px; background: transparent; border: 1px solid var(--border2);
     color: var(--text3); cursor: pointer; font-size: 11px;
-    font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px; border-radius: 2px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; letter-spacing: 1px; border-radius: 2px;
     transition: all .2s;
   }
   .btn-logout:hover { border-color: var(--red); color: var(--red); }
 
-  .app-content { flex: 1; padding: 28px 24px; max-width: 1200px; margin: 0 auto; width: 100%; }
+  .app-content { flex: 1; padding: 64px 24px 28px; max-width: 1200px; margin: 0 auto; width: 100%; }
 
   .tab-pane { display: none; }
   .tab-pane.active { display: block; }
@@ -350,13 +458,13 @@
     display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
   }
   .toolbar-title {
-    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     letter-spacing: 1px; color: var(--text);
   }
   .toolbar-title span { color: var(--amber); }
   .filter-select {
     padding: 7px 12px; background: var(--bg2); border: 1px solid var(--border);
-    color: var(--text2); font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--text2); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     outline: none; cursor: pointer; border-radius: 2px; letter-spacing: 1px;
   }
   .filter-select:focus { border-color: var(--amber); }
@@ -365,7 +473,7 @@
   }
   .status-cb-label {
     display: flex; align-items: center; gap: 4px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     color: var(--text2); cursor: pointer; white-space: nowrap;
     padding: 4px 8px; background: var(--bg2); border: 1px solid var(--border);
     border-radius: 2px; transition: border-color .15s;
@@ -377,7 +485,7 @@
 
   .order-card {
     background: var(--bg2); border: 1px solid var(--border);
-    border-radius: 3px; overflow: hidden;
+    border-radius: 8px; overflow: hidden;
     transition: border-color .2s;
   }
   .order-card:hover { border-color: var(--border2); }
@@ -389,7 +497,7 @@
     user-select: none;
   }
   .order-number {
-    font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 13px; font-weight: 500;
     color: var(--amber); flex-shrink: 0; min-width: 140px;
   }
   .order-fuel {
@@ -397,7 +505,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .order-volume {
-    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 12px;
     color: var(--text3); white-space: nowrap;
   }
   .order-date { font-size: 12px; color: var(--text3); white-space: nowrap; }
@@ -413,7 +521,7 @@
   .priority-urgent { background: var(--red); box-shadow: 0 0 6px var(--red); }
 
   .status-badge {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 1px;
     text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
     white-space: nowrap; flex-shrink: 0;
     border: 1px solid;
@@ -439,7 +547,7 @@
   }
   .detail-item {}
   .detail-label {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3);
     text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px;
   }
   .detail-value { font-size: 13px; color: var(--text2); }
@@ -452,7 +560,7 @@
   /* ── STATUS TIMELINE ── */
   .timeline-section { margin: 12px 0 4px; }
   .timeline-title {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3);
     text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
   }
   .timeline { display: flex; flex-direction: column; gap: 0; }
@@ -468,20 +576,20 @@
   }
   .tl-item:first-child::before { background: var(--amber); border-color: var(--amber); }
   .tl-time {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     color: var(--text3); white-space: nowrap; min-width: 130px;
   }
   .tl-content { flex: 1; }
   .tl-status { font-size: 12px; color: var(--text2); }
   .tl-comment { font-size: 11px; color: var(--text3); margin-top: 2px; }
   .tl-role {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); margin-left: auto; white-space: nowrap;
   }
 
   .empty-state {
     text-align: center; padding: 60px 20px;
-    color: var(--text3); font-family: 'IBM Plex Mono', monospace;
+    color: var(--text3); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
     font-size: 12px; letter-spacing: 2px;
   }
   .empty-state-icon { font-size: 36px; margin-bottom: 12px; opacity: .4; }
@@ -494,7 +602,7 @@
     box-shadow: 0 2px 12px rgba(14,165,233,.05);
   }
   .form-card-title {
-    font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 20px; font-weight: 700;
     letter-spacing: 1px; color: var(--text); margin-bottom: 24px;
   }
 
@@ -515,17 +623,17 @@
   .fuel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
   .fuel-card {
     background: var(--bg2); border: 1px solid var(--border);
-    padding: 20px; border-radius: 3px;
+    padding: 20px; border-radius: 8px;
     transition: border-color .2s, transform .15s;
   }
   .fuel-card:hover { border-color: var(--amber); transform: translateY(-2px); }
   .fuel-short {
-    font-family: 'Rajdhani', sans-serif; font-size: 32px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 32px; font-weight: 700;
     color: var(--amber); letter-spacing: 1px;
   }
   .fuel-name { font-size: 13px; color: var(--text2); margin-top: 4px; }
   .fuel-code {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3);
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3);
     margin-top: 8px; letter-spacing: 1px;
   }
 
@@ -535,12 +643,12 @@
     padding: 24px; max-width: 640px;
   }
   .profile-card-title {
-    font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
     color: var(--text); margin-bottom: 16px; letter-spacing: 1px;
   }
   pre.json-view {
     background: var(--bg3); border: 1px solid var(--border);
-    padding: 18px; font-family: 'IBM Plex Mono', monospace;
+    padding: 18px; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
     font-size: 12px; color: #0369a1; overflow-x: auto;
     line-height: 1.6; border-radius: 2px;
   }
@@ -549,17 +657,17 @@
   .vehicles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .vehicle-card {
     background: var(--bg2); border: 1px solid var(--border);
-    padding: 18px; border-radius: 3px; transition: border-color .2s;
+    padding: 18px; border-radius: 8px; transition: border-color .2s;
   }
   .vehicle-card:hover { border-color: var(--border2); }
   .vehicle-plate {
-    font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 22px; font-weight: 700;
     color: var(--amber); letter-spacing: 2px;
   }
   .vehicle-model { font-size: 13px; color: var(--text2); margin: 4px 0 10px; }
   .vehicle-meta { display: flex; gap: 12px; flex-wrap: wrap; }
   .vehicle-badge {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 1px;
     padding: 2px 8px; border-radius: 2px; border: 1px solid var(--border2); color: var(--text3);
   }
   .vehicle-badge.active { border-color: var(--green); color: var(--green); }
@@ -578,9 +686,9 @@
   .trip-card.status-cancelled  { border-left-color: var(--s-closed); opacity: .7; }
   .trip-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .trip-card-body { display: flex; flex-direction: column; gap: 6px; }
-  .trip-order-ref { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--text); }
+  .trip-order-ref { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 13px; color: var(--text); }
   .trip-fuel-badge {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     background: rgba(255,180,0,.12); color: var(--amber);
     padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(255,180,0,.25);
   }
@@ -607,11 +715,11 @@
     padding: 14px 16px; border-radius: 2px;
   }
   .stat-label {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px;
   }
   .stat-value {
-    font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: var(--amber);
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 26px; font-weight: 700; color: var(--amber);
   }
   .stat-unit { font-size: 12px; color: var(--text3); }
 
@@ -629,7 +737,7 @@
     border-radius: 4px; box-shadow: 0 8px 40px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
   }
   .modal-title {
-    font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
     color: var(--text); margin-bottom: 20px; letter-spacing: 1px;
   }
   .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
@@ -642,7 +750,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .section-header {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); text-transform: uppercase; letter-spacing: 2px;
     padding: 10px 0 6px; border-bottom: 1px solid var(--border); margin: 16px 0 12px;
   }
@@ -651,7 +759,7 @@
   .users-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
   .users-table { width:100%; border-collapse:collapse; }
   .users-table th {
-    font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase;
+    font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace; font-size:10px; text-transform:uppercase;
     letter-spacing:1.5px; color:var(--text3); padding:8px 14px;
     border-bottom:1px solid var(--border); text-align:left; white-space:nowrap;
   }
@@ -672,7 +780,7 @@
   .notif-count {
     position:absolute; top:-5px; right:-5px;
     background:var(--red); color:#fff;
-    font-family:'IBM Plex Mono',monospace; font-size:9px; font-weight:700;
+    font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace; font-size:9px; font-weight:700;
     min-width:16px; height:16px; border-radius:8px; padding:0 4px;
     display:flex; align-items:center; justify-content:center;
   }
@@ -687,7 +795,7 @@
     padding:12px 16px; border-bottom:1px solid var(--border);
     display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
   }
-  .notif-panel-title { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:var(--text); letter-spacing:1px; }
+  .notif-panel-title { font-family:'Plus Jakarta Sans', system-ui, sans-serif,sans-serif; font-size:15px; font-weight:700; color:var(--text); letter-spacing:1px; }
   .notif-list { overflow-y:auto; flex:1; }
   .notif-item {
     padding:12px 16px; border-bottom:1px solid var(--border);
@@ -697,14 +805,14 @@
   .notif-item.unread { border-left:2px solid var(--amber); }
   .notif-item-title { font-size:12px; font-weight:500; color:var(--text); margin-bottom:3px; }
   .notif-item-body  { font-size:11px; color:var(--text3); }
-  .notif-item-time  { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text3); margin-top:4px; }
+  .notif-item-time  { font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace; font-size:10px; color:var(--text3); margin-top:4px; }
 
   /* ── UUID COPY ── */
   .uuid-cell { display: flex; align-items: center; gap: 6px; }
   .copy-btn {
     flex-shrink: 0; padding: 1px 6px; font-size: 10px; cursor: pointer;
     background: transparent; border: 1px solid var(--border2); border-radius: 2px;
-    color: var(--text3); font-family: 'IBM Plex Mono', monospace; letter-spacing: .5px;
+    color: var(--text3); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; letter-spacing: .5px;
     transition: all .15s;
   }
   .copy-btn:hover { border-color: var(--amber); color: var(--amber); }
@@ -726,7 +834,7 @@
     flex-shrink: 0;
   }
   .chat-sidebar-title {
-    font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 16px; font-weight: 700;
     color: var(--text); letter-spacing: 1px;
   }
   .conv-list { flex: 1; overflow-y: auto; }
@@ -747,14 +855,14 @@
     font-size: 11px; color: var(--text3);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
   }
-  .conv-item-time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .conv-item-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
   .unread-badge {
     background: var(--amber); color: #0b0e14;
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; font-weight: 700;
     padding: 1px 6px; border-radius: 10px; flex-shrink: 0;
   }
   .conv-type-chip {
-    font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 9px; letter-spacing: 1px;
     padding: 1px 5px; border-radius: 2px; border: 1px solid;
     text-transform: uppercase; flex-shrink: 0;
   }
@@ -769,7 +877,7 @@
     flex-shrink: 0; display: flex; align-items: center; gap: 12px;
   }
   .chat-main-title { font-size: 15px; font-weight: 600; color: var(--text); flex: 1; }
-  .chat-main-sub { font-size: 11px; color: var(--text3); font-family: 'IBM Plex Mono', monospace; }
+  .chat-main-sub { font-size: 11px; color: var(--text3); font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; }
 
   .chat-messages {
     flex: 1; overflow-y: auto; padding: 16px 20px;
@@ -781,7 +889,7 @@
     width: 32px; height: 32px; border-radius: 2px; flex-shrink: 0;
     background: var(--bg3); border: 1px solid var(--border2);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 700;
     color: var(--amber);
   }
   .msg-bubble {
@@ -792,12 +900,12 @@
     background: var(--amber-dim); border-color: rgba(14,165,233,.25);
   }
   .msg-meta {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); margin-bottom: 4px;
   }
   .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; }
   .msg-row.mine .msg-text { color: var(--text); }
-  .msg-time { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
+  .msg-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
 
   .chat-input-area {
     padding: 12px 20px; border-top: 1px solid var(--border);
@@ -806,7 +914,7 @@
   .chat-input {
     flex: 1; padding: 10px 14px;
     background: var(--bg3); border: 1px solid var(--border);
-    color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px;
+    color: var(--text); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 14px;
     outline: none; resize: none; border-radius: 2px;
     transition: border-color .2s; height: 42px; overflow-y: hidden;
   }
@@ -816,10 +924,10 @@
   .chat-empty {
     flex: 1; display: flex; align-items: center; justify-content: center;
     flex-direction: column; gap: 12px; color: var(--text3);
-    font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 2px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 12px; letter-spacing: 2px;
   }
   .ws-status {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 1px;
     padding: 2px 8px; border-radius: 2px;
   }
   .ws-online  { color: var(--green); border: 1px solid var(--green); background: rgba(16,185,129,.1); }
@@ -841,7 +949,7 @@
     width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
     background: var(--grad); color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 17px; font-weight: 700;
     letter-spacing: 1px;
   }
   .client-info { flex: 1; min-width: 0; }
@@ -850,12 +958,12 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .client-email {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     color: var(--text3); margin-top: 2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .client-phone {
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px;
     color: var(--text2); margin-top: 2px;
   }
   .client-actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -905,12 +1013,12 @@
     flex-shrink: 0;
   }
   .burger-logo {
-    font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 18px;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 700; font-size: 18px;
     color: var(--amber); letter-spacing: 2px;
   }
   .burger-close-btn {
     background: none; border: none; color: var(--text3); font-size: 18px;
-    cursor: pointer; padding: 6px 8px; border-radius: 3px;
+    cursor: pointer; padding: 6px 8px; border-radius: 8px;
   }
   .burger-close-btn:hover { color: var(--text); background: var(--bg3); }
 
@@ -920,7 +1028,7 @@
     display: flex; align-items: center; width: 100%; text-align: left;
     background: none; border: none; border-left: 3px solid transparent;
     padding: 13px 20px; color: var(--text2);
-    font-size: 14px; font-family: 'Rajdhani', sans-serif;
+    font-size: 14px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-weight: 600; letter-spacing: .5px; cursor: pointer;
     transition: all .15s;
   }
@@ -936,21 +1044,30 @@
   .burger-user-info { font-size: 12px; color: var(--text3); margin-bottom: 10px; line-height: 1.5; }
   .burger-logout-btn {
     width: 100%; background: none; border: 1px solid var(--border);
-    color: var(--text2); padding: 8px 16px; border-radius: 3px; cursor: pointer;
-    font-size: 12px; font-family: 'Rajdhani', sans-serif; font-weight: 600;
+    color: var(--text2); padding: 8px 16px; border-radius: 8px; cursor: pointer;
+    font-size: 12px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 600;
     letter-spacing: .5px; transition: all .15s;
   }
   .burger-logout-btn:hover { color: var(--red); border-color: var(--red); }
 
   /* ── RESPONSIVE / MOBILE ───────────────────────────────────── */
 
-  @media (max-width: 640px) {
-    /* Topbar — burger replaces nav tabs */
-    .topbar { padding: 0 10px; gap: 0; }
-    .topbar-logo { font-size: 15px; letter-spacing: 1px; flex-shrink: 0; }
-    .nav-tabs { display: none; }          /* ← hidden on mobile */
-    .burger-btn { display: flex; align-items: center; } /* ← shown on mobile */
-    .topbar-right { flex-shrink: 0; gap: 4px; }
+  @media (max-width: 768px) {
+    /* On mobile: sidebar collapses to a horizontal topbar */
+    #app-screen { flex-direction: column; }
+    .topbar {
+      width: 100%; min-width: 0; height: 48px;
+      flex-direction: row; align-items: center;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding: 0 10px; overflow: visible;
+    }
+    .topbar-logo { padding: 0; font-size: 15px; letter-spacing: 1px; border-bottom: none; }
+    .nav-tabs { display: none; }
+    .burger-btn { display: flex; align-items: center; }
+    .topbar-right {
+      position: static; flex-direction: row; margin-top: 0; margin-left: auto;
+      padding: 0; border: none; background: none; height: auto; gap: 4px;
+    }
     .user-badge { display: none; }
 
     /* Content */
@@ -1070,17 +1187,37 @@
         </div>
         <div id="login-error"></div>
         <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
+
+        <!-- Тестовые реквизиты (только в dev) -->
+        <div id="dev-credentials" style="display:none;margin-top:16px;padding:12px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text2)">
+          <div style="font-weight:600;margin-bottom:8px;color:var(--text);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace">Тестовые аккаунты</div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('admin@baltoil.biz','Admin1234!')">
+              <span style="background:var(--amber-dim);color:var(--amber2);padding:1px 6px;border-radius:3px;font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">ADMIN</span>
+              <span style="color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">admin@baltoil.biz / Admin1234!</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('manager@baltoil.biz','Manager1!')">
+              <span style="background:var(--accent-dim);color:var(--accent2);padding:1px 6px;border-radius:3px;font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">MANAGER</span>
+              <span style="color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">manager@baltoil.biz / Manager1!</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;cursor:pointer" onclick="setTestCredentials('driver1@baltoil.biz','Driver11!')">
+              <span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 6px;border-radius:3px;font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">DRIVER</span>
+              <span style="color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px">driver1@baltoil.biz / Driver11!</span>
+            </div>
+          </div>
+          <div style="margin-top:7px;font-size:10px;color:var(--text3)">Нажмите на строку — поля заполнятся автоматически</div>
+        </div>
       </div>
 
       <!-- Register: choose type -->
       <div id="auth-reg-picker" style="display:none">
         <div class="reg-type-btns">
           <button class="reg-type-btn" onclick="switchAuthTab('reg-individual')">
-            <span class="reg-type-icon">👤</span>
+            <span class="reg-type-icon"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 256 256" fill="currentColor"><path d="M230.92,212c-15.23-26.33-38.7-45.21-66.09-54.16a72,72,0,1,0-73.66,0C63.78,166.78,40.31,185.66,25.08,212a8,8,0,1,0,13.85,8c18.84-32.56,52.14-52,89.07-52s70.23,19.44,89.07,52a8,8,0,1,0,13.85-8ZM72,96a56,56,0,1,1,56,56A56.06,56.06,0,0,1,72,96Z"/></svg></span>
             Физическое<br>лицо
           </button>
           <button class="reg-type-btn" onclick="switchAuthTab('reg-company')">
-            <span class="reg-type-icon">🏢</span>
+            <span class="reg-type-icon"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 256 256" fill="currentColor"><path d="M240,208H224V96a16,16,0,0,0-16-16H144V40a16,16,0,0,0-24.37-13.61L39.63,74.39A16,16,0,0,0,32,88V208H16a8,8,0,0,0,0,16H240a8,8,0,0,0,0-16ZM208,96V208H144V96ZM48,88l80-48V208H48ZM112,112v16a8,8,0,0,1-16,0V112a8,8,0,0,1,16,0Zm-32,0v16a8,8,0,0,1-16,0V112a8,8,0,0,1,16,0Zm0,56v16a8,8,0,0,1-16,0V168a8,8,0,0,1,16,0Zm32,0v16a8,8,0,0,1-16,0V168a8,8,0,0,1,16,0Z"/></svg></span>
             Юридическое<br>лицо / ИП
           </button>
         </div>
@@ -1112,16 +1249,6 @@
       <div class="form-group">
         <label class="form-label">Адрес доставки</label>
         <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Серия паспорта</label>
-          <input type="text" id="ri-passport-s" class="form-input" placeholder="4520">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Номер паспорта</label>
-          <input type="text" id="ri-passport-n" class="form-input" placeholder="123456">
-        </div>
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
@@ -1208,30 +1335,50 @@
   <div class="topbar">
     <div class="topbar-logo">BALTOIL</div>
     <div class="nav-tabs">
-      <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
-      <button class="nav-tab" data-tab="create" id="tab-create-btn" onclick="switchTab('create')">+ Создать</button>
-      <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')">ТС</button>
+      <div class="nav-tab-group">
+        <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
+        <button class="nav-tab-caret" id="tab-create-caret" onclick="toggleCreateSub(event)" title="Создать заявку"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></button>
+      </div>
+      <button class="nav-sub-tab" data-tab="create" id="tab-create-btn" onclick="switchTab('create')">+ Создать</button>
       <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
-      <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
+      <button class="nav-tab" data-tab="finance" id="tab-finance-btn" onclick="switchTab('finance')">Финансы</button>
       <button class="nav-tab" data-tab="inventory" id="tab-inventory-btn" onclick="switchTab('inventory')">Склад</button>
-      <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
+      <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
+      <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
-      <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат</button>
-      <button class="nav-tab" data-tab="profile" onclick="switchTab('profile')">Профиль</button>
+      <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат<span class="chat-tab-badge" id="chat-tab-badge" style="display:none"></span></button>
+      <!-- Hidden tabs (accessible via JS) -->
+      <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')" style="display:none">ТС</button>
+      <button class="nav-tab" data-tab="fuels" id="tab-fuels-btn" onclick="switchTab('fuels')" style="display:none">Топливо</button>
     </div>
     <!-- Burger button: visible only on mobile via CSS -->
     <button class="burger-btn" id="burger-btn" onclick="openBurger()" aria-label="Меню">☰</button>
     <div class="topbar-right">
+      <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="Тёмная/светлая тема" aria-label="Переключить тему"></button>
       <div class="notif-bell-wrap">
-        <button class="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">🔔</button>
+        <button class="notif-bell" id="notif-bell-btn" onclick="toggleNotifPanel()" title="Уведомления"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg></button>
         <div class="notif-count" id="notif-count" style="display:none">0</div>
       </div>
-      <div class="user-badge">
-        <span id="header-name" class="user-name"></span>
-        <span id="header-role" class="role-chip"></span>
+      <div class="user-menu-wrap">
+        <div class="user-badge" id="user-badge" onclick="toggleUserMenu(event)" role="button" tabindex="0"
+             aria-haspopup="true" aria-expanded="false">
+          <span id="header-name" class="user-name"></span>
+          <span id="header-role" class="role-chip"></span>
+          <span class="caret">▼</span>
+        </div>
+        <div class="user-menu" id="user-menu" role="menu">
+          <button class="user-menu-item" role="menuitem"
+                  onclick="closeUserMenu();switchTab('profile')">
+            <span><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Z"/></svg></span><span>Профиль</span>
+          </button>
+          <div class="user-menu-divider"></div>
+          <button class="user-menu-item danger" role="menuitem"
+                  onclick="closeUserMenu();doLogout()">
+            <span>↪</span><span>Выход</span>
+          </button>
+        </div>
       </div>
-      <button class="btn-logout" onclick="doLogout()">ВЫХОД</button>
     </div>
 
     <!-- Notification panel (outside app-content for fixed positioning) -->
@@ -1255,8 +1402,7 @@
         <div class="status-checkboxes" id="status-filter-group">
           <label class="status-cb-label"><input type="checkbox" name="sf" value="new" checked onchange="loadOrders()"> Новые</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="in_progress" checked onchange="loadOrders()"> В работе</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="assigned" onchange="loadOrders()"> Назначены</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" onchange="loadOrders()"> В рейсе</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" checked onchange="loadOrders()"> В рейсе</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="delivered" checked onchange="loadOrders()"> Доставлены</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
@@ -1344,14 +1490,15 @@
 
         <div class="form-group">
           <label class="form-label">Тип оплаты</label>
-          <div class="radio-group">
-            <label class="radio-label selected" id="pay-prepaid-label">
-              <input type="radio" name="payment" value="prepaid" checked onchange="updatePaymentUI()">
-              Предоплата
+          <div class="radio-group" id="payment-radio-group">
+            <!-- Populated by renderPaymentRadios(); defaults shown until client context loads -->
+            <label class="radio-label selected" id="pay-ondelivery-label">
+              <input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()">
+              По факту (при прибытии)
             </label>
-            <label class="radio-label" id="pay-credit-label">
-              <input type="radio" name="payment" value="credit" onchange="updatePaymentUI()">
-              Товарный кредит
+            <label class="radio-label" id="pay-prepaid-label">
+              <input type="radio" name="payment" value="prepaid" onchange="updatePaymentUI()">
+              Предоплата
             </label>
           </div>
         </div>
@@ -1414,8 +1561,8 @@
             <label class="form-label">По</label>
             <input type="date" id="rpt-to" class="form-input">
           </div>
-          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">📊 Показать отчёт</button>
-          <button class="btn btn-ghost" style="width:auto;padding:10px 18px" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">Показать отчёт</button>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px;background:var(--green);border-color:var(--green)" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
         </div>
         <p style="margin-top:10px;font-size:11px;color:var(--text3)">
           «Показать отчёт» — данные отобразятся сразу ниже. «Скачать XLSX» — файл придёт в уведомления.
@@ -1572,12 +1719,68 @@
                 <option value="fuel_oil">М-100</option>
               </select>
             </div>
-            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">📊 Запросить XLSX</button>
+            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">${icon('chart-bar',16)} Запросить XLSX</button>
           </div>
           <p style="margin-top:10px;font-size:11px;color:var(--text3)">
             Отчёт будет сформирован и придёт в уведомления со ссылкой для скачивания.
           </p>
         </div>
+      </div>
+    </div>
+
+    <!-- FINANCE TAB -->
+    <div class="tab-pane" id="pane-finance">
+      <div class="toolbar">
+        <div class="toolbar-title">Финансы</div>
+        <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+          <input type="date" id="fin-from" class="form-input" style="width:140px;padding:6px 10px">
+          <input type="date" id="fin-to"   class="form-input" style="width:140px;padding:6px 10px">
+          <button class="btn btn-sm btn-primary" onclick="loadFinance()">Показать</button>
+          <button class="btn btn-sm btn-ghost"   onclick="exportFinanceCsv()">⬇ CSV</button>
+        </div>
+      </div>
+
+      <!-- Summary cards -->
+      <div id="fin-summary-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+
+      <!-- Payment status tracking for orders -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="font-weight:600;font-size:14px">Статусы оплаты заявок</span>
+          <div class="status-checkboxes" id="pay-filter-group" style="display:flex;gap:14px;flex-wrap:wrap" onchange="loadFinancePaymentOrders()">
+            <label><input type="checkbox" name="pf" value="unpaid" checked> Не оплачено</label>
+            <label><input type="checkbox" name="pf" value="partially_paid" checked> Частично</label>
+            <label><input type="checkbox" name="pf" value="paid"> Оплачено</label>
+            <label><input type="checkbox" name="pf" value="overpaid"> Переплата</label>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="loadFinancePaymentOrders()" style="margin-left:auto">↻ Обновить</button>
+        </div>
+        <div id="fin-pay-orders-list">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+      </div>
+
+      <!-- Payments table -->
+      <div class="inv-table-wrap">
+        <table class="inv-table" id="fin-payments-table">
+          <thead>
+            <tr>
+              <th>Заявка</th>
+              <th>Тип оплаты</th>
+              <th>Вид</th>
+              <th>Статус</th>
+              <th>Метод</th>
+              <th style="text-align:right">Сумма, ₽</th>
+              <th>Дата оплаты</th>
+              <th>Создан</th>
+            </tr>
+          </thead>
+          <tbody id="fin-payments-body">
+            <tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Выберите период и нажмите «Показать»</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -1587,6 +1790,39 @@
         <div class="toolbar-title">Справочник топлива</div>
       </div>
       <div id="fuel-grid" class="fuel-grid">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- TARIFFS TAB -->
+    <div class="tab-pane" id="pane-tariffs">
+      <div class="toolbar">
+        <div class="toolbar-title">Тарифы</div>
+        <button class="btn btn-sm btn-primary" id="btn-create-tariff" onclick="promptCreateTariff()" style="margin-left:auto">+ Новый тариф</button>
+        <button class="btn btn-sm btn-ghost" onclick="loadTariffs()">↻ Обновить</button>
+      </div>
+      <!-- Default tariff quick-edit block (visible to manager + admin) -->
+      <div id="tariff-default-block" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-weight:600;font-size:14px">Базовый тариф — актуальные цены</span>
+          <span class="status-badge" style="background:var(--green-bg);color:var(--green)">Активный</span>
+          <span id="tariff-default-name" style="font-size:12px;color:var(--text3);margin-left:4px"></span>
+        </div>
+        <div id="tariff-default-prices" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-sm btn-primary" onclick="saveDefaultTariffPrices()">Сохранить цены</button>
+          <span id="tariff-save-msg" style="font-size:12px;color:var(--green);display:none">✓ Сохранено</span>
+        </div>
+        <div style="margin-top:12px">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Ступенчатые скидки по объёму (необязательно)</div>
+          <div id="tariff-default-tiers" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('tariff-default-tiers')">+ Добавить ступень</button>
+        </div>
+      </div>
+      <!-- All tariffs list (admin sees create/archive/set-default; manager sees read-only) -->
+      <div id="tariffs-list" style="display:flex;flex-direction:column;gap:10px">
         <div class="empty-state"><div class="loading"></div></div>
       </div>
     </div>
@@ -1659,10 +1895,10 @@
         <!-- Main: message area -->
         <div class="chat-main" id="chat-main">
           <div class="chat-empty" id="chat-empty">
-            <div style="font-size:32px;opacity:.3">💬</div>
+            <div style="opacity:.3">${icon('chat-circle',32)}</div>
             <span>Выберите диалог</span>
             <button class="btn btn-sm btn-warn" id="btn-show-conv-list"
-              onclick="showChatSidebar()" style="margin-top:12px;display:none">☰ Диалоги</button>
+              onclick="showChatSidebar()" style="margin-top:12px;display:none">${icon('list-bullets',14)} Диалоги</button>
           </div>
           <div id="chat-window" style="display:none;flex-direction:column;flex:1;overflow:hidden">
             <div class="chat-main-header">
@@ -1678,7 +1914,7 @@
               <button class="btn btn-sm btn-ghost" id="btn-archive-conv"
                 onclick="archiveCurrentConv()"
                 title="Удалить диалог (архивировать)"
-                style="flex-shrink:0;color:var(--text3);display:none">🗑</button>
+                style="flex-shrink:0;color:var(--text3);display:none"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg></button>
             </div>
             <div class="chat-messages" id="chat-messages"></div>
             <div class="chat-input-area">
@@ -1715,20 +1951,121 @@
 </div>
 
 <script>
+// ── Phosphor Icons ────────────────────────────────────────────────────────────
+const ICONS = {
+  'house':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M219.31,108.68l-80-80a16,16,0,0,0-22.62,0l-80,80A15.87,15.87,0,0,0,32,120v96a8,8,0,0,0,8,8h64a8,8,0,0,0,8-8V160h32v56a8,8,0,0,0,8,8h64a8,8,0,0,0,8-8V120A15.87,15.87,0,0,0,219.31,108.68ZM208,208H160V152a8,8,0,0,0-8-8H104a8,8,0,0,0-8,8v56H48V120l80-80,80,80Z"/></svg>',
+  'truck':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M255.42,117l-14-35A15.93,15.93,0,0,0,226.58,72H192V64a8,8,0,0,0-8-8H32A16,16,0,0,0,16,72V184a16,16,0,0,0,16,16H49a32,32,0,0,0,62,0h50a32,32,0,0,0,62,0h17a16,16,0,0,0,16-16V120A7.94,7.94,0,0,0,255.42,117ZM192,88h34.58l9.6,24H192ZM32,72H176v64H32ZM80,208a16,16,0,1,1,16-16A16,16,0,0,1,80,208Zm81-24H111a32,32,0,0,0-62,0H32V152H176v12.31A32.11,32.11,0,0,0,161,184Zm31,24a16,16,0,1,1,16-16A16,16,0,0,1,192,208Zm48-24H223a32.06,32.06,0,0,0-31-24V128h48Z"/></svg>',
+  'currency-rub':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M148,152a60,60,0,0,0,0-120H88a8,8,0,0,0-8,8v96H56a8,8,0,0,0,0,16H80v16H56a8,8,0,0,0,0,16H80v32a8,8,0,0,0,16,0V184h48a8,8,0,0,0,0-16H96V152ZM96,48h52a44,44,0,0,1,0,88H96Z"/></svg>',
+  'chart-bar':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,200h-8V40a8,8,0,0,0-8-8H152a8,8,0,0,0-8,8V80H96a8,8,0,0,0-8,8v40H48a8,8,0,0,0-8,8v64H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16ZM160,48h40V200H160ZM104,96h40V200H104ZM56,144H88v56H56Z"/></svg>',
+  'users':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"/></svg>',
+  'gear':              '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/></svg>',
+  'package':           '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></svg>',
+  'bell':              '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M221.8,175.94C216.25,166.38,208,139.33,208,104a80,80,0,1,0-160,0c0,35.34-8.26,62.38-13.81,71.94A16,16,0,0,0,48,200H88.81a40,40,0,0,0,78.38,0H208a16,16,0,0,0,13.8-24.06ZM128,216a24,24,0,0,1-22.62-16h45.24A24,24,0,0,1,128,216ZM48,184c7.7-13.24,16-43.92,16-80a64,64,0,1,1,128,0c0,36.05,8.28,66.73,16,80Z"/></svg>',
+  'moon':              '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/></svg>',
+  'sun':               '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></svg>',
+  'user-circle':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24ZM74.08,197.5a64,64,0,0,1,107.84,0,87.83,87.83,0,0,1-107.84,0ZM96,120a32,32,0,1,1,32,32A32,32,0,0,1,96,120Zm97.76,66.41a79.66,79.66,0,0,0-36.06-28.75,48,48,0,1,0-59.4,0,79.66,79.66,0,0,0-36.06,28.75,88,88,0,1,1,131.52,0Z"/></svg>',
+  'magnifying-glass':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>',
+  'funnel':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M230.6,49.53A15.81,15.81,0,0,0,216,40H40A16,16,0,0,0,28.19,66.76l.08.09L96,139.17V216a16,16,0,0,0,24.87,13.32l32-21.34A16,16,0,0,0,160,194.66V139.17l67.74-72.32.08-.09A15.8,15.8,0,0,0,230.6,49.53ZM40,56h0Zm106.18,74.58A8,8,0,0,0,144,136v58.66L112,216V136a8,8,0,0,0-2.16-5.47L40,56H216Z"/></svg>',
+  'plus':              '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg>',
+  'check':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></svg>',
+  'x':                 '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>',
+  'warning':           '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"/></svg>',
+  'file-text':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-32-80a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,136Zm0,32a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,168Z"/></svg>',
+  'receipt':           '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M72,104a8,8,0,0,1,8-8h96a8,8,0,0,1,0,16H80A8,8,0,0,1,72,104Zm8,40h96a8,8,0,0,0,0-16H80a8,8,0,0,0,0,16ZM232,56V208a8,8,0,0,1-11.58,7.15L192,200.94l-28.42,14.21a8,8,0,0,1-7.16,0L128,200.94,99.58,215.15a8,8,0,0,1-7.16,0L64,200.94,35.58,215.15A8,8,0,0,1,24,208V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56Zm-16,0H40V195.06l20.42-10.22a8,8,0,0,1,7.16,0L96,199.06l28.42-14.22a8,8,0,0,1,7.16,0L160,199.06l28.42-14.22a8,8,0,0,1,7.16,0L216,195.06Z"/></svg>',
+  'wallet':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,64H56a8,8,0,0,1,0-16H192a8,8,0,0,0,0-16H56A24,24,0,0,0,32,56V184a24,24,0,0,0,24,24H216a16,16,0,0,0,16-16V80A16,16,0,0,0,216,64Zm0,128H56a8,8,0,0,1-8-8V78.63A23.84,23.84,0,0,0,56,80H216Zm-48-60a12,12,0,1,1,12,12A12,12,0,0,1,168,132Z"/></svg>',
+  'arrow-left':        '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"/></svg>',
+  'caret-down':        '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>',
+  'pencil-simple':     '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>',
+  'trash':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>',
+  'eye':               '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></svg>',
+  'download':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16H72a8,8,0,0,1,0,16H32v64H224V136H184a8,8,0,0,1,0-16h40A16,16,0,0,1,240,136Zm-117.66-2.34a8,8,0,0,0,11.32,0l48-48a8,8,0,0,0-11.32-11.32L136,108.69V24a8,8,0,0,0-16,0v84.69L85.66,74.34A8,8,0,0,0,74.34,85.66ZM200,168a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>',
+  'arrow-right':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>',
+  'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
+  'clock':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>',
+  'circle':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"/></svg>',
+  'dots-three-vertical':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M140,128a12,12,0,1,1-12-12A12,12,0,0,1,140,128ZM128,72a12,12,0,1,0-12-12A12,12,0,0,0,128,72Zm0,112a12,12,0,1,0,12,12A12,12,0,0,0,128,184Z"/></svg>',
+  'arrows-clockwise':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></svg>',
+  'sign-out':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z"/></svg>',
+  'list-bullets':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z"/></svg>',
+  'gas-pump':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M241,69.66,221.66,50.34a8,8,0,0,0-11.32,11.32L229.66,81A8,8,0,0,1,232,86.63V168a8,8,0,0,1-16,0V128a24,24,0,0,0-24-24H176V56a24,24,0,0,0-24-24H72A24,24,0,0,0,48,56V208H32a8,8,0,0,0,0,16H192a8,8,0,0,0,0-16H176V120h16a8,8,0,0,1,8,8v40a24,24,0,0,0,48,0V86.63A23.85,23.85,0,0,0,241,69.66ZM64,208V56a8,8,0,0,1,8-8h80a8,8,0,0,1,8,8V208Zm80-96a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h48A8,8,0,0,1,144,112Z"/></svg>',
+  'chat-circle':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>',
+};
+
+function icon(name, size = 16, style = '') {
+  const svg = ICONS[name];
+  if (!svg) return '';
+  return svg.replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" style="vertical-align:middle;flex-shrink:0;${style}" `);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DARK THEME
+// ═══════════════════════════════════════════════════════════════
+(function () {
+  const saved = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (saved === 'dark' || (!saved && prefersDark)) {
+    document.documentElement.classList.add('dark');
+  }
+})();
+
+function _syncThemeIcon() {
+  const dark = document.documentElement.classList.contains('dark');
+  const btn = document.getElementById('btn-theme');
+  if (btn) btn.innerHTML = dark ? icon('sun', 18) : icon('moon', 18);
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  html.classList.toggle('dark');
+  localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+  _syncThemeIcon();
+}
+
+// Sync icon on load
+document.addEventListener('DOMContentLoaded', _syncThemeIcon);
+
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════════
-const _H = window.location.hostname;
-const AUTH_URL     = `http://${_H}:8001/api/v1`;
-const ORDER_URL    = `http://${_H}:8002/api/v1`;
-const DELIVERY_URL = `http://${_H}:8003/api/v1`;
-const CHAT_URL     = `http://${_H}:8004`;
+const _H     = window.location.hostname;
+const _proto  = location.protocol === 'https:' ? 'https' : 'http';
+const _wsproto = location.protocol === 'https:' ? 'wss' : 'ws';
+const AUTH_URL     = `${_proto}://${_H}:8001/api/v1`;
+const ORDER_URL    = `${_proto}://${_H}:8002/api/v1`;
+const DELIVERY_URL = `${_proto}://${_H}:8003/api/v1`;
+const CHAT_URL     = `${_proto}://${_H}:8004`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let currentUser = null;
 let modalCallback = null;
+
+// ═══════════════════════════════════════════════════════════════
+// USER MENU DROPDOWN
+// ═══════════════════════════════════════════════════════════════
+function toggleUserMenu(e) {
+  if (e) e.stopPropagation();
+  const badge = document.getElementById('user-badge');
+  const menu  = document.getElementById('user-menu');
+  if (!badge || !menu) return;
+  const willOpen = !menu.classList.contains('open');
+  menu.classList.toggle('open', willOpen);
+  badge.classList.toggle('open', willOpen);
+  badge.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+function closeUserMenu() {
+  document.getElementById('user-menu')?.classList.remove('open');
+  const b = document.getElementById('user-badge');
+  if (b) { b.classList.remove('open'); b.setAttribute('aria-expanded', 'false'); }
+}
+document.addEventListener('click', (e) => {
+  const wrap = document.querySelector('.user-menu-wrap');
+  if (wrap && !wrap.contains(e.target)) closeUserMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeUserMenu();
+});
 
 // ═══════════════════════════════════════════════════════════════
 // BURGER MENU
@@ -1747,17 +2084,18 @@ function buildBurgerMenu() {
   const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab || 'orders';
 
   const tabs = [
-    { tab: 'orders',    label: '📋 Заявки',           show: true },
-    { tab: 'create',    label: '➕ Создать заявку',   show: true },
-    { tab: 'vehicles',  label: '🚛 Транспорт',        show: role !== 'client' },
-    { tab: 'trips',     label: '🗺️  Рейсы',            show: role !== 'client' },
-    { tab: 'report',    label: '📊 Отчёт',            show: role === 'manager' || role === 'admin' },
-    { tab: 'inventory', label: '🛢️  Склад',             show: role === 'manager' || role === 'admin' },
-    { tab: 'fuels',     label: '⛽ Топливо',          show: true },
-    { tab: 'clients',   label: '👥 Клиенты',          show: role === 'manager' || role === 'admin' },
-    { tab: 'users',     label: '👤 Пользователи',     show: role === 'admin' },
-    { tab: 'chat',      label: '💬 Чат',              show: true },
-    { tab: 'profile',   label: '⚙️  Профиль',          show: true },
+    { tab: 'orders',    label: 'Заявки',               show: true },
+    { tab: 'create',    label: 'Создать заявку',       show: true },
+    { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
+    { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
+    { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
+    { tab: 'finance',   label: 'Финансы',              show: role === 'manager' || role === 'admin' },
+    { tab: 'tariffs',   label: 'Тарифы',               show: role === 'manager' || role === 'admin' },
+    { tab: 'inventory', label: 'Склад',                show: role === 'manager' || role === 'admin' },
+    { tab: 'fuels',     label: 'Топливо',              show: true },
+    { tab: 'clients',   label: 'Клиенты',              show: role === 'manager' || role === 'admin' },
+    { tab: 'users',     label: 'Пользователи',         show: role === 'admin' },
+    { tab: 'chat',      label: 'Чат',                 show: true },
   ];
 
   document.getElementById('burger-nav').innerHTML = tabs
@@ -1781,12 +2119,19 @@ const FUEL_LABELS = {
 const STATUS_LABELS = {
   new:                 'Новая',
   in_progress:         'В работе',
-  assigned:            'Назначена',
   in_transit:          'В рейсе',
   delivered:           'Доставлена',
   partially_delivered: 'Частично',
   closed:              'Закрыта',
   rejected:            'Отклонена',
+};
+
+const PAYMENT_LABELS = {
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту (при прибытии)',
+  trade_credit: 'Товарный кредит',
+  postpaid:     'Постоплата (по счёту)',
+  debt:         'В долг',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -1874,6 +2219,12 @@ function orderGet(path) {
 function orderPost(path, body) {
   return api(`${ORDER_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
 }
+function orderPut(path, body) {
+  return api(`${ORDER_URL}${path}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+function authPatch(path, body) {
+  return api(`${AUTH_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
 function deliveryGet(path) {
   return api(`${DELIVERY_URL}${path}`);
 }
@@ -1931,6 +2282,17 @@ function switchAuthTab(tab) {
   }
 }
 
+function setTestCredentials(email, password) {
+  document.getElementById('login-email').value = email;
+  document.getElementById('login-password').value = password;
+}
+
+// Показывать тестовые реквизиты только в dev-окружении
+if (['localhost', '127.0.0.1'].includes(location.hostname)) {
+  const el = document.getElementById('dev-credentials');
+  if (el) el.style.display = 'block';
+}
+
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
@@ -1953,17 +2315,15 @@ async function doRegisterIndividual() {
     full_name:       document.getElementById('ri-fullname').value.trim(),
     password:        document.getElementById('ri-password').value,
     delivery_address: document.getElementById('ri-address').value.trim() || undefined,
-    passport_series:  document.getElementById('ri-passport-s').value.trim() || undefined,
-    passport_number:  document.getElementById('ri-passport-n').value.trim() || undefined,
   };
   const errEl = document.getElementById('ri-error');
   errEl.innerHTML = '';
   try {
-    await authPost('/auth/register/individual', body);
-    toast('Регистрация успешна! Войдите в систему.');
-    switchAuthMode('login');
-    document.getElementById('login-email').value = body.email;
-    document.getElementById('login-password').focus();
+    const tokens = await authPost('/auth/register/individual', body);
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    toast('Регистрация успешна! Добро пожаловать.');
+    await initApp();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -1987,11 +2347,11 @@ async function doRegisterCompany() {
   const errEl = document.getElementById('rc-error');
   errEl.innerHTML = '';
   try {
-    await authPost('/auth/register/company', body);
-    toast('Организация зарегистрирована! Войдите в систему.');
-    switchAuthMode('login');
-    document.getElementById('login-email').value = body.email;
-    document.getElementById('login-password').focus();
+    const tokens = await authPost('/auth/register/company', body);
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    toast('Организация зарегистрирована! Добро пожаловать.');
+    await initApp();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -2001,6 +2361,7 @@ async function doLogout() {
   if (chatWs) { chatWs.close(); chatWs = null; }
   if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
   if (notifSSE) { notifSSE.close(); notifSSE = null; }
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
   notifList = [];
   activeConvId = null;
   try {
@@ -2064,6 +2425,16 @@ async function initApp() {
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Finance — admin + manager only
+  document.getElementById('tab-finance-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+
+  // Tariffs — admin + manager; create button — admin only
+  document.getElementById('tab-tariffs-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+  const btnCreateTariff = document.getElementById('btn-create-tariff');
+  if (btnCreateTariff) btnCreateTariff.style.display = role === 'admin' ? '' : 'none';
+
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
 
@@ -2079,8 +2450,19 @@ async function initApp() {
 // ═══════════════════════════════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════════════════════════════
+function toggleCreateSub(e) {
+  e.stopPropagation();
+  const sub = document.getElementById('tab-create-btn');
+  const caret = document.getElementById('tab-create-caret');
+  const expanded = sub.style.display !== 'none';
+  sub.style.display = expanded ? 'none' : 'block';
+  caret.classList.toggle('expanded', !expanded);
+}
+
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.nav-sub-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.tab-pane').forEach(p =>
     p.classList.toggle('active', p.id === `pane-${tab}`));
@@ -2095,6 +2477,8 @@ function switchTab(tab) {
   if (tab === 'report')    initReport();
   if (tab === 'inventory') initInventory();
   if (tab === 'clients')   loadClients();
+  if (tab === 'finance')   loadFinance();
+  if (tab === 'tariffs')   loadTariffs();
   if (tab === 'fuels')     loadFuels();
   if (tab === 'profile')   loadProfile();
   if (tab === 'chat')      loadConversations();
@@ -2107,25 +2491,16 @@ function switchTab(tab) {
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
 async function loadOrders() {
-  const checked = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
+  const statusFilter = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  if (statusFilter.length === 0) {
+    el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
+    return;
+  }
   try {
-    let qs;
-    if (checked.length === 0) {
-      // No filter selected — show nothing meaningful, but don't crash
-      el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
-      return;
-    } else if (checked.length === 1) {
-      qs = `?status=${checked[0]}&limit=100`;
-    } else {
-      // Multiple statuses: fetch all and filter client-side
-      qs = '?limit=200';
-    }
-    let orders = await orderGet(`/orders${qs}`);
-    if (checked.length > 1) {
-      orders = orders.filter(o => checked.includes(o.status));
-    }
+    let orders = await orderGet('/orders?limit=200');
+    orders = orders.filter(o => statusFilter.includes(o.status));
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -2135,7 +2510,7 @@ async function loadOrders() {
 function renderOrders(orders) {
   const el = document.getElementById('orders-list');
   if (!orders.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div>Заявок не найдено</div>';
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('package',36)}</div>Заявок не найдено</div>`;
     return;
   }
   el.innerHTML = orders.map(o => orderCardHTML(o)).join('');
@@ -2156,8 +2531,11 @@ function orderCardHTML(o) {
       <div class="priority-dot priority-${o.priority}"></div>
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
-      <div class="order-volume">${Number(o.volume_requested).toLocaleString('ru')} л</div>
-      ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">💬 ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
+      <div class="order-volume">
+        ${Number(o.volume_requested).toLocaleString('ru')} л
+        ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
+      </div>
+      ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">${icon('chat-circle',13,'margin-right:4px')} ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       <div class="order-date">${fmtDate(o.created_at)}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
@@ -2170,18 +2548,23 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${fmtDate(o.desired_date)}</div></div>
-        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${o.payment_type === 'prepaid' ? 'Предоплата' : 'Кредит'}</div></div>
-        <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? '🔴 Срочно' : 'Обычный'}</div></div>
+        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
+        <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? `${icon('warning',14,'color:var(--red);margin-right:4px')} Срочно` : 'Обычный'}</div></div>
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
         ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
       </div>
+      ${paymentSummaryHTML(o)}
       ${actionBarHTML(o)}
       <div class="timeline-section" id="timeline-${o.id}">
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
+      ${isStaff ? `<div class="timeline-section" id="docs-${o.id}">
+        <div class="timeline-title">Документы</div>
+        <div class="loading"></div>
+      </div>` : ''}
     </div>
   </div>`;
 }
@@ -2194,6 +2577,8 @@ async function toggleCard(orderId) {
   if (!isExpanded) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
+    const role = currentUser?.role;
+    if (role === 'manager' || role === 'admin') loadDocs(orderId);
   }
 }
 
@@ -2224,6 +2609,96 @@ async function loadTimeline(orderId) {
   }
 }
 
+const DOC_TYPE_LABELS = { invoice: 'Счёт', ttn: 'ТТН', upd: 'УПД' };
+const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
+const DOC_STATUS_COLORS = { draft: 'var(--text3)', ready: 'var(--green)', sent: 'var(--amber)', cancelled: 'var(--red)' };
+
+async function loadDocs(orderId) {
+  const el = document.getElementById(`docs-${orderId}`);
+  if (!el) return;
+  try {
+    const docs = await orderGet(`/orders/${orderId}/documents`);
+    if (!docs.length) {
+      el.innerHTML = `<div class="timeline-title">Документы</div>
+        <div style="font-size:12px;color:var(--text3)">Документов ещё нет</div>`;
+      return;
+    }
+    const rows = docs.map(d => {
+      const typeLabel   = escHtml(DOC_TYPE_LABELS[d.doc_type]  || d.doc_type);
+      const statusLabel = escHtml(DOC_STATUS_LABELS[d.status]  || d.status);
+      const statusColor = DOC_STATUS_COLORS[d.status] || 'inherit';
+      const canDownload = d.status === 'ready' || d.status === 'sent';
+      const canSend     = d.status === 'ready';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:18px">${icon('file-text',18)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace">${escHtml(d.doc_number)}</span></div>
+          <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
+        </div>
+        ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+            onclick="downloadDoc('${orderId}','${d.id}')">⬇ PDF</button>` : ''}
+        ${canSend ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
+            onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
+      </div>`;
+    }).join('');
+    el.innerHTML = `<div class="timeline-title">Документы</div>${rows}`;
+  } catch(e) {
+    el.innerHTML = `<div class="timeline-title">Документы</div>
+      <div style="font-size:12px;color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function downloadDoc(orderId, docId) {
+  const token = localStorage.getItem('access_token');
+  const url = `${window.ORDER_API || '/api/v1'}/orders/${orderId}/documents/${docId}/download`;
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `document_${docId.slice(0,8)}.pdf`;
+      a.click();
+    })
+    .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
+}
+
+async function sendDocToChat(orderId, docId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await orderPost(`/orders/${orderId}/documents/${docId}/send`, {});
+    toast('Документ отправлен в чат');
+    loadDocs(orderId);
+  } catch(e) {
+    toast('Ошибка: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = `${icon('chat-circle',14)} В чат`;
+  }
+}
+
+function paymentSummaryHTML(o) {
+  const target = o.final_amount != null ? o.final_amount : o.expected_amount;
+  const paid = Number(o.paid_total || 0);
+  const debt = Number(o.debt_amount || 0);
+  const ps = o.payment_status || 'unpaid';
+  const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
+  const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
+  const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits:2});
+  const warning = o.pricing_warning
+    ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(245,158,11,.08);border:1px solid var(--amber);border-radius:6px;color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:6px')} Сумма не определена — назначьте тариф для клиента, чтобы корректно считать долг.</div>`
+    : '';
+  return `
+    <div style="margin-top:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;font-size:12px">
+        <div><span style="color:var(--text3)">Ожидается:</span> <strong>${target == null ? '—' : fmt(target) + ' ₽'}</strong></div>
+        <div><span style="color:var(--text3)">Оплачено:</span> <strong style="color:${paid > 0 ? 'var(--green)' : 'inherit'}">${fmt(paid)} ₽</strong></div>
+        <div><span style="color:var(--text3)">Долг:</span> <strong style="color:${debt > 0 ? 'var(--red)' : 'inherit'}">${fmt(debt)} ₽</strong></div>
+        <div style="margin-left:auto"><span class="status-badge" style="background:transparent;border:1px solid ${psColor};color:${psColor}">${escHtml(psLbl)}</span></div>
+      </div>
+      ${warning}
+    </div>`;
+}
+
 function actionBarHTML(o) {
   const role = currentUser?.role;
   const s = o.status;
@@ -2234,26 +2709,30 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','in_progress',{comment:'Принято менеджером'})">✓ Принять</button>`);
     if (s === 'new' || s === 'in_progress')
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptReject('${o.id}')">✗ Отклонить</button>`);
-    if (s === 'in_progress')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Назначить водителя</button>`);
-    if (s === 'assigned')
-      btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','in_progress',{comment:'Снят с водителя'})">↩ Вернуть в работу</button>`);
     if (s === 'delivered' || s === 'partially_delivered')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
     if (s === 'partially_delivered')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptAssign('${o.id}')">→ Повторный рейс</button>`);
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_progress',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
+    // Payment recording: any active order with outstanding debt or not fully paid
+    const payable = s !== 'rejected' && s !== 'cancelled' && o.payment_status !== 'paid';
+    if (payable)
+      btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
   }
 
   if (role === 'driver') {
-    if (s === 'assigned' && o.driver_id === currentUser.id)
+    // Свободная заявка — водитель может взять
+    if (s === 'in_progress' && !o.driver_id)
+      btns.push(`<button class="btn btn-sm btn-success" onclick="claimOrder('${o.id}')">${icon('check',14)} Взять заявку</button>`);
+    // Своя заявка — можно начать рейс
+    if (s === 'in_progress' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-warn" onclick="startOrderTrip('${o.id}')">▶ Начать рейс</button>`);
-    if (s === 'in_transit')
-      btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">🚚 Перейти к рейсу</button>`);
+    if (s === 'in_transit' && o.driver_id === currentUser?.id)
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">${icon('truck',14)} Перейти к рейсу</button>`);
   }
 
   if (role === 'client') {
     // Chat with manager — auto-create or navigate to existing conversation
-    btns.push(`<button class="btn btn-sm btn-primary-outline" onclick="openOrderChat('${o.id}','${(o.order_number||'').replace(/'/g,'&#39;')}',${o.manager_id ? `'${o.manager_id}'` : 'null'})">💬 Написать менеджеру</button>`);
+    btns.push(`<button class="btn btn-sm btn-primary-outline" onclick="openOrderChat('${o.id}','${(o.order_number||'').replace(/'/g,'&#39;')}',${o.manager_id ? `'${o.manager_id}'` : 'null'})">${icon('chat-circle',14)} Написать менеджеру</button>`);
   }
 
   if (!btns.length) return '';
@@ -2267,6 +2746,16 @@ async function transitionOrder(orderId, toStatus, extra = {}) {
   try {
     await orderPost(`/orders/${orderId}/transition`, { to_status: toStatus, ...extra });
     toast(`Статус изменён → ${STATUS_LABELS[toStatus] || toStatus}`);
+    await loadOrders();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function claimOrder(orderId) {
+  try {
+    await orderPost(`/orders/${orderId}/claim`, {});
+    toast('Заявка взята! Теперь нажмите «Начать рейс».');
     await loadOrders();
   } catch (e) {
     toast(e.message, 'error');
@@ -2298,6 +2787,51 @@ function promptReject(orderId) {
       if (!reason) { toast('Укажите причину', 'error'); return; }
       closeModal();
       await transitionOrder(orderId, 'rejected', { rejection_reason: reason });
+    }
+  );
+}
+
+// Manager/admin records an actual payment against an order.
+// debt = remaining amount (final|expected - paid_total); pre-fills the amount field.
+function promptRecordPayment(orderId, debt, orderNumber) {
+  const def = (debt && debt > 0) ? debt : '';
+  openModal(`Зафиксировать оплату · ${orderNumber}`,
+    `<div class="form-group">
+      <label class="form-label">Сумма, ₽ <span style="color:var(--red)">*</span></label>
+      <input type="number" id="rp-amount" class="form-input" step="0.01" min="0.01"
+             value="${def}" placeholder="Введите сумму" autofocus>
+      ${debt > 0 ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">Остаток к оплате: ${Number(debt).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</div>` : ''}
+    </div>
+    <div class="form-group">
+      <label class="form-label">Метод оплаты <span style="color:var(--red)">*</span></label>
+      <select id="rp-method" class="form-input">
+        <option value="cash">Наличные</option>
+        <option value="bank_transfer" selected>Банковский перевод</option>
+        <option value="card">Карта</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечание</label>
+      <input type="text" id="rp-notes" class="form-input" placeholder="Например, № платёжки">
+    </div>`,
+    async () => {
+      const amount = parseFloat(document.getElementById('rp-amount').value);
+      const method = document.getElementById('rp-method').value;
+      const notes  = document.getElementById('rp-notes').value.trim() || null;
+      if (!amount || amount <= 0) { toast('Введите сумму', 'error'); return; }
+      try {
+        await orderPost('/payments/record', { order_id: orderId, amount, method, notes });
+        closeModal();
+        toast('Оплата зафиксирована');
+        // Refresh whichever view is active
+        if (document.getElementById('pane-finance')?.classList.contains('active')) {
+          loadFinance();
+        } else {
+          loadOrders();
+        }
+      } catch (e) {
+        toast(e.message, 'error');
+      }
     }
   );
 }
@@ -2394,9 +2928,11 @@ function promptVolume(orderId, toStatus) {
 // CREATE ORDER
 // ═══════════════════════════════════════════════════════════════
 function updatePaymentUI() {
-  const val = document.querySelector('input[name="payment"]:checked').value;
-  document.getElementById('pay-prepaid-label').classList.toggle('selected', val === 'prepaid');
-  document.getElementById('pay-credit-label').classList.toggle('selected', val === 'credit');
+  const val = document.querySelector('input[name="payment"]:checked')?.value;
+  document.querySelectorAll('#payment-radio-group .radio-label').forEach(lbl => {
+    const input = lbl.querySelector('input[name="payment"]');
+    lbl.classList.toggle('selected', input?.value === val);
+  });
 }
 
 function updateStatusUI() {
@@ -2407,7 +2943,11 @@ function updateStatusUI() {
 
 async function loadClientSelectForOrder() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  if (!isStaff) return;
+  if (!isStaff) {
+    // For client role: render payment radios based on own profile
+    if (currentUser?.id) renderPaymentRadios(currentUser.id);
+    return;
+  }
   const sel = document.getElementById('c-client-id');
   if (!sel) return;
   try {
@@ -2415,6 +2955,12 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+    // Reload payment options when manager picks a different client
+    sel.onchange = () => {
+      const cid = sel.value;
+      if (cid) renderPaymentRadios(cid);
+    };
+    if (current) renderPaymentRadios(current);
   } catch { /* тихо, не блокируем форму */ }
 }
 
@@ -2525,7 +3071,7 @@ async function loadProfile() {
     }
     el.innerHTML = fields.map(([label, value]) =>
       `<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
-        <span style="min-width:180px;color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
+        <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
         <span style="font-size:13px;color:var(--text2)">${value}</span>
        </div>`
     ).join('');
@@ -2576,7 +3122,7 @@ async function loadVehicles() {
   try {
     const vehicles = await deliveryGet('/vehicles?include_inactive=true');
     if (!vehicles.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🚛</div>Транспортных средств нет</div>';
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('truck',36)}</div>Транспортных средств нет</div>`;
       return;
     }
     el.innerHTML = vehicles.map(v => vehicleCardHTML(v)).join('');
@@ -2738,7 +3284,7 @@ async function loadTrips() {
       const msg = status === 'in_transit'
         ? 'Нет активных рейсов. Начните рейс со страницы «Заявки».'
         : 'Рейсов нет';
-      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🚚</div>${msg}</div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('truck',36)}</div>${msg}</div>`;
       return;
     }
     el.innerHTML = trips.map(t => tripCardHTML(t)).join('');
@@ -2759,8 +3305,8 @@ function tripCardHTML(t) {
   const role       = currentUser?.role;
   const statusBadge = {
     planned:    '<span class="status-badge status-new">Запланирован</span>',
-    in_transit: '<span class="status-badge status-in_transit">🚚 В пути</span>',
-    completed:  '<span class="status-badge status-delivered">✓ Завершён</span>',
+    in_transit: `<span class="status-badge status-in_transit">${icon('truck',12)} В пути</span>`,
+    completed:  `<span class="status-badge status-delivered">${icon('check',12)} Завершён</span>`,
     cancelled:  '<span class="status-badge status-closed">Отменён</span>',
   }[t.status] || t.status;
 
@@ -2819,7 +3365,7 @@ function tripCardHTML(t) {
       </div>
       <div class="trip-card-body">
         <div class="trip-vol-line">${volStr}</div>
-        <div class="trip-addr-line">📍 ${addr}</div>
+        <div class="trip-addr-line">${icon('arrow-right',12,'margin-right:4px;opacity:.5')} ${addr}</div>
         <div class="trip-meta">
           ${driverLine}${clientLine}${departedLine}${arrivedLine}
         </div>
@@ -2832,15 +3378,9 @@ function promptCompleteTrip(tripId, volPlanned) {
   openModal('Подтвердить доставку',
     `<p style="color:var(--text2);font-size:13px;margin-bottom:16px">
       Укажите фактически доставленный объём. Данные будут переданы в заявку и скорректируют остаток на складе.</p>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Фактический объём (л) <span style="color:var(--red)">*</span></label>
-        <input type="number" id="ct-vol" class="form-input" value="${volPlanned || ''}" min="1" autofocus>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Конечный одометр (км)</label>
-        <input type="number" id="ct-odo" class="form-input" placeholder="необязательно">
-      </div>
+    <div class="form-group">
+      <label class="form-label">Фактический объём (л) <span style="color:var(--red)">*</span></label>
+      <input type="number" id="ct-vol" class="form-input" value="${volPlanned || ''}" min="1" autofocus>
     </div>
     <div class="form-group">
       <label class="form-label">Примечания</label>
@@ -2851,7 +3391,6 @@ function promptCompleteTrip(tripId, volPlanned) {
       if (!vol || vol <= 0) return toast('Укажите фактический объём', 'error');
       const body = {
         volume_actual: vol,
-        odometer_end:  parseFloat(document.getElementById('ct-odo').value) || null,
         driver_notes:  document.getElementById('ct-notes').value.trim() || null,
       };
       closeModal();
@@ -2998,7 +3537,7 @@ function reportHTML(r) {
       </div>
       <div class="trip-card-body">
         <div class="trip-vol-line">${vol}</div>
-        <div class="trip-addr-line">📍 ${addr}</div>
+        <div class="trip-addr-line">${icon('arrow-right',12,'margin-right:4px;opacity:.5')} ${addr}</div>
       </div>
     </div>`;
   }).join('');
@@ -3168,8 +3707,9 @@ function promptCreateUser() {
 // ═══════════════════════════════════════════════════════════════
 // NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════
-const NOTIF_URL = `http://${_H}:8005/api/v1`;
-let notifSSE = null;
+const NOTIF_URL = `${_proto}://${_H}:8005/api/v1`;
+let notifSSE = null;       // SSE connection (kept for close() on logout)
+let _notifPollTimer = null; // polling fallback timer
 let notifList = [];
 
 const NOTIF_TYPE_LABELS = {
@@ -3178,7 +3718,7 @@ const NOTIF_TYPE_LABELS = {
   chat_message:        'Новое сообщение',
   trip_assigned:       'Назначен рейс',
   trip_status:         'Статус рейса',
-  report_ready:        '📊 Отчёт готов',
+  report_ready:        'Отчёт готов',
 };
 
 function initNotifications() {
@@ -3282,27 +3822,36 @@ async function markAllNotifsRead() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// SSE передаёт токен в URL (попадает в логи) — используем polling через Authorization header
 function connectNotifSSE() {
   if (notifSSE) { notifSSE.close(); notifSSE = null; }
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
-  try {
-    notifSSE = new EventSource(`${NOTIF_URL}/notifications/stream?token=${encodeURIComponent(token)}`);
-    notifSSE.onmessage = (e) => {
-      try {
-        const notif = JSON.parse(e.data);
-        if (notif.type === 'ping') return;
-        notifList.unshift(notif);
-        if (notifList.length > 50) notifList.pop();
-        renderNotifPanel();
-        // Mini toast
-        toast(`${NOTIF_TYPE_LABELS[notif.type] || notif.type}: ${notif.body}`, 'success');
-      } catch {}
-    };
-    notifSSE.onerror = () => {
-      // SSE reconnects automatically; no action needed
-    };
-  } catch {}
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
+  if (!localStorage.getItem('access_token')) return;
+
+  let _lastSeenId = null;
+
+  async function _pollNotifs() {
+    try {
+      const url = _lastSeenId
+        ? `${NOTIF_URL}/notifications?unread_only=true&after_id=${_lastSeenId}&limit=20`
+        : `${NOTIF_URL}/notifications?unread_only=true&limit=20`;
+      const fresh = await api(url);
+      if (!Array.isArray(fresh) || fresh.length === 0) return;
+      // Новые уведомления (которых ещё нет в notifList)
+      const knownIds = new Set(notifList.map(n => n.id));
+      const newOnes = fresh.filter(n => !knownIds.has(n.id));
+      if (newOnes.length === 0) return;
+      newOnes.forEach(n => {
+        notifList.unshift(n);
+        toast(`${NOTIF_TYPE_LABELS[n.type] || n.type}: ${n.body}`, 'success');
+      });
+      if (notifList.length > 50) notifList.length = 50;
+      _lastSeenId = notifList[0]?.id ?? null;
+      renderNotifPanel();
+    } catch { /* сеть недоступна — тихо пропускаем */ }
+  }
+
+  _notifPollTimer = setInterval(_pollNotifs, 15_000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3344,8 +3893,9 @@ function startChatPoll(convId) {
         }
       }
       if (appended) {
-        // Update unread sidebar badge silently
-        chatGet('/conversations').then(renderConvList).catch(() => {});
+        // Active conv: mark read immediately so badge clears
+        chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
+        chatGet('/conversations').then(data => { renderConvList(data); updateChatTabBadge(data); }).catch(() => {});
       }
     } catch (_) {}
   }, 3000); // poll every 3 seconds
@@ -3397,7 +3947,20 @@ function convTitle(c) {
   return 'Внутренний чат';
 }
 
+function updateChatTabBadge(convs) {
+  const total = (convs || []).reduce((s, c) => s + (c.unread_count || 0), 0);
+  const badge = document.getElementById('chat-tab-badge');
+  if (!badge) return;
+  if (total > 0) {
+    badge.textContent = total > 99 ? '99+' : total;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function renderConvList(convs) {
+  updateChatTabBadge(convs);
   const el = document.getElementById('conv-list');
   if (!convs.length) {
     el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';
@@ -3470,30 +4033,6 @@ async function openConversation(convId) {
   startChatPoll(convId);
 }
 
-async function archiveCurrentConv() {
-  if (!activeConvId) return;
-  openModal('Удалить диалог?',
-    '<p style="color:var(--text2);font-size:13px">Диалог будет архивирован и исчезнет из списка у всех участников.</p>',
-    async () => {
-      closeModal();
-      try {
-        await api(`${CHAT_URL}/conversations/${activeConvId}`, { method: 'DELETE' });
-        toast('Диалог удалён');
-        // Reset chat UI
-        activeConvId = null;
-        stopChatPoll();
-        if (chatWs) { chatWs.close(); chatWs = null; }
-        document.getElementById('chat-empty').style.display = '';
-        document.getElementById('chat-window').style.display = 'none';
-        document.getElementById('btn-archive-conv').style.display = 'none';
-        await loadConversations();
-      } catch (e) {
-        toast('Ошибка: ' + e.message, 'error');
-      }
-    }
-  );
-}
-
 function renderMessages(msgs) {
   const el = document.getElementById('chat-messages');
   if (!msgs.length) {
@@ -3507,12 +4046,33 @@ function renderMessages(msgs) {
 function msgHTML(m) {
   const mine = currentUser && m.sender_id === currentUser.id;
   const initials = (m.sender_name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+
+  let bodyHtml;
+  if (m.msg_type === 'document' && m.metadata) {
+    const meta = m.metadata;
+    const typeLabel = {invoice:'Счёт', ttn:'ТТН', upd:'УПД'}[meta.doc_type] || 'Документ';
+    bodyHtml = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:220px">
+        <div style="font-size:22px">${icon('file-text',22)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_number)}</div>
+          <div style="font-size:11px;color:var(--text3)">Заявка ${escHtml(meta.order_number || '')}</div>
+        </div>
+        <a href="${escHtml(meta.download_path || '#')}" target="_blank"
+           style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border-radius:6px;text-decoration:none;white-space:nowrap">
+          ⬇ PDF
+        </a>
+      </div>`;
+  } else {
+    bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
+  }
+
   return `
   <div class="msg-row ${mine ? 'mine' : ''}" id="msg-${m.id}">
     <div class="msg-avatar">${escHtml(initials)}</div>
     <div class="msg-bubble">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
-      <div class="msg-text">${escHtml(m.text)}</div>
+      ${bodyHtml}
       <div class="msg-time">${fmtTime(m.created_at)}</div>
     </div>
   </div>`;
@@ -3534,7 +4094,7 @@ function connectWs(convId) {
   const token = localStorage.getItem('access_token');
   if (!token) return;
 
-  const wsUrl = `ws://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${_wsproto}://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
   const badge = document.getElementById('ws-status-badge');
 
   function connect() {
@@ -3554,6 +4114,10 @@ function connectWs(convId) {
         const existing = document.getElementById(`msg-${msg.id}`);
         if (existing) return;
         appendMessage(msg);
+        // Message from another user arrived while conversation is open — mark as read
+        if (msg.sender_id !== currentUser?.id) {
+          chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
+        }
       } catch {}
     };
 
@@ -3609,6 +4173,8 @@ async function sendChatMessage() {
     if (!document.getElementById(`msg-${msg.id}`)) {
       appendMessage(msg);
     }
+    // Sending a reply means we've read everything — reset unread counter
+    chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
   } catch (e) {
     toast(e.message, 'error');
     inp.value = text;
@@ -3699,33 +4265,31 @@ function promptNewConv() {
       <label class="form-label">Заголовок <span style="color:var(--text3)">(необязательно)</span></label>
       <input type="text" id="nc-title" class="form-input" placeholder="Тема разговора...">
     </div>
-    <div class="form-group" id="nc-order-group">
-      <label class="form-label">UUID заявки <span style="color:var(--text3)">(необязательно)</span></label>
-      <input type="text" id="nc-order-id" class="form-input" placeholder="Привязать к заявке">
-    </div>
     <div class="form-group">
-      <label class="form-label">Участники (UUID через запятую)</label>
-      <input type="text" id="nc-participants" class="form-input" placeholder="Оставьте пустым — только вы">
+      <label class="form-label">Участники <span style="color:var(--text3)">(поиск и выбор)</span></label>
+      <input type="text" id="nc-user-search" class="form-input" placeholder="Поиск по имени..."
+             oninput="filterNewConvUsers()" style="margin-bottom:4px"
+             autocomplete="off">
+      <select id="nc-user-select" class="form-input" size="5" multiple
+              style="height:auto;padding:0">
+        <option disabled>— загрузка... —</option>
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Ctrl/Cmd+клик для выбора нескольких</div>
     </div>`,
     async () => {
       const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
       const title = document.getElementById('nc-title').value.trim() || null;
-      const orderIdRaw = document.getElementById('nc-order-id')?.value.trim();
-      const participantsRaw = document.getElementById('nc-participants').value.trim();
+      const sel = document.getElementById('nc-user-select');
+      const participant_ids = sel
+        ? [...sel.selectedOptions].map(o => o.value).filter(Boolean)
+        : [];
 
-      const body = {
-        type,
-        title,
-        order_id: orderIdRaw || null,
-        participant_ids: participantsRaw
-          ? participantsRaw.split(',').map(s => s.trim()).filter(Boolean)
-          : [],
-      };
+      const body = { type, title, participant_ids };
 
       closeModal();
       try {
         const conv = await chatPost('/conversations', body);
-        toast('Диалог создан');
+        toast('Диалог создан (или открыт существующий)');
         await loadConversations();
         openConversation(conv.id);
       } catch (e) {
@@ -3733,6 +4297,7 @@ function promptNewConv() {
       }
     }
   );
+  loadNewConvUserSelect();
 }
 
 function updateNewConvUI() {
@@ -3740,6 +4305,98 @@ function updateNewConvUI() {
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
   document.getElementById('nc-internal-label')?.classList.toggle(
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+  filterNewConvUsers();
+}
+
+let _allChatUsers = [];
+
+async function loadNewConvUserSelect() {
+  const sel = document.getElementById('nc-user-select');
+  if (!sel) return;
+  try {
+    const users = await authGet('/users?limit=200&include_inactive=false');
+    _allChatUsers = users.filter(u => u.id !== currentUser?.id);
+    _renderNewConvUsers(_allChatUsers);
+    document.getElementById('nc-user-search')?.focus();
+  } catch {
+    if (sel) sel.innerHTML = '<option disabled>— ошибка загрузки —</option>';
+  }
+}
+
+function filterNewConvUsers() {
+  const q = (document.getElementById('nc-user-search')?.value || '').toLowerCase();
+  const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  // When staff creates a client_support dialog, only clients are valid participants
+  let base = (isStaff && type === 'client_support')
+    ? _allChatUsers.filter(u => u.role === 'client')
+    : _allChatUsers;
+  _renderNewConvUsers(q
+    ? base.filter(u =>
+        (u.full_name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q))
+    : base);
+}
+
+function _renderNewConvUsers(users) {
+  const sel = document.getElementById('nc-user-select');
+  if (!sel) return;
+  if (!users.length) {
+    sel.innerHTML = '<option disabled>Нет пользователей</option>';
+    return;
+  }
+  sel.innerHTML = users.map(u =>
+    `<option value="${u.id}">[${escHtml(u.role)}] ${escHtml(u.full_name || u.email)}</option>`
+  ).join('');
+}
+
+async function archiveCurrentConv() {
+  if (!activeConvId) return;
+  const isAdmin = currentUser?.role === 'admin';
+  if (isAdmin) {
+    openModal('Управление диалогом',
+      `<p style="color:var(--text2);font-size:13px">Выберите действие:</p>`,
+      null
+    );
+    // Заменяем тело модала кастомным
+    document.getElementById('modal-body').innerHTML = `
+      <p style="color:var(--text2);font-size:13px;margin-bottom:14px">Диалог: <b>${escHtml(activeConvId)}</b></p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-sm btn-danger" onclick="closeModal();doDeleteConv('${activeConvId}')">${icon('trash',14)} Удалить диалог полностью</button>
+        <button class="btn btn-sm btn-warn" onclick="closeModal();doClearConv('${activeConvId}')">${icon('arrows-clockwise',14)} Очистить историю сообщений</button>
+      </div>`;
+    document.getElementById('modal-confirm').style.display = 'none';
+  } else {
+    if (!confirm('Архивировать диалог?')) return;
+    try {
+      await chatDelete(`/conversations/${activeConvId}`);
+      toast('Диалог архивирован');
+      activeConvId = null;
+      document.getElementById('chat-window').style.display = 'none';
+      document.getElementById('chat-empty').style.display = '';
+      await loadConversations();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+}
+
+async function doDeleteConv(convId) {
+  try {
+    await chatDelete(`/conversations/${convId}`);
+    toast('Диалог удалён');
+    activeConvId = null;
+    document.getElementById('chat-window').style.display = 'none';
+    document.getElementById('chat-empty').style.display = '';
+    await loadConversations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function doClearConv(convId) {
+  try {
+    await chatPost(`/conversations/${convId}/clear`, {});
+    toast('История очищена');
+    document.getElementById('chat-messages').innerHTML =
+      '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3772,7 +4429,7 @@ function filterClients() {
 function renderClients(clients) {
   const el = document.getElementById('clients-grid');
   if (!clients.length) {
-    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">👤</div>Клиентов не найдено</div>';
+    el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">${icon('users',36)}</div>Клиентов не найдено</div>`;
     return;
   }
   el.innerHTML = clients.map(u => clientCardHTML(u)).join('');
@@ -3794,8 +4451,9 @@ function clientCardHTML(u) {
     <div class="client-actions">
       <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();copyUUID('${u.id}', this)" title="Скопировать UUID">ID</button>
       <button class="btn btn-sm btn-primary-outline" onclick="event.stopPropagation();startClientChat('${u.id}', '${safeName}')">
-        💬 Чат
+        ${icon('chat-circle',14)} Чат
       </button>
+      ${currentUser?.role === 'admin' ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();promptClientSettings('${u.id}', '${safeName}')" title="Тариф и кредитный лимит">${icon('gear',14)}</button>` : ''}
     </div>
   </div>`;
 }
@@ -3822,7 +4480,7 @@ async function openClientOrders(clientId, clientName) {
         ${orders.map(o => `
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px 14px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);font-weight:600">
+              <span style="font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;color:var(--amber);font-weight:600">
                 ${escHtml(o.order_number || o.id.slice(0,8))}
               </span>
               <span class="status-badge status-${o.status}">${STATUS_LABELS[o.status] || o.status}</span>
@@ -4101,7 +4759,7 @@ function renderInvReport(rpt, from, to) {
 
   let html = `
   <div style="margin-bottom:16px">
-    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">
+    <span style="font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;color:var(--text3)">
       Период: ${escHtml(from)} — ${escHtml(to)}
       ${rpt.fuel_type_filter ? ' · ' + escHtml(rpt.fuel_type_filter) : ' · Все виды топлива'}
     </span>
@@ -4183,6 +4841,545 @@ function renderInvReport(rpt, from, to) {
   }
   document.getElementById('auth-screen').style.display = 'flex';
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// FINANCE TAB
+// ═══════════════════════════════════════════════════════════════
+
+const PAYMENT_TYPE_LABELS = {
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту',
+  trade_credit: 'Товарный кредит',
+  postpaid:     'Постоплата',
+  debt:         'В долг',
+};
+const PAYMENT_STATUS_LABELS = {
+  unpaid:         'Не оплачено',
+  partially_paid: 'Частично',
+  paid:           'Оплачено',
+  overpaid:       'Переплата',
+};
+const PAYMENT_STATUS_COLORS = {
+  unpaid:         'var(--red)',
+  partially_paid: 'var(--s-progress)',
+  paid:           'var(--green)',
+  overpaid:       'var(--amber)',
+};
+
+function _finDateParams() {
+  const from = document.getElementById('fin-from').value;
+  const to   = document.getElementById('fin-to').value;
+  const p = new URLSearchParams();
+  if (from) p.set('date_from', new Date(from).toISOString());
+  if (to)   p.set('date_to',   new Date(to + 'T23:59:59').toISOString());
+  return p.toString() ? '?' + p.toString() : '';
+}
+
+async function loadFinance() {
+  const qs = _finDateParams();
+
+  // Summary cards
+  const cards = document.getElementById('fin-summary-cards');
+  cards.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const s = await orderGet('/finance/summary' + qs);
+    cards.innerHTML = `
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Заявок всего</div>
+        <div style="font-size:22px;font-weight:700">${s.total_orders}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Не оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${s.unpaid_count}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Частично оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--s-progress)">${s.partially_paid_count}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Оплачено</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${s.paid_count}</div>
+      </div>
+      ${s.overpaid_count ? `<div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Переплата</div>
+        <div style="font-size:22px;font-weight:700;color:var(--amber)">${s.overpaid_count}</div>
+      </div>` : ''}
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Должно прийти всего, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text1)">${(s.total_expected_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        ${s.orders_without_pricing ? `<div style="font-size:10px;color:var(--amber);margin-top:4px">${icon('warning',12,'margin-right:3px')} ${s.orders_without_pricing} заявок без расчёта</div>` : ''}
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Получено по заявкам, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${(s.total_received_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Долг, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${(s.total_debt_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Платежей за период, ₽</div>
+        <div style="font-size:18px;font-weight:600;color:var(--green)">${s.total_paid_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:2px">+ ожидает: ${s.total_pending_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+    `;
+  } catch(e) {
+    cards.innerHTML = `<div class="empty-state" style="color:var(--red)">Ошибка загрузки сводки</div>`;
+  }
+
+  // Payments table
+  const tbody = document.getElementById('fin-payments-body');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px"><div class="loading"></div></td></tr>';
+  try {
+    const payments = await orderGet('/finance/payments' + qs);
+    if (!payments.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Нет платежей за выбранный период</td></tr>';
+    } else {
+      tbody.innerHTML = payments.map(p => `
+        <tr>
+          <td><strong>${escHtml(p.order_number)}</strong></td>
+          <td>${escHtml(PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type)}</td>
+          <td style="color:var(--text3);font-size:11px">${escHtml(p.kind)}</td>
+          <td><span style="color:${PAYMENT_STATUS_COLORS[p.status]||'inherit'};font-weight:600">${escHtml(PAYMENT_STATUS_LABELS[p.status]||p.status)}</span></td>
+          <td style="color:var(--text3);font-size:11px">${escHtml(p.method||'—')}</td>
+          <td style="text-align:right;font-weight:600">${p.amount.toLocaleString('ru-RU',{minimumFractionDigits:2})}</td>
+          <td style="color:var(--text3);font-size:11px">${p.paid_at ? new Date(p.paid_at).toLocaleDateString('ru-RU') : '—'}</td>
+          <td style="color:var(--text3);font-size:11px">${new Date(p.created_at).toLocaleDateString('ru-RU')}</td>
+        </tr>
+      `).join('');
+    }
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:16px">Ошибка загрузки платежей</td></tr>`;
+  }
+
+  // Payment-status order tracking (separate fetch — orders endpoint, not payments)
+  loadFinancePaymentOrders();
+}
+
+// Render orders grouped by payment status — driven by the pf checkboxes inside Finance tab.
+async function loadFinancePaymentOrders() {
+  const payFilter = [...document.querySelectorAll('#pay-filter-group input[name="pf"]:checked')].map(cb => cb.value);
+  const box = document.getElementById('fin-pay-orders-list');
+  if (!box) return;
+  if (payFilter.length === 0) {
+    box.innerHTML = '<div class="empty-state" style="padding:14px">Выберите хотя бы один статус оплаты</div>';
+    return;
+  }
+  box.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    let orders = await orderGet('/orders?limit=200');
+    orders = orders.filter(o => payFilter.includes(o.payment_status || 'unpaid'));
+    if (!orders.length) {
+      box.innerHTML = '<div class="empty-state" style="padding:14px">Нет заявок с выбранными статусами оплаты</div>';
+      return;
+    }
+    const canRecord = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    box.innerHTML = `
+      <div class="inv-table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr>
+              <th>Заявка</th>
+              <th>Дата</th>
+              <th>Топливо</th>
+              <th style="text-align:right">Объём, л</th>
+              <th>Тип оплаты</th>
+              <th style="text-align:right">Ожидается, ₽</th>
+              <th style="text-align:right">Оплачено, ₽</th>
+              <th style="text-align:right">Долг, ₽</th>
+              <th>Статус оплаты</th>
+              ${canRecord ? '<th></th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${orders.map(o => {
+              const ps = o.payment_status || 'unpaid';
+              const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
+              const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
+              const target = o.final_amount != null ? o.final_amount : o.expected_amount;
+              const paid = Number(o.paid_total || 0);
+              const debt = Number(o.debt_amount || 0);
+              const expectedCell = (target == null)
+                ? `<span style="color:var(--amber)" title="Тариф не настроен">${icon('warning',13,'margin-right:2px')} —</span>`
+                : Number(target).toLocaleString('ru-RU', {minimumFractionDigits:2});
+              const rowClick = `event.stopPropagation();switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)`;
+              const payBtn = canRecord && ps !== 'paid' && o.status !== 'rejected' && o.status !== 'cancelled'
+                ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">${icon('wallet',13)} Оплата</button>`
+                : '';
+              return `
+                <tr style="cursor:pointer" onclick="${rowClick}">
+                  <td><strong>${escHtml(o.order_number)}</strong></td>
+                  <td style="color:var(--text3);font-size:11px">${fmtDate(o.created_at)}</td>
+                  <td>${escHtml(FUEL_LABELS[o.fuel_type] || o.fuel_type)}</td>
+                  <td style="text-align:right">${Number(o.volume_requested).toLocaleString('ru')}</td>
+                  <td>${escHtml(PAYMENT_LABELS[o.payment_type] || o.payment_type)}</td>
+                  <td style="text-align:right">${expectedCell}</td>
+                  <td style="text-align:right;color:${paid > 0 ? 'var(--green)' : 'var(--text3)'}">${paid.toLocaleString('ru-RU', {minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;color:${debt > 0 ? 'var(--red)' : 'var(--text3)'};font-weight:${debt > 0 ? '600' : '400'}">${debt.toLocaleString('ru-RU', {minimumFractionDigits:2})}</td>
+                  <td><span style="color:${psColor};font-weight:600">${escHtml(psLbl)}</span></td>
+                  ${canRecord ? `<td>${payBtn}</td>` : ''}
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TARIFFS TAB
+// ═══════════════════════════════════════════════════════════════
+
+const FUEL_LABELS_TARIFF = {
+  DIESEL_SUMMER: 'ДТ летнее',
+  DIESEL_WINTER: 'ДТ зимнее',
+  PETROL_92:     'АИ-92',
+  PETROL_95:     'АИ-95',
+  FUEL_OIL:      'Мазут М-100',
+};
+
+const PAYMENT_TYPE_LABELS_ALL = {
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту (при прибытии)',
+  postpaid:     'Постоплата (по счёту)',
+  trade_credit: 'Товарный кредит',
+  debt:         'В долг',
+};
+
+let _defaultTariff = null;
+
+async function loadTariffs() {
+  try {
+    const tariffs = await orderGet('/tariffs?include_archived=false');
+    _defaultTariff = tariffs.find(t => t.is_default) || null;
+    renderDefaultTariffBlock(_defaultTariff);
+    renderTariffsList(tariffs);
+  } catch (e) {
+    document.getElementById('tariffs-list').innerHTML =
+      `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderDefaultTariffBlock(tariff) {
+  const block = document.getElementById('tariff-default-prices');
+  const nameEl = document.getElementById('tariff-default-name');
+  if (!tariff) {
+    block.innerHTML = '<div class="empty-state">Базовый тариф не настроен</div>';
+    return;
+  }
+  if (nameEl) nameEl.textContent = `(${escHtml(tariff.name)})`;
+
+  // Price inputs
+  block.innerHTML = tariff.fuel_prices.map(fp => `
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:11px;color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</label>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="number" step="0.01" min="0.01"
+          class="form-input" style="width:100px;font-size:13px"
+          id="price-${escHtml(fp.fuel_type)}"
+          value="${Number(fp.price_per_liter).toFixed(2)}">
+        <span style="font-size:12px;color:var(--text3)">₽/л</span>
+      </div>
+    </div>`).join('');
+
+  // Volume tiers
+  const tiersEl = document.getElementById('tariff-default-tiers');
+  tiersEl.innerHTML = '';
+  tariff.volume_tiers.forEach(t => addTierRow('tariff-default-tiers', t));
+}
+
+function addTierRow(containerId, tier = null) {
+  const container = document.getElementById(containerId);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:8px';
+  row.innerHTML = `
+    <span style="font-size:12px;color:var(--text3)">от</span>
+    <input type="number" step="0.01" min="0" placeholder="литров"
+      class="form-input tier-vol" style="width:100px;font-size:13px"
+      value="${tier ? tier.min_volume : ''}">
+    <span style="font-size:12px;color:var(--text3)">л →</span>
+    <input type="number" step="0.01" min="0" max="100" placeholder="скидка %"
+      class="form-input tier-pct" style="width:80px;font-size:13px"
+      value="${tier ? tier.discount_pct : ''}">
+    <span style="font-size:12px;color:var(--text3)">%</span>
+    <button class="btn btn-sm btn-ghost" style="color:var(--red)"
+      onclick="this.closest('div').remove()">✕</button>`;
+  container.appendChild(row);
+}
+
+function collectTiers(containerId) {
+  return [...document.getElementById(containerId).querySelectorAll('div')].map(row => ({
+    min_volume: parseFloat(row.querySelector('.tier-vol').value) || 0,
+    discount_pct: parseFloat(row.querySelector('.tier-pct').value) || 0,
+  })).filter(t => t.min_volume > 0 || t.discount_pct > 0);
+}
+
+async function saveDefaultTariffPrices() {
+  if (!_defaultTariff) return;
+  const msgEl = document.getElementById('tariff-save-msg');
+  msgEl.style.display = 'none';
+  try {
+    const fuel_prices = _defaultTariff.fuel_prices.map(fp => ({
+      fuel_type: fp.fuel_type,
+      price_per_liter: parseFloat(
+        document.getElementById(`price-${fp.fuel_type}`)?.value || fp.price_per_liter
+      ),
+    }));
+    const volume_tiers = collectTiers('tariff-default-tiers');
+    await orderPut(`/tariffs/${_defaultTariff.id}`, { fuel_prices, volume_tiers });
+    msgEl.style.display = '';
+    setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
+    await loadTariffs();
+  } catch (e) {
+    toast('Ошибка сохранения: ' + e.message);
+  }
+}
+
+function renderTariffsList(tariffs) {
+  const el = document.getElementById('tariffs-list');
+  const isAdmin = currentUser?.role === 'admin';
+  if (!tariffs.length) {
+    el.innerHTML = '<div class="empty-state">Нет тарифов</div>';
+    return;
+  }
+  el.innerHTML = tariffs.map(t => `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-weight:600">${escHtml(t.name)}</span>
+        ${t.is_default ? '<span class="status-badge" style="background:var(--green-bg);color:var(--green)">Базовый</span>' : ''}
+        ${t.is_archived ? '<span class="status-badge" style="background:var(--bg3);color:var(--text3)">Архив</span>' : ''}
+        ${isAdmin && !t.is_default && !t.is_archived ? `
+          <button class="btn btn-sm btn-ghost" style="margin-left:auto"
+            onclick="setDefaultTariff('${t.id}')">Сделать базовым</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red)"
+            onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
+        ${isAdmin && !t.is_default ? `
+          <button class="btn btn-sm btn-ghost" onclick="promptEditTariff('${t.id}')">Редактировать</button>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${t.fuel_prices.map(fp => `
+          <div style="background:var(--bg3);border-radius:4px;padding:4px 10px;font-size:12px">
+            <span style="color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</span>
+            <span style="font-weight:600;margin-left:6px">${Number(fp.price_per_liter).toFixed(2)} ₽/л</span>
+          </div>`).join('')}
+      </div>
+      ${t.volume_tiers.length ? `
+        <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+          Скидки: ${t.volume_tiers.map(vt =>
+            `от ${Number(vt.min_volume).toLocaleString('ru')} л → ${vt.discount_pct}%`
+          ).join(', ')}
+        </div>` : ''}
+    </div>`).join('');
+}
+
+async function setDefaultTariff(tariffId) {
+  try {
+    await orderPost(`/tariffs/${tariffId}/set-default`, {});
+    toast('Базовый тариф изменён');
+    loadTariffs();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+async function archiveTariff(tariffId, name) {
+  if (!confirm(`Архивировать тариф «${name}»?`)) return;
+  try {
+    await orderPost(`/tariffs/${tariffId}/archive`, {});
+    toast('Тариф архивирован');
+    loadTariffs();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+function promptCreateTariff() {
+  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  openModal('Новый тариф', `
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="nt-name" class="form-input" placeholder="Промо-2026">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Описание (необязательно)</label>
+      <input type="text" id="nt-desc" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Цены за литр</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${fuels.map(f => `
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
+            <input type="number" step="0.01" min="0.01" class="form-input" id="nt-price-${f}"
+              style="width:80px;font-size:13px" placeholder="0.00">
+            <span style="font-size:12px;color:var(--text3)">₽/л</span>
+          </div>`).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ступени скидок</label>
+      <div id="nt-tiers"></div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('nt-tiers')">+ Добавить</button>
+    </div>`,
+    async () => {
+      const name = document.getElementById('nt-name').value.trim();
+      if (!name) { toast('Укажите название'); return; }
+      const fuel_prices = fuels.map(f => ({
+        fuel_type: f,
+        price_per_liter: parseFloat(document.getElementById(`nt-price-${f}`).value),
+      }));
+      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
+        toast('Укажите цены для всех типов топлива'); return;
+      }
+      try {
+        await orderPost('/tariffs', {
+          name,
+          description: document.getElementById('nt-desc').value.trim() || null,
+          fuel_prices,
+          volume_tiers: collectTiers('nt-tiers'),
+        });
+        closeModal();
+        toast('Тариф создан');
+        loadTariffs();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
+}
+
+async function promptEditTariff(tariffId) {
+  let tariff;
+  try { tariff = await orderGet(`/tariffs/${tariffId}`); }
+  catch (e) { toast('Ошибка загрузки тарифа'); return; }
+
+  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  openModal(`Тариф: ${escHtml(tariff.name)}`, `
+    <div class="form-group">
+      <label class="form-label">Цены за литр</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${fuels.map(f => {
+          const fp = tariff.fuel_prices.find(p => p.fuel_type === f);
+          return `
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
+              <input type="number" step="0.01" min="0.01" class="form-input" id="et-price-${f}"
+                style="width:80px;font-size:13px" value="${fp ? Number(fp.price_per_liter).toFixed(2) : ''}">
+              <span style="font-size:12px;color:var(--text3)">₽/л</span>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ступени скидок</label>
+      <div id="et-tiers"></div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('et-tiers')">+ Добавить</button>
+    </div>`,
+    async () => {
+      const fuel_prices = fuels.map(f => ({
+        fuel_type: f,
+        price_per_liter: parseFloat(document.getElementById(`et-price-${f}`).value),
+      }));
+      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
+        toast('Укажите цены для всех типов топлива'); return;
+      }
+      try {
+        await orderPut(`/tariffs/${tariffId}`, {
+          fuel_prices,
+          volume_tiers: collectTiers('et-tiers'),
+        });
+        closeModal();
+        toast('Тариф обновлён');
+        loadTariffs();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
+  // Populate tiers after modal is rendered
+  setTimeout(() => tariff.volume_tiers.forEach(t => addTierRow('et-tiers', t)), 50);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DYNAMIC PAYMENT RADIO
+// ═══════════════════════════════════════════════════════════════
+
+async function renderPaymentRadios(clientId) {
+  const container = document.getElementById('payment-radio-group');
+  if (!container) return;
+  try {
+    const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
+    const types = opts.available_payment_types || [];
+    const current = container.querySelector('input[name="payment"]:checked')?.value || types[0];
+    container.innerHTML = types.map((pt, i) => `
+      <label class="radio-label${pt === current || (i === 0 && !current) ? ' selected' : ''}" id="pay-${pt}-label">
+        <input type="radio" name="payment" value="${pt}"
+          ${pt === current || (i === 0 && !current) ? 'checked' : ''}
+          onchange="updatePaymentUI()">
+        ${escHtml(PAYMENT_TYPE_LABELS_ALL[pt] || pt)}
+      </label>`).join('');
+  } catch (_) {
+    // If fetch fails, keep the static defaults — don't block order creation
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENT TARIFF / CREDIT MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+async function promptClientSettings(userId, clientName) {
+  // Load current profile
+  let user;
+  try { user = await authGet(`/users/${userId}`); }
+  catch (e) { toast('Ошибка загрузки профиля'); return; }
+
+  const profile = user.client_profile || {};
+  let tariffOptions = '<option value="">— базовый —</option>';
+  try {
+    const tariffs = await orderGet('/tariffs');
+    tariffOptions += tariffs.filter(t => !t.is_archived).map(t =>
+      `<option value="${t.id}"${profile.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
+    ).join('');
+  } catch (_) {}
+
+  openModal(`Настройки клиента: ${escHtml(clientName)}`, `
+    <div class="form-group">
+      <label class="form-label">Тариф</label>
+      <select id="cs-tariff" class="form-input">${tariffOptions}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="cs-credit" ${profile.credit_allowed ? 'checked' : ''}>
+      <label for="cs-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label>
+    </div>`,
+    async () => {
+      const tariffId = document.getElementById('cs-tariff').value || null;
+      const creditAllowed = document.getElementById('cs-credit').checked;
+      try {
+        await authPatch(`/users/${userId}/tariff`, {
+          tariff_id: tariffId,
+          credit_allowed: creditAllowed,
+        });
+        closeModal();
+        toast('Настройки клиента сохранены');
+        loadClients();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
+}
+
+function exportFinanceCsv() {
+  const qs = _finDateParams();
+  const token = localStorage.getItem('access_token');
+  // Создаём временную ссылку с токеном в query (т.к. FileResponse не принимает заголовок)
+  // В продакшне лучше signed URL, но для внутреннего инструмента это приемлемо
+  const url = `${window.ORDER_API || '/api/v1'}/finance/export.csv${qs}`;
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => r.blob())
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `payments_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    })
+    .catch(() => showToast('Ошибка экспорта CSV', 'error'));
+}
 </script>
 </body>
 </html>

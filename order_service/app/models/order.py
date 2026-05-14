@@ -1,9 +1,10 @@
 import uuid
 import enum
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import (
     String, Text, Numeric, DateTime, Enum as SAEnum,
-    Integer, Boolean, func, ForeignKey
+    Integer, Boolean, func
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -21,8 +22,8 @@ class FuelType(str, enum.Enum):
 class OrderStatus(str, enum.Enum):
     NEW = "new"                                   # Новая
     IN_PROGRESS = "in_progress"                   # В работе (менеджер принял)
-    ASSIGNED = "assigned"                         # Назначена водителю
-    IN_TRANSIT = "in_transit"                     # В рейсе
+    ASSIGNED = "assigned"                         # Водитель назначен (legacy, alias IN_PROGRESS)
+    IN_TRANSIT = "in_transit"                     # В рейсе (водитель взял и выехал)
     DELIVERED = "delivered"                       # Доставлена
     PARTIALLY_DELIVERED = "partially_delivered"   # Частично доставлена
     CLOSED = "closed"                             # Закрыта
@@ -30,8 +31,11 @@ class OrderStatus(str, enum.Enum):
 
 
 class PaymentType(str, enum.Enum):
-    PREPAID = "prepaid"       # Предоплата
-    CREDIT = "credit"         # Товарный кредит (только для юр. лиц с договором)
+    PREPAID = "prepaid"             # Предоплата
+    ON_DELIVERY = "on_delivery"     # По факту, при прибытии
+    TRADE_CREDIT = "trade_credit"   # Товарный кредит
+    POSTPAID = "postpaid"           # Постоплата (по счёту)
+    DEBT = "debt"                   # Условно в долг (семантически = trade_credit, разделён для отчётности)
 
 
 class OrderPriority(str, enum.Enum):
@@ -62,8 +66,17 @@ class Order(Base):
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
-        SAEnum(PaymentType), nullable=False, default=PaymentType.PREPAID
+        # values_callable ensures SQLAlchemy uses enum VALUES ('prepaid' etc.)
+        # not member NAMES ('PREPAID') for the DB ↔ Python mapping.
+        SAEnum(PaymentType, values_callable=lambda x: [e.value for e in x], name="paymenttype"),
+        nullable=False, default=PaymentType.ON_DELIVERY
     )
+    # Ожидаемая сумма (для prepaid — сумма предоплаты; для остальных — расчётная)
+    expected_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Итоговая сумма после закрытия (по факту доставки)
+    final_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Для trade_credit: подписан ли договор (разблокирует закрытие без оплаты)
+    trade_credit_contract_signed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Статус и приоритет
     status: Mapped[OrderStatus] = mapped_column(
@@ -82,6 +95,11 @@ class Order(Base):
     manager_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Статус оплаты (отдельно от статуса заявки)
+    payment_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unpaid", index=True
+    )  # unpaid | paid | partially_paid
+
     # Мягкое удаление
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -97,5 +115,15 @@ class Order(Base):
     status_logs: Mapped[list["OrderStatusLog"]] = relationship(
         "OrderStatusLog", back_populates="order",
         order_by="OrderStatusLog.created_at",
+        cascade="all, delete-orphan",
+    )
+    payments: Mapped[list["Payment"]] = relationship(
+        "Payment", back_populates="order",
+        order_by="Payment.created_at",
+        cascade="all, delete-orphan",
+    )
+    documents: Mapped[list["Document"]] = relationship(
+        "Document", back_populates="order",
+        order_by="Document.created_at",
         cascade="all, delete-orphan",
     )

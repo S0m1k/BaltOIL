@@ -51,12 +51,23 @@ async def mark_read(
 
 
 @router.delete("/{conv_id}", status_code=204)
-async def archive_conversation(
+async def delete_conversation(
     conv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    await conversation_service.archive_conversation(db, conv_id, actor)
+    """Hard-delete диалога вместе с сообщениями — только администратор."""
+    await conversation_service.delete_conversation(db, conv_id, actor)
+
+
+@router.post("/{conv_id}/clear", status_code=204)
+async def clear_conversation(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Очистить историю сообщений — только администратор."""
+    await conversation_service.clear_conversation(db, conv_id, actor)
 
 
 # --- Messages within a conversation ---
@@ -79,7 +90,11 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    return await message_service.send_message(db, conv_id, data.text, actor)
+    return await message_service.send_message(
+        db, conv_id, data.text, actor,
+        msg_type=data.msg_type,
+        metadata=data.metadata,
+    )
 
 
 @router.delete("/{conv_id}/messages/{msg_id}", status_code=204)

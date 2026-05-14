@@ -20,7 +20,14 @@
       "Bash(xargs grep:*)",
       "Bash(git init:*)",
       "Bash(git remote:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:9171517.ru)",
+      "Bash(node -e \" const chunks = []; process.stdin.on\\('data', d => chunks.push\\(d\\)\\); process.stdin.on\\('end', \\(\\) => { const data = Buffer.concat\\(chunks\\).toString\\(\\); const lines = data.trim\\(\\).split\\('\\\\n'\\); lines.slice\\(-20\\).forEach\\(line => { try { const obj = JSON.parse\\(line\\); if \\(obj.type === 'assistant'\\) { const content = obj.message?.content || []; content.forEach\\(c => { if \\(c.type === 'text'\\) console.log\\('ASSISTANT:', c.text.slice\\(0, 500\\)\\); }\\); } else if \\(obj.type === 'user'\\) { const content = obj.message?.content || []; content.forEach\\(c => { if \\(c.type === 'text'\\) console.log\\('USER:', c.text.slice\\(0, 200\\)\\); }\\); } } catch\\(e\\) {} }\\); }\\); \")",
+      "Bash(node -e \" const chunks = []; process.stdin.on\\('data', d => chunks.push\\(d\\)\\); process.stdin.on\\('end', \\(\\) => { const data = Buffer.concat\\(chunks\\).toString\\(\\); const lines = data.trim\\(\\).split\\('\\\\n'\\); lines.forEach\\(\\(line, i\\) => { try { const obj = JSON.parse\\(line\\); if \\(obj.type === 'assistant'\\) { const content = obj.message?.content || []; content.forEach\\(c => { if \\(c.type === 'text'\\) console.log\\('ASSISTANT:', c.text.slice\\(0, 800\\)\\); if \\(c.type === 'tool_use'\\) console.log\\('TOOL_USE:', c.name, JSON.stringify\\(c.input\\).slice\\(0, 300\\)\\); }\\); } else if \\(obj.type === 'user'\\) { const content = obj.message?.content || []; content.forEach\\(c => { if \\(c.type === 'text'\\) console.log\\('USER:', c.text.slice\\(0, 400\\)\\); if \\(c.type === 'tool_result'\\) { const rc = c.content; if \\(Array.isArray\\(rc\\)\\) rc.forEach\\(r => { if \\(r.type==='text'\\) console.log\\('TOOL_RESULT:', r.text.slice\\(0,300\\)\\); }\\); } }\\); } } catch\\(e\\) {} }\\); }\\); \")",
+      "Bash(grep -n \"unique\\\\|UNIQUE\\\\|constraint\\\\|CHECK\\\\|constraint\" /c/Users/user/BaltOIL/.claude/worktrees/determined-darwin/order_service/app/models/*.py)"
     ]
   }
 }

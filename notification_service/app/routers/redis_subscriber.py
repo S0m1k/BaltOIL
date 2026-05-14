@@ -27,6 +27,7 @@ import json
 import logging
 import uuid
 import redis.asyncio as aioredis
+import httpx
 
 from app.config import settings
 from app.database import AsyncSessionLocal
@@ -39,19 +40,37 @@ logger = logging.getLogger(__name__)
 CHANNELS = ["events:orders", "events:chat"]
 
 
-def _build_order_request(payload: dict) -> PublishRequest | None:
+async def _fetch_staff_ids() -> list[uuid.UUID]:
+    """Get all active manager + admin user IDs from auth_service."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{settings.auth_service_url}/internal/users-by-role",
+                params={"roles": "manager,admin"},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+            resp.raise_for_status()
+            return [uuid.UUID(uid) for uid in resp.json()]
+    except Exception:
+        logger.warning("Could not fetch staff IDs from auth_service", exc_info=True)
+        return []
+
+
+async def _build_order_request(payload: dict) -> PublishRequest | None:
     event = payload.get("event")
     client_id = payload.get("client_id")
     driver_id = payload.get("driver_id")
-    manager_id = payload.get("manager_id")
     order_id = payload.get("order_id")
 
     recipients: list[uuid.UUID] = []
     if event == "order_created":
         notif_type = NotificationType.ORDER_CREATED
-        # Notify all managers/admins handled on publish side; here we notify client
+        # Notify client who placed the order
         if client_id:
             recipients.append(uuid.UUID(client_id))
+        # Notify all managers and admins
+        staff_ids = await _fetch_staff_ids()
+        recipients.extend(staff_ids)
     elif event == "order_status":
         notif_type = NotificationType.ORDER_STATUS
         if client_id:
@@ -61,11 +80,19 @@ def _build_order_request(payload: dict) -> PublishRequest | None:
     else:
         return None
 
-    if not recipients:
+    # Deduplicate
+    seen: set[uuid.UUID] = set()
+    unique: list[uuid.UUID] = []
+    for uid in recipients:
+        if uid not in seen:
+            seen.add(uid)
+            unique.append(uid)
+
+    if not unique:
         return None
 
     return PublishRequest(
-        user_ids=recipients,
+        user_ids=unique,
         type=notif_type,
         title=payload.get("title", "Order update"),
         body=payload.get("body", ""),
@@ -102,7 +129,7 @@ def _build_chat_request(payload: dict) -> PublishRequest | None:
 async def _handle(payload: dict, r: aioredis.Redis) -> None:
     event = payload.get("event", "")
     if event in ("order_created", "order_status"):
-        req = _build_order_request(payload)
+        req = await _build_order_request(payload)
     elif event == "chat_message":
         req = _build_chat_request(payload)
     else:

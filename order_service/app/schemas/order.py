@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
 from app.models.order import FuelType, OrderStatus, PaymentType, OrderPriority
 from .order_status_log import OrderStatusLogResponse
@@ -7,10 +8,11 @@ from .order_status_log import OrderStatusLogResponse
 
 class OrderCreateRequest(BaseModel):
     fuel_type: FuelType
-    volume_requested: float = Field(..., gt=0, description="Объём в литрах, минимум 1000")
+    volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 1000, максимум 200 000")
     delivery_address: str
     desired_date: datetime | None = None
-    payment_type: PaymentType = PaymentType.PREPAID
+    payment_type: PaymentType = PaymentType.ON_DELIVERY
+    expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
 
     # Только для менеджера/админа: создать от имени конкретного клиента
@@ -29,11 +31,13 @@ class OrderCreateRequest(BaseModel):
 
 
 class OrderUpdateRequest(BaseModel):
-    """Менеджер может обновить приоритет, комментарий, назначить водителя."""
+    """Менеджер может обновить приоритет, комментарий, желаемую дату и финансовые поля."""
     priority: OrderPriority | None = None
     manager_comment: str | None = None
-    driver_id: uuid.UUID | None = None
     desired_date: datetime | None = None
+    expected_amount: Decimal | None = Field(None, ge=0)
+    final_amount: Decimal | None = Field(None, ge=0)
+    trade_credit_contract_signed: bool | None = None
 
 
 class OrderStatusTransitionRequest(BaseModel):
@@ -58,6 +62,10 @@ class OrderResponse(BaseModel):
     delivery_address: str
     desired_date: datetime | None
     payment_type: PaymentType
+    payment_status: str
+    expected_amount: Decimal | None
+    final_amount: Decimal | None
+    trade_credit_contract_signed: bool
     status: OrderStatus
     priority: OrderPriority
     manager_id: uuid.UUID | None
@@ -70,6 +78,11 @@ class OrderResponse(BaseModel):
     updated_at: datetime
     status_logs: list[OrderStatusLogResponse] = []
 
+    # Денежные показатели — заполняются сервисом (см. payment_service.attach_payment_totals)
+    paid_total: float = 0.0
+    debt_amount: float = 0.0
+    pricing_warning: bool = False  # True если expected_amount=None (тариф не настроен)
+
     model_config = {"from_attributes": True}
 
 
@@ -79,11 +92,23 @@ class OrderListResponse(BaseModel):
     client_id: uuid.UUID
     fuel_type: FuelType
     volume_requested: float
+    volume_delivered: float | None
     delivery_address: str
     status: OrderStatus
     priority: OrderPriority
+    manager_id: uuid.UUID | None
     driver_id: uuid.UUID | None
+    client_comment: str | None
+    manager_comment: str | None
+    payment_type: PaymentType
+    payment_status: str
+    expected_amount: Decimal | None
+    final_amount: Decimal | None
     desired_date: datetime | None
     created_at: datetime
+
+    paid_total: float = 0.0
+    debt_amount: float = 0.0
+    pricing_warning: bool = False
 
     model_config = {"from_attributes": True}
