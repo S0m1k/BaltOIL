@@ -1561,7 +1561,7 @@
             <label class="form-label">По</label>
             <input type="date" id="rpt-to" class="form-input">
           </div>
-          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">${icon('chart-bar',16)} Показать отчёт</button>
+          <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">Показать отчёт</button>
           <button class="btn btn-primary" style="width:auto;padding:10px 24px;background:var(--green);border-color:var(--green)" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
         </div>
         <p style="margin-top:10px;font-size:11px;color:var(--text3)">
@@ -4114,6 +4114,10 @@ function connectWs(convId) {
         const existing = document.getElementById(`msg-${msg.id}`);
         if (existing) return;
         appendMessage(msg);
+        // Message from another user arrived while conversation is open — mark as read
+        if (msg.sender_id !== currentUser?.id) {
+          chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
+        }
       } catch {}
     };
 
@@ -4169,6 +4173,8 @@ async function sendChatMessage() {
     if (!document.getElementById(`msg-${msg.id}`)) {
       appendMessage(msg);
     }
+    // Sending a reply means we've read everything — reset unread counter
+    chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
   } catch (e) {
     toast(e.message, 'error');
     inp.value = text;
@@ -4299,6 +4305,7 @@ function updateNewConvUI() {
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
   document.getElementById('nc-internal-label')?.classList.toggle(
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+  filterNewConvUsers();
 }
 
 let _allChatUsers = [];
@@ -4318,12 +4325,17 @@ async function loadNewConvUserSelect() {
 
 function filterNewConvUsers() {
   const q = (document.getElementById('nc-user-search')?.value || '').toLowerCase();
+  const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  // When staff creates a client_support dialog, only clients are valid participants
+  let base = (isStaff && type === 'client_support')
+    ? _allChatUsers.filter(u => u.role === 'client')
+    : _allChatUsers;
   _renderNewConvUsers(q
-    ? _allChatUsers.filter(u =>
+    ? base.filter(u =>
         (u.full_name || '').toLowerCase().includes(q) ||
-        (u.email || '').toLowerCase().includes(q) ||
-        (u.role || '').toLowerCase().includes(q))
-    : _allChatUsers);
+        (u.email || '').toLowerCase().includes(q))
+    : base);
 }
 
 function _renderNewConvUsers(users) {
