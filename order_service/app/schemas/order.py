@@ -78,6 +78,11 @@ class OrderResponse(BaseModel):
     updated_at: datetime
     status_logs: list[OrderStatusLogResponse] = []
 
+    # Денежные показатели — заполняются сервисом (см. payment_service.attach_payment_totals)
+    paid_total: float = 0.0
+    debt_amount: float = 0.0
+    pricing_warning: bool = False  # True если expected_amount=None (тариф не настроен)
+
     model_config = {"from_attributes": True}
 
 
@@ -101,5 +106,9 @@ class OrderListResponse(BaseModel):
     final_amount: Decimal | None
     desired_date: datetime | None
     created_at: datetime
+
+    paid_total: float = 0.0
+    debt_amount: float = 0.0
+    pricing_warning: bool = False
 
     model_config = {"from_attributes": True}

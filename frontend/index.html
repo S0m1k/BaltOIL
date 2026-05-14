@@ -2479,6 +2479,7 @@ function orderCardHTML(o) {
         ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
       </div>
+      ${paymentSummaryHTML(o)}
       ${actionBarHTML(o)}
       <div class="timeline-section" id="timeline-${o.id}">
         <div class="timeline-title">История статусов</div>
@@ -2599,6 +2600,29 @@ async function sendDocToChat(orderId, docId, btn) {
   }
 }
 
+function paymentSummaryHTML(o) {
+  const target = o.final_amount != null ? o.final_amount : o.expected_amount;
+  const paid = Number(o.paid_total || 0);
+  const debt = Number(o.debt_amount || 0);
+  const ps = o.payment_status || 'unpaid';
+  const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
+  const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
+  const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits:2});
+  const warning = o.pricing_warning
+    ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(245,158,11,.08);border:1px solid var(--amber);border-radius:6px;color:var(--amber);font-size:12px">⚠ Сумма не определена — назначьте тариф для клиента, чтобы корректно считать долг.</div>`
+    : '';
+  return `
+    <div style="margin-top:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;font-size:12px">
+        <div><span style="color:var(--text3)">Ожидается:</span> <strong>${target == null ? '—' : fmt(target) + ' ₽'}</strong></div>
+        <div><span style="color:var(--text3)">Оплачено:</span> <strong style="color:${paid > 0 ? 'var(--green)' : 'inherit'}">${fmt(paid)} ₽</strong></div>
+        <div><span style="color:var(--text3)">Долг:</span> <strong style="color:${debt > 0 ? 'var(--red)' : 'inherit'}">${fmt(debt)} ₽</strong></div>
+        <div style="margin-left:auto"><span class="status-badge" style="background:transparent;border:1px solid ${psColor};color:${psColor}">${escHtml(psLbl)}</span></div>
+      </div>
+      ${warning}
+    </div>`;
+}
+
 function actionBarHTML(o) {
   const role = currentUser?.role;
   const s = o.status;
@@ -2613,6 +2637,10 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
     if (s === 'partially_delivered')
       btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_progress',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
+    // Payment recording: any active order with outstanding debt or not fully paid
+    const payable = s !== 'rejected' && s !== 'cancelled' && o.payment_status !== 'paid';
+    if (payable)
+      btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">💰 Зафиксировать оплату</button>`);
   }
 
   if (role === 'driver') {
@@ -2683,6 +2711,51 @@ function promptReject(orderId) {
       if (!reason) { toast('Укажите причину', 'error'); return; }
       closeModal();
       await transitionOrder(orderId, 'rejected', { rejection_reason: reason });
+    }
+  );
+}
+
+// Manager/admin records an actual payment against an order.
+// debt = remaining amount (final|expected - paid_total); pre-fills the amount field.
+function promptRecordPayment(orderId, debt, orderNumber) {
+  const def = (debt && debt > 0) ? debt : '';
+  openModal(`Зафиксировать оплату · ${orderNumber}`,
+    `<div class="form-group">
+      <label class="form-label">Сумма, ₽ <span style="color:var(--red)">*</span></label>
+      <input type="number" id="rp-amount" class="form-input" step="0.01" min="0.01"
+             value="${def}" placeholder="Введите сумму" autofocus>
+      ${debt > 0 ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">Остаток к оплате: ${Number(debt).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</div>` : ''}
+    </div>
+    <div class="form-group">
+      <label class="form-label">Метод оплаты <span style="color:var(--red)">*</span></label>
+      <select id="rp-method" class="form-input">
+        <option value="cash">Наличные</option>
+        <option value="transfer" selected>Банковский перевод</option>
+        <option value="card">Карта</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечание</label>
+      <input type="text" id="rp-notes" class="form-input" placeholder="Например, № платёжки">
+    </div>`,
+    async () => {
+      const amount = parseFloat(document.getElementById('rp-amount').value);
+      const method = document.getElementById('rp-method').value;
+      const notes  = document.getElementById('rp-notes').value.trim() || null;
+      if (!amount || amount <= 0) { toast('Введите сумму', 'error'); return; }
+      try {
+        await orderPost('/payments/record', { order_id: orderId, amount, method, notes });
+        closeModal();
+        toast('Оплата зафиксирована');
+        // Refresh whichever view is active
+        if (document.getElementById('pane-finance')?.classList.contains('active')) {
+          loadFinance();
+        } else {
+          loadOrders();
+        }
+      } catch (e) {
+        toast(e.message, 'error');
+      }
     }
   );
 }
@@ -4730,12 +4803,22 @@ async function loadFinance() {
         <div style="font-size:22px;font-weight:700;color:var(--amber)">${s.overpaid_count}</div>
       </div>` : ''}
       <div class="report-card" style="padding:14px 16px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Получено, ₽</div>
-        <div style="font-size:20px;font-weight:700;color:var(--green)">${s.total_paid_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Должно прийти всего, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text1)">${(s.total_expected_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        ${s.orders_without_pricing ? `<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ ${s.orders_without_pricing} заявок без расчёта</div>` : ''}
       </div>
       <div class="report-card" style="padding:14px 16px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Ожидается, ₽</div>
-        <div style="font-size:20px;font-weight:700;color:var(--amber)">${s.total_pending_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Получено по заявкам, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${(s.total_received_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Долг, ₽</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${(s.total_debt_amount||0).toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+      </div>
+      <div class="report-card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Платежей за период, ₽</div>
+        <div style="font-size:18px;font-weight:600;color:var(--green)">${s.total_paid_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:2px">+ ожидает: ${s.total_pending_amount.toLocaleString('ru-RU', {maximumFractionDigits:0})}</div>
       </div>
     `;
   } catch(e) {
@@ -4788,6 +4871,7 @@ async function loadFinancePaymentOrders() {
       box.innerHTML = '<div class="empty-state" style="padding:14px">Нет заявок с выбранными статусами оплаты</div>';
       return;
     }
+    const canRecord = currentUser?.role === 'manager' || currentUser?.role === 'admin';
     box.innerHTML = `
       <div class="inv-table-wrap">
         <table class="inv-table">
@@ -4798,8 +4882,11 @@ async function loadFinancePaymentOrders() {
               <th>Топливо</th>
               <th style="text-align:right">Объём, л</th>
               <th>Тип оплаты</th>
+              <th style="text-align:right">Ожидается, ₽</th>
+              <th style="text-align:right">Оплачено, ₽</th>
+              <th style="text-align:right">Долг, ₽</th>
               <th>Статус оплаты</th>
-              <th>Статус заявки</th>
+              ${canRecord ? '<th></th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -4807,16 +4894,28 @@ async function loadFinancePaymentOrders() {
               const ps = o.payment_status || 'unpaid';
               const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
               const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
-              const statusLbl = STATUS_LABELS[o.status] || o.status;
+              const target = o.final_amount != null ? o.final_amount : o.expected_amount;
+              const paid = Number(o.paid_total || 0);
+              const debt = Number(o.debt_amount || 0);
+              const expectedCell = (target == null)
+                ? `<span style="color:var(--amber)" title="Тариф не настроен">⚠ —</span>`
+                : Number(target).toLocaleString('ru-RU', {minimumFractionDigits:2});
+              const rowClick = `event.stopPropagation();switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)`;
+              const payBtn = canRecord && ps !== 'paid' && o.status !== 'rejected' && o.status !== 'cancelled'
+                ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">💰 Оплата</button>`
+                : '';
               return `
-                <tr style="cursor:pointer" onclick="switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)">
+                <tr style="cursor:pointer" onclick="${rowClick}">
                   <td><strong>${escHtml(o.order_number)}</strong></td>
                   <td style="color:var(--text3);font-size:11px">${fmtDate(o.created_at)}</td>
                   <td>${escHtml(FUEL_LABELS[o.fuel_type] || o.fuel_type)}</td>
                   <td style="text-align:right">${Number(o.volume_requested).toLocaleString('ru')}</td>
                   <td>${escHtml(PAYMENT_LABELS[o.payment_type] || o.payment_type)}</td>
+                  <td style="text-align:right">${expectedCell}</td>
+                  <td style="text-align:right;color:${paid > 0 ? 'var(--green)' : 'var(--text3)'}">${paid.toLocaleString('ru-RU', {minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;color:${debt > 0 ? 'var(--red)' : 'var(--text3)'};font-weight:${debt > 0 ? '600' : '400'}">${debt.toLocaleString('ru-RU', {minimumFractionDigits:2})}</td>
                   <td><span style="color:${psColor};font-weight:600">${escHtml(psLbl)}</span></td>
-                  <td><span class="status-badge status-${o.status}">${escHtml(statusLbl)}</span></td>
+                  ${canRecord ? `<td>${payBtn}</td>` : ''}
                 </tr>
               `;
             }).join('')}

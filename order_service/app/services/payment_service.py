@@ -94,6 +94,66 @@ def compute_payment_status(
     return "paid"
 
 
+async def get_paid_total(db: AsyncSession, order_id: uuid.UUID) -> Decimal:
+    """Сумма PAID-платежей по одной заявке."""
+    result = await db.execute(
+        select(func.coalesce(func.sum(Payment.amount), 0)).where(
+            Payment.order_id == order_id,
+            Payment.status == PaymentStatus.PAID,
+        )
+    )
+    return Decimal(str(result.scalar() or 0))
+
+
+async def get_paid_totals_map(
+    db: AsyncSession, order_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Decimal]:
+    """Bulk-вариант get_paid_total: одним запросом для списка заявок."""
+    if not order_ids:
+        return {}
+    result = await db.execute(
+        select(Payment.order_id, func.coalesce(func.sum(Payment.amount), 0))
+        .where(
+            Payment.order_id.in_(order_ids),
+            Payment.status == PaymentStatus.PAID,
+        )
+        .group_by(Payment.order_id)
+    )
+    return {oid: Decimal(str(total)) for oid, total in result.all()}
+
+
+def _attach_one(order: Order, paid_total: Decimal) -> None:
+    """Прикрепить paid_total/debt_amount/pricing_warning к ORM-объекту заявки."""
+    target = order.final_amount if order.final_amount is not None else order.expected_amount
+    paid_f = float(paid_total)
+    if target is None:
+        debt = 0.0
+        warning = True
+    else:
+        target_f = float(target)
+        debt = max(target_f - paid_f, 0.0)
+        warning = False
+    # Динамически кладём в инстанс — Pydantic from_attributes подхватит
+    order.paid_total = paid_f
+    order.debt_amount = debt
+    order.pricing_warning = warning
+
+
+async def attach_payment_totals(db: AsyncSession, orders: list[Order]) -> None:
+    """Прикрепить paid_total/debt_amount/pricing_warning ко всем заявкам списка."""
+    if not orders:
+        return
+    totals = await get_paid_totals_map(db, [o.id for o in orders])
+    for o in orders:
+        _attach_one(o, totals.get(o.id, Decimal(0)))
+
+
+async def attach_payment_totals_one(db: AsyncSession, order: Order) -> None:
+    """Прикрепить к одной заявке."""
+    paid = await get_paid_total(db, order.id)
+    _attach_one(order, paid)
+
+
 async def recompute_and_save(db: AsyncSession, order: Order) -> str:
     """Пересчитать payment_status по фактически оплаченным платежам и записать в order.
 

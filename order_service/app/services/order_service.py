@@ -16,7 +16,11 @@ from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest
 from app.services.order_number import generate_order_number
-from app.services.payment_service import recompute_and_save
+from app.services.payment_service import (
+    recompute_and_save,
+    attach_payment_totals,
+    attach_payment_totals_one,
+)
 from app.services import document_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
@@ -106,6 +110,7 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     if actor.role == ROLE_DRIVER and order.driver_id != actor.id:
         raise ForbiddenError()
 
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -151,7 +156,9 @@ async def list_orders(
             .offset(offset).limit(limit)
         )
     )
-    return list(result.scalars().all())
+    orders = list(result.scalars().all())
+    await attach_payment_totals(db, orders)
+    return orders
 
 
 async def create_order(
@@ -267,6 +274,7 @@ async def create_order(
         "body": f"Новая заявка на доставку топлива: {order.delivery_address}",
     })
 
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -299,6 +307,7 @@ async def update_order(
 
     # driver_id больше не назначается менеджером — водители берут заявки через /claim
 
+    await attach_payment_totals_one(db, order)
     return order
 
 
@@ -340,7 +349,9 @@ async def claim_order(
     ))
 
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
-    return result.scalar_one()
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
+    return order
 
 
 async def transition_status(
@@ -460,6 +471,7 @@ async def transition_status(
         "body": f"Новый статус: {order.status.value}",
     })
 
+    await attach_payment_totals_one(db, order)
     return order
 
 

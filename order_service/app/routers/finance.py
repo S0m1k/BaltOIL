@@ -16,8 +16,9 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import ForbiddenError
-from app.models.order import Order, PaymentType
+from app.models.order import Order, OrderStatus, PaymentType
 from app.models.payment import Payment, PaymentStatus
+from app.services.payment_service import get_paid_totals_map
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -34,9 +35,15 @@ class PaymentSummary(BaseModel):
     paid_count: int
     overpaid_count: int
 
-    # Суммы по оплаченным платежам
+    # Суммы по оплаченным платежам (за период)
     total_paid_amount: float
     total_pending_amount: float
+
+    # Денежные показатели по заявкам в периоде
+    total_expected_amount: float      # суммарное ожидаемое поступление (final|expected)
+    total_received_amount: float      # уже получено по этим заявкам (PAID платежи)
+    total_debt_amount: float          # долг = expected - received по unpaid/partial
+    orders_without_pricing: int       # заявки без рассчитанной expected_amount (тариф не настроен)
 
     # Разбивка по типам оплаты
     by_payment_type: dict[str, int]  # payment_type → кол-во заявок
@@ -77,7 +84,7 @@ async def get_summary(
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
 ):
-    """Сводка: кол-во заявок по статусу оплаты + суммы."""
+    """Сводка: кол-во заявок по статусу оплаты + суммы (ожидание / получено / долг)."""
     # Заявки в диапазоне дат (фильтр по created_at заявки)
     order_conds = []
     if date_from:
@@ -85,6 +92,8 @@ async def get_summary(
     if date_to:
         order_conds.append(Order.created_at <= date_to)
     order_conds.append(Order.is_archived == False)  # noqa: E712
+    # Отклонённые заявки не учитываем в финансовых ожиданиях
+    order_conds.append(Order.status != OrderStatus.REJECTED)
 
     orders_q = select(Order)
     if order_conds:
@@ -104,7 +113,7 @@ async def get_summary(
         key = o.payment_type.value if hasattr(o.payment_type, "value") else str(o.payment_type)
         by_type[key] = by_type.get(key, 0) + 1
 
-    # Суммы платежей за период
+    # Суммы платежей за период (фильтр по дате создания платежа)
     pay_conds = _date_conditions(date_from, date_to)
     paid_q = select(func.coalesce(func.sum(Payment.amount), 0)).where(
         Payment.status == PaymentStatus.PAID,
@@ -117,6 +126,24 @@ async def get_summary(
     paid_sum = float((await db.execute(paid_q)).scalar() or 0)
     pending_sum = float((await db.execute(pending_q)).scalar() or 0)
 
+    # Денежные показатели по заявкам периода
+    paid_per_order = await get_paid_totals_map(db, [o.id for o in orders])
+    total_expected = 0.0
+    total_received = 0.0
+    total_debt = 0.0
+    no_pricing = 0
+    for o in orders:
+        target = o.final_amount if o.final_amount is not None else o.expected_amount
+        order_paid = float(paid_per_order.get(o.id, 0))
+        total_received += order_paid
+        if target is None:
+            no_pricing += 1
+            continue
+        target_f = float(target)
+        total_expected += target_f
+        if o.payment_status in ("unpaid", "partially_paid"):
+            total_debt += max(target_f - order_paid, 0.0)
+
     return PaymentSummary(
         total_orders=len(orders),
         unpaid_count=unpaid,
@@ -125,6 +152,10 @@ async def get_summary(
         overpaid_count=overpaid,
         total_paid_amount=paid_sum,
         total_pending_amount=pending_sum,
+        total_expected_amount=round(total_expected, 2),
+        total_received_amount=round(total_received, 2),
+        total_debt_amount=round(total_debt, 2),
+        orders_without_pricing=no_pricing,
         by_payment_type=by_type,
     )
 
