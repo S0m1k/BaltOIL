@@ -29,6 +29,17 @@ async def _check_email_unique(db: AsyncSession, email: str, exclude_id=None) -> 
         raise ConflictError("Пользователь с таким email уже существует")
 
 
+async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=None) -> None:
+    if not phone:
+        return
+    q = select(User).where(User.phone == phone)
+    if exclude_id:
+        q = q.where(User.id != exclude_id)
+    result = await db.execute(q)
+    if result.scalar_one_or_none():
+        raise ConflictError("Пользователь с таким номером телефона уже существует")
+
+
 async def register_individual(
     db: AsyncSession,
     data: RegisterIndividualRequest,
@@ -38,6 +49,7 @@ async def register_individual(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
@@ -81,6 +93,7 @@ async def register_company(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
@@ -130,6 +143,7 @@ async def create_user_by_admin(
 ) -> User:
     data.email = _normalize_email(data.email)
     await _check_email_unique(db, data.email)
+    await _check_phone_unique(db, data.phone)
 
     user = User(
         email=data.email,
