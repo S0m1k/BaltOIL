@@ -5,7 +5,7 @@ Rules (agreed 2026-05-14, revised):
 │ payment_type │ INDIVIDUAL │ COMPANY │ requires credit_allowed │ who can select      │
 ├──────────────┼────────────┼─────────┼──────────────────────┼───────────────────────┤
 │ prepaid      │     ✓      │    ✓    │          —           │ client, manager, admin│
-│ on_delivery  │     ✓      │    ✗    │          —           │ client, manager, admin│
+│ on_delivery  │     ✓      │    ✓    │          —           │ client, manager, admin│
 │ postpaid     │     ✗      │    ✓    │          —           │ manager, admin        │
 │ trade_credit │     ✗      │    ✓    │          —           │ client (company), mgr │
 │ debt         │     ✓      │    ✓    │         yes          │ client (if allowed)   │
@@ -20,7 +20,7 @@ _STAFF_ROLES = {"manager", "admin"}
 # payment_type → (allowed_client_types, staff_only, requires_credit_allowed)
 _RULES: dict[PaymentType, tuple[set[str], bool, bool]] = {
     PaymentType.PREPAID:       ({"individual", "company"}, False, False),
-    PaymentType.ON_DELIVERY:   ({"individual"},            False, False),
+    PaymentType.ON_DELIVERY:   ({"individual", "company"}, False, False),
     PaymentType.POSTPAID:      ({"company"},               True,  False),
     PaymentType.TRADE_CREDIT:  ({"company"},               False, False),  # company clients pick it themselves
     PaymentType.DEBT:          ({"individual", "company"}, False, True),   # any client, only if admin enabled
