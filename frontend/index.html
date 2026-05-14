@@ -331,17 +331,45 @@
     flex: 1; overflow-y: auto; padding: 8px 0;
   }
   .nav-tab {
-    padding: 9px 20px; border: none; background: none; cursor: pointer;
-    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 11px; letter-spacing: 1.2px;
-    text-transform: uppercase; color: var(--text3); text-align: left;
+    padding: 9px 16px; border: none; background: none; cursor: pointer;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 500;
+    color: var(--text3); text-align: left;
     border-left: 3px solid transparent;
-    transition: all .15s; white-space: nowrap;
+    transition: all .15s; white-space: nowrap; flex: 1;
   }
   .nav-tab.active {
     color: var(--amber); border-left-color: var(--amber);
-    background: rgba(245,158,11,.07);
+    background: var(--amber-dim);
   }
   .nav-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
+
+  /* Collapsible Заявки → Создать */
+  .nav-tab-group { display: flex; align-items: stretch; }
+  .nav-tab-caret {
+    padding: 9px 12px; border: none; background: none; cursor: pointer;
+    color: var(--text3); transition: all .15s; flex-shrink: 0;
+    display: flex; align-items: center;
+  }
+  .nav-tab-caret svg { transition: transform .2s; }
+  .nav-tab-caret.expanded svg { transform: rotate(180deg); }
+  .nav-tab-caret:hover { color: var(--amber); background: var(--bg3); }
+  .nav-sub-tab {
+    display: none;
+    padding: 8px 16px 8px 30px; border: none; background: none; cursor: pointer;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 12px; font-weight: 500;
+    color: var(--text3); text-align: left; transition: all .15s;
+    border-left: 3px solid transparent; white-space: nowrap; width: 100%;
+  }
+  .nav-sub-tab.active { color: var(--amber); border-left-color: var(--amber); background: var(--amber-dim); }
+  .nav-sub-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
+
+  /* Chat unread badge on nav tab */
+  .chat-tab-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; border-radius: 9999px;
+    padding: 0 4px; margin-left: 6px; vertical-align: middle;
+  }
 
   .topbar-right {
     position: fixed; top: 0; right: 0; z-index: 150;
@@ -1307,18 +1335,22 @@
   <div class="topbar">
     <div class="topbar-logo">BALTOIL</div>
     <div class="nav-tabs">
-      <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
-      <button class="nav-tab" data-tab="create" id="tab-create-btn" onclick="switchTab('create')">+ Создать</button>
-      <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')">ТС</button>
+      <div class="nav-tab-group">
+        <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
+        <button class="nav-tab-caret" id="tab-create-caret" onclick="toggleCreateSub(event)" title="Создать заявку"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></button>
+      </div>
+      <button class="nav-sub-tab" data-tab="create" id="tab-create-btn" onclick="switchTab('create')">+ Создать</button>
       <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
-      <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="finance" id="tab-finance-btn" onclick="switchTab('finance')">Финансы</button>
-      <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
       <button class="nav-tab" data-tab="inventory" id="tab-inventory-btn" onclick="switchTab('inventory')">Склад</button>
-      <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
+      <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
+      <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
-      <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат</button>
+      <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат<span class="chat-tab-badge" id="chat-tab-badge" style="display:none"></span></button>
+      <!-- Hidden tabs (accessible via JS) -->
+      <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')" style="display:none">ТС</button>
+      <button class="nav-tab" data-tab="fuels" id="tab-fuels-btn" onclick="switchTab('fuels')" style="display:none">Топливо</button>
     </div>
     <!-- Burger button: visible only on mobile via CSS -->
     <button class="burger-btn" id="burger-btn" onclick="openBurger()" aria-label="Меню">☰</button>
@@ -2418,8 +2450,19 @@ async function initApp() {
 // ═══════════════════════════════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════════════════════════════
+function toggleCreateSub(e) {
+  e.stopPropagation();
+  const sub = document.getElementById('tab-create-btn');
+  const caret = document.getElementById('tab-create-caret');
+  const expanded = sub.style.display !== 'none';
+  sub.style.display = expanded ? 'none' : 'block';
+  caret.classList.toggle('expanded', !expanded);
+}
+
 function switchTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.nav-sub-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.tab-pane').forEach(p =>
     p.classList.toggle('active', p.id === `pane-${tab}`));
@@ -3850,8 +3893,9 @@ function startChatPoll(convId) {
         }
       }
       if (appended) {
-        // Update unread sidebar badge silently
-        chatGet('/conversations').then(renderConvList).catch(() => {});
+        // Active conv: mark read immediately so badge clears
+        chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
+        chatGet('/conversations').then(data => { renderConvList(data); updateChatTabBadge(data); }).catch(() => {});
       }
     } catch (_) {}
   }, 3000); // poll every 3 seconds
@@ -3903,7 +3947,20 @@ function convTitle(c) {
   return 'Внутренний чат';
 }
 
+function updateChatTabBadge(convs) {
+  const total = (convs || []).reduce((s, c) => s + (c.unread_count || 0), 0);
+  const badge = document.getElementById('chat-tab-badge');
+  if (!badge) return;
+  if (total > 0) {
+    badge.textContent = total > 99 ? '99+' : total;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function renderConvList(convs) {
+  updateChatTabBadge(convs);
   const el = document.getElementById('conv-list');
   if (!convs.length) {
     el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';

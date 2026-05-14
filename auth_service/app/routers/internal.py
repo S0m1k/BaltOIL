@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -58,3 +58,23 @@ async def get_client_context(
         credit_allowed=profile.credit_allowed,
         tariff_id=profile.tariff_id,
     )
+
+
+@router.get(
+    "/users-by-role",
+    response_model=list[uuid.UUID],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_users_by_role(
+    roles: str,  # comma-separated, e.g. "manager,admin"
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[uuid.UUID]:
+    """Return user IDs for all active users with the given roles (for notification fanout)."""
+    role_list = [r.strip() for r in roles.split(",") if r.strip()]
+    result = await db.execute(
+        select(User.id).where(
+            User.role.in_(role_list),
+            User.is_active == True,  # noqa: E712
+        )
+    )
+    return [row[0] for row in result.all()]
