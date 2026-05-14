@@ -169,9 +169,9 @@ async def create_order(
             raise ForbiddenError("Клиент не может указывать client_id")
         client_id = actor.id
 
-    # Клиент не может выбрать «по счёту» — только менеджер/админ для юрлиц
-    if not is_staff and data.payment_type == PaymentType.INVOICE:
-        raise ValidationError("Тип оплаты «по счёту» назначается менеджером")
+    # Клиент может выбрать только on_delivery или prepaid; postpaid/trade_credit — менеджер
+    if not is_staff and data.payment_type in (PaymentType.POSTPAID, PaymentType.TRADE_CREDIT):
+        raise ValidationError("Этот тип оплаты назначается менеджером")
 
     # Дата доставки не может быть в прошлом
     if data.desired_date:

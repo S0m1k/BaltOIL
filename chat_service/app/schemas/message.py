@@ -19,10 +19,10 @@ class MessageResponse(BaseModel):
     msg_type: str
     text: str
     # ORM attr is msg_metadata (metadata is reserved in SQLAlchemy Declarative).
-    # validation_alias accepts both names; serialization output key is always 'metadata'.
+    # msg_metadata listed first so Pydantic reads it before hitting Base.metadata.
     metadata: dict | None = Field(
         None,
-        validation_alias=AliasChoices("metadata", "msg_metadata"),
+        validation_alias=AliasChoices("msg_metadata", "metadata"),
     )
     created_at: datetime
 

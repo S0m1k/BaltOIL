@@ -1459,9 +1459,9 @@
               <input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()">
               По факту (при прибытии)
             </label>
-            <label class="radio-label" id="pay-invoice-label">
-              <input type="radio" name="payment" value="invoice" onchange="updatePaymentUI()">
-              По счёту (для юр. лиц)
+            <label class="radio-label" id="pay-prepaid-label">
+              <input type="radio" name="payment" value="prepaid" onchange="updatePaymentUI()">
+              Предоплата
             </label>
           </div>
         </div>
@@ -3143,15 +3143,9 @@ function promptCompleteTrip(tripId, volPlanned) {
   openModal('Подтвердить доставку',
     `<p style="color:var(--text2);font-size:13px;margin-bottom:16px">
       Укажите фактически доставленный объём. Данные будут переданы в заявку и скорректируют остаток на складе.</p>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Фактический объём (л) <span style="color:var(--red)">*</span></label>
-        <input type="number" id="ct-vol" class="form-input" value="${volPlanned || ''}" min="1" autofocus>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Конечный одометр (км)</label>
-        <input type="number" id="ct-odo" class="form-input" placeholder="необязательно">
-      </div>
+    <div class="form-group">
+      <label class="form-label">Фактический объём (л) <span style="color:var(--red)">*</span></label>
+      <input type="number" id="ct-vol" class="form-input" value="${volPlanned || ''}" min="1" autofocus>
     </div>
     <div class="form-group">
       <label class="form-label">Примечания</label>
@@ -3162,7 +3156,6 @@ function promptCompleteTrip(tripId, volPlanned) {
       if (!vol || vol <= 0) return toast('Укажите фактический объём', 'error');
       const body = {
         volume_actual: vol,
-        odometer_end:  parseFloat(document.getElementById('ct-odo').value) || null,
         driver_notes:  document.getElementById('ct-notes').value.trim() || null,
       };
       closeModal();
