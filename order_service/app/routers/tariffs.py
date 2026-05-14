@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
+from app.core.exceptions import ForbiddenError
 from app.schemas.tariff import (
     TariffCreateRequest, TariffUpdateRequest, TariffResponse,
     ClientPaymentOptionsResponse,
@@ -98,13 +99,14 @@ async def archive_tariff(
 async def get_client_payment_options(
     client_id: uuid.UUID,
     actor: CurrentUser,
-    _staff: StaffOnly,
 ):
-    """Return available payment types for this client given actor's role.
+    """Return available payment types for this client.
 
-    Used by the UI to render dynamic payment radio buttons when manager
-    creates an order on behalf of a client.
+    Staff can query any client. Clients can only query themselves.
     """
+    if actor.role == "client" and actor.id != client_id:
+        raise ForbiddenError()
+
     ctx = await get_client_context(client_id)
 
     available = []
