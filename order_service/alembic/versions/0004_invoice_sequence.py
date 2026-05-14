@@ -9,6 +9,11 @@ concurrent requests could both read the same count and produce duplicate
 invoice numbers (e.g. INV-2026-000006 twice).
 """
 
+revision = "0004"
+down_revision = "0003"
+branch_labels = None
+depends_on = None
+
 from alembic import op
 
 
