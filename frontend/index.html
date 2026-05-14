@@ -1307,6 +1307,7 @@
       <button class="nav-tab" data-tab="trips" id="tab-trips-btn" onclick="switchTab('trips')">Рейсы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="finance" id="tab-finance-btn" onclick="switchTab('finance')">Финансы</button>
+      <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
       <button class="nav-tab" data-tab="inventory" id="tab-inventory-btn" onclick="switchTab('inventory')">Склад</button>
       <button class="nav-tab" data-tab="fuels" onclick="switchTab('fuels')">Топливо</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
@@ -1454,7 +1455,8 @@
 
         <div class="form-group">
           <label class="form-label">Тип оплаты</label>
-          <div class="radio-group">
+          <div class="radio-group" id="payment-radio-group">
+            <!-- Populated by renderPaymentRadios(); defaults shown until client context loads -->
             <label class="radio-label selected" id="pay-ondelivery-label">
               <input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()">
               По факту (при прибытии)
@@ -1740,6 +1742,39 @@
       </div>
     </div>
 
+    <!-- TARIFFS TAB -->
+    <div class="tab-pane" id="pane-tariffs">
+      <div class="toolbar">
+        <div class="toolbar-title">Тарифы</div>
+        <button class="btn btn-sm btn-primary" id="btn-create-tariff" onclick="promptCreateTariff()" style="margin-left:auto">+ Новый тариф</button>
+        <button class="btn btn-sm btn-ghost" onclick="loadTariffs()">↻ Обновить</button>
+      </div>
+      <!-- Default tariff quick-edit block (visible to manager + admin) -->
+      <div id="tariff-default-block" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-weight:600;font-size:14px">Базовый тариф — актуальные цены</span>
+          <span class="status-badge" style="background:var(--green-bg);color:var(--green)">Активный</span>
+          <span id="tariff-default-name" style="font-size:12px;color:var(--text3);margin-left:4px"></span>
+        </div>
+        <div id="tariff-default-prices" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-sm btn-primary" onclick="saveDefaultTariffPrices()">Сохранить цены</button>
+          <span id="tariff-save-msg" style="font-size:12px;color:var(--green);display:none">✓ Сохранено</span>
+        </div>
+        <div style="margin-top:12px">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Ступенчатые скидки по объёму (необязательно)</div>
+          <div id="tariff-default-tiers" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('tariff-default-tiers')">+ Добавить ступень</button>
+        </div>
+      </div>
+      <!-- All tariffs list (admin sees create/archive/set-default; manager sees read-only) -->
+      <div id="tariffs-list" style="display:flex;flex-direction:column;gap:10px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
     <!-- CLIENTS TAB -->
     <div class="tab-pane" id="pane-clients">
       <div class="toolbar">
@@ -1957,6 +1992,7 @@ function buildBurgerMenu() {
     { tab: 'trips',     label: '🗺️  Рейсы',            show: role !== 'client' },
     { tab: 'report',    label: '📊 Отчёт',            show: role === 'manager' || role === 'admin' },
     { tab: 'finance',   label: '💰 Финансы',          show: role === 'manager' || role === 'admin' },
+    { tab: 'tariffs',   label: '📑 Тарифы',            show: role === 'manager' || role === 'admin' },
     { tab: 'inventory', label: '🛢️  Склад',             show: role === 'manager' || role === 'admin' },
     { tab: 'fuels',     label: '⛽ Топливо',          show: true },
     { tab: 'clients',   label: '👥 Клиенты',          show: role === 'manager' || role === 'admin' },
@@ -1997,6 +2033,7 @@ const PAYMENT_LABELS = {
   on_delivery:  'По факту (при прибытии)',
   trade_credit: 'Товарный кредит',
   postpaid:     'Постоплата (по счёту)',
+  debt:         'В долг',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -2083,6 +2120,12 @@ function orderGet(path) {
 }
 function orderPost(path, body) {
   return api(`${ORDER_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function orderPut(path, body) {
+  return api(`${ORDER_URL}${path}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+function authPatch(path, body) {
+  return api(`${AUTH_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 function deliveryGet(path) {
   return api(`${DELIVERY_URL}${path}`);
@@ -2288,6 +2331,12 @@ async function initApp() {
   document.getElementById('tab-finance-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Tariffs — admin + manager; create button — admin only
+  document.getElementById('tab-tariffs-btn').style.display =
+    (role === 'admin' || role === 'manager') ? '' : 'none';
+  const btnCreateTariff = document.getElementById('btn-create-tariff');
+  if (btnCreateTariff) btnCreateTariff.style.display = role === 'admin' ? '' : 'none';
+
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
 
@@ -2320,6 +2369,7 @@ function switchTab(tab) {
   if (tab === 'inventory') initInventory();
   if (tab === 'clients')   loadClients();
   if (tab === 'finance')   loadFinance();
+  if (tab === 'tariffs')   loadTariffs();
   if (tab === 'fuels')     loadFuels();
   if (tab === 'profile')   loadProfile();
   if (tab === 'chat')      loadConversations();
@@ -2705,9 +2755,11 @@ function promptVolume(orderId, toStatus) {
 // CREATE ORDER
 // ═══════════════════════════════════════════════════════════════
 function updatePaymentUI() {
-  const val = document.querySelector('input[name="payment"]:checked').value;
-  document.getElementById('pay-ondelivery-label').classList.toggle('selected', val === 'on_delivery');
-  document.getElementById('pay-invoice-label').classList.toggle('selected', val === 'invoice');
+  const val = document.querySelector('input[name="payment"]:checked')?.value;
+  document.querySelectorAll('#payment-radio-group .radio-label').forEach(lbl => {
+    const input = lbl.querySelector('input[name="payment"]');
+    lbl.classList.toggle('selected', input?.value === val);
+  });
 }
 
 function updateStatusUI() {
@@ -2718,7 +2770,11 @@ function updateStatusUI() {
 
 async function loadClientSelectForOrder() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  if (!isStaff) return;
+  if (!isStaff) {
+    // For client role: render payment radios based on own profile
+    if (currentUser?.id) renderPaymentRadios(currentUser.id);
+    return;
+  }
   const sel = document.getElementById('c-client-id');
   if (!sel) return;
   try {
@@ -2726,6 +2782,12 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+    // Reload payment options when manager picks a different client
+    sel.onchange = () => {
+      const cid = sel.value;
+      if (cid) renderPaymentRadios(cid);
+    };
+    if (current) renderPaymentRadios(current);
   } catch { /* тихо, не блокируем форму */ }
 }
 
@@ -4192,6 +4254,7 @@ function clientCardHTML(u) {
       <button class="btn btn-sm btn-primary-outline" onclick="event.stopPropagation();startClientChat('${u.id}', '${safeName}')">
         💬 Чат
       </button>
+      ${currentUser?.role === 'admin' ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();promptClientSettings('${u.id}', '${safeName}')" title="Тариф и кредитный лимит">⚙️</button>` : ''}
     </div>
   </div>`;
 }
@@ -4589,6 +4652,7 @@ const PAYMENT_TYPE_LABELS = {
   on_delivery:  'По факту',
   trade_credit: 'Товарный кредит',
   postpaid:     'Постоплата',
+  debt:         'В долг',
 };
 const PAYMENT_STATUS_LABELS = {
   unpaid:         'Не оплачено',
@@ -4678,6 +4742,340 @@ async function loadFinance() {
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:16px">Ошибка загрузки платежей</td></tr>`;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TARIFFS TAB
+// ═══════════════════════════════════════════════════════════════
+
+const FUEL_LABELS = {
+  DIESEL_SUMMER: 'ДТ летнее',
+  DIESEL_WINTER: 'ДТ зимнее',
+  PETROL_92:     'АИ-92',
+  PETROL_95:     'АИ-95',
+  FUEL_OIL:      'Мазут М-100',
+};
+
+const PAYMENT_TYPE_LABELS_ALL = {
+  prepaid:      'Предоплата',
+  on_delivery:  'По факту (при прибытии)',
+  postpaid:     'Постоплата (по счёту)',
+  trade_credit: 'Товарный кредит',
+  debt:         'В долг',
+};
+
+let _defaultTariff = null;
+
+async function loadTariffs() {
+  try {
+    const tariffs = await orderGet('/tariffs?include_archived=false');
+    _defaultTariff = tariffs.find(t => t.is_default) || null;
+    renderDefaultTariffBlock(_defaultTariff);
+    renderTariffsList(tariffs);
+  } catch (e) {
+    document.getElementById('tariffs-list').innerHTML =
+      `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderDefaultTariffBlock(tariff) {
+  const block = document.getElementById('tariff-default-prices');
+  const nameEl = document.getElementById('tariff-default-name');
+  if (!tariff) {
+    block.innerHTML = '<div class="empty-state">Базовый тариф не настроен</div>';
+    return;
+  }
+  if (nameEl) nameEl.textContent = `(${escHtml(tariff.name)})`;
+
+  // Price inputs
+  block.innerHTML = tariff.fuel_prices.map(fp => `
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-size:11px;color:var(--text3)">${escHtml(FUEL_LABELS[fp.fuel_type] || fp.fuel_type)}</label>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="number" step="0.01" min="0.01"
+          class="form-input" style="width:100px;font-size:13px"
+          id="price-${escHtml(fp.fuel_type)}"
+          value="${Number(fp.price_per_liter).toFixed(2)}">
+        <span style="font-size:12px;color:var(--text3)">₽/л</span>
+      </div>
+    </div>`).join('');
+
+  // Volume tiers
+  const tiersEl = document.getElementById('tariff-default-tiers');
+  tiersEl.innerHTML = '';
+  tariff.volume_tiers.forEach(t => addTierRow('tariff-default-tiers', t));
+}
+
+function addTierRow(containerId, tier = null) {
+  const container = document.getElementById(containerId);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:8px';
+  row.innerHTML = `
+    <span style="font-size:12px;color:var(--text3)">от</span>
+    <input type="number" step="0.01" min="0" placeholder="литров"
+      class="form-input tier-vol" style="width:100px;font-size:13px"
+      value="${tier ? tier.min_volume : ''}">
+    <span style="font-size:12px;color:var(--text3)">л →</span>
+    <input type="number" step="0.01" min="0" max="100" placeholder="скидка %"
+      class="form-input tier-pct" style="width:80px;font-size:13px"
+      value="${tier ? tier.discount_pct : ''}">
+    <span style="font-size:12px;color:var(--text3)">%</span>
+    <button class="btn btn-sm btn-ghost" style="color:var(--red)"
+      onclick="this.closest('div').remove()">✕</button>`;
+  container.appendChild(row);
+}
+
+function collectTiers(containerId) {
+  return [...document.getElementById(containerId).querySelectorAll('div')].map(row => ({
+    min_volume: parseFloat(row.querySelector('.tier-vol').value) || 0,
+    discount_pct: parseFloat(row.querySelector('.tier-pct').value) || 0,
+  })).filter(t => t.min_volume > 0 || t.discount_pct > 0);
+}
+
+async function saveDefaultTariffPrices() {
+  if (!_defaultTariff) return;
+  const msgEl = document.getElementById('tariff-save-msg');
+  msgEl.style.display = 'none';
+  try {
+    const fuel_prices = _defaultTariff.fuel_prices.map(fp => ({
+      fuel_type: fp.fuel_type,
+      price_per_liter: parseFloat(
+        document.getElementById(`price-${fp.fuel_type}`)?.value || fp.price_per_liter
+      ),
+    }));
+    const volume_tiers = collectTiers('tariff-default-tiers');
+    await orderPut(`/tariffs/${_defaultTariff.id}`, { fuel_prices, volume_tiers });
+    msgEl.style.display = '';
+    setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
+    await loadTariffs();
+  } catch (e) {
+    toast('Ошибка сохранения: ' + e.message);
+  }
+}
+
+function renderTariffsList(tariffs) {
+  const el = document.getElementById('tariffs-list');
+  const isAdmin = currentUser?.role === 'admin';
+  if (!tariffs.length) {
+    el.innerHTML = '<div class="empty-state">Нет тарифов</div>';
+    return;
+  }
+  el.innerHTML = tariffs.map(t => `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-weight:600">${escHtml(t.name)}</span>
+        ${t.is_default ? '<span class="status-badge" style="background:var(--green-bg);color:var(--green)">Базовый</span>' : ''}
+        ${t.is_archived ? '<span class="status-badge" style="background:var(--bg3);color:var(--text3)">Архив</span>' : ''}
+        ${isAdmin && !t.is_default && !t.is_archived ? `
+          <button class="btn btn-sm btn-ghost" style="margin-left:auto"
+            onclick="setDefaultTariff('${t.id}')">Сделать базовым</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red)"
+            onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
+        ${isAdmin && !t.is_default ? `
+          <button class="btn btn-sm btn-ghost" onclick="promptEditTariff('${t.id}')">Редактировать</button>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${t.fuel_prices.map(fp => `
+          <div style="background:var(--bg3);border-radius:4px;padding:4px 10px;font-size:12px">
+            <span style="color:var(--text3)">${escHtml(FUEL_LABELS[fp.fuel_type] || fp.fuel_type)}</span>
+            <span style="font-weight:600;margin-left:6px">${Number(fp.price_per_liter).toFixed(2)} ₽/л</span>
+          </div>`).join('')}
+      </div>
+      ${t.volume_tiers.length ? `
+        <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+          Скидки: ${t.volume_tiers.map(vt =>
+            `от ${Number(vt.min_volume).toLocaleString('ru')} л → ${vt.discount_pct}%`
+          ).join(', ')}
+        </div>` : ''}
+    </div>`).join('');
+}
+
+async function setDefaultTariff(tariffId) {
+  try {
+    await orderPost(`/tariffs/${tariffId}/set-default`, {});
+    toast('Базовый тариф изменён');
+    loadTariffs();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+async function archiveTariff(tariffId, name) {
+  if (!confirm(`Архивировать тариф «${name}»?`)) return;
+  try {
+    await orderPost(`/tariffs/${tariffId}/archive`, {});
+    toast('Тариф архивирован');
+    loadTariffs();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+function promptCreateTariff() {
+  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  openModal('Новый тариф', `
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="nt-name" class="form-input" placeholder="Промо-2026">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Описание (необязательно)</label>
+      <input type="text" id="nt-desc" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Цены за литр</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${fuels.map(f => `
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS[f])}</span>
+            <input type="number" step="0.01" min="0.01" class="form-input" id="nt-price-${f}"
+              style="width:80px;font-size:13px" placeholder="0.00">
+            <span style="font-size:12px;color:var(--text3)">₽/л</span>
+          </div>`).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ступени скидок</label>
+      <div id="nt-tiers"></div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('nt-tiers')">+ Добавить</button>
+    </div>`,
+    async () => {
+      const name = document.getElementById('nt-name').value.trim();
+      if (!name) { toast('Укажите название'); return; }
+      const fuel_prices = fuels.map(f => ({
+        fuel_type: f,
+        price_per_liter: parseFloat(document.getElementById(`nt-price-${f}`).value),
+      }));
+      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
+        toast('Укажите цены для всех типов топлива'); return;
+      }
+      try {
+        await orderPost('/tariffs', {
+          name,
+          description: document.getElementById('nt-desc').value.trim() || null,
+          fuel_prices,
+          volume_tiers: collectTiers('nt-tiers'),
+        });
+        closeModal();
+        toast('Тариф создан');
+        loadTariffs();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
+}
+
+async function promptEditTariff(tariffId) {
+  let tariff;
+  try { tariff = await orderGet(`/tariffs/${tariffId}`); }
+  catch (e) { toast('Ошибка загрузки тарифа'); return; }
+
+  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  openModal(`Тариф: ${escHtml(tariff.name)}`, `
+    <div class="form-group">
+      <label class="form-label">Цены за литр</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${fuels.map(f => {
+          const fp = tariff.fuel_prices.find(p => p.fuel_type === f);
+          return `
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS[f])}</span>
+              <input type="number" step="0.01" min="0.01" class="form-input" id="et-price-${f}"
+                style="width:80px;font-size:13px" value="${fp ? Number(fp.price_per_liter).toFixed(2) : ''}">
+              <span style="font-size:12px;color:var(--text3)">₽/л</span>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ступени скидок</label>
+      <div id="et-tiers"></div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('et-tiers')">+ Добавить</button>
+    </div>`,
+    async () => {
+      const fuel_prices = fuels.map(f => ({
+        fuel_type: f,
+        price_per_liter: parseFloat(document.getElementById(`et-price-${f}`).value),
+      }));
+      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
+        toast('Укажите цены для всех типов топлива'); return;
+      }
+      try {
+        await orderPut(`/tariffs/${tariffId}`, {
+          fuel_prices,
+          volume_tiers: collectTiers('et-tiers'),
+        });
+        closeModal();
+        toast('Тариф обновлён');
+        loadTariffs();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
+  // Populate tiers after modal is rendered
+  setTimeout(() => tariff.volume_tiers.forEach(t => addTierRow('et-tiers', t)), 50);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DYNAMIC PAYMENT RADIO
+// ═══════════════════════════════════════════════════════════════
+
+async function renderPaymentRadios(clientId) {
+  const container = document.getElementById('payment-radio-group');
+  if (!container) return;
+  try {
+    const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
+    const types = opts.available_payment_types || [];
+    const current = container.querySelector('input[name="payment"]:checked')?.value || types[0];
+    container.innerHTML = types.map((pt, i) => `
+      <label class="radio-label${pt === current || (i === 0 && !current) ? ' selected' : ''}" id="pay-${pt}-label">
+        <input type="radio" name="payment" value="${pt}"
+          ${pt === current || (i === 0 && !current) ? 'checked' : ''}
+          onchange="updatePaymentUI()">
+        ${escHtml(PAYMENT_TYPE_LABELS_ALL[pt] || pt)}
+      </label>`).join('');
+  } catch (_) {
+    // If fetch fails, keep the static defaults — don't block order creation
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENT TARIFF / CREDIT MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+async function promptClientSettings(userId, clientName) {
+  // Load current profile
+  let user;
+  try { user = await authGet(`/users/${userId}`); }
+  catch (e) { toast('Ошибка загрузки профиля'); return; }
+
+  const profile = user.client_profile || {};
+  let tariffOptions = '<option value="">— базовый —</option>';
+  try {
+    const tariffs = await orderGet('/tariffs');
+    tariffOptions += tariffs.filter(t => !t.is_archived).map(t =>
+      `<option value="${t.id}"${profile.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
+    ).join('');
+  } catch (_) {}
+
+  openModal(`Настройки клиента: ${escHtml(clientName)}`, `
+    <div class="form-group">
+      <label class="form-label">Тариф</label>
+      <select id="cs-tariff" class="form-input">${tariffOptions}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="cs-credit" ${profile.credit_allowed ? 'checked' : ''}>
+      <label for="cs-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label>
+    </div>`,
+    async () => {
+      const tariffId = document.getElementById('cs-tariff').value || null;
+      const creditAllowed = document.getElementById('cs-credit').checked;
+      try {
+        await authPatch(`/users/${userId}/tariff`, {
+          tariff_id: tariffId,
+          credit_allowed: creditAllowed,
+        });
+        closeModal();
+        toast('Настройки клиента сохранены');
+        loadClients();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }
+  );
 }
 
 function exportFinanceCsv() {

@@ -35,6 +35,7 @@ class PaymentType(str, enum.Enum):
     ON_DELIVERY = "on_delivery"     # По факту, при прибытии
     TRADE_CREDIT = "trade_credit"   # Товарный кредит
     POSTPAID = "postpaid"           # Постоплата (по счёту)
+    DEBT = "debt"                   # Условно в долг (семантически = trade_credit, разделён для отчётности)
 
 
 class OrderPriority(str, enum.Enum):

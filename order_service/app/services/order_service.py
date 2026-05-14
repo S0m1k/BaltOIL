@@ -18,6 +18,9 @@ from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatu
 from app.services.order_number import generate_order_number
 from app.services.payment_service import recompute_and_save
 from app.services import document_service
+from app.services.client_context import get_client_context
+from app.services.payment_type_rules import validate_payment_type
+from app.services.pricing_service import compute_expected_amount
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -169,9 +172,17 @@ async def create_order(
             raise ForbiddenError("Клиент не может указывать client_id")
         client_id = actor.id
 
-    # Клиент может выбрать только on_delivery или prepaid; postpaid/trade_credit — менеджер
-    if not is_staff and data.payment_type in (PaymentType.POSTPAID, PaymentType.TRADE_CREDIT):
-        raise ValidationError("Этот тип оплаты назначается менеджером")
+    # Fetch client context (client_type, credit_allowed, tariff_id) from auth_service.
+    # Fails with 503 if auth_service is unreachable — we never silently skip this check.
+    ctx = await get_client_context(client_id)
+
+    # Validate payment_type against role × client_type × credit_allowed matrix
+    validate_payment_type(
+        data.payment_type,
+        actor_role=actor.role,
+        client_type=ctx.client_type,
+        credit_allowed=ctx.credit_allowed,
+    )
 
     # Дата доставки не может быть в прошлом
     if data.desired_date:
@@ -186,6 +197,11 @@ async def create_order(
     if is_staff and data.start_in_progress:
         initial_status = OrderStatus.IN_PROGRESS
 
+    # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
+    expected_amount = await compute_expected_amount(
+        db, data.fuel_type, data.volume_requested, ctx.tariff_id
+    )
+
     order = Order(
         order_number=order_number,
         client_id=client_id,
@@ -195,6 +211,7 @@ async def create_order(
         delivery_address=data.delivery_address,
         desired_date=data.desired_date,
         payment_type=data.payment_type,
+        expected_amount=expected_amount,
         priority=data.priority if is_staff else OrderPriority.NORMAL,
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
@@ -225,6 +242,13 @@ async def create_order(
         ))
 
     await db.flush()
+
+    # Auto-document: prepaid → invoice_preliminary at creation time
+    if order.payment_type == PaymentType.PREPAID:
+        try:
+            await document_service.generate_invoice_preliminary(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
 
     # Re-fetch with eager-loaded status_logs to avoid lazy-load error during serialization
     result = await db.execute(
@@ -332,16 +356,18 @@ async def transition_status(
     # Бизнес-проверки при конкретных переходах
 
     # Шлагбаум закрытия: заявка не закрывается без оплаты.
-    # Исключение: товарный кредит с подписанным договором — закрывается авансом.
+    # Исключение: кредитные типы (trade_credit / debt) с подписанным договором —
+    # закрываются без оплаты (долг фиксируется в отчётности).
     if data.to_status == OrderStatus.CLOSED:
-        trade_credit_bypass = (
-            order.payment_type == PaymentType.TRADE_CREDIT
-            and order.trade_credit_contract_signed
+        is_credit_payment = order.payment_type in (
+            PaymentType.TRADE_CREDIT, PaymentType.DEBT
         )
-        if order.payment_status != "paid" and not trade_credit_bypass:
+        credit_bypass = is_credit_payment and order.trade_credit_contract_signed
+        if order.payment_status != "paid" and not credit_bypass:
             raise StatusTransitionError(
                 f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
-                "Зафиксируйте оплату или, для товарного кредита, отметьте подписание договора."
+                "Зафиксируйте оплату или, для товарного кредита / долга, "
+                "отметьте подписание договора."
             )
 
     # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
@@ -389,19 +415,33 @@ async def transition_status(
     ))
     await db.flush()
 
-    # Авто-генерация документов при ключевых переходах.
+    # ── Авто-генерация документов ─────────────────────────────────────────────
     # Ошибки PDF-рендера не прерывают переход — документ остаётся в статусе DRAFT.
-    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
-        try:
-            await document_service.generate_ttn(db, order, actor)
-        except Exception as exc:
-            log.warning("Auto-TTN generation failed for order %s: %s", order.id, exc)
+    #
+    # Матрица триггеров (SPEC 1.5.9):
+    #   IN_TRANSIT   + trade_credit/debt  → TTN предварительная
+    #   DELIVERED/*  + все типы           → invoice_final + UPD + TTN финальная
+    #   (prepaid получает invoice_preliminary при создании, не здесь)
 
-    if data.to_status == OrderStatus.CLOSED:
-        try:
-            await document_service.generate_upd(db, order, actor)
-        except Exception as exc:
-            log.warning("Auto-UPD generation failed for order %s: %s", order.id, exc)
+    _credit_types = (PaymentType.TRADE_CREDIT, PaymentType.DEBT)
+
+    if data.to_status == OrderStatus.IN_TRANSIT:
+        if order.payment_type in _credit_types:
+            try:
+                await document_service.generate_ttn(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-TTN (preliminary) failed for order %s: %s", order.id, exc)
+
+    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
+        for gen_fn, label in [
+            (document_service.generate_invoice_final, "invoice_final"),
+            (document_service.generate_upd, "UPD"),
+            (document_service.generate_ttn, "TTN"),
+        ]:
+            try:
+                await gen_fn(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
 
     # Re-fetch to include the new log in the response
     result = await db.execute(

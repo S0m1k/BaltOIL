@@ -26,6 +26,7 @@ class ClientProfileResponse(BaseModel):
     correspondent_account: str | None
     contract_number: str | None
     credit_allowed: bool
+    tariff_id: uuid.UUID | None
     fuel_coefficient: float
     delivery_coefficient: float
 
@@ -52,6 +53,10 @@ class UpdateClientProfileRequest(BaseModel):
 
 
 class UpdateClientTariffRequest(BaseModel):
-    """Изменение тарифных коэффициентов — только admin."""
+    """Назначение тарифа и управление кредитным флагом — только admin."""
+    # Soft FK — ссылается на tariffs.id в order_service БД. NULL = использовать default.
+    tariff_id: uuid.UUID | None = Field(None)
+    credit_allowed: bool | None = Field(None)
+    # Устаревшие коэффициенты — оставлены для совместимости до удаления полей.
     fuel_coefficient: float | None = Field(None, gt=0, le=5.0)
     delivery_coefficient: float | None = Field(None, gt=0, le=5.0)

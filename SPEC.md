@@ -793,6 +793,411 @@ Response:
 
 ---
 
+# ЭТАП 1.5 — Тарифы и расширенные типы оплат
+
+> Расширение Этапа 1, утверждено 2026-05-14. Цель: довести систему оплат и ценообразования до полного MVP до перехода к Этапу 2 (LiveKit).
+>
+> Ключевые решения, зафиксированные с пользователем:
+> 1. **Тарифы:** цена за литр на каждый `fuel_type` + ступенчатые скидки по объёму (volume thresholds → % discount).
+> 2. **`trade_credit` vs `debt`:** семантика идентична (обе разрешают закрытие без оплаты, но создают долг). Разделены **только для бухгалтерской отчётности** — никакой разной бизнес-логики, никаких дополнительных полей.
+> 3. **MVP-скоуп:** включает авто-генерацию документов (опирается на инфру Шага 1.5 «Генерация PDF документов»). Триггеры расширяются под новые типы оплат.
+>
+> **До конца Этапа 1.5 — не трогать LiveKit/звонки/мобилку.** TODO.md для всего, что не входит.
+
+---
+
+## Контекст (что уже есть в коде)
+
+- `auth_service`: `ClientProfile.client_type` (enum `INDIVIDUAL` / `COMPANY`), `credit_allowed: bool`. Уже работают, миграция в `0001_baseline.py`.
+- `auth_service`: `ClientProfile.fuel_coefficient`, `delivery_coefficient` — **устаревают**, заменяются тарифом. План удаления — Шаг 1.5.3.
+- `order_service`: `PaymentType` enum = `prepaid`, `on_delivery`, `trade_credit`, `postpaid`. Хранится в БД lowercase (через `values_callable`). Миграция `0002`.
+- JWT в order_service содержит только `sub`+`role`. Получение `client_type`/`credit_allowed`/`tariff_id` — через HTTP к auth_service (паттерн уже используется, см. `_auto_start_trip` в `order_service/app/services/order_service.py`).
+- Документы и таблица `documents` уже в `0002`. Авто-генерация прикручена в Шаге 1.5 базового SPEC — расширяем триггеры, не переписываем.
+
+---
+
+## Шаг 1.5.1. Добавление `debt` в `PaymentType`
+
+**Цель:** новый тип оплаты `debt` в enum, без изменения бизнес-логики относительно `trade_credit`.
+
+**Файлы:**
+- `order_service/app/models/order.py` (правка enum)
+- `order_service/app/services/order_service.py` (правка валидаций, гейтов закрытия)
+- `order_service/alembic/versions/0003_payment_type_debt_and_tariffs.py` (новый — общая миграция Этапа 1.5)
+
+**Реализация:**
+1. `PaymentType`: добавить значение `DEBT = "debt"`.
+2. Гейт закрытия (`* → CLOSED`): обращаться с `DEBT` ровно как с `TRADE_CREDIT` — допускать закрытие при `trade_credit_contract_signed=true`. Назвать переменную/проверку `is_credit_payment = payment_type in (TRADE_CREDIT, DEBT)` для читаемости.
+3. Валидация при создании заявки (клиент vs менеджер):
+   - Клиент **не может выбирать** `postpaid`, `trade_credit`, `debt` — только `prepaid` или `on_delivery`.
+   - Менеджер/админ выбирает любой из доступных по правилам Шага 1.5.6.
+4. Миграция: `ALTER TYPE paymenttype ADD VALUE 'debt'`. **Важно:** PG запрещает использовать новое значение в той же транзакции — выполнять в отдельной миграции либо использовать паттерн «type swap через CASE» (как в `0002`). Решение: оставить `ALTER TYPE ADD VALUE` в отдельной transactional блок (`op.execute(...).execution_options(autocommit_block=True)`) — проверить, что Alembic это поддерживает; если нет — type-swap паттерн.
+
+**Критерии приёмки:**
+- [ ] Миграция `0003` применяется и откатывается чисто на dev
+- [ ] Тест: заявка с `payment_type=debt`, `contract_signed=false` → 400 при закрытии
+- [ ] Тест: заявка с `payment_type=debt`, `contract_signed=true` → CLOSED разрешён даже при unpaid
+- [ ] Тест: клиент с ролью `client` пытается создать заявку с `payment_type=debt` → 403/400
+
+**Коммит:** `feat(orders): add 'debt' payment type (accounting twin of trade_credit)`
+
+---
+
+## Шаг 1.5.2. Модель тарифов
+
+**Цель:** админ управляет тарифами; каждый тариф = базовая цена за литр на топливо + опциональные ступенчатые скидки.
+
+**Файлы:**
+- `order_service/app/models/tariff.py` (новый)
+- `order_service/app/models/__init__.py` (экспорт)
+- `order_service/alembic/versions/0003_payment_type_debt_and_tariffs.py` (в той же миграции 0003)
+
+**Схема:**
+
+### `tariffs`
+```
+id              UUID PK
+name            varchar(120)  UNIQUE  — например, "Базовый", "Промо-2026", "VIP"
+is_default      bool          — ровно одна запись с true; контролируется в сервисе
+description     text NULL
+is_archived     bool default false
+created_by_id   UUID NULL    — admin user
+created_at      timestamptz
+updated_at      timestamptz
+```
+**Инвариант:** ровно один тариф с `is_default=true and is_archived=false`. Поддерживается в сервисном слое (транзакция: снять старый default → поставить новый).
+
+### `tariff_fuel_prices`
+```
+id           UUID PK
+tariff_id    UUID FK -> tariffs ON DELETE CASCADE
+fuel_type    paymenttype enum (правильно: fueltype) — Diesel*/Petrol*/FuelOil
+price_per_liter  Numeric(10, 4)  — рубли за литр
+UNIQUE(tariff_id, fuel_type)
+```
+**Правило:** при создании/редактировании тарифа админ должен задать цену на каждое значение `FuelType`, иначе валидация в сервисе отклоняет. На случай добавления нового FuelType — миграция должна заполнить дефолтные цены во всех существующих тарифах (см. ниже).
+
+### `tariff_volume_tiers`
+```
+id              UUID PK
+tariff_id       UUID FK -> tariffs ON DELETE CASCADE
+min_volume      Numeric(10, 2)   — порог в литрах, ВКЛЮЧИТЕЛЬНО
+discount_pct    Numeric(5, 2)    — % скидки от базовой цены (0..100)
+UNIQUE(tariff_id, min_volume)
+```
+**Правило применения:** при объёме `V` берётся максимальный `min_volume ≤ V` из этого тарифа. Если ступеней нет — скидки 0%.
+
+**Реализация:**
+- Один тариф «Базовый» сидируется в миграции 0003: `is_default=true`, цены на все `FuelType` = текущие плейсхолдеры (50–80 руб/л — уточнить у пользователя в чат-диалоге, **не хардкодить молча**, выпустить как `default_prices.json` рядом со скриптом и ссылаться).
+- Без ступеней по умолчанию.
+
+**Критерии приёмки:**
+- [ ] Миграция создаёт 3 таблицы + базовый тариф
+- [ ] Юнит-тест функции `compute_price(tariff_id, fuel_type, volume) -> Decimal` (создать в Шаге 1.5.5)
+
+**Коммит:** `feat(orders): tariff model with per-fuel pricing and volume discount tiers`
+
+---
+
+## Шаг 1.5.3. Привязка клиента к тарифу
+
+**Цель:** у каждого `ClientProfile` есть `tariff_id` (по умолчанию — `is_default=true` тариф). Меняет только админ.
+
+**Файлы:**
+- `auth_service/app/models/client_profile.py` (правка)
+- `auth_service/alembic/versions/0002_client_tariff.py` (новый)
+- `auth_service/app/schemas/client_profile.py` (правка)
+- `auth_service/app/services/user_service.py` (правка — назначение default при создании клиента)
+
+**Изменения:**
+- В `client_profiles` добавить колонку `tariff_id UUID NULL` (без FK — лежит в другой БД).
+- В миграции: backfill всем существующим клиентам `tariff_id` = id базового тарифа.
+- **Поля-коэффициенты `fuel_coefficient`, `delivery_coefficient`** — оставить пока, **не удалять** в этой миграции (для возможного отката). Удаление вынести в отдельную задачу TODO.md после подтверждения, что ценообразование через тариф стабильно работает на проде ≥ 1 недели.
+- В `ClientProfileCreate`/`Update` схемах: `tariff_id` доступен только админу. В роутерах user_service: эндпоинт назначения тарифа — только admin (`POST /api/admin/clients/{id}/tariff`).
+
+**Замечание про `tariff_id` в auth-БД:** базовый id берём из переменной окружения `DEFAULT_TARIFF_ID` (заполняется при деплое после создания тарифа в order_service). Альтернативно — поле может быть `NULL`, и в логике расчёта `NULL` трактуется как «использовать default». Выбираем второй вариант: меньше связности при миграциях. **Решение зафиксировано: `tariff_id IS NULL → default tariff`.**
+
+**Критерии приёмки:**
+- [ ] Новый клиент создаётся без tariff_id → расчёт идёт по default
+- [ ] Админ через API назначает клиенту тариф → следующая заявка использует новый
+- [ ] Не-админ не может изменить tariff_id (403)
+
+**Коммит:** `feat(auth): assign tariff to client profile (admin-only)`
+
+---
+
+## Шаг 1.5.4. Inter-service: order_service ↔ auth_service
+
+**Цель:** при создании заявки order_service знает `client_type`, `credit_allowed`, `tariff_id` клиента.
+
+**Файлы:**
+- `auth_service/app/routers/users.py` (или новый `internal.py`)
+- `order_service/app/services/client_context.py` (новый)
+
+**Реализация:**
+1. **Новый эндпоинт в auth_service:** `GET /api/internal/clients/{client_id}/context`
+   Response:
+   ```json
+   {
+     "user_id": "...",
+     "client_type": "individual" | "company",
+     "credit_allowed": true,
+     "tariff_id": "uuid-or-null"
+   }
+   ```
+   Доступ: только межсервисный (проверка по специальному заголовку/служебному токену — паттерн уже используется для service tokens; смотреть `_make_service_token` в order_service).
+2. **В order_service:** `get_client_context(client_id, token) -> ClientContext` — простой httpx-вызов, таймаут 5 с, кешируем в памяти на 30 с (`functools.lru_cache` не годится для async; использовать `cachetools.TTLCache` + lock или сразу без кеша на MVP — без кеша на старте).
+3. Вызывается:
+   - При создании заявки (Шаг 1.5.5/1.5.6)
+   - При попытке изменения `payment_type` менеджером
+4. Если auth_service недоступен — **отказать в создании заявки с 503** (не угадывать дефолты по тихому).
+
+**Критерии приёмки:**
+- [ ] Эндпоинт `/api/internal/clients/{id}/context` возвращает корректные данные
+- [ ] Эндпоинт недоступен без service-токена (401/403)
+- [ ] Создание заявки в order_service делает один HTTP-вызов и использует результат
+
+**Коммит:** `feat(auth,orders): internal client context endpoint for cross-service checks`
+
+---
+
+## Шаг 1.5.5. Расчёт `expected_amount` по тарифу
+
+**Цель:** при создании заявки `expected_amount = price_per_liter(tariff, fuel) × volume × (1 - discount_pct/100)`.
+
+**Файлы:**
+- `order_service/app/services/pricing_service.py` (новый)
+- `order_service/app/services/order_service.py` (интеграция при создании)
+- `order_service/tests/test_pricing.py` (новый)
+
+**Логика:**
+```
+def compute_expected_amount(tariff_id, fuel_type, volume) -> Decimal:
+    tariff = fetch tariff (или default если tariff_id is None)
+    if tariff is None or archived → raise 500 "Тариф не настроен"
+    price = tariff.fuel_prices[fuel_type].price_per_liter
+    tiers = tariff.volume_tiers sorted by min_volume desc
+    discount_pct = 0
+    for t in tiers:
+        if volume >= t.min_volume:
+            discount_pct = t.discount_pct
+            break
+    return (price * volume * (1 - discount_pct/100)).quantize(Decimal("0.01"))
+```
+
+При создании Order:
+- После определения `client_id`, вызвать `get_client_context` → получить tariff_id
+- Вызвать `compute_expected_amount(tariff_id, data.fuel_type, data.volume_requested)`
+- Записать в `order.expected_amount`
+
+При установке `final_amount` (delivered): пересчёт по тому же тарифу с фактическим объёмом — это `final_amount`. Уже частично описано в Шаге 1.2 базового SPEC; здесь только заменяем источник цены (был "цена в момент создания" — становится «тариф клиента»).
+
+**Замечание по immutability:** если админ поменяет тариф клиента после создания заявки, **expected_amount уже зафиксирован** на момент создания. `final_amount` пересчитывается по тарифу клиента **в момент доставки** — это компромисс «простоты»: на проде с одним менеджером цены меняются редко. Если станет проблемой — записывать `tariff_snapshot_id` в заявку (TODO.md).
+
+**Критерии приёмки:**
+- [ ] Юнит-тесты: 0 ступеней, 1 ступень, несколько ступеней, объём ниже всех порогов, объём = порогу (включительно)
+- [ ] При создании заявки `expected_amount` появляется автоматически
+- [ ] Если у клиента `tariff_id=null` → используется default
+
+**Коммит:** `feat(orders): auto-compute expected_amount from client tariff`
+
+---
+
+## Шаг 1.5.6. Валидация `payment_type` по ролям и типу клиента
+
+**Цель:** только разрешённые комбинации `(actor_role, client_type, credit_allowed) → payment_type` принимаются.
+
+**Файлы:**
+- `order_service/app/services/order_service.py` (правка валидации)
+- `order_service/tests/test_payment_type_rules.py` (новый)
+
+**Матрица:**
+| payment_type | INDIVIDUAL | COMPANY | требует credit_allowed | кто может выбрать |
+|---|---|---|---|---|
+| `prepaid` | ✅ | ✅ | — | client, manager, admin |
+| `on_delivery` | ✅ | ❌ | — | client, manager, admin |
+| `postpaid` | ❌ | ✅ | — | manager, admin |
+| `trade_credit` | ❌ | ✅ | — | manager, admin |
+| `debt` | ✅ | ✅ | **да** | manager, admin |
+
+Реализация: один сервисный метод `validate_payment_type(payment_type, actor_role, client_ctx)`. Бросает `ValidationError` с человеко-понятным русским сообщением.
+
+**Критерии приёмки:**
+- [ ] Юнит-тест на все 5×3 = 15 комбинаций минимум
+- [ ] Сообщения об ошибке указывают, почему запрещено (роль / тип клиента / credit_allowed)
+
+**Коммит:** `feat(orders): role+client-type validation for payment_type`
+
+---
+
+## Шаг 1.5.7. Admin API: тарифы и назначения
+
+**Цель:** админ CRUD-ит тарифы и назначает их клиентам через REST.
+
+**Файлы:**
+- `order_service/app/routers/tariffs.py` (новый)
+- `order_service/app/schemas/tariff.py` (новый)
+- `order_service/app/services/tariff_service.py` (новый)
+- `order_service/app/main.py` (подключить роутер)
+- `auth_service/app/routers/admin.py` (или дополнить users — эндпоинт назначения тарифа клиенту)
+
+**Разграничение прав (зафиксировано 2026-05-14):**
+- **Базовый (default) тариф** — цены и ступени могут менять **manager И admin** (цены закупки и рыночные ставки прыгают каждый день; менеджер в курсе быстрее, чем админ).
+- **Специальные (не-default) тарифы** — CRUD/архивация/`set-default`/назначение клиентам — **только admin**.
+- Признак «специального»: `is_default = false`. Эндпоинты применяют это правило на уровне сервиса, не роутера — единая функция `_check_tariff_edit_permission(tariff, actor)`.
+
+**Endpoints:**
+
+### order_service
+- `GET /api/tariffs` — список (с архивными по флагу `?include_archived=true`). **Доступ:** manager, admin.
+- `GET /api/tariffs/default` — default тариф (для UI клиента). **Доступ:** любой авторизованный.
+- `GET /api/tariffs/{id}` — детали с fuel_prices и volume_tiers. **Доступ:** manager, admin.
+- `POST /api/tariffs` — создать новый (всегда специальный, `is_default=false`). **Доступ:** только admin.
+- `PUT /api/tariffs/{id}` — обновить (заменяет fuel_prices и volume_tiers целиком). **Доступ:** admin для любого; manager только если `tariff.is_default=true`.
+- `POST /api/tariffs/{id}/set-default` — пометить default (снять с предыдущего в транзакции). **Доступ:** только admin.
+- `POST /api/tariffs/{id}/archive` — архивировать; нельзя архивировать default, нельзя архивировать тариф с активными (не-CLOSED, не-REJECTED) заявками → 400 со списком id. **Доступ:** только admin.
+
+### auth_service
+- `POST /api/admin/clients/{client_id}/tariff` — body: `{tariff_id: UUID | null}`. null → сбрасывает в default.
+- `PATCH /api/admin/clients/{client_id}/credit-allowed` — body: `{credit_allowed: bool}`.
+
+**Критерии приёмки:**
+- [ ] Тесты на все 7 эндпоинтов с happy/sad-path
+- [ ] Не-админ получает 403 на любой
+- [ ] Архивация тарифа с активной заявкой возвращает понятный список номеров заявок
+
+**Коммит:** `feat(orders,auth): admin tariff CRUD and client assignment endpoints`
+
+---
+
+## Шаг 1.5.8. Frontend: тарифы, фильтрация оплат, credit-флаг
+
+**Цель:** UI отражает новые возможности.
+
+**Файлы:**
+- `frontend/index.html` (текущий монолит, см. секции «Финансы», создание заявки, профиль клиента)
+- Идеально — выделить шаблоны для тарифов в отдельный модуль, но **не рефакторить index.html попутно**. Минимально-инвазивные правки.
+
+**Изменения:**
+
+### Создание/редактирование заявки
+- При выборе клиента — подгрузить `client_context` (тот же `/api/internal/clients/{id}/context`, но через прокси-эндпоинт в order_service для UI, чтобы не светить сервисный токен наружу). Реализовать `GET /api/clients/{id}/payment-options` в order_service — возвращает уже отфильтрованный список доступных `payment_type` под текущего actor'а.
+- Radio-кнопки `payment_type` рендерятся динамически по этому списку, с подписями:
+  - `prepaid` → «Предоплата»
+  - `on_delivery` → «По факту»
+  - `postpaid` → «По счёту»
+  - `trade_credit` → «Товарный кредит»
+  - `debt` → «В долг»
+- Если `actor=client` — не показывать `postpaid/trade_credit/debt` вообще.
+
+### Экран профиля клиента (админ)
+- Селектор «Тариф» — список из `GET /api/tariffs`
+- Чекбокс «Разрешить оплату в долг» (`credit_allowed`)
+- Поля коэффициентов — **скрыть** (но не удалять из API на этом этапе; см. 1.5.3)
+
+### Новая страница «Тарифы» (manager + admin, с разными правами)
+- Таблица тарифов: name, default-флаг, кол-во клиентов на тарифе (агрегат), архив-статус
+- Карточка тарифа: цены по каждому fuel_type + список ступеней скидок
+- Формы редактирования с inline-добавлением ступеней
+- **Manager:**
+  - Видит все тарифы (для контекста)
+  - Может **редактировать** только тариф с `is_default=true` (цены и ступени). Кнопки «Создать», «Сделать дефолтом», «Архивировать», «Назначить клиенту» — скрыты или disabled с tooltip «Доступно только администратору»
+  - Не видит формы создания нового тарифа
+- **Admin:**
+  - Полный доступ: создание, редактирование любого, set-default, архивация, назначение
+- Отдельный визуальный маркер: блок «Базовый тариф — актуальные цены закупки» наверху страницы, всегда раскрыт. Менеджер видит inline-форму редактирования цен прямо в этом блоке (быстрый кейс «поменять цену дизеля утром»).
+
+**Критерии приёмки:**
+- [ ] Клиент-физлицо в форме заказа видит только `prepaid` и `on_delivery` (+ `debt` если флаг)
+- [ ] Менеджер для клиента-юрлица видит `prepaid`, `postpaid`, `trade_credit` (+ `debt` если флаг). НЕ видит `on_delivery`.
+- [ ] Админ создаёт новый тариф, назначает его клиенту, новая заявка этого клиента имеет `expected_amount` по новому тарифу
+- [ ] Архивный тариф не появляется в селекторе при создании клиента
+
+**Коммит:** `feat(frontend): tariff management UI and dynamic payment type filtering`
+
+---
+
+## Шаг 1.5.9. Расширение триггеров авто-документов
+
+**Цель:** документы выпускаются под все 5 типов оплат, не только prepaid и on_delivery (как в базовом SPEC 1.5).
+
+**Файлы:**
+- `order_service/app/services/document_service.py` (правка триггеров)
+- `order_service/app/services/order_service.py` (хуки на переходах)
+
+**Матрица триггеров:**
+
+| payment_type | при создании заявки | при IN_TRANSIT | при DELIVERED | при CLOSED |
+|---|---|---|---|---|
+| `prepaid` | invoice_preliminary | — | invoice_final, upd, ttn | — |
+| `on_delivery` | — | — | invoice_final, upd, ttn | — |
+| `postpaid` | — | — | invoice_final, upd, ttn | — |
+| `trade_credit` | — | ttn (предварительно) | invoice_final, upd, ttn (финал) | — |
+| `debt` | — | ttn (предварительно) | invoice_final, upd, ttn (финал) | — |
+
+**Замечание:** для `trade_credit`/`debt` ТТН нужна **в момент выезда** (водитель везёт груз с документом), а финальная — после фактической приёмки. Хранятся как две версии (`type=ttn`, разные `generated_at`).
+
+**Quality_cert** — остаётся ручной загрузкой по всем типам оплат (см. базовый Шаг 1.5).
+
+**Критерии приёмки:**
+- [ ] Тест-сценарий для каждого `payment_type` создаёт правильный набор документов в правильные моменты
+- [ ] При наличии двух ТТН (`trade_credit`) обе доступны в `GET /api/orders/{id}/documents`, отличаются по `generated_at`
+
+**Коммит:** `feat(orders): document triggers extended for all payment types`
+
+---
+
+## Шаг 1.5.10. Регрессия и накат
+
+**Чеклист на dev (с свежим seed):**
+
+Сценарий A — INDIVIDUAL клиент:
+- [ ] Видит только `prepaid` / `on_delivery` в UI
+- [ ] Создаёт `prepaid` → авто-invoice_preliminary с правильной суммой по default-тарифу
+- [ ] Админ задаёт `credit_allowed=true` → клиенту становится виден `debt`
+- [ ] Заявка `debt` → закрытие требует contract_signed
+
+Сценарий B — COMPANY клиент:
+- [ ] Менеджер видит `prepaid` / `postpaid` / `trade_credit` (без `on_delivery`)
+- [ ] Заявка `trade_credit`, IN_TRANSIT → ТТН выпускается; DELIVERED → invoice_final+upd+финальная ТТН
+- [ ] Закрытие без contract_signed → 400
+
+Сценарий C — кастомный тариф:
+- [ ] Админ создаёт «Промо» тариф со ступенью 5000 л → −10%
+- [ ] Назначает клиенту
+- [ ] Клиент создаёт заявку 6000 л → expected_amount = price × 6000 × 0.9
+
+Сценарий D — архивация:
+- [ ] Архивация default-тарифа → 400
+- [ ] Архивация тарифа с активной заявкой → 400 + список номеров
+
+Сценарий E — credit_allowed toggle:
+- [ ] Админ снимает флаг → клиент не может создать новую `debt`-заявку
+- [ ] Существующие `debt`-заявки клиента работают как раньше (флаг проверяется только на создании)
+
+**Накат на прод:**
+1. Бэкап всех 4 БД
+2. `git pull && docker compose build && docker compose up -d`
+3. Миграции применятся (auth: `0002_client_tariff`, orders: `0003_payment_type_debt_and_tariffs`)
+4. Smoke: логин admin → создать новый тариф → назначить тестовому клиенту → создать тестовую заявку
+5. Обновить `CLAUDE.md` (Decisions + Gotchas про тарифы)
+
+**Коммит:** `chore: stage 1.5 release notes and CLAUDE.md updates`
+
+---
+
+# Решения Этапа 1.5 (зафиксировано 2026-05-14)
+
+1. **Базовые цены для тарифа «Базовый»** меняются ежедневно (зависят от закупки и рынка) — править через UI вкладки «Тарифы». Менеджер и админ имеют право редактировать default-тариф. Создание/архивация/назначение специальных тарифов — только админ. Миграция 0003 сидирует default placeholder-значениями (например, последние известные рыночные цены, явно помечены в release notes как «обязательно проверить менеджеру в день деплоя»).
+2. **Округление денежных значений** (`expected_amount`, `final_amount`, скидки) — до копеек: `Decimal.quantize(Decimal("0.01"), ROUND_HALF_UP)`.
+
+# Открытые вопросы Этапа 1.5
+
+1. **«Доставка» в тарифе.** В текущем `ClientProfile` есть `delivery_coefficient` — новый тариф его НЕ покрывает. Решение MVP: доставка включена в `price_per_liter`. Отдельная строка тарифа на доставку — TODO.md.
+
+---
+
 # История изменений SPEC
 
 - 2026-05-13 — Initial: Этап 0 + Этап 1
+- 2026-05-14 — Этап 1.5: тарифы, `debt`, фильтрация payment_type, расширение авто-документов

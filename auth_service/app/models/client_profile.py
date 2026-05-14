@@ -43,8 +43,12 @@ class ClientProfile(Base):
     contract_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     credit_allowed: Mapped[bool] = mapped_column(default=False, nullable=False)
 
-    # Тарифные коэффициенты (меняет только admin)
-    # итоговая_цена = базовая_цена_топлива * fuel_coefficient + базовая_доставка * delivery_coefficient
+    # Ссылка на тариф в order_service БД (soft FK — разные БД, FK не создаётся).
+    # NULL означает «использовать default-тариф» — order_service делает fallback сам.
+    tariff_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Устаревшие коэффициенты — оставлены для возможного отката; не используются в новой логике.
+    # Удалить после стабилизации тарифной системы на проде (≥ 1 недели).
     fuel_coefficient: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False, default=1.0)
     delivery_coefficient: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False, default=1.0)
 

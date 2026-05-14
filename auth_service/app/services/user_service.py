@@ -330,7 +330,7 @@ async def update_client_tariff(
     *,
     actor: User,
 ) -> ClientProfile:
-    """Изменение тарифных коэффициентов — только admin."""
+    """Назначение тарифа, credit_allowed и коэффициентов клиенту — только admin."""
     if actor.role != UserRole.ADMIN:
         raise ForbiddenError("Только администратор может менять тарифы")
 

@@ -8,9 +8,11 @@ from app.database import Base
 
 
 class DocumentType(str, enum.Enum):
-    INVOICE = "invoice"     # Счёт на оплату
-    UPD = "upd"             # УПД (универсальный передаточный документ)
-    TTN = "ttn"             # ТТН (товарно-транспортная накладная)
+    INVOICE_PRELIMINARY = "invoice_preliminary"  # Предварительный счёт (prepaid, при создании)
+    INVOICE_FINAL = "invoice_final"              # Финальный счёт (по факту доставки)
+    INVOICE = "invoice"                          # Legacy — оставлен для совместимости
+    UPD = "upd"                                  # УПД (универсальный передаточный документ)
+    TTN = "ttn"                                  # ТТН (товарно-транспортная накладная)
 
 
 class DocumentStatus(str, enum.Enum):

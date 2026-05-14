@@ -241,6 +241,112 @@ async def generate_upd(
     return doc
 
 
+async def generate_invoice_preliminary(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Предварительный счёт — выпускается при создании prepaid-заявки."""
+    volume = float(order.volume_requested)
+    amount = _order_amount(order, volume)
+    seller = await get_seller_snapshot(db)
+    buyer  = _buyer_snapshot_from_order(order)
+    doc_number = await _next_doc_number(db, DocumentType.INVOICE_PRELIMINARY)
+
+    now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    ctx = {
+        "doc_number":       doc_number,
+        "issued_at":        now_str,
+        "seller":           seller,
+        "buyer":            buyer,
+        "fuel_name":        _fuel_name(order),
+        "order_number":     order.order_number,
+        "delivery_address": order.delivery_address,
+        "volume":           volume,
+        "amount":           amount,
+        "doc_title":        "Счёт на оплату (предварительный)",
+    }
+
+    try:
+        pdf_bytes = _render_pdf("invoice.html", ctx)
+        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice preliminary PDF render failed for order %s: %s", order.id, exc)
+        file_path = None
+        status = DocumentStatus.DRAFT
+
+    doc = Document(
+        order_id=order.id,
+        doc_type=DocumentType.INVOICE_PRELIMINARY,
+        doc_number=doc_number,
+        status=status,
+        seller_snapshot=seller,
+        buyer_snapshot=buyer,
+        issued_at=datetime.now(timezone.utc),
+        total_amount=amount,
+        volume=volume,
+        file_path=file_path,
+        created_by_id=actor.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def generate_invoice_final(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Финальный счёт — выпускается при переходе в DELIVERED/PARTIALLY_DELIVERED."""
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order, volume)
+    seller = await get_seller_snapshot(db)
+    buyer  = _buyer_snapshot_from_order(order)
+    doc_number = await _next_doc_number(db, DocumentType.INVOICE_FINAL)
+
+    now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    ctx = {
+        "doc_number":       doc_number,
+        "issued_at":        now_str,
+        "seller":           seller,
+        "buyer":            buyer,
+        "fuel_name":        _fuel_name(order),
+        "order_number":     order.order_number,
+        "delivery_address": order.delivery_address,
+        "volume":           volume,
+        "amount":           amount,
+        "doc_title":        "Счёт на оплату (финальный)",
+    }
+
+    try:
+        pdf_bytes = _render_pdf("invoice.html", ctx)
+        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice final PDF render failed for order %s: %s", order.id, exc)
+        file_path = None
+        status = DocumentStatus.DRAFT
+
+    doc = Document(
+        order_id=order.id,
+        doc_type=DocumentType.INVOICE_FINAL,
+        doc_number=doc_number,
+        status=status,
+        seller_snapshot=seller,
+        buyer_snapshot=buyer,
+        issued_at=datetime.now(timezone.utc),
+        total_amount=amount,
+        volume=volume,
+        file_path=file_path,
+        created_by_id=actor.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
 async def get_document(db: AsyncSession, document_id: uuid.UUID) -> Document:
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()

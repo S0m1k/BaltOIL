@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str = "admin@baltoil.biz"
     bootstrap_admin_password: str
 
+    # Inter-service
+    internal_api_secret: str = "baltoil-internal-secret-2026"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
