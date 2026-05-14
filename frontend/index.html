@@ -354,9 +354,12 @@
   .nav-tab:hover:not(.active) { color: var(--text2); background: var(--bg3); }
 
   .topbar-right {
-    display: flex; flex-direction: column; gap: 10px;
-    margin-top: auto; padding: 14px 16px 18px;
-    border-top: 1px solid var(--border);
+    position: fixed; top: 0; right: 0; z-index: 150;
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; height: 48px;
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
   .user-badge {
     display: flex; align-items: center; gap: 8px;
@@ -373,7 +376,7 @@
   .user-badge.open .caret { transform: rotate(180deg); }
   .user-menu-wrap { position: relative; }
   .user-menu {
-    position: absolute; bottom: calc(100% + 6px); left: 0;
+    position: absolute; top: calc(100% + 6px); right: 0;
     min-width: 200px;
     background: var(--bg2); border: 1px solid var(--border);
     border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
@@ -513,6 +516,17 @@
   .status-partially_delivered { color: var(--s-partial); border-color: var(--s-partial); background: rgba(245,158,11,.1); }
   .status-closed           { color: var(--s-closed);    border-color: var(--s-closed);    background: rgba(107,114,128,.1); }
   .status-rejected         { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
+
+  /* Payment status badges */
+  .pay-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .8px;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 2px;
+    white-space: nowrap; flex-shrink: 0; border: 1px solid;
+  }
+  .pay-unpaid   { color: var(--red);    border-color: var(--red);    background: rgba(239,68,68,.1); }
+  .pay-partial  { color: var(--amber);  border-color: var(--amber);  background: rgba(245,158,11,.1); }
+  .pay-paid     { color: var(--green);  border-color: var(--green);  background: rgba(34,197,94,.1); }
+  .pay-overpaid { color: var(--amber);  border-color: var(--amber);  background: rgba(245,158,11,.1); }
 
   .order-body {
     display: none; padding: 0 18px 18px;
@@ -1044,8 +1058,8 @@
     .nav-tabs { display: none; }
     .burger-btn { display: flex; align-items: center; }
     .topbar-right {
-      flex-direction: row; margin-top: 0; margin-left: auto;
-      padding: 0; border-top: none; gap: 4px;
+      position: static; flex-direction: row; margin-top: 0; margin-left: auto;
+      padding: 0; border: none; background: none; height: auto; gap: 4px;
     }
     .user-badge { display: none; }
 
@@ -1385,6 +1399,13 @@
           <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="rejected" onchange="loadOrders()"> Отклонены</label>
+        </div>
+        <div class="status-checkboxes" id="pay-filter-group" style="border-left:1px solid var(--border);padding-left:10px;margin-left:4px">
+          <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-right:4px">Оплата:</span>
+          <label class="status-cb-label"><input type="checkbox" name="pf" value="unpaid" checked onchange="loadOrders()"> <span style="color:var(--red)">Не оплачено</span></label>
+          <label class="status-cb-label"><input type="checkbox" name="pf" value="partially_paid" checked onchange="loadOrders()"> <span style="color:var(--amber)">Частично</span></label>
+          <label class="status-cb-label"><input type="checkbox" name="pf" value="paid" checked onchange="loadOrders()"> <span style="color:var(--green)">Оплачено</span></label>
+          <label class="status-cb-label"><input type="checkbox" name="pf" value="overpaid" onchange="loadOrders()"> <span style="color:var(--amber)">Переплата</span></label>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
@@ -2395,25 +2416,20 @@ function switchTab(tab) {
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
 async function loadOrders() {
-  const checked = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
+  const statusFilter  = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
+  const payFilter     = [...document.querySelectorAll('input[name="pf"]:checked')].map(cb => cb.value);
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  if (statusFilter.length === 0 || payFilter.length === 0) {
+    el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
+    return;
+  }
   try {
-    let qs;
-    if (checked.length === 0) {
-      // No filter selected — show nothing meaningful, but don't crash
-      el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
-      return;
-    } else if (checked.length === 1) {
-      qs = `?status=${checked[0]}&limit=100`;
-    } else {
-      // Multiple statuses: fetch all and filter client-side
-      qs = '?limit=200';
-    }
-    let orders = await orderGet(`/orders${qs}`);
-    if (checked.length > 1) {
-      orders = orders.filter(o => checked.includes(o.status));
-    }
+    let orders = await orderGet('/orders?limit=200');
+    orders = orders.filter(o =>
+      statusFilter.includes(o.status) &&
+      payFilter.includes(o.payment_status || 'unpaid')
+    );
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -2451,6 +2467,7 @@ function orderCardHTML(o) {
       ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">💬 ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       <div class="order-date">${fmtDate(o.created_at)}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
+      ${(()=>{const ps=o.payment_status||'unpaid';const cls={unpaid:'pay-unpaid',partially_paid:'pay-partial',paid:'pay-paid',overpaid:'pay-overpaid'}[ps]||'pay-unpaid';const lbl=PAYMENT_STATUS_LABELS[ps]||ps;return ps==='paid'?'':`<span class="pay-badge ${cls}">${escHtml(lbl)}</span>`;})()}
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
