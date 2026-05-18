@@ -3469,13 +3469,17 @@ function startChatPoll(convId) {
       const msgs = await chatGet(`/conversations/${convId}/messages?limit=30`);
       if (!Array.isArray(msgs)) return;
       let appended = false;
+      let hasOtherMessages = false;
       for (const msg of msgs) {
         if (!document.getElementById(`msg-${msg.id}`)) {
           appendMessage(msg);
           appended = true;
+          if (msg.sender_id !== currentUser?.id) hasOtherMessages = true;
         }
       }
       if (appended) {
+        // Mark as read if messages from others arrived while conversation is open
+        if (hasOtherMessages) chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
         // Update unread sidebar badge silently
         chatGet('/conversations').then(renderConvList).catch(() => {});
       }
@@ -3662,6 +3666,10 @@ function connectWs(convId) {
         const existing = document.getElementById(`msg-${msg.id}`);
         if (existing) return;
         appendMessage(msg);
+        // Message from another user arrived while conversation is open — mark as read
+        if (msg.sender_id !== currentUser?.id) {
+          chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
+        }
       } catch {}
     };
 
@@ -3717,6 +3725,8 @@ async function sendChatMessage() {
     if (!document.getElementById(`msg-${msg.id}`)) {
       appendMessage(msg);
     }
+    // Sending a reply means we've read everything — reset unread counter
+    chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
   } catch (e) {
     toast(e.message, 'error');
     inp.value = text;
@@ -3847,6 +3857,7 @@ function updateNewConvUI() {
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'client_support');
   document.getElementById('nc-internal-label')?.classList.toggle(
     'selected', document.querySelector('input[name="nc-type"]:checked')?.value === 'internal');
+  filterNewConvUsers();
 }
 
 let _allChatUsers = [];
@@ -3866,12 +3877,17 @@ async function loadNewConvUserSelect() {
 
 function filterNewConvUsers() {
   const q = (document.getElementById('nc-user-search')?.value || '').toLowerCase();
+  const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  // When staff creates a client_support dialog, only clients are valid participants
+  let base = (isStaff && type === 'client_support')
+    ? _allChatUsers.filter(u => u.role === 'client')
+    : _allChatUsers;
   _renderNewConvUsers(q
-    ? _allChatUsers.filter(u =>
+    ? base.filter(u =>
         (u.full_name || '').toLowerCase().includes(q) ||
-        (u.email || '').toLowerCase().includes(q) ||
-        (u.role || '').toLowerCase().includes(q))
-    : _allChatUsers);
+        (u.email || '').toLowerCase().includes(q))
+    : base);
 }
 
 function _renderNewConvUsers(users) {
