@@ -103,6 +103,21 @@ async def get_conversation(
     if not conv:
         raise NotFoundError("Диалог не найден")
     _check_access(conv, actor)
+
+    # Auto-enroll staff on first view so they appear in participant lists
+    # (call notifications, unread badges) without having to send a message first.
+    if actor.role in MANAGER_ROLES:
+        already_in = any(p.user_id == actor.id for p in conv.participants)
+        if not already_in:
+            db.add(ConversationParticipant(
+                conversation_id=conv_id,
+                user_id=actor.id,
+                user_role=actor.role,
+                last_read_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+            await db.refresh(conv, ["participants"])
+
     return conv
 
 

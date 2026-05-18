@@ -126,14 +126,23 @@ def _build_chat_request(payload: dict) -> PublishRequest | None:
     )
 
 
-def _build_call_request(payload: dict) -> PublishRequest | None:
+async def _build_call_request(payload: dict) -> PublishRequest | None:
     event = payload.get("event")
     call_id = payload.get("call_id")
     initiator_name = payload.get("initiated_by_name", "Someone")
+    initiator_id = payload.get("initiated_by_id")
     participant_ids = payload.get("participant_ids", [])
 
     if event == "call_initiated":
         recipients = [uuid.UUID(pid) for pid in participant_ids]
+        # If no one to notify (e.g. no staff has ever joined the conversation),
+        # fall back to all managers/admins so the call isn't silently dropped.
+        if not recipients:
+            recipients = await _fetch_staff_ids()
+            # Remove the initiator so they don't ring themselves
+            if initiator_id:
+                initiator_uuid = uuid.UUID(initiator_id)
+                recipients = [r for r in recipients if r != initiator_uuid]
         if not recipients:
             return None
         return PublishRequest(
@@ -156,7 +165,7 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
     elif event == "chat_message":
         req = _build_chat_request(payload)
     elif event == "call_initiated":
-        req = _build_call_request(payload)
+        req = await _build_call_request(payload)
     elif event == "call_ended":
         # Сигнальное событие — раздаём только по personal-каналам без записи в БД.
         # Фронтенд закроет диалог входящего звонка / активный звонок.
