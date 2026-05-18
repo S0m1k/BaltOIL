@@ -17,6 +17,7 @@ class NotificationType(str, enum.Enum):
     CALL_INITIATED = "call_initiated"
     CALL_ENDED     = "call_ended"
     CALL_MISSED    = "call_missed"
+    CHAT_NEW       = "chat_new"
 
 
 class Notification(Base):

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Add new enum values if not present (safe to run multiple times)
     from sqlalchemy import text as _sql_text
-    _new_enum_values = ["report_ready", "call_initiated", "call_ended", "call_missed"]
+    _new_enum_values = ["report_ready", "call_initiated", "call_ended", "call_missed", "chat_new"]
     async with engine.begin() as conn:
         for _val in _new_enum_values:
             await conn.execute(

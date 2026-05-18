@@ -1,9 +1,14 @@
 import hashlib
+import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select, func, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+import redis.asyncio as aioredis
+
+logger = logging.getLogger(__name__)
 
 from app.models.conversation import Conversation, ConversationParticipant, ConversationType
 from app.models.message import Message
@@ -11,6 +16,7 @@ from app.schemas.conversation import ConversationCreateRequest
 from app.schemas.message import MessageResponse
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
+from app.config import settings
 
 
 STAFF_ROLES = {"admin", "manager", "driver"}
@@ -83,7 +89,24 @@ async def create_conversation(
         )
         .where(Conversation.id == conv.id)
     )
-    return result.scalar_one()
+    created_conv = result.scalar_one()
+
+    # Уведомить менеджеров о новом чате поддержки от клиента
+    if actor.role == "client" and data.type == ConversationType.CLIENT_SUPPORT:
+        try:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
+            try:
+                await r.publish("events:chat", json.dumps({
+                    "event": "conversation_created",
+                    "conv_id": str(created_conv.id),
+                    "client_name": actor.name,
+                }))
+            finally:
+                await r.aclose()
+        except Exception:
+            logger.exception("Failed to publish conversation_created event")
+
+    return created_conv
 
 
 async def get_conversation(
