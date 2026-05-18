@@ -115,7 +115,9 @@ async def websocket_endpoint(
                 "sender_id": str(msg.sender_id),
                 "sender_role": msg.sender_role,
                 "sender_name": msg.sender_name,
+                "msg_type": msg.msg_type,
                 "text": msg.text,
+                "metadata": msg.msg_metadata,
                 "created_at": msg.created_at.isoformat(),
             })
 

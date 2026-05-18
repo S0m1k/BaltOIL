@@ -18,6 +18,16 @@ class UserShortResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserDirectoryEntry(BaseModel):
+    """Минимальная информация о пользователе для разрешения id → имя в чатах.
+    Без email/телефона — безопасно отдавать любому залогиненному."""
+    id: uuid.UUID
+    full_name: str
+    role: UserRole
+
+    model_config = {"from_attributes": True}
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str

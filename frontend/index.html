@@ -870,6 +870,72 @@
   }
   .conv-type-client_support { color: #1d4ed8; border-color: #3b82f6; background: rgba(59,130,246,.07); }
   .conv-type-internal       { color: #7c3aed; border-color: #a855f7; background: rgba(168,85,247,.07); }
+  .conv-participants-link   { color: var(--accent); text-decoration: underline dotted; cursor: pointer; }
+  .conv-participants-link:hover { color: var(--text); }
+  .participant-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+  }
+  .participant-row:last-child { border-bottom: none; }
+  .participant-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #10b981, #3b82f6);
+    color: white; font-weight: 600; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .participant-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .participant-role {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: .5px; border: 1px solid var(--border);
+    color: var(--text2); background: var(--bg3); flex-shrink: 0;
+  }
+  .participant-role.role-admin   { color: #f59e0b; border-color: #f59e0b; background: rgba(245,158,11,.08); }
+  .participant-role.role-manager { color: #3b82f6; border-color: #3b82f6; background: rgba(59,130,246,.08); }
+  .participant-role.role-driver  { color: #10b981; border-color: #10b981; background: rgba(16,185,129,.08); }
+  .participant-role.role-client  { color: #a855f7; border-color: #a855f7; background: rgba(168,85,247,.08); }
+
+  /* ── User picker (dropdown with checkboxes) ─────────────────── */
+  .user-picker { position: relative; }
+  .user-picker-trigger {
+    width: 100%; text-align: left; cursor: pointer;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; color: var(--text); font-size: 13px;
+    display: flex; align-items: center; gap: 8px; min-height: 36px;
+  }
+  .user-picker-trigger:hover { border-color: var(--accent); }
+  .user-picker-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+  .user-picker-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--accent); color: white; font-size: 11px;
+    padding: 2px 6px; border-radius: 4px; max-width: 180px;
+  }
+  .user-picker-chip-x { cursor: pointer; opacity: .75; }
+  .user-picker-chip-x:hover { opacity: 1; }
+  .user-picker-placeholder { color: var(--text3); }
+  .user-picker-caret { margin-left: auto; color: var(--text3); transition: transform .15s; }
+  .user-picker.open .user-picker-caret { transform: rotate(180deg); }
+  .user-picker-dropdown {
+    display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 50;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    margin-top: 4px; box-shadow: 0 8px 20px rgba(0,0,0,.3);
+    max-height: 280px; overflow: hidden; flex-direction: column;
+  }
+  .user-picker.open .user-picker-dropdown { display: flex; }
+  .user-picker-search {
+    border: none; border-bottom: 1px solid var(--border); background: transparent;
+    padding: 8px 10px; color: var(--text); font-size: 13px; outline: none;
+  }
+  .user-picker-list { overflow-y: auto; max-height: 220px; }
+  .user-picker-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer;
+    font-size: 13px; color: var(--text); border-bottom: 1px solid var(--border);
+  }
+  .user-picker-item:last-child { border-bottom: none; }
+  .user-picker-item:hover { background: var(--bg3); }
+  .user-picker-item.is-checked { background: rgba(59,130,246,.08); }
+  .user-picker-item input[type=checkbox] { margin: 0; flex-shrink: 0; }
+  .user-picker-item .picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-picker-empty { padding: 12px; color: var(--text3); font-size: 12px; text-align: center; }
 
   .chat-main {
     display: flex; flex-direction: column; overflow: hidden;
@@ -908,6 +974,19 @@
   .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; }
   .msg-row.mine .msg-text { color: var(--text); }
   .msg-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
+  /* ── System messages (call events) ── */
+  .msg-row.msg-system { max-width: 100%; justify-content: center; }
+  .msg-system-card {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.25);
+    font-size: 12px; color: var(--text2);
+  }
+  .msg-system-text { color: var(--text2); }
+  .msg-system-time { font-family: 'SF Mono', ui-monospace, monospace; font-size: 10px; color: var(--text3); }
+  /* Clickable toast (chat-message notifications) */
+  .toast.toast-clickable { cursor: pointer; transition: transform .12s ease; }
+  .toast.toast-clickable:hover { transform: translateY(-1px); }
 
   .chat-input-area {
     padding: 12px 20px; border-top: 1px solid var(--border);
@@ -1208,6 +1287,60 @@
   .call-timer {
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
     font-size: 13px; color: var(--text2); margin-bottom: 18px;
+  }
+
+  /* ── Conference (group + video) call layout ─────────────────────────── */
+  .call-btn.cam       { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .call-btn.cam.is-on { background: #3b82f6; color: white; border-color: transparent; }
+
+  .call-card.conf {
+    width: min(720px, 96vw);
+    padding: 20px 18px 16px;
+    text-align: left;
+  }
+  .conf-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .conf-head-title { font-size: 13px; color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; }
+  .conf-head-status { font-size: 13px; color: var(--text2); }
+  .conf-head-timer {
+    margin-left: auto; font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+    font-size: 13px; color: var(--text2);
+  }
+  .conf-tiles {
+    display: grid; gap: 10px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .conf-tile {
+    position: relative; aspect-ratio: 4 / 3; background: var(--bg3);
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .conf-tile.is-speaking { border-color: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,.35); }
+  .conf-tile video {
+    width: 100%; height: 100%; object-fit: cover; background: #000;
+  }
+  .conf-tile-avatar {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: linear-gradient(135deg, #10b981, #3b82f6);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 26px; font-weight: 700;
+  }
+  .conf-tile-name {
+    position: absolute; left: 8px; bottom: 6px; right: 8px;
+    font-size: 12px; color: white; text-shadow: 0 1px 2px rgba(0,0,0,.7);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .conf-tile-mic-off {
+    position: absolute; top: 8px; right: 8px; width: 22px; height: 22px;
+    border-radius: 50%; background: rgba(245, 158, 11, .95); color: white;
+    display: none; align-items: center; justify-content: center; font-size: 11px;
+  }
+  .conf-tile.is-muted .conf-tile-mic-off { display: flex; }
+  .conf-tile-pending {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--text3); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    background: linear-gradient(135deg, rgba(59,130,246,.08), rgba(16,185,129,.06));
   }
 </style>
 </head>
@@ -2019,16 +2152,23 @@
   </div>
 </div>
 
-<!-- Активный звонок -->
+<!-- Активный звонок — конференц-layout: плитки участников + аудио/видео/завершить -->
 <div class="call-overlay" id="active-call-overlay">
-  <div class="call-card">
-    <div class="call-avatar" id="active-call-avatar">?</div>
-    <div class="call-status-label" id="active-call-status">Звонок</div>
-    <div class="call-caller-name" id="active-call-name">—</div>
-    <div class="call-timer" id="active-call-timer">00:00</div>
+  <div class="call-card conf">
+    <div class="conf-head">
+      <div>
+        <div class="conf-head-title" id="active-call-status">Звонок</div>
+        <div class="conf-head-status" id="active-call-name">—</div>
+      </div>
+      <div class="conf-head-timer" id="active-call-timer">00:00</div>
+    </div>
+    <div class="conf-tiles" id="conf-tiles"></div>
     <div class="call-actions">
       <button class="call-btn mute" id="active-call-mute-btn" onclick="toggleCallMute()" title="Микрофон">
         <svg width="22" height="22" viewBox="0 0 256 256" fill="currentColor"><path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V232a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></svg>
+      </button>
+      <button class="call-btn cam" id="active-call-cam-btn" onclick="toggleCallCamera()" title="Камера">
+        <svg width="22" height="22" viewBox="0 0 256 256" fill="currentColor"><path d="M229.93,77.18A15.91,15.91,0,0,0,213.65,76L176,92.69V72a16,16,0,0,0-16-16H24A16,16,0,0,0,8,72V184a16,16,0,0,0,16,16H160a16,16,0,0,0,16-16V163.31L213.65,180a16,16,0,0,0,22.35-14.63V91.71A15.93,15.93,0,0,0,229.93,77.18ZM160,184H24V72H160V184Zm60-18.63L176,145.79V110.21l44-19.58Z"/></svg>
       </button>
       <button class="call-btn decline" onclick="hangUpCall()" title="Завершить">
         <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" transform="rotate(135 128 128)"/></svg>
@@ -2274,15 +2414,22 @@ function uuidCell(uuid) {
   return `<span class="uuid-cell"><span style="font-family:monospace;font-size:11px" title="${uuid}">${short}</span><button class="copy-btn" onclick="copyUUID('${uuid}',this)">copy</button></span>`;
 }
 
-function toast(msg, type = 'success') {
+function toast(msg, type = 'success', opts = {}) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
+  if (typeof opts.onClick === 'function') {
+    el.classList.add('toast-clickable');
+    el.addEventListener('click', () => {
+      try { opts.onClick(); } catch {}
+      el.remove();
+    });
+  }
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => {
     el.style.animation = 'slideOut .25s ease forwards';
     setTimeout(() => el.remove(), 250);
-  }, 3000);
+  }, opts.duration || 3000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3959,7 +4106,12 @@ function connectNotifSSE() {
         // Хук на звонки: показываем диалог входящего звонка вместо тоста
         if (window._handleNotifForCalls) window._handleNotifForCalls(n);
         if (n.type === 'call_initiated') return; // звонок уже показан как overlay
-        toast(`${NOTIF_TYPE_LABELS[n.type] || n.type}: ${n.body}`, 'success');
+        // Клик на тосте про новое сообщение в чате → открываем этот чат
+        const isChatMsg = n.type === 'chat_message' && n.entity_id;
+        const onClick = isChatMsg
+          ? () => { switchTab('chat'); openConversation(n.entity_id); }
+          : undefined;
+        toast(`${NOTIF_TYPE_LABELS[n.type] || n.type}: ${n.body}`, 'success', { onClick });
       });
       if (notifList.length > 50) notifList.length = 50;
       _lastSeenId = notifList[0]?.id ?? null;
@@ -4123,11 +4275,13 @@ async function openConversation(convId) {
 
   try {
     const conv = await chatGet(`/conversations/${convId}`);
+    _currentConvParticipants = conv.participants || [];
     document.getElementById('chat-conv-title').textContent = convTitle(conv);
-    document.getElementById('chat-conv-sub').textContent =
-      `${CONV_TYPE_LABELS[conv.type] || conv.type}` +
-      (conv.order_id ? ` · заявка ${conv.order_id.slice(0,8)}…` : '') +
-      ` · ${conv.participants.length} уч.`;
+    const sub = document.getElementById('chat-conv-sub');
+    sub.innerHTML =
+      `${escHtml(CONV_TYPE_LABELS[conv.type] || conv.type)}` +
+      (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
+      ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
 
     renderMessages(conv.messages);
 
@@ -4162,6 +4316,28 @@ function renderMessages(msgs) {
 }
 
 function msgHTML(m) {
+  // Системное сообщение — звонок начался / завершён / не был отвечен.
+  // Рендерится по центру, без аватара, с кнопкой «Присоединиться» когда уместно.
+  if (m.msg_type === 'system') {
+    const meta = m.metadata || {};
+    const joinable = meta.event === 'call_started' && meta.room_name
+                     && !(callState.room && callState.callId === meta.call_id);
+    const joinBtn = joinable
+      ? `<button class="btn btn-sm btn-primary" style="margin-left:10px"
+                 onclick="joinCallFromMessage('${escHtml(meta.room_name)}', '${escHtml(meta.call_id || '')}', '${escHtml(meta.initiated_by_name || 'Участник')}')">
+           Присоединиться
+         </button>`
+      : '';
+    return `
+      <div class="msg-row msg-system" id="msg-${m.id}">
+        <div class="msg-system-card">
+          <span class="msg-system-text">${escHtml(m.text)}</span>
+          ${joinBtn}
+          <span class="msg-system-time">${fmtTime(m.created_at)}</span>
+        </div>
+      </div>`;
+  }
+
   const mine = currentUser && m.sender_id === currentUser.id;
   const initials = (m.sender_name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
 
@@ -4305,24 +4481,45 @@ function promptNewConv() {
   const isClient = role === 'client';
   const isDriver = role === 'driver';
 
-  // Drivers can only create internal chats (with staff)
+  // Drivers can create internal chats and pick which staff to invite (no clients).
   if (isDriver) {
     openModal('Новый внутренний чат',
       `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
-        Создайте внутренний чат — для общения с менеджером или диспетчером.
+        Внутренний чат — общение с менеджером, администратором или другим водителем.
       </p>
       <div class="form-group">
         <label class="form-label">Тема <span style="color:var(--text3)">(необязательно)</span></label>
         <input type="text" id="nc-title" class="form-input" placeholder="Вопрос по заявке, маршруту...">
-      </div>`,
+      </div>
+      <div class="form-group">
+        <label class="form-label">Участники <span style="color:var(--text3)">(сотрудники)</span></label>
+        <div class="user-picker" id="nc-user-picker" data-selected="">
+          <button type="button" class="user-picker-trigger" onclick="toggleUserPicker()">
+            <div class="user-picker-chips" id="nc-user-picker-chips">
+              <span class="user-picker-placeholder">Выберите участников…</span>
+            </div>
+            <span class="user-picker-caret">▾</span>
+          </button>
+          <div class="user-picker-dropdown">
+            <input type="text" class="user-picker-search" id="nc-user-search"
+                   placeholder="Поиск по имени…" oninput="filterNewConvUsers()" autocomplete="off">
+            <div class="user-picker-list" id="nc-user-list">
+              <div class="user-picker-empty">Загрузка…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Hidden radio so existing filterNewConvUsers() picks the right branch -->
+      <input type="radio" name="nc-type" value="internal" checked hidden>`,
       async () => {
         const title = document.getElementById('nc-title').value.trim() || null;
+        const participant_ids = _userPickerSelectedIds();
         closeModal();
         try {
           const conv = await chatPost('/conversations', {
             type: 'internal',
             title,
-            participant_ids: [],
+            participant_ids,
           });
           toast('Чат создан');
           await loadConversations();
@@ -4332,6 +4529,7 @@ function promptNewConv() {
         }
       }
     );
+    loadNewConvUserSelect();
     return;
   }
 
@@ -4384,23 +4582,27 @@ function promptNewConv() {
       <input type="text" id="nc-title" class="form-input" placeholder="Тема разговора...">
     </div>
     <div class="form-group">
-      <label class="form-label">Участники <span style="color:var(--text3)">(поиск и выбор)</span></label>
-      <input type="text" id="nc-user-search" class="form-input" placeholder="Поиск по имени..."
-             oninput="filterNewConvUsers()" style="margin-bottom:4px"
-             autocomplete="off">
-      <select id="nc-user-select" class="form-input" size="5" multiple
-              style="height:auto;padding:0">
-        <option disabled>— загрузка... —</option>
-      </select>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Ctrl/Cmd+клик для выбора нескольких</div>
+      <label class="form-label">Участники <span style="color:var(--text3)">(выберите из списка)</span></label>
+      <div class="user-picker" id="nc-user-picker" data-selected="">
+        <button type="button" class="user-picker-trigger" onclick="toggleUserPicker()">
+          <div class="user-picker-chips" id="nc-user-picker-chips">
+            <span class="user-picker-placeholder">Выберите участников…</span>
+          </div>
+          <span class="user-picker-caret">▾</span>
+        </button>
+        <div class="user-picker-dropdown">
+          <input type="text" class="user-picker-search" id="nc-user-search"
+                 placeholder="Поиск по имени…" oninput="filterNewConvUsers()" autocomplete="off">
+          <div class="user-picker-list" id="nc-user-list">
+            <div class="user-picker-empty">Загрузка…</div>
+          </div>
+        </div>
+      </div>
     </div>`,
     async () => {
       const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
       const title = document.getElementById('nc-title').value.trim() || null;
-      const sel = document.getElementById('nc-user-select');
-      const participant_ids = sel
-        ? [...sel.selectedOptions].map(o => o.value).filter(Boolean)
-        : [];
+      const participant_ids = _userPickerSelectedIds();
 
       const body = { type, title, participant_ids };
 
@@ -4427,28 +4629,93 @@ function updateNewConvUI() {
 }
 
 let _allChatUsers = [];
+let _currentConvParticipants = [];       // participants of the currently-open conversation
+
+const ROLE_LABEL_RU = {
+  admin: 'Админ', manager: 'Менеджер', driver: 'Водитель', client: 'Клиент',
+};
+
+async function _ensureChatUsersLoaded() {
+  if (_allChatUsers.length) return;
+  try {
+    // /users/directory — облегчённый эндпоинт (id+ФИО+role), доступен любому залогиненному
+    const users = await authGet('/users/directory?limit=500');
+    _allChatUsers = Array.isArray(users) ? users : [];
+  } catch {
+    _allChatUsers = [];
+  }
+}
+
+async function showConvParticipants() {
+  const parts = _currentConvParticipants || [];
+  if (!parts.length) {
+    toast('Нет участников', 'error');
+    return;
+  }
+  // Open the modal immediately with a placeholder so the user gets feedback.
+  openModal(
+    `Участники диалога (${parts.length})`,
+    '<div id="participants-list"><div class="empty-state" style="padding:14px"><div class="loading"></div></div></div>',
+    null
+  );
+  // openModal() hides the Confirm button automatically when onConfirm=null
+
+  await _ensureChatUsersLoaded();
+  const byId = new Map(_allChatUsers.map(u => [String(u.id), u]));
+
+  const html = parts.map(p => {
+    const u = byId.get(String(p.user_id));
+    const name = (u?.full_name || u?.email || (String(p.user_id).slice(0,8) + '…')).trim();
+    const role = u?.role || p.user_role || 'unknown';
+    const initials = (name || '?').split(' ').slice(0,2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
+    const isMe = currentUser && String(p.user_id) === String(currentUser.id);
+    return `
+      <div class="participant-row">
+        <div class="participant-avatar">${escHtml(initials)}</div>
+        <div class="participant-name">${escHtml(name)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(вы)</span>' : ''}</div>
+        <span class="participant-role role-${escHtml(role)}">${escHtml(ROLE_LABEL_RU[role] || role)}</span>
+      </div>`;
+  }).join('');
+
+  const box = document.getElementById('participants-list');
+  if (box) box.innerHTML = html || '<div class="empty-state" style="padding:14px">Список пуст</div>';
+}
 
 async function loadNewConvUserSelect() {
-  const sel = document.getElementById('nc-user-select');
-  if (!sel) return;
+  const picker = document.getElementById('nc-user-picker');
+  if (!picker) return;
   try {
-    const users = await authGet('/users?limit=200&include_inactive=false');
-    _allChatUsers = users.filter(u => u.id !== currentUser?.id);
-    _renderNewConvUsers(_allChatUsers);
-    document.getElementById('nc-user-search')?.focus();
+    const users = await authGet('/users/directory?limit=500');
+    _allChatUsers = (Array.isArray(users) ? users : []).filter(u => u.id !== currentUser?.id);
+    // Используем тот же фильтр, что и поиск — иначе при пустом запросе
+    // водителю покажутся клиенты (фильтр срабатывает только при вводе).
+    filterNewConvUsers();
   } catch {
-    if (sel) sel.innerHTML = '<option disabled>— ошибка загрузки —</option>';
+    const list = document.getElementById('nc-user-list');
+    if (list) list.innerHTML = '<div class="user-picker-empty">Ошибка загрузки</div>';
   }
 }
 
 function filterNewConvUsers() {
   const q = (document.getElementById('nc-user-search')?.value || '').toLowerCase();
   const type = document.querySelector('input[name="nc-type"]:checked')?.value || 'client_support';
-  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
-  // When staff creates a client_support dialog, only clients are valid participants
-  let base = (isStaff && type === 'client_support')
-    ? _allChatUsers.filter(u => u.role === 'client')
-    : _allChatUsers;
+  const role = currentUser?.role;
+  const isStaff = role === 'admin' || role === 'manager';
+
+  let base;
+  if (role === 'driver') {
+    // Drivers can only build internal chats with staff (no clients).
+    base = _allChatUsers.filter(u => u.role !== 'client');
+  } else if (isStaff && type === 'client_support') {
+    // Staff opening a support chat invites a client.
+    base = _allChatUsers.filter(u => u.role === 'client');
+  } else if (isStaff && type === 'internal') {
+    // Staff opening an internal chat invites other staff.
+    base = _allChatUsers.filter(u => u.role !== 'client');
+  } else {
+    base = _allChatUsers;
+  }
+
   _renderNewConvUsers(q
     ? base.filter(u =>
         (u.full_name || '').toLowerCase().includes(q) ||
@@ -4456,16 +4723,86 @@ function filterNewConvUsers() {
     : base);
 }
 
-function _renderNewConvUsers(users) {
-  const sel = document.getElementById('nc-user-select');
-  if (!sel) return;
-  if (!users.length) {
-    sel.innerHTML = '<option disabled>Нет пользователей</option>';
+// ── User picker (dropdown + checkboxes + chips) ────────────────
+// Состояние выбора держим прямо на DOM-узле пикера: data-selected="uuid1,uuid2".
+function _userPickerSelectedIds() {
+  const picker = document.getElementById('nc-user-picker');
+  if (!picker) return [];
+  return (picker.dataset.selected || '').split(',').filter(Boolean);
+}
+function _userPickerSetSelected(ids) {
+  const picker = document.getElementById('nc-user-picker');
+  if (!picker) return;
+  picker.dataset.selected = ids.filter(Boolean).join(',');
+  _renderUserPickerChips();
+}
+function _renderUserPickerChips() {
+  const picker = document.getElementById('nc-user-picker');
+  const chipsBox = document.getElementById('nc-user-picker-chips');
+  if (!picker || !chipsBox) return;
+  const ids = _userPickerSelectedIds();
+  if (!ids.length) {
+    chipsBox.innerHTML = '<span class="user-picker-placeholder">Выберите участников…</span>';
     return;
   }
-  sel.innerHTML = users.map(u =>
-    `<option value="${u.id}">[${escHtml(u.role)}] ${escHtml(u.full_name || u.email)}</option>`
-  ).join('');
+  const byId = new Map(_allChatUsers.map(u => [String(u.id), u]));
+  chipsBox.innerHTML = ids.map(id => {
+    const u = byId.get(String(id));
+    const name = u?.full_name || u?.email || (id.slice(0, 8) + '…');
+    return `<span class="user-picker-chip">
+      ${escHtml(name)}
+      <span class="user-picker-chip-x" onclick="event.stopPropagation();_userPickerToggle('${escHtml(id)}', false)" title="Убрать">×</span>
+    </span>`;
+  }).join('');
+}
+function _userPickerToggle(id, checked) {
+  const cur = new Set(_userPickerSelectedIds());
+  if (checked === false || cur.has(id)) cur.delete(id);
+  else cur.add(id);
+  _userPickerSetSelected([...cur]);
+  // Синхронизация чекбоксов в открытом списке
+  document.querySelectorAll(`.user-picker-item[data-uid="${CSS.escape(id)}"]`).forEach(row => {
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = cur.has(id);
+    row.classList.toggle('is-checked', cur.has(id));
+  });
+}
+function toggleUserPicker(force) {
+  const picker = document.getElementById('nc-user-picker');
+  if (!picker) return;
+  const willOpen = typeof force === 'boolean' ? force : !picker.classList.contains('open');
+  picker.classList.toggle('open', willOpen);
+  if (willOpen) {
+    document.getElementById('nc-user-search')?.focus();
+  }
+}
+// Закрытие по клику вне пикера
+document.addEventListener('click', (e) => {
+  const picker = document.getElementById('nc-user-picker');
+  if (!picker || !picker.classList.contains('open')) return;
+  if (!picker.contains(e.target)) picker.classList.remove('open');
+});
+
+function _renderNewConvUsers(users) {
+  const list = document.getElementById('nc-user-list');
+  if (!list) return;
+  if (!users.length) {
+    list.innerHTML = '<div class="user-picker-empty">Нет подходящих пользователей</div>';
+    return;
+  }
+  const selected = new Set(_userPickerSelectedIds());
+  list.innerHTML = users.map(u => {
+    const checked = selected.has(String(u.id));
+    const roleLabel = ROLE_LABEL_RU[u.role] || u.role;
+    const name = u.full_name || u.email || u.id;
+    return `
+      <label class="user-picker-item${checked ? ' is-checked' : ''}" data-uid="${escHtml(u.id)}">
+        <input type="checkbox" ${checked ? 'checked' : ''}
+               onclick="event.stopPropagation();_userPickerToggle('${escHtml(u.id)}', this.checked)">
+        <span class="picker-name">${escHtml(name)}</span>
+        <span class="participant-role role-${escHtml(u.role)}">${escHtml(roleLabel)}</span>
+      </label>`;
+  }).join('');
 }
 
 async function archiveCurrentConv() {
@@ -5507,12 +5844,14 @@ const callState = {
   // Текущий активный звонок (то, на что мы уже подключились)
   room: null,                  // LiveKit Room instance
   localAudioTrack: null,
+  localVideoTrack: null,       // публикуется только если пользователь нажал кнопку камеры
   callId: null,
   roomName: null,
   remoteName: '—',
   startedAt: null,
   timerInterval: null,
   isMuted: false,
+  isCameraOn: false,
   // Текущий «входящий» звонок (показан диалог, но мы ещё не подключились)
   incoming: null,              // { call_id, room_name, from_name }
   // Известные call_id, чтобы не показывать диалог повторно после polling
@@ -5572,6 +5911,35 @@ async function startCallFromChat() {
   }
 }
 
+// ── Присоединиться к звонку из system-сообщения в чате ─────────
+async function joinCallFromMessage(roomName, callId, fromName) {
+  if (!roomName) return;
+  if (callState.room) {
+    if (callState.roomName === roomName) {
+      toast('Вы уже в этом звонке', 'success');
+      return;
+    }
+    toast('У вас уже идёт другой звонок', 'error');
+    return;
+  }
+  if (callId) callState.seenCallIds.add(callId);
+  let resp;
+  try {
+    resp = await _callPost('/calls/token', { room_name: roomName });
+  } catch (e) {
+    // 409 = звонок уже завершён, 404 = его не существует
+    toast('Не удалось присоединиться: ' + e.message, 'error');
+    return;
+  }
+  await _enterRoom({
+    callId: resp.call_id,
+    roomName: resp.room_name,
+    token: resp.token,
+    livekitUrl: resp.livekit_url,
+    remoteName: fromName || 'Участник',
+  });
+}
+
 // ── Ответ на входящий звонок ────────────────────────────────────
 async function acceptIncomingCall() {
   const inc = callState.incoming;
@@ -5606,6 +5974,58 @@ function declineIncomingCall() {
   _callPost(`/calls/${inc.call_id}/end`, {}).catch(() => {});
 }
 
+// ── Плитки участников ──────────────────────────────────────────
+function _tileInitials(name) {
+  return (name || '?').trim().charAt(0).toUpperCase() || '?';
+}
+
+function _ensureTile(identity, name, { isLocal = false } = {}) {
+  const grid = document.getElementById('conf-tiles');
+  let tile = grid.querySelector(`[data-identity="${CSS.escape(identity)}"]`);
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.className = 'conf-tile';
+    tile.dataset.identity = identity;
+    tile.dataset.local = isLocal ? '1' : '0';
+    tile.innerHTML = `
+      <div class="conf-tile-avatar">${escHtml(_tileInitials(name))}</div>
+      <div class="conf-tile-name">${escHtml(name || '—')}${isLocal ? ' (вы)' : ''}</div>
+      <div class="conf-tile-mic-off" title="Микрофон выключен">🎤</div>
+    `;
+    grid.appendChild(tile);
+  } else if (name) {
+    tile.querySelector('.conf-tile-name').innerHTML =
+      escHtml(name) + (isLocal ? ' (вы)' : '');
+    tile.querySelector('.conf-tile-avatar').textContent = _tileInitials(name);
+  }
+  return tile;
+}
+
+function _removeTile(identity) {
+  const grid = document.getElementById('conf-tiles');
+  const tile = grid.querySelector(`[data-identity="${CSS.escape(identity)}"]`);
+  if (tile) tile.remove();
+}
+
+function _attachVideoToTile(tile, track, { muted = false } = {}) {
+  if (!tile) return;
+  // убираем старое видео если было
+  tile.querySelectorAll('video').forEach(v => v.remove());
+  const el = track.attach();
+  el.autoplay = true;
+  el.playsInline = true;
+  if (muted) el.muted = true;
+  tile.insertBefore(el, tile.firstChild);
+  tile.querySelector('.conf-tile-avatar').style.display = 'none';
+}
+
+function _detachVideoFromTile(tile, track) {
+  if (!tile) return;
+  track.detach().forEach(el => el.remove());
+  const av = tile.querySelector('.conf-tile-avatar');
+  if (av) av.style.display = '';
+}
+
 // ── Подключение к LiveKit-комнате ───────────────────────────────
 async function _enterRoom({ callId, roomName, token, livekitUrl, remoteName }) {
   if (!window.LivekitClient) {
@@ -5624,33 +6044,68 @@ async function _enterRoom({ callId, roomName, token, livekitUrl, remoteName }) {
     },
   });
 
-  room.on(LK.RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+  function _maybeStartTimer() {
+    if (!callState.startedAt && room.remoteParticipants.size > 0) {
+      callState.startedAt = Date.now();
+      _startCallTimer();
+      document.getElementById('active-call-status').textContent = 'В звонке';
+    }
+  }
+
+  function _updateHeader() {
+    const remotes = Array.from(room.remoteParticipants.values());
+    const names = remotes.map(p => p.name || p.identity).filter(Boolean);
+    let label;
+    if (remotes.length === 0) label = 'Ожидание ответа…';
+    else if (remotes.length === 1) label = names[0] || 'Участник';
+    else label = `${names[0] || 'Участник'} и ещё ${remotes.length - 1}`;
+    callState.remoteName = label;
+    document.getElementById('active-call-name').textContent = label;
+  }
+
+  room.on(LK.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+    const tile = _ensureTile(participant.identity, participant.name || participant.identity);
     if (track.kind === 'audio') {
       const el = track.attach();
       el.id = `remote-audio-${participant.identity}`;
       el.autoplay = true;
       document.getElementById('call-audio-mount').appendChild(el);
+    } else if (track.kind === 'video') {
+      _attachVideoToTile(tile, track);
     }
   });
-  room.on(LK.RoomEvent.TrackUnsubscribed, (track) => {
-    track.detach().forEach(el => el.remove());
+  room.on(LK.RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+    const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(participant.identity)}"]`);
+    if (track.kind === 'video') _detachVideoFromTile(tile, track);
+    else track.detach().forEach(el => el.remove());
+  });
+  room.on(LK.RoomEvent.TrackMuted, (_pub, participant) => {
+    const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(participant.identity)}"]`);
+    if (tile && _pub.kind === 'audio') tile.classList.add('is-muted');
+  });
+  room.on(LK.RoomEvent.TrackUnmuted, (_pub, participant) => {
+    const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(participant.identity)}"]`);
+    if (tile && _pub.kind === 'audio') tile.classList.remove('is-muted');
   });
   room.on(LK.RoomEvent.ParticipantConnected, (p) => {
-    callState.remoteName = p.name || p.identity;
-    document.getElementById('active-call-name').textContent = callState.remoteName;
-    document.getElementById('active-call-status').textContent = 'В звонке';
-    document.getElementById('active-call-avatar').textContent =
-      (callState.remoteName || '?').charAt(0).toUpperCase();
-    if (!callState.startedAt) {
-      callState.startedAt = Date.now();
-      _startCallTimer();
-    }
+    _ensureTile(p.identity, p.name || p.identity);
+    _updateHeader();
+    _maybeStartTimer();
   });
-  room.on(LK.RoomEvent.ParticipantDisconnected, () => {
-    // Если в комнате остались только мы — завершаем звонок
+  room.on(LK.RoomEvent.ParticipantDisconnected, (p) => {
+    _removeTile(p.identity);
+    _updateHeader();
+    // В комнате остались только мы — завершаем звонок (в группе это значит «все разошлись»)
     if (room.remoteParticipants.size === 0) {
       hangUpCall();
     }
+  });
+  room.on(LK.RoomEvent.ActiveSpeakersChanged, (speakers) => {
+    document.querySelectorAll('.conf-tile').forEach(t => t.classList.remove('is-speaking'));
+    speakers.forEach(s => {
+      const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(s.identity)}"]`);
+      if (tile) tile.classList.add('is-speaking');
+    });
   });
   room.on(LK.RoomEvent.Disconnected, () => {
     _cleanupCall();
@@ -5670,6 +6125,30 @@ async function _enterRoom({ callId, roomName, token, livekitUrl, remoteName }) {
     callState.roomName = roomName;
     callState.remoteName = remoteName;
     callState.isMuted = false;
+    callState.isCameraOn = false;
+
+    // Подготовим плитки: свою + всех уже присутствующих в комнате удалённых
+    const grid = document.getElementById('conf-tiles');
+    grid.innerHTML = '';
+    const myName = currentUser?.full_name || currentUser?.email || 'Вы';
+    _ensureTile(room.localParticipant.identity, myName, { isLocal: true });
+    for (const [_id, p] of room.remoteParticipants) {
+      _ensureTile(p.identity, p.name || p.identity);
+      // Подцепим уже подписанные треки (если comp вернул нам быстро)
+      p.trackPublications.forEach(pub => {
+        if (pub.track) {
+          const evt = new Event('manual'); // placeholder, just to invoke
+          const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(p.identity)}"]`);
+          if (pub.kind === 'audio') {
+            const el = pub.track.attach();
+            el.autoplay = true;
+            document.getElementById('call-audio-mount').appendChild(el);
+          } else if (pub.kind === 'video') {
+            _attachVideoToTile(tile, pub.track);
+          }
+        }
+      });
+    }
 
     // Если кто-то уже в комнате (мы отвечающий) — сразу запускаем таймер
     if (room.remoteParticipants.size > 0) {
@@ -5677,13 +6156,15 @@ async function _enterRoom({ callId, roomName, token, livekitUrl, remoteName }) {
       _startCallTimer();
     }
 
-    document.getElementById('active-call-name').textContent = remoteName;
+    _updateHeader();
+    if (room.remoteParticipants.size === 0) {
+      document.getElementById('active-call-name').textContent = remoteName || 'Ожидание ответа…';
+    }
     document.getElementById('active-call-status').textContent =
       room.remoteParticipants.size > 0 ? 'В звонке' : 'Звоним…';
-    document.getElementById('active-call-avatar').textContent =
-      (remoteName || '?').charAt(0).toUpperCase();
     document.getElementById('active-call-timer').textContent = '00:00';
     document.getElementById('active-call-mute-btn').classList.remove('is-muted');
+    document.getElementById('active-call-cam-btn').classList.remove('is-on');
     document.getElementById('active-call-overlay').classList.add('open');
   } catch (e) {
     toast('Ошибка подключения к звонку: ' + (e.message || e), 'error');
@@ -5714,6 +6195,51 @@ async function toggleCallMute() {
   }
   document.getElementById('active-call-mute-btn')
     .classList.toggle('is-muted', callState.isMuted);
+  // Отметить свою плитку
+  if (callState.room?.localParticipant) {
+    const tile = document.querySelector(
+      `.conf-tile[data-identity="${CSS.escape(callState.room.localParticipant.identity)}"]`
+    );
+    if (tile) tile.classList.toggle('is-muted', callState.isMuted);
+  }
+}
+
+async function toggleCallCamera() {
+  if (!callState.room) return;
+  const LK = window.LivekitClient;
+  const btn = document.getElementById('active-call-cam-btn');
+  const myIdentity = callState.room.localParticipant.identity;
+  const tile = document.querySelector(`.conf-tile[data-identity="${CSS.escape(myIdentity)}"]`);
+
+  if (!callState.isCameraOn) {
+    // Включаем камеру
+    try {
+      const videoTrack = await LK.createLocalVideoTrack({
+        resolution: LK.VideoPresets?.h360?.resolution,
+        facingMode: 'user',
+      });
+      await callState.room.localParticipant.publishTrack(videoTrack);
+      callState.localVideoTrack = videoTrack;
+      callState.isCameraOn = true;
+      btn.classList.add('is-on');
+      // Локальное превью — без звука (echo)
+      _attachVideoToTile(tile, videoTrack, { muted: true });
+    } catch (e) {
+      toast('Не удалось включить камеру: ' + (e.message || e), 'error');
+    }
+  } else {
+    // Выключаем камеру
+    try {
+      if (callState.localVideoTrack) {
+        await callState.room.localParticipant.unpublishTrack(callState.localVideoTrack);
+        _detachVideoFromTile(tile, callState.localVideoTrack);
+        callState.localVideoTrack.stop?.();
+      }
+    } catch {}
+    callState.localVideoTrack = null;
+    callState.isCameraOn = false;
+    btn.classList.remove('is-on');
+  }
 }
 
 async function hangUpCall() {
@@ -5729,14 +6255,22 @@ async function hangUpCall() {
 
 function _cleanupCall() {
   if (callState.timerInterval) { clearInterval(callState.timerInterval); callState.timerInterval = null; }
+  try { callState.localVideoTrack?.stop?.(); } catch {}
+  try { callState.localAudioTrack?.stop?.(); } catch {}
   callState.room = null;
   callState.localAudioTrack = null;
+  callState.localVideoTrack = null;
   callState.callId = null;
   callState.roomName = null;
   callState.startedAt = null;
   callState.isMuted = false;
+  callState.isCameraOn = false;
   document.getElementById('active-call-overlay').classList.remove('open');
   document.getElementById('call-audio-mount').innerHTML = '';
+  const grid = document.getElementById('conf-tiles');
+  if (grid) grid.innerHTML = '';
+  document.getElementById('active-call-cam-btn')?.classList.remove('is-on');
+  document.getElementById('active-call-mute-btn')?.classList.remove('is-muted');
 }
 
 // ── Входящие звонки: показать диалог ────────────────────────────

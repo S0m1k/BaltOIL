@@ -1,7 +1,8 @@
 import uuid
 import json
 import logging
-from sqlalchemy import select
+from datetime import datetime, timezone
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
@@ -13,6 +14,9 @@ from app.services.conversation_service import _check_access
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# UUID нулей — sender_id для системных сообщений (Message.sender_id NOT NULL).
+SYSTEM_SENDER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 async def send_message(
@@ -92,6 +96,73 @@ async def send_message(
             await r.aclose()
     except Exception:
         logger.exception("Failed to publish chat event")
+
+    return msg
+
+
+async def post_system_message(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    text: str,
+    metadata: dict | None = None,
+) -> Message:
+    """Вставить системное сообщение в диалог.
+    Используется внутренними сервисами (call_service, future order_service)
+    через /internal-эндпоинт с X-Internal-Secret. _check_access не вызывается —
+    отправитель уже доверенный.
+
+    Системные сообщения НЕ публикуются в events:chat (notification_service
+    их не разносит как «новое сообщение»), но публикуются в chat:{conv_id}
+    чтобы WS-клиенты увидели их мгновенно.
+    """
+    # Проверка существования и не-архивности диалога
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conv_id, Conversation.is_archived == False  # noqa: E712
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Conversation not found")
+
+    msg = Message(
+        conversation_id=conv_id,
+        sender_id=SYSTEM_SENDER_ID,
+        sender_role="system",
+        sender_name="Система",
+        msg_type="system",
+        text=text,
+        msg_metadata=metadata,
+    )
+    db.add(msg)
+    await db.execute(
+        sa_update(Conversation)
+        .where(Conversation.id == conv_id)
+        .values(updated_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+    await db.refresh(msg)
+
+    # Мгновенная доставка в открытые WS — payload должен соответствовать
+    # тому, что собирает websocket.py (см. _broadcast_payload).
+    try:
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            await r.publish(f"chat:{conv_id}", json.dumps({
+                "id": str(msg.id),
+                "conversation_id": str(msg.conversation_id),
+                "sender_id": str(msg.sender_id),
+                "sender_role": msg.sender_role,
+                "sender_name": msg.sender_name,
+                "msg_type": msg.msg_type,
+                "text": msg.text,
+                "metadata": msg.msg_metadata,
+                "created_at": msg.created_at.isoformat(),
+            }))
+        finally:
+            await r.aclose()
+    except Exception:
+        logger.exception("Failed to publish system message to WS channel")
 
     return msg
 

@@ -11,7 +11,7 @@ from app.core.dependencies import CurrentUser, require_roles, get_request_meta
 
 limiter = Limiter(key_func=get_remote_address)
 from app.schemas.auth import ChangePasswordRequest
-from app.schemas.user import UserResponse, UserShortResponse, CreateUserRequest, UpdateUserRequest
+from app.schemas.user import UserResponse, UserShortResponse, UserDirectoryEntry, CreateUserRequest, UpdateUserRequest
 from app.schemas.client_profile import ClientProfileResponse, UpdateClientProfileRequest, UpdateClientTariffRequest
 from app.services import user_service
 
@@ -32,6 +32,25 @@ async def list_users(
 ):
     return await user_service.list_users(
         db, role=role, include_inactive=include_inactive, offset=offset, limit=limit
+    )
+
+
+@router.get("/directory", response_model=list[UserDirectoryEntry])
+async def users_directory(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    role: UserRole | None = Query(None, description="Фильтр по роли"),
+    limit: int = Query(500, ge=1, le=1000),
+):
+    """Адресная книга: id + ФИО + роль активных пользователей.
+    Доступна любому залогиненному — нужна чату для:
+      • резолва UUID участников в имена при просмотре участников диалога
+      • подсказок при создании нового внутреннего чата (водитель тоже выбирает)
+    Не возвращает email/телефон и архивированных/деактивированных.
+    """
+    _ = current_user  # explicit dependency: only authenticated requests allowed
+    return await user_service.list_users(
+        db, role=role, include_inactive=False, offset=0, limit=limit
     )
 
 

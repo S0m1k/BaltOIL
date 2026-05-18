@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+import httpx
 from sqlalchemy import select, func, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,6 +30,25 @@ def _participants_hash(user_ids: list[uuid.UUID]) -> str:
     return hashlib.sha256("|".join(sorted_ids).encode()).hexdigest()
 
 
+async def _fetch_client_ids() -> set[uuid.UUID]:
+    """Спросить auth_service: чьи user_id принадлежат роли 'client'.
+    Возвращает пустое множество при сбое — в этом случае проверки на «клиент в участниках»
+    не сработают (fail-open для доступности), но при норм. работе сети правило соблюдается.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(
+                f"{settings.auth_service_url}/internal/users-by-role",
+                params={"roles": "client"},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+            resp.raise_for_status()
+            return {uuid.UUID(u) for u in resp.json()}
+    except Exception:
+        logger.warning("Could not fetch client IDs from auth_service", exc_info=True)
+        return set()
+
+
 async def create_conversation(
     db: AsyncSession,
     data: ConversationCreateRequest,
@@ -37,6 +57,19 @@ async def create_conversation(
     # Клиенты могут создавать только client_support
     if actor.role == "client" and data.type != ConversationType.CLIENT_SUPPORT:
         raise ForbiddenError("Клиент может создавать только чаты поддержки")
+
+    # Водитель — только internal (не support с клиентом)
+    if actor.role == "driver" and data.type != ConversationType.INTERNAL:
+        raise ForbiddenError("Водитель может создавать только внутренние чаты")
+
+    # Internal-чат не должен содержать клиентов — проверка действует для всех,
+    # кто пытается создать internal (включая admin/manager: фронт это фильтрует,
+    # но инвариант стоит держать на сервере).
+    if data.type == ConversationType.INTERNAL and data.participant_ids:
+        client_ids = await _fetch_client_ids()
+        bad = [pid for pid in data.participant_ids if pid in client_ids]
+        if bad:
+            raise ForbiddenError("В внутренний чат нельзя добавлять клиентов")
 
     # Полный список участников (включая создателя)
     participant_ids: list[uuid.UUID] = [actor.id]

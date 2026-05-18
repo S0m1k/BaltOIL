@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
 from app.models import conversation, message  # noqa: F401 — register models
-from app.routers import conversations, websocket as ws_router
+from app.routers import conversations, websocket as ws_router, internal as internal_router
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.add_middleware(
 
 app.include_router(conversations.router)
 app.include_router(ws_router.router)
+app.include_router(internal_router.router)
 
 
 @app.get("/health")

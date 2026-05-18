@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     app_port: int = 8004
     allowed_origins: str = "http://localhost:8080"
 
+    # Inter-service: needed to ask auth_service which user IDs are clients
+    auth_service_url: str = "http://auth_service:8001/api/v1"
+    internal_api_secret: str = "baltoil-internal-secret-2026"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

@@ -15,7 +15,12 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    # bcrypt.checkpw raises ValueError on a malformed hash (truncated, wrong prefix, etc.).
+    # Treat that as "wrong credentials" rather than letting it bubble up as HTTP 500.
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except (ValueError, TypeError):
+        return False
 
 
 # --- Access Token (JWT) ---

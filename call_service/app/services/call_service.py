@@ -19,6 +19,32 @@ from app.services.livekit_service import generate_room_token, create_room
 logger = logging.getLogger(__name__)
 
 
+async def _post_chat_system_message(
+    conv_id: uuid.UUID,
+    text: str,
+    metadata: dict | None = None,
+) -> None:
+    """Записать системное сообщение в чат через internal-endpoint.
+    Любая ошибка глотается — провал записи в чат не должен ронять звонок.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(
+                f"{settings.chat_service_url}/internal/conversations/{conv_id}/system-message",
+                json={"text": text, "metadata": metadata},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+            resp.raise_for_status()
+    except Exception:
+        logger.warning("Failed to post system message to chat", exc_info=True)
+
+
+def _format_duration(seconds: int) -> str:
+    """MM:SS — длительность звонка для системного сообщения."""
+    s = max(0, int(seconds))
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
 async def _fetch_conversation_participants(
     conv_id: uuid.UUID,
     actor_token: str,
@@ -127,6 +153,19 @@ async def start_call(
         "participant_ids": recipient_ids,
     }))
 
+    # Лог звонка в чат — system-сообщение с кнопкой «Присоединиться»
+    await _post_chat_system_message(
+        conv_id=conv_id,
+        text=f"📞 {actor.name} начал звонок",
+        metadata={
+            "event": "call_started",
+            "call_id": str(call.id),
+            "room_name": room_name,
+            "initiated_by_id": str(actor.id),
+            "initiated_by_name": actor.name,
+        },
+    )
+
     return call, initiator_token
 
 
@@ -215,5 +254,23 @@ async def end_call(
         "status": call.status.value,
         "participant_ids": participant_ids,
     }))
+
+    # Лог в чат: либо «не отвечен», либо «завершён · MM:SS»
+    if call.status == CallStatus.MISSED or not call.answered_at:
+        sys_text = "📞 Звонок не был отвечен"
+        sys_meta = {"event": "call_missed", "call_id": str(call.id)}
+    else:
+        duration = (
+            (call.ended_at or datetime.now(timezone.utc)) - call.answered_at
+        ).total_seconds()
+        sys_text = f"📞 Звонок завершён · {_format_duration(duration)}"
+        sys_meta = {
+            "event": "call_ended",
+            "call_id": str(call.id),
+            "duration_sec": int(duration),
+        }
+    await _post_chat_system_message(
+        conv_id=call.conversation_id, text=sys_text, metadata=sys_meta
+    )
 
     return call
