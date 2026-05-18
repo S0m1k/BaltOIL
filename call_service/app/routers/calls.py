@@ -137,6 +137,37 @@ async def active_calls(
     return list(result.unique().scalars().all())
 
 
+@router.get("/conv/{conv_id}/active", response_model=CallResponse | None)
+async def active_call_for_conv(
+    conv_id: uuid.UUID,
+    actor: TokenUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Вернуть активный/звонящий звонок для диалога, или null если его нет.
+
+    Используется фронтендом когда /calls/start вернул 409, чтобы получить
+    call_id для последующего завершения перед новым вызовом.
+    """
+    from app.models.call import CallParticipant
+    result = await db.execute(
+        select(Call)
+        .options(selectinload(Call.participants))
+        .where(
+            Call.conversation_id == conv_id,
+            Call.status.in_([CallStatus.RINGING, CallStatus.ACTIVE]),
+        )
+        .limit(1)
+    )
+    call = result.scalar_one_or_none()
+    if not call:
+        return None
+    # Access check: staff always passes, others must be a participant
+    invited_ids = {p.user_id for p in call.participants}
+    if actor.id not in invited_ids and actor.role not in {"admin", "manager"}:
+        raise ForbiddenError("Нет доступа к звонку")
+    return call
+
+
 @router.get("/{call_id}", response_model=CallResponse)
 async def get_call(
     call_id: uuid.UUID,

@@ -36,6 +36,22 @@ async def send_message(
 
     _check_access(conv, actor)
 
+    # Staff (manager/admin) bypass the participant check in _check_access but are
+    # not recorded in conversation_participants. Auto-enroll them on first message
+    # so mark_read / unread badges and call participant lists work correctly.
+    if actor.role in {"manager", "admin"}:
+        already_in = any(p.user_id == actor.id for p in conv.participants)
+        if not already_in:
+            from datetime import datetime as _dt, timezone as _tz
+            db.add(ConversationParticipant(
+                conversation_id=conv_id,
+                user_id=actor.id,
+                user_role=actor.role,
+                last_read_at=_dt.now(_tz.utc),
+            ))
+            await db.flush()
+            await db.refresh(conv, ["participants"])
+
     msg = Message(
         conversation_id=conv_id,
         sender_id=actor.id,

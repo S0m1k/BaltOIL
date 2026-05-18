@@ -5537,35 +5537,38 @@ async function startCallFromChat() {
     return;
   }
 
-  // Проверим что в диалоге есть кто-то кроме инициатора
+  async function _doStart() {
+    const resp = await _callPost('/calls/start', { conversation_id: activeConvId });
+    callState.seenCallIds.add(resp.call_id);
+    await _enterRoom({
+      callId: resp.call_id,
+      roomName: resp.room_name,
+      token: resp.token,
+      livekitUrl: resp.livekit_url,
+      remoteName: 'Ожидание ответа…',
+    });
+  }
+
   try {
-    const conv = await chatGet(`/conversations/${activeConvId}`);
-    const others = (conv.participants || []).filter(p => p.user_id !== currentUser?.id);
-    if (others.length === 0) {
-      toast('В диалоге нет других участников', 'error');
-      return;
+    await _doStart();
+  } catch (e) {
+    if (e.message && e.message.includes('уже идёт звонок')) {
+      // 409 — in this conversation a call is already active
+      const ok = confirm('В диалоге уже идёт звонок.\nЗавершить текущий и начать новый?');
+      if (!ok) return;
+      try {
+        const active = await _callGet(`/calls/conv/${activeConvId}/active`);
+        if (active && active.id) {
+          await _callPost(`/calls/${active.id}/end`, {});
+        }
+        await _doStart();
+      } catch (e2) {
+        toast('Не удалось начать звонок: ' + e2.message, 'error');
+      }
+    } else {
+      toast('Не удалось начать звонок: ' + e.message, 'error');
     }
-  } catch (e) {
-    toast('Не удалось загрузить диалог: ' + e.message, 'error');
-    return;
   }
-
-  let resp;
-  try {
-    resp = await _callPost('/calls/start', { conversation_id: activeConvId });
-  } catch (e) {
-    toast('Не удалось начать звонок: ' + e.message, 'error');
-    return;
-  }
-
-  callState.seenCallIds.add(resp.call_id);
-  await _enterRoom({
-    callId: resp.call_id,
-    roomName: resp.room_name,
-    token: resp.token,
-    livekitUrl: resp.livekit_url,
-    remoteName: 'Ожидание ответа…',
-  });
 }
 
 // ── Ответ на входящий звонок ────────────────────────────────────
