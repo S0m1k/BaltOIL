@@ -37,7 +37,7 @@ from app.services.notification_service import create_notifications, notif_to_jso
 
 logger = logging.getLogger(__name__)
 
-CHANNELS = ["events:orders", "events:chat"]
+CHANNELS = ["events:orders", "events:chat", "events:calls"]
 
 
 async def _fetch_staff_ids() -> list[uuid.UUID]:
@@ -126,12 +126,53 @@ def _build_chat_request(payload: dict) -> PublishRequest | None:
     )
 
 
+def _build_call_request(payload: dict) -> PublishRequest | None:
+    event = payload.get("event")
+    call_id = payload.get("call_id")
+    initiator_name = payload.get("initiated_by_name", "Someone")
+    participant_ids = payload.get("participant_ids", [])
+
+    if event == "call_initiated":
+        recipients = [uuid.UUID(pid) for pid in participant_ids]
+        if not recipients:
+            return None
+        return PublishRequest(
+            user_ids=recipients,
+            type=NotificationType.CALL_INITIATED,
+            title="Входящий звонок",
+            body=f"{initiator_name} звонит вам",
+            entity_type="call",
+            entity_id=uuid.UUID(call_id) if call_id else None,
+        )
+    # call_ended/missed — мы рассылаем через прямую публикацию в notifs:{uid}
+    # без создания строки в БД (это просто сигнал «закрой UI»).
+    return None
+
+
 async def _handle(payload: dict, r: aioredis.Redis) -> None:
     event = payload.get("event", "")
     if event in ("order_created", "order_status"):
         req = await _build_order_request(payload)
     elif event == "chat_message":
         req = _build_chat_request(payload)
+    elif event == "call_initiated":
+        req = _build_call_request(payload)
+    elif event == "call_ended":
+        # Сигнальное событие — раздаём только по personal-каналам без записи в БД.
+        # Фронтенд закроет диалог входящего звонка / активный звонок.
+        signal = json.dumps({
+            "type": "CALL_ENDED",
+            "call_id": payload.get("call_id"),
+            "room_name": payload.get("room_name"),
+            "conversation_id": payload.get("conversation_id"),
+            "status": payload.get("status"),
+        })
+        for pid in payload.get("participant_ids", []):
+            try:
+                await r.publish(f"notifs:{pid}", signal)
+            except Exception:
+                logger.exception("Failed to broadcast call_ended to %s", pid)
+        return
     else:
         return
 
@@ -144,7 +185,14 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
             await db.commit()
             for n in notifications:
                 channel = f"notifs:{n.user_id}"
-                await r.publish(channel, notif_to_json(n))
+                # Для звонков добавим room_name в SSE-пейлоад, чтобы фронт сразу мог подключиться
+                if event == "call_initiated":
+                    enriched = json.loads(notif_to_json(n))
+                    enriched["room_name"] = payload.get("room_name")
+                    enriched["initiated_by_name"] = payload.get("initiated_by_name")
+                    await r.publish(channel, json.dumps(enriched))
+                else:
+                    await r.publish(channel, notif_to_json(n))
         except Exception:
             logger.exception("Failed to persist notification for event %s", event)
             await db.rollback()

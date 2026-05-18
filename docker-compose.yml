@@ -91,6 +91,38 @@ services:
     entrypoint: ["sh", "/app/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
 
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"                 # HTTP/WebSocket signalling
+      - "7881:7881"                 # ICE/TCP fallback
+      - "50000-50100:50000-50100/udp"  # WebRTC media
+    volumes:
+      - ./livekit/config.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  call_service:
+    build:
+      context: ./call_service
+    env_file:
+      - ./call_service/.env
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    volumes:
+      - ./call_service:/app
+    entrypoint: ["sh", "/app/entrypoint.sh"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8006 --reload
+
   notification_service:
     build:
       context: ./notification_service

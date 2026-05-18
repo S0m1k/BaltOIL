@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- LiveKit JS SDK для звонков -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.10/dist/livekit-client.umd.min.js"></script>
 <style>
   :root {
     --bg:        #eef2fb;
@@ -1155,6 +1157,58 @@
     .auth-mode-btn { width: 100%; }
     .topbar-logo { display: none; }
   }
+
+  /* ─── CALLS ────────────────────────────────────────────────────────── */
+  .call-overlay {
+    position: fixed; inset: 0; background: rgba(10, 14, 25, .75);
+    z-index: 10000; display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .call-overlay.open { display: flex; }
+  .call-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 18px;
+    padding: 36px 28px; width: 320px; max-width: 92vw; text-align: center;
+    box-shadow: 0 24px 64px rgba(0,0,0,.4);
+  }
+  .call-avatar {
+    width: 88px; height: 88px; margin: 0 auto 18px;
+    background: linear-gradient(135deg, #10b981, #3b82f6);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 36px; font-weight: 700;
+    box-shadow: 0 10px 30px rgba(16, 185, 129, .35);
+    animation: pulseRing 1.4s ease-out infinite;
+  }
+  @keyframes pulseRing {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, .55); }
+    100% { box-shadow: 0 0 0 22px rgba(16, 185, 129, 0); }
+  }
+  .call-card .call-status-label {
+    font-size: 12px; color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .call-card .call-caller-name {
+    font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+  }
+  .call-card .call-sub {
+    font-size: 12px; color: var(--text2); margin-bottom: 20px;
+  }
+  .call-actions {
+    display: flex; gap: 14px; justify-content: center; margin-top: 12px;
+  }
+  .call-btn {
+    width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: white;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .call-btn:hover { transform: translateY(-2px); }
+  .call-btn.accept { background: #10b981; box-shadow: 0 8px 22px rgba(16, 185, 129, .4); }
+  .call-btn.decline { background: #ef4444; box-shadow: 0 8px 22px rgba(239, 68, 68, .4); }
+  .call-btn.mute { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .call-btn.mute.is-muted { background: #f59e0b; color: white; border-color: transparent; }
+  .call-timer {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace;
+    font-size: 13px; color: var(--text2); margin-bottom: 18px;
+  }
 </style>
 </head>
 <body>
@@ -1911,6 +1965,10 @@
                 </div>
               </div>
               <span class="ws-status ws-offline" id="ws-status-badge" style="flex-shrink:0">● OFFLINE</span>
+              <button class="btn btn-sm btn-ghost" id="btn-call-conv"
+                onclick="startCallFromChat()"
+                title="Позвонить участникам диалога"
+                style="flex-shrink:0;color:#10b981"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46ZM176,208A128.14,128.14,0,0,1,48,80,40.2,40.2,0,0,1,82.87,40a.61.61,0,0,0,0,.12l21,47L83.2,111.86a6.13,6.13,0,0,0-.57.77,16,16,0,0,0-1,15.7c9.06,18.53,27.73,37.06,46.46,46.11a16,16,0,0,0,15.75-1.14,8.44,8.44,0,0,0,.74-.56L168.89,152l47,21.05h.05A40.21,40.21,0,0,1,176,208Z"/></svg></button>
               <button class="btn btn-sm btn-ghost" id="btn-archive-conv"
                 onclick="archiveCurrentConv()"
                 title="Удалить диалог (архивировать)"
@@ -1939,6 +1997,46 @@
 </div>
 
 <!-- ════════════════════════════════ MODAL ════════════════════════════════ -->
+<!-- ═════════════════════ CALL OVERLAY ═════════════════════ -->
+<!-- Аудио-элементы для воспроизведения треков удалённых участников -->
+<div id="call-audio-mount" style="position:fixed;width:0;height:0;overflow:hidden"></div>
+
+<!-- Входящий звонок -->
+<div class="call-overlay" id="incoming-call-overlay">
+  <div class="call-card">
+    <div class="call-avatar" id="incoming-call-avatar">?</div>
+    <div class="call-status-label">Входящий звонок</div>
+    <div class="call-caller-name" id="incoming-call-name">—</div>
+    <div class="call-sub">Аудио-вызов через BaltOIL</div>
+    <div class="call-actions">
+      <button class="call-btn decline" onclick="declineIncomingCall()" title="Отклонить">
+        <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" transform="rotate(135 128 128)"/></svg>
+      </button>
+      <button class="call-btn accept" onclick="acceptIncomingCall()" title="Ответить">
+        <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Активный звонок -->
+<div class="call-overlay" id="active-call-overlay">
+  <div class="call-card">
+    <div class="call-avatar" id="active-call-avatar">?</div>
+    <div class="call-status-label" id="active-call-status">Звонок</div>
+    <div class="call-caller-name" id="active-call-name">—</div>
+    <div class="call-timer" id="active-call-timer">00:00</div>
+    <div class="call-actions">
+      <button class="call-btn mute" id="active-call-mute-btn" onclick="toggleCallMute()" title="Микрофон">
+        <svg width="22" height="22" viewBox="0 0 256 256" fill="currentColor"><path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V232a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></svg>
+      </button>
+      <button class="call-btn decline" onclick="hangUpCall()" title="Завершить">
+        <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" transform="rotate(135 128 128)"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
     <div class="modal-title" id="modal-title"></div>
@@ -2034,6 +2132,7 @@ const AUTH_URL     = `${_proto}://${_H}:8001/api/v1`;
 const ORDER_URL    = `${_proto}://${_H}:8002/api/v1`;
 const DELIVERY_URL = `${_proto}://${_H}:8003/api/v1`;
 const CHAT_URL     = `${_proto}://${_H}:8004`;
+const CALL_URL     = `${_proto}://${_H}:8006`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -2364,6 +2463,13 @@ async function doLogout() {
   if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
   notifList = [];
   activeConvId = null;
+  // Звонки
+  try { if (callState.room) callState.room.disconnect(); } catch {}
+  _cleanupCall();
+  stopCallPolling();
+  callState.seenCallIds.clear();
+  callState.incoming = null;
+  document.getElementById('incoming-call-overlay').classList.remove('open');
   try {
     const rt = localStorage.getItem('refresh_token');
     if (rt) await authPost('/auth/logout', { refresh_token: rt });
@@ -3719,11 +3825,15 @@ const NOTIF_TYPE_LABELS = {
   trip_assigned:       'Назначен рейс',
   trip_status:         'Статус рейса',
   report_ready:        'Отчёт готов',
+  call_initiated:      'Входящий звонок',
+  call_ended:          'Звонок завершён',
+  call_missed:         'Пропущенный звонок',
 };
 
 function initNotifications() {
   loadNotifications();
   connectNotifSSE();
+  startCallPolling();
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.notif-bell-wrap')) {
       document.getElementById('notif-panel').classList.remove('open');
@@ -3843,6 +3953,9 @@ function connectNotifSSE() {
       if (newOnes.length === 0) return;
       newOnes.forEach(n => {
         notifList.unshift(n);
+        // Хук на звонки: показываем диалог входящего звонка вместо тоста
+        if (window._handleNotifForCalls) window._handleNotifForCalls(n);
+        if (n.type === 'call_initiated') return; // звонок уже показан как overlay
         toast(`${NOTIF_TYPE_LABELS[n.type] || n.type}: ${n.body}`, 'success');
       });
       if (notifList.length > 50) notifList.length = 50;
@@ -5380,6 +5493,330 @@ function exportFinanceCsv() {
     })
     .catch(() => showToast('Ошибка экспорта CSV', 'error'));
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CALLS (LiveKit)
+// ═══════════════════════════════════════════════════════════════
+
+const callState = {
+  // Текущий активный звонок (то, на что мы уже подключились)
+  room: null,                  // LiveKit Room instance
+  localAudioTrack: null,
+  callId: null,
+  roomName: null,
+  remoteName: '—',
+  startedAt: null,
+  timerInterval: null,
+  isMuted: false,
+  // Текущий «входящий» звонок (показан диалог, но мы ещё не подключились)
+  incoming: null,              // { call_id, room_name, from_name }
+  // Известные call_id, чтобы не показывать диалог повторно после polling
+  seenCallIds: new Set(),
+  pollTimer: null,
+};
+
+function _callPost(path, body) {
+  return api(`${CALL_URL}${path}`, { method: 'POST', body: JSON.stringify(body || {}) });
+}
+function _callGet(path) {
+  return api(`${CALL_URL}${path}`);
+}
+
+// ── Инициация звонка из чата ────────────────────────────────────
+async function startCallFromChat() {
+  if (!activeConvId) {
+    toast('Откройте диалог перед звонком', 'error');
+    return;
+  }
+  if (callState.room || callState.incoming) {
+    toast('У вас уже есть активный звонок', 'error');
+    return;
+  }
+
+  // Проверим что в диалоге есть кто-то кроме инициатора
+  try {
+    const conv = await chatGet(`/conversations/${activeConvId}`);
+    const others = (conv.participants || []).filter(p => p.user_id !== currentUser?.id);
+    if (others.length === 0) {
+      toast('В диалоге нет других участников', 'error');
+      return;
+    }
+  } catch (e) {
+    toast('Не удалось загрузить диалог: ' + e.message, 'error');
+    return;
+  }
+
+  let resp;
+  try {
+    resp = await _callPost('/calls/start', { conversation_id: activeConvId });
+  } catch (e) {
+    toast('Не удалось начать звонок: ' + e.message, 'error');
+    return;
+  }
+
+  callState.seenCallIds.add(resp.call_id);
+  await _enterRoom({
+    callId: resp.call_id,
+    roomName: resp.room_name,
+    token: resp.token,
+    livekitUrl: resp.livekit_url,
+    remoteName: 'Ожидание ответа…',
+  });
+}
+
+// ── Ответ на входящий звонок ────────────────────────────────────
+async function acceptIncomingCall() {
+  const inc = callState.incoming;
+  if (!inc) return;
+  document.getElementById('incoming-call-overlay').classList.remove('open');
+
+  let resp;
+  try {
+    resp = await _callPost('/calls/token', { room_name: inc.room_name });
+  } catch (e) {
+    toast('Не удалось подключиться: ' + e.message, 'error');
+    callState.incoming = null;
+    return;
+  }
+
+  callState.incoming = null;
+  await _enterRoom({
+    callId: resp.call_id,
+    roomName: resp.room_name,
+    token: resp.token,
+    livekitUrl: resp.livekit_url,
+    remoteName: inc.from_name || 'Участник',
+  });
+}
+
+function declineIncomingCall() {
+  const inc = callState.incoming;
+  document.getElementById('incoming-call-overlay').classList.remove('open');
+  if (!inc) return;
+  callState.incoming = null;
+  // Сообщаем серверу что отклоняем — он закроет комнату для всех
+  _callPost(`/calls/${inc.call_id}/end`, {}).catch(() => {});
+}
+
+// ── Подключение к LiveKit-комнате ───────────────────────────────
+async function _enterRoom({ callId, roomName, token, livekitUrl, remoteName }) {
+  if (!window.LivekitClient) {
+    toast('LiveKit SDK не загружен', 'error');
+    return;
+  }
+  const LK = window.LivekitClient;
+
+  const room = new LK.Room({
+    adaptiveStream: true,
+    dynacast: true,
+    audioCaptureDefaults: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  });
+
+  room.on(LK.RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+    if (track.kind === 'audio') {
+      const el = track.attach();
+      el.id = `remote-audio-${participant.identity}`;
+      el.autoplay = true;
+      document.getElementById('call-audio-mount').appendChild(el);
+    }
+  });
+  room.on(LK.RoomEvent.TrackUnsubscribed, (track) => {
+    track.detach().forEach(el => el.remove());
+  });
+  room.on(LK.RoomEvent.ParticipantConnected, (p) => {
+    callState.remoteName = p.name || p.identity;
+    document.getElementById('active-call-name').textContent = callState.remoteName;
+    document.getElementById('active-call-status').textContent = 'В звонке';
+    document.getElementById('active-call-avatar').textContent =
+      (callState.remoteName || '?').charAt(0).toUpperCase();
+    if (!callState.startedAt) {
+      callState.startedAt = Date.now();
+      _startCallTimer();
+    }
+  });
+  room.on(LK.RoomEvent.ParticipantDisconnected, () => {
+    // Если в комнате остались только мы — завершаем звонок
+    if (room.remoteParticipants.size === 0) {
+      hangUpCall();
+    }
+  });
+  room.on(LK.RoomEvent.Disconnected, () => {
+    _cleanupCall();
+  });
+
+  try {
+    await room.connect(livekitUrl, token);
+    const audioTrack = await LK.createLocalAudioTrack({
+      echoCancellation: true,
+      noiseSuppression: true,
+    });
+    await room.localParticipant.publishTrack(audioTrack);
+
+    callState.room = room;
+    callState.localAudioTrack = audioTrack;
+    callState.callId = callId;
+    callState.roomName = roomName;
+    callState.remoteName = remoteName;
+    callState.isMuted = false;
+
+    // Если кто-то уже в комнате (мы отвечающий) — сразу запускаем таймер
+    if (room.remoteParticipants.size > 0) {
+      callState.startedAt = Date.now();
+      _startCallTimer();
+    }
+
+    document.getElementById('active-call-name').textContent = remoteName;
+    document.getElementById('active-call-status').textContent =
+      room.remoteParticipants.size > 0 ? 'В звонке' : 'Звоним…';
+    document.getElementById('active-call-avatar').textContent =
+      (remoteName || '?').charAt(0).toUpperCase();
+    document.getElementById('active-call-timer').textContent = '00:00';
+    document.getElementById('active-call-mute-btn').classList.remove('is-muted');
+    document.getElementById('active-call-overlay').classList.add('open');
+  } catch (e) {
+    toast('Ошибка подключения к звонку: ' + (e.message || e), 'error');
+    try { room.disconnect(); } catch {}
+    _cleanupCall();
+  }
+}
+
+function _startCallTimer() {
+  if (callState.timerInterval) clearInterval(callState.timerInterval);
+  const el = document.getElementById('active-call-timer');
+  callState.timerInterval = setInterval(() => {
+    if (!callState.startedAt) return;
+    const sec = Math.floor((Date.now() - callState.startedAt) / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    el.textContent = `${mm}:${ss}`;
+  }, 1000);
+}
+
+async function toggleCallMute() {
+  if (!callState.localAudioTrack) return;
+  callState.isMuted = !callState.isMuted;
+  await callState.localAudioTrack.mute(callState.isMuted).catch(() => {});
+  // Некоторые версии SDK: используем setMicrophoneEnabled
+  if (callState.room?.localParticipant?.setMicrophoneEnabled) {
+    await callState.room.localParticipant.setMicrophoneEnabled(!callState.isMuted).catch(() => {});
+  }
+  document.getElementById('active-call-mute-btn')
+    .classList.toggle('is-muted', callState.isMuted);
+}
+
+async function hangUpCall() {
+  const callId = callState.callId;
+  try {
+    if (callState.room) await callState.room.disconnect();
+  } catch {}
+  if (callId) {
+    _callPost(`/calls/${callId}/end`, {}).catch(() => {});
+  }
+  _cleanupCall();
+}
+
+function _cleanupCall() {
+  if (callState.timerInterval) { clearInterval(callState.timerInterval); callState.timerInterval = null; }
+  callState.room = null;
+  callState.localAudioTrack = null;
+  callState.callId = null;
+  callState.roomName = null;
+  callState.startedAt = null;
+  callState.isMuted = false;
+  document.getElementById('active-call-overlay').classList.remove('open');
+  document.getElementById('call-audio-mount').innerHTML = '';
+}
+
+// ── Входящие звонки: показать диалог ────────────────────────────
+function _showIncomingCall({ call_id, room_name, from_name }) {
+  if (!call_id || !room_name) return;
+  if (callState.seenCallIds.has(call_id)) return;
+  if (callState.room || callState.incoming) return; // уже занят
+  callState.seenCallIds.add(call_id);
+  callState.incoming = { call_id, room_name, from_name };
+
+  document.getElementById('incoming-call-name').textContent = from_name || 'Неизвестно';
+  document.getElementById('incoming-call-avatar').textContent =
+    (from_name || '?').charAt(0).toUpperCase();
+  document.getElementById('incoming-call-overlay').classList.add('open');
+
+  // Авто-отклонение через 45 секунд если никто не реагирует
+  setTimeout(() => {
+    if (callState.incoming?.call_id === call_id) {
+      declineIncomingCall();
+    }
+  }, 45_000);
+}
+
+function _handleCallEnded(callId) {
+  // Если это завершение того звонка, в котором мы сейчас участвуем — закрываемся
+  if (callState.callId === callId && callState.room) {
+    try { callState.room.disconnect(); } catch {}
+    _cleanupCall();
+    toast('Звонок завершён', 'success');
+  }
+  // Если это завершение входящего, который мы ещё не приняли — скрываем диалог
+  if (callState.incoming?.call_id === callId) {
+    callState.incoming = null;
+    document.getElementById('incoming-call-overlay').classList.remove('open');
+  }
+}
+
+// ── Polling активных звонков (бэкап для тех случаев, когда SSE не подключён) ──
+function startCallPolling() {
+  stopCallPolling();
+  if (!localStorage.getItem('access_token')) return;
+  callState.pollTimer = setInterval(async () => {
+    if (callState.room || callState.incoming) return;
+    try {
+      const list = await _callGet('/calls/active');
+      if (!Array.isArray(list)) return;
+      // Показываем первый RINGING звонок, где мы НЕ инициатор и нет joined_at
+      for (const c of list) {
+        if (c.status !== 'ringing') continue;
+        if (String(c.initiated_by_id) === String(currentUser?.id)) continue;
+        _showIncomingCall({
+          call_id: c.id,
+          room_name: c.room_name,
+          from_name: c.initiated_by_name,
+        });
+        break;
+      }
+    } catch { /* сервис может быть не запущен */ }
+  }, 3000);
+}
+
+function stopCallPolling() {
+  if (callState.pollTimer) { clearInterval(callState.pollTimer); callState.pollTimer = null; }
+}
+
+// ── Перехват уведомлений: если пришло CALL_INITIATED / CALL_ENDED ──
+const _origToastForCalls = window.toast;
+// Хук в polling уведомлений: расширяем _pollNotifs так, чтобы вызовы перехватывались.
+// (Уведомления приходят через notifList; перехватываем при добавлении.)
+(function patchNotifPolling() {
+  const _origUnshift = Array.prototype.unshift;
+  // Не патчим Array prototype — вместо этого хукаем через MutationObserver на notif-list? Проще:
+  // у нас есть NOTIF_TYPE_LABELS; добавим в _pollNotifs обработку через отдельный обработчик.
+})();
+
+// Дополнительная функция: вызывается из _pollNotifs автоматически (см. ниже патч).
+window._handleNotifForCalls = function (n) {
+  if (!n || !n.type) return;
+  if (n.type === 'call_initiated') {
+    _showIncomingCall({
+      call_id: n.entity_id,
+      room_name: n.room_name,        // приходит из расширенного payload (см. notification_service)
+      from_name: n.initiated_by_name || (n.body || '').replace(/ звонит вам$/, ''),
+    });
+  } else if (n.type === 'CALL_ENDED' || n.type === 'call_ended' || n.type === 'call_missed') {
+    _handleCallEnded(n.call_id || n.entity_id);
+  }
+};
 </script>
 </body>
 </html>

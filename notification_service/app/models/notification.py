@@ -14,6 +14,9 @@ class NotificationType(str, enum.Enum):
     TRIP_ASSIGNED  = "trip_assigned"
     TRIP_STATUS    = "trip_status"
     REPORT_READY   = "report_ready"
+    CALL_INITIATED = "call_initiated"
+    CALL_ENDED     = "call_ended"
+    CALL_MISSED    = "call_missed"
 
 
 class Notification(Base):
