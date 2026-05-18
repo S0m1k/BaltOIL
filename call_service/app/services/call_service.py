@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import httpx
 import redis.asyncio as aioredis
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -98,7 +99,13 @@ async def start_call(
     # и в БД не останется звонка-призрака в статусе RINGING без реальной комнаты.
     await create_room(room_name)
 
-    await db.commit()
+    # Partial unique index uq_calls_one_active_per_conv может выстрелить, если
+    # параллельный запрос прошёл проверку выше и закоммитил свой звонок раньше.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise ConflictError("В этом диалоге уже идёт звонок")
     await db.refresh(call)
 
     # Сгенерировать токен для инициатора
