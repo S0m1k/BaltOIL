@@ -56,14 +56,16 @@ async def start_call(
     if actor.id not in p_ids and actor.role not in {"admin", "manager"}:
         raise ForbiddenError("Вы не участник этого диалога")
 
-    # Не даём начинать новый звонок, если в этом диалоге уже идёт активный
+    # Не даём начинать новый звонок, если в этом диалоге уже идёт активный.
+    # Используем .first() (не scalar_one_or_none) — race condition мог оставить
+    # несколько ringing/active записей; нам достаточно знать что хоть одна есть.
     existing = await db.execute(
-        select(Call).where(
+        select(Call.id).where(
             Call.conversation_id == conv_id,
             Call.status.in_([CallStatus.RINGING, CallStatus.ACTIVE]),
-        )
+        ).limit(1)
     )
-    if existing.scalar_one_or_none():
+    if existing.first() is not None:
         raise ConflictError("В этом диалоге уже идёт звонок")
 
     # Имя комнаты: префикс + случайный hex для непредсказуемости
