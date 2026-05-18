@@ -3999,15 +3999,17 @@ function startChatPoll(convId) {
       const msgs = await chatGet(`/conversations/${convId}/messages?limit=30`);
       if (!Array.isArray(msgs)) return;
       let appended = false;
+      let hasOtherMessages = false;
       for (const msg of msgs) {
         if (!document.getElementById(`msg-${msg.id}`)) {
           appendMessage(msg);
           appended = true;
+          if (msg.sender_id !== currentUser?.id) hasOtherMessages = true;
         }
       }
       if (appended) {
-        // Active conv: mark read immediately so badge clears
-        chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
+        // Mark as read if messages from others arrived while conversation is open
+        if (hasOtherMessages) chatPost(`/conversations/${convId}/read`, {}).catch(() => {});
         chatGet('/conversations').then(data => { renderConvList(data); updateChatTabBadge(data); }).catch(() => {});
       }
     } catch (_) {}
