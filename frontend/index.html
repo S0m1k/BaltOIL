@@ -2128,11 +2128,13 @@ document.addEventListener('DOMContentLoaded', _syncThemeIcon);
 const _H     = window.location.hostname;
 const _proto  = location.protocol === 'https:' ? 'https' : 'http';
 const _wsproto = location.protocol === 'https:' ? 'wss' : 'ws';
-const AUTH_URL     = `${_proto}://${_H}:8001/api/v1`;
-const ORDER_URL    = `${_proto}://${_H}:8002/api/v1`;
-const DELIVERY_URL = `${_proto}://${_H}:8003/api/v1`;
-const CHAT_URL     = `${_proto}://${_H}:8004`;
-const CALL_URL     = `${_proto}://${_H}:8006`;
+// All API traffic goes through the same origin (port 443) under /api/<service>/.
+// This is what makes self-signed TLS work on mobile — one cert, one origin.
+const AUTH_URL     = `/api/auth/api/v1`;
+const ORDER_URL    = `/api/order/api/v1`;
+const DELIVERY_URL = `/api/delivery/api/v1`;
+const CHAT_URL     = `/api/chat`;
+const CALL_URL     = `/api/call`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -3813,7 +3815,7 @@ function promptCreateUser() {
 // ═══════════════════════════════════════════════════════════════
 // NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════
-const NOTIF_URL = `${_proto}://${_H}:8005/api/v1`;
+const NOTIF_URL = `/api/notif/api/v1`;
 let notifSSE = null;       // SSE connection (kept for close() on logout)
 let _notifPollTimer = null; // polling fallback timer
 let notifList = [];
@@ -4209,7 +4211,7 @@ function connectWs(convId) {
   const token = localStorage.getItem('access_token');
   if (!token) return;
 
-  const wsUrl = `${_wsproto}://${_H}:8004/ws/${convId}?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${_wsproto}://${_H}/api/chat/ws/${convId}?token=${encodeURIComponent(token)}`;
   const badge = document.getElementById('ws-status-badge');
 
   function connect() {
