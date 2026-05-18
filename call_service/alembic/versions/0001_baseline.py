@@ -18,10 +18,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    postgresql.ENUM(
+    callstatus = postgresql.ENUM(
         "ringing", "active", "ended", "missed",
-        name="callstatus", create_type=True,
-    ).create(op.get_bind(), checkfirst=True)
+        name="callstatus", create_type=False,
+    )
+    callstatus.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "calls",
@@ -32,7 +33,7 @@ def upgrade() -> None:
         sa.Column("initiated_by_name", sa.String(255), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("ringing", "active", "ended", "missed", name="callstatus"),
+            callstatus,
             nullable=False,
             server_default="ringing",
         ),

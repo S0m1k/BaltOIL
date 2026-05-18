@@ -29,13 +29,15 @@ services:
       timeout: 5s
       retries: 5
 
+  # Backend services: no host ports. Reachable only via the frontend TLS proxy
+  # on matching ports (8001-8006, 7880). Internal docker DNS routes
+  # frontend → service:port directly.
+
   auth_service:
     build:
       context: ./auth_service
     env_file:
       - ./auth_service/.env
-    ports:
-      - "8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,8 +51,6 @@ services:
       context: ./order_service
     env_file:
       - ./order_service/.env
-    ports:
-      - "8002:8002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,8 +64,6 @@ services:
       context: ./delivery_service
     env_file:
       - ./delivery_service/.env
-    ports:
-      - "8003:8003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,8 +77,6 @@ services:
       context: ./chat_service
     env_file:
       - ./chat_service/.env
-    ports:
-      - "8004:8004"
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,9 +91,9 @@ services:
     image: livekit/livekit-server:latest
     command: --config /etc/livekit.yaml
     ports:
-      - "7880:7880"                 # HTTP/WebSocket signalling
-      - "7881:7881"                 # ICE/TCP fallback
-      - "50000-50100:50000-50100/udp"  # WebRTC media
+      # 7880 is now TLS-terminated by frontend nginx → no host mapping here.
+      - "7881:7881"                     # ICE/TCP fallback (plain, no TLS)
+      - "50000-50100:50000-50100/udp"   # WebRTC media (encrypted via DTLS/SRTP)
     volumes:
       - ./livekit/config.yaml:/etc/livekit.yaml:ro
     depends_on:
@@ -109,8 +105,6 @@ services:
       context: ./call_service
     env_file:
       - ./call_service/.env
-    ports:
-      - "8006:8006"
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,8 +122,6 @@ services:
       context: ./notification_service
     env_file:
       - ./notification_service/.env
-    ports:
-      - "8005:8005"
     depends_on:
       postgres:
         condition: service_healthy
@@ -141,10 +133,31 @@ services:
 
   frontend:
     image: nginx:alpine
+    # Owns every public port. nginx terminates TLS and reverse-proxies to
+    # the matching backend service on the docker network.
     ports:
-      - "8080:80"
+      - "80:80"           # redirects to 443
+      - "8080:80"         # legacy bookmark → also redirects to 443
+      - "443:443"
+      - "8001:8001"       # auth (TLS)
+      - "8002:8002"       # order (TLS)
+      - "8003:8003"       # delivery (TLS)
+      - "8004:8004"       # chat (TLS, WS upgrade)
+      - "8005:8005"       # notification (TLS, SSE-friendly)
+      - "8006:8006"       # call (TLS)
+      - "7880:7880"       # livekit signalling (WSS)
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./tls:/etc/nginx/tls:ro
+    depends_on:
+      - auth_service
+      - order_service
+      - delivery_service
+      - chat_service
+      - notification_service
+      - call_service
+      - livekit
 
 volumes:
   postgres_data:
