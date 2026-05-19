@@ -118,8 +118,9 @@ async def update_client_profile(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    meta = get_request_meta(request)
     return await user_service.update_client_profile(
-        db, user_id, data, actor=current_user
+        db, user_id, data, actor=current_user, ip_address=meta["ip_address"]
     )
 
 

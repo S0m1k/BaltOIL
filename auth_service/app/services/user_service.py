@@ -321,6 +321,7 @@ async def update_client_profile(
     data: UpdateClientProfileRequest,
     *,
     actor: User,
+    ip_address: str | None = None,
 ) -> ClientProfile:
     # Only the client themselves, or admin / manager — driver role is not allowed
     if actor.role == UserRole.DRIVER:
@@ -335,8 +336,23 @@ async def update_client_profile(
     if not profile:
         raise NotFoundError("Профиль клиента не найден")
 
+    changed = {}
     for field, value in data.model_dump(exclude_none=True).items():
-        setattr(profile, field, value)
+        old = getattr(profile, field)
+        if old != value:
+            changed[field] = {"old": str(old) if old is not None else None, "new": str(value)}
+            setattr(profile, field, value)
+
+    if changed:
+        await log_action(
+            db,
+            action="client_profile.updated",
+            actor_id=actor.id,
+            entity_type="client_profile",
+            entity_id=user_id,
+            details=changed,
+            ip_address=ip_address,
+        )
 
     return profile
 
