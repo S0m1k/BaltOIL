@@ -323,7 +323,12 @@ async def archive_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: Toke
     await db.commit()
 
 
-async def delete_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+async def delete_conversation(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+    redis: aioredis.Redis,
+) -> None:
     """Hard-delete диалога — только администратор."""
     if actor.role != "admin":
         raise ForbiddenError("Удалить диалог полностью может только администратор")
@@ -337,9 +342,22 @@ async def delete_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: Token
     )
     await db.delete(conv)
     await db.commit()
+    # Notify open WS clients so they can close the chat UI
+    try:
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "event": "conversation_deleted",
+            "conversation_id": str(conv_id),
+        }))
+    except Exception:
+        logger.exception("Failed to publish conversation_deleted event")
 
 
-async def clear_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+async def clear_conversation(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+    redis: aioredis.Redis,
+) -> None:
     """Очистить историю сообщений — только администратор."""
     if actor.role != "admin":
         raise ForbiddenError("Очистить историю может только администратор")
@@ -350,6 +368,14 @@ async def clear_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenU
         raise NotFoundError("Диалог не найден")
     await db.execute(delete(Message).where(Message.conversation_id == conv_id))
     await db.commit()
+    # Notify open WS clients so they can clear the message list in UI
+    try:
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "event": "conversation_cleared",
+            "conversation_id": str(conv_id),
+        }))
+    except Exception:
+        logger.exception("Failed to publish conversation_cleared event")
 
 
 def _check_access(conv: Conversation, actor: TokenUser) -> None:

@@ -58,9 +58,10 @@ async def delete_conversation(
     conv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Hard-delete диалога вместе с сообщениями — только администратор."""
-    await conversation_service.delete_conversation(db, conv_id, actor)
+    await conversation_service.delete_conversation(db, conv_id, actor, redis=redis)
 
 
 @router.post("/{conv_id}/clear", status_code=204)
@@ -68,9 +69,10 @@ async def clear_conversation(
     conv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Очистить историю сообщений — только администратор."""
-    await conversation_service.clear_conversation(db, conv_id, actor)
+    await conversation_service.clear_conversation(db, conv_id, actor, redis=redis)
 
 
 # --- Messages within a conversation ---

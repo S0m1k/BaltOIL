@@ -4352,7 +4352,7 @@ function msgHTML(m) {
           <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_number)}</div>
           <div style="font-size:11px;color:var(--text3)">Заявка ${escHtml(meta.order_number || '')}</div>
         </div>
-        <a href="${escHtml(meta.download_path || '#')}" target="_blank"
+        <a href="${safeHttpUrl(meta.download_path)}" target="_blank" rel="noopener noreferrer"
            style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border-radius:6px;text-decoration:none;white-space:nowrap">
           ⬇ PDF
         </a>
@@ -4379,6 +4379,13 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function safeHttpUrl(u) {
+  if (!u || typeof u !== 'string') return '#';
+  const s = u.trim();
+  if (/^https?:\/\//i.test(s) || s.startsWith('/')) return escHtml(s);
+  return '#';
 }
 
 function connectWs(convId) {

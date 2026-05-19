@@ -44,7 +44,7 @@ services:
     volumes:
       - ./auth_service:/app
     entrypoint: ["sh", "/app/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
 
   order_service:
     build:
@@ -57,7 +57,7 @@ services:
     volumes:
       - ./order_service:/app
     entrypoint: ["sh", "/app/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002
 
   delivery_service:
     build:
@@ -70,7 +70,7 @@ services:
     volumes:
       - ./delivery_service:/app
     entrypoint: ["sh", "/app/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003
 
   chat_service:
     build:
@@ -85,7 +85,7 @@ services:
     volumes:
       - ./chat_service:/app
     entrypoint: ["sh", "/app/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004
 
   livekit:
     image: livekit/livekit-server:latest
@@ -115,7 +115,7 @@ services:
     volumes:
       - ./call_service:/app
     entrypoint: ["sh", "/app/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8006 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8006
 
   notification_service:
     build:
@@ -129,7 +129,7 @@ services:
         condition: service_healthy
     volumes:
       - ./notification_service:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8005 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8005
 
   frontend:
     image: nginx:alpine
