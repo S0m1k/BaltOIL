@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
 
+    # Redis (for login throttle and rate-limit storage)
+    redis_url: str = "redis://redis:6379"
+
     # App
     app_env: str = "development"
     app_host: str = "0.0.0.0"

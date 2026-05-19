@@ -67,11 +67,21 @@ def require_roles(*roles: UserRole):
     return _check
 
 
+def trusted_client_ip(request: Request) -> str:
+    """Return the real client IP set by nginx via X-Real-IP.
+
+    nginx sets X-Real-IP = $remote_addr (the actual TCP peer of nginx).
+    Because backend services have no host port and are only reachable through
+    nginx, this header is trustworthy. Falls back to direct peer for local dev.
+    """
+    return request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else "0.0.0.0"
+    )
+
+
 def get_request_meta(request: Request) -> dict:
     """Extracts IP and user-agent for audit logging."""
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    ip = forwarded_for.split(",")[0].strip() if forwarded_for else request.client.host
     return {
-        "ip_address": ip,
+        "ip_address": trusted_client_ip(request),
         "user_agent": request.headers.get("User-Agent"),
     }

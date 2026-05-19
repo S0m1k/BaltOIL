@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import uuid
+import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
 log = logging.getLogger(__name__)
@@ -33,10 +34,24 @@ router = APIRouter(tags=["websocket"])
 # In-process registry: conv_id → set of WebSocket connections
 _connections: dict[str, set[WebSocket]] = {}
 
+_WS_CONN_LIMIT = 10   # new connections per IP per 60 s
 
-async def _get_redis():
-    import redis.asyncio as aioredis
+
+async def _get_redis() -> aioredis.Redis:
     return aioredis.from_url(settings.redis_url, decode_responses=True)
+
+
+async def _check_ws_connect_rate(ip: str) -> bool:
+    """Return True if the IP is allowed to open another connection."""
+    r = await _get_redis()
+    try:
+        key = f"wsconn:{ip}"
+        n = await r.incr(key)
+        if n == 1:
+            await r.expire(key, 60)
+        return n <= _WS_CONN_LIMIT
+    finally:
+        await r.aclose()
 
 
 @router.websocket("/ws/{conv_id}")
@@ -45,6 +60,14 @@ async def websocket_endpoint(
     conv_id: uuid.UUID,
     token: str = Query(...),
 ):
+    # Per-IP connect rate limit — checked before accept() so we never upgrade
+    ip = websocket.headers.get("x-real-ip") or (
+        websocket.client.host if websocket.client else "0.0.0.0"
+    )
+    if not await _check_ws_connect_rate(ip):
+        await websocket.close(code=4029)  # 4029 = Too Many Requests (custom)
+        return
+
     # Authenticate
     try:
         actor = _decode_token(token)
@@ -65,7 +88,11 @@ async def websocket_endpoint(
             return
         try:
             _check_access(conv, actor)
-        except (ForbiddenError, Exception):
+        except ForbiddenError:
+            await websocket.close(code=4003)
+            return
+        except Exception:
+            log.exception("Unexpected error checking WS access for conv %s", conv_id)
             await websocket.close(code=4003)
             return
 
@@ -106,8 +133,12 @@ async def websocket_endpoint(
                 continue
 
             # Persist message to DB
-            async with AsyncSessionLocal() as db:
-                msg = await send_message(db, conv_id, text, actor)
+            try:
+                async with AsyncSessionLocal() as db:
+                    msg = await send_message(db, conv_id, text, actor)
+            except ForbiddenError as e:
+                await websocket.send_text(json.dumps({"error": str(e)}))
+                continue
 
             payload = json.dumps({
                 "id": str(msg.id),

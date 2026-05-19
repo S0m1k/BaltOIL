@@ -1,15 +1,12 @@
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Query
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import UserRole
 from app.core.dependencies import CurrentUser, require_roles, get_request_meta
-
-limiter = Limiter(key_func=get_remote_address)
+from app.core.rate_limit import limiter
 from app.schemas.auth import ChangePasswordRequest
 from app.schemas.user import UserResponse, UserShortResponse, UserDirectoryEntry, CreateUserRequest, UpdateUserRequest
 from app.schemas.client_profile import ClientProfileResponse, UpdateClientProfileRequest, UpdateClientTariffRequest

@@ -14,6 +14,7 @@ from app.core.security import (
 from app.core.exceptions import AuthError
 from app.schemas.auth import TokenResponse
 from app.services.audit_service import log_action
+from app.services import login_throttle
 
 
 async def login(
@@ -24,16 +25,30 @@ async def login(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> TokenResponse:
-    result = await db.execute(select(User).where(User.email == email.lower().strip()))
+    email_norm = email.lower().strip()
+
+    # Per-email backoff check — same generic error whether blocked or wrong creds
+    if await login_throttle.check_blocked(email_norm):
+        raise AuthError("Неверный email или пароль")
+
+    result = await db.execute(select(User).where(User.email == email_norm))
     user = result.scalar_one_or_none()
 
+    # Record failure for non-existent email too — prevents user enumeration via
+    # differential blocking (attacker can't tell "no such account" from "wrong pw")
     if not user or not verify_password(password, user.hashed_password):
+        await login_throttle.record_failure(email_norm)
         raise AuthError("Неверный email или пароль")
 
     if user.is_archived:
-        raise AuthError("Аккаунт удалён")
+        await login_throttle.record_failure(email_norm)
+        raise AuthError("Неверный email или пароль")
     if not user.is_active:
-        raise AuthError("Аккаунт деактивирован. Обратитесь к администратору")
+        await login_throttle.record_failure(email_norm)
+        raise AuthError("Неверный email или пароль")
+
+    # Successful login — clear throttle state
+    await login_throttle.reset(email_norm)
 
     access_token = create_access_token(str(user.id), user.role.value, user.full_name)
     raw_refresh = generate_refresh_token()

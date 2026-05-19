@@ -1,11 +1,10 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, get_request_meta
+from app.core.rate_limit import limiter
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest
 from app.schemas.user import (
     RegisterIndividualRequest, RegisterCompanyRequest, UserResponse,
@@ -13,11 +12,10 @@ from app.schemas.user import (
 from app.services import auth_service, user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/register/individual", response_model=TokenResponse, status_code=201)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 async def register_individual(
     data: RegisterIndividualRequest,
     request: Request,
@@ -30,7 +28,7 @@ async def register_individual(
 
 
 @router.post("/register/company", response_model=TokenResponse, status_code=201)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 async def register_company(
     data: RegisterCompanyRequest,
     request: Request,
@@ -43,7 +41,7 @@ async def register_company(
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("20/minute")
+@limiter.limit("30/minute")
 async def login(
     data: LoginRequest,
     request: Request,
@@ -54,7 +52,7 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def refresh(
     data: RefreshRequest,
     request: Request,

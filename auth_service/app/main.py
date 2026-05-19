@@ -2,18 +2,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.core.rate_limit import limiter
 from app.database import engine, AsyncSessionLocal, Base
 from app.models.user import User, UserRole
 from app.core.security import hash_password
 from app.routers import auth, users, internal
-
-limiter = Limiter(key_func=get_remote_address)
 
 settings = get_settings()
 

@@ -18,6 +18,22 @@ logger = logging.getLogger(__name__)
 # UUID нулей — sender_id для системных сообщений (Message.sender_id NOT NULL).
 SYSTEM_SENDER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
+_MSG_RATE_LIMIT = 60  # messages per minute per (user, conversation)
+
+
+async def _check_message_rate(actor_id: uuid.UUID, conv_id: uuid.UUID) -> None:
+    """Raise ForbiddenError if the user is sending too fast in this conversation."""
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        key = f"msgrate:{actor_id}:{conv_id}"
+        n = await r.incr(key)
+        if n == 1:
+            await r.expire(key, 60)
+        if n > _MSG_RATE_LIMIT:
+            raise ForbiddenError("Слишком много сообщений, подождите немного")
+    finally:
+        await r.aclose()
+
 
 async def send_message(
     db: AsyncSession,
@@ -39,6 +55,7 @@ async def send_message(
         raise NotFoundError("Conversation not found")
 
     _check_access(conv, actor)
+    await _check_message_rate(actor.id, conv_id)
 
     # Staff (manager/admin) bypass the participant check in _check_access but are
     # not recorded in conversation_participants. Auto-enroll them on first message
