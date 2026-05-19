@@ -6,11 +6,13 @@
 import hmac
 import uuid
 from typing import Annotated
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.redis_dep import get_redis
 from app.database import get_db
 from app.schemas.message import MessageResponse
 from app.services import message_service
@@ -39,6 +41,7 @@ async def post_system_message(
     conv_id: uuid.UUID,
     body: SystemMessageRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ):
     """Записать системное сообщение в диалог (например, события звонка).
 
@@ -46,5 +49,5 @@ async def post_system_message(
     Не триггерит push-уведомления — только мгновенно прилетает в WS.
     """
     return await message_service.post_system_message(
-        db, conv_id, body.text, metadata=body.metadata
+        db, conv_id, body.text, redis, metadata=body.metadata
     )

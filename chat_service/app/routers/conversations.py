@@ -1,9 +1,11 @@
 import uuid
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, TokenUser
+from app.core.redis_dep import get_redis
 from app.schemas.conversation import (
     ConversationCreateRequest, ConversationResponse, ConversationListResponse
 )
@@ -18,8 +20,9 @@ async def create_conversation(
     data: ConversationCreateRequest,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    return await conversation_service.create_conversation(db, data, actor)
+    return await conversation_service.create_conversation(db, data, actor, redis=redis)
 
 
 @router.get("", response_model=list[ConversationListResponse])
@@ -89,9 +92,10 @@ async def send_message(
     data: SendMessageRequest,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     return await message_service.send_message(
-        db, conv_id, data.text, actor,
+        db, conv_id, data.text, actor, redis,
         msg_type=data.msg_type,
         metadata=data.metadata,
     )

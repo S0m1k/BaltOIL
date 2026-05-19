@@ -21,18 +21,18 @@ SYSTEM_SENDER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 _MSG_RATE_LIMIT = 60  # messages per minute per (user, conversation)
 
 
-async def _check_message_rate(actor_id: uuid.UUID, conv_id: uuid.UUID) -> None:
+async def _check_message_rate(
+    redis: aioredis.Redis,
+    actor_id: uuid.UUID,
+    conv_id: uuid.UUID,
+) -> None:
     """Raise ForbiddenError if the user is sending too fast in this conversation."""
-    r = aioredis.from_url(settings.redis_url, decode_responses=True)
-    try:
-        key = f"msgrate:{actor_id}:{conv_id}"
-        n = await r.incr(key)
-        if n == 1:
-            await r.expire(key, 60)
-        if n > _MSG_RATE_LIMIT:
-            raise ForbiddenError("Слишком много сообщений, подождите немного")
-    finally:
-        await r.aclose()
+    key = f"msgrate:{actor_id}:{conv_id}"
+    n = await redis.incr(key)
+    if n == 1:
+        await redis.expire(key, 60)
+    if n > _MSG_RATE_LIMIT:
+        raise ForbiddenError("Слишком много сообщений, подождите немного")
 
 
 async def send_message(
@@ -40,6 +40,7 @@ async def send_message(
     conv_id: uuid.UUID,
     text: str,
     actor: TokenUser,
+    redis: aioredis.Redis,
     msg_type: str = "text",
     metadata: dict | None = None,
 ) -> Message:
@@ -55,7 +56,7 @@ async def send_message(
         raise NotFoundError("Conversation not found")
 
     _check_access(conv, actor)
-    await _check_message_rate(actor.id, conv_id)
+    await _check_message_rate(redis, actor.id, conv_id)
 
     # Staff (manager/admin) bypass the participant check in _check_access but are
     # not recorded in conversation_participants. Auto-enroll them on first message
@@ -99,18 +100,14 @@ async def send_message(
     # Publish to events:chat so notification_service can fan out to recipients
     participant_ids = [str(p.user_id) for p in conv.participants]
     try:
-        r = aioredis.from_url(settings.redis_url, decode_responses=True)
-        try:
-            await r.publish("events:chat", json.dumps({
-                "event": "chat_message",
-                "conv_id": str(conv_id),
-                "sender_id": str(actor.id),
-                "sender_name": actor.name,
-                "body": text,
-                "participant_ids": participant_ids,
-            }))
-        finally:
-            await r.aclose()
+        await redis.publish("events:chat", json.dumps({
+            "event": "chat_message",
+            "conv_id": str(conv_id),
+            "sender_id": str(actor.id),
+            "sender_name": actor.name,
+            "body": text,
+            "participant_ids": participant_ids,
+        }))
     except Exception:
         logger.exception("Failed to publish chat event")
 
@@ -121,6 +118,7 @@ async def post_system_message(
     db: AsyncSession,
     conv_id: uuid.UUID,
     text: str,
+    redis: aioredis.Redis,
     metadata: dict | None = None,
 ) -> Message:
     """Вставить системное сообщение в диалог.
@@ -163,21 +161,17 @@ async def post_system_message(
     # Мгновенная доставка в открытые WS — payload должен соответствовать
     # тому, что собирает websocket.py (см. _broadcast_payload).
     try:
-        r = aioredis.from_url(settings.redis_url, decode_responses=True)
-        try:
-            await r.publish(f"chat:{conv_id}", json.dumps({
-                "id": str(msg.id),
-                "conversation_id": str(msg.conversation_id),
-                "sender_id": str(msg.sender_id),
-                "sender_role": msg.sender_role,
-                "sender_name": msg.sender_name,
-                "msg_type": msg.msg_type,
-                "text": msg.text,
-                "metadata": msg.msg_metadata,
-                "created_at": msg.created_at.isoformat(),
-            }))
-        finally:
-            await r.aclose()
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "id": str(msg.id),
+            "conversation_id": str(msg.conversation_id),
+            "sender_id": str(msg.sender_id),
+            "sender_role": msg.sender_role,
+            "sender_name": msg.sender_name,
+            "msg_type": msg.msg_type,
+            "text": msg.text,
+            "metadata": msg.msg_metadata,
+            "created_at": msg.created_at.isoformat(),
+        }))
     except Exception:
         logger.exception("Failed to publish system message to WS channel")
 

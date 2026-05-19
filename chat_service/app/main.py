@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,7 +13,15 @@ from app.routers import conversations, websocket as ws_router, internal as inter
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+    app.state.redis = aioredis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        max_connections=50,
+    )
+    try:
+        yield
+    finally:
+        await app.state.redis.aclose()
 
 
 app = FastAPI(title="BaltOIL Chat Service", version="1.0.0", lifespan=lifespan)

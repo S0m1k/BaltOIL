@@ -53,6 +53,7 @@ async def create_conversation(
     db: AsyncSession,
     data: ConversationCreateRequest,
     actor: TokenUser,
+    redis: aioredis.Redis,
 ) -> Conversation:
     # Клиенты могут создавать только client_support
     if actor.role == "client" and data.type != ConversationType.CLIENT_SUPPORT:
@@ -127,15 +128,11 @@ async def create_conversation(
     # Уведомить менеджеров о новом чате поддержки от клиента
     if actor.role == "client" and data.type == ConversationType.CLIENT_SUPPORT:
         try:
-            r = aioredis.from_url(settings.redis_url, decode_responses=True)
-            try:
-                await r.publish("events:chat", json.dumps({
-                    "event": "conversation_created",
-                    "conv_id": str(created_conv.id),
-                    "client_name": actor.name,
-                }))
-            finally:
-                await r.aclose()
+            await redis.publish("events:chat", json.dumps({
+                "event": "conversation_created",
+                "conv_id": str(created_conv.id),
+                "client_name": actor.name,
+            }))
         except Exception:
             logger.exception("Failed to publish conversation_created event")
 
@@ -249,26 +246,36 @@ async def list_conversations(
         m.conversation_id: m for m in last_msgs_result.scalars().all()
     }
 
-    # ── Запрос 3: непрочитанные — получаем (conv_id, created_at) от других,
-    # фильтруем по last_read_at в Python (last_read_at различается по диалогу) ──
-    unread_rows = await db.execute(
+    # ── Запрос 3: непрочитанные — один SQL с LEFT JOIN на last_read_at актора ──
+    # Считаем в БД: messages от других, новее actor.last_read_at в этом диалоге.
+    # NULL last_read_at → все сообщения непрочитаны.
+    actor_part_alias = ConversationParticipant.__table__.alias("actor_part")
+    unread_q = (
         select(
             Message.conversation_id,
-            Message.id,
-            Message.created_at,
-        ).where(
+            func.count(Message.id).label("unread"),
+        )
+        .join(
+            actor_part_alias,
+            and_(
+                actor_part_alias.c.conversation_id == Message.conversation_id,
+                actor_part_alias.c.user_id == actor.id,
+            ),
+            isouter=True,
+        )
+        .where(
             Message.conversation_id.in_(conv_ids),
             Message.is_archived == False,  # noqa: E712
             Message.sender_id != actor.id,
+            (actor_part_alias.c.last_read_at.is_(None))
+            | (Message.created_at > actor_part_alias.c.last_read_at),
         )
+        .group_by(Message.conversation_id)
     )
-    # Group by conv, count only messages newer than actor's last_read_at
-    unread_counts: dict[uuid.UUID, int] = {cid: 0 for cid in conv_ids}
-    for row in unread_rows:
-        cid = row.conversation_id
-        last_read = actor_read_at.get(cid)
-        if last_read is None or row.created_at > last_read:
-            unread_counts[cid] = unread_counts.get(cid, 0) + 1
+    unread_res = await db.execute(unread_q)
+    unread_counts: dict[uuid.UUID, int] = {
+        row.conversation_id: row.unread for row in unread_res
+    }
 
     output = []
     for conv in conversations:
