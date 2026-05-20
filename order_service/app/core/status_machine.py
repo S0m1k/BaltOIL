@@ -2,12 +2,12 @@
 Статусная машина заявок.
 
 Жизненный цикл:
-  NEW → IN_PROGRESS → IN_TRANSIT → DELIVERED      → CLOSED
-      ↘ REJECTED              ↘ PARTIALLY_DELIVERED → CLOSED
-                                                   ↘ IN_PROGRESS (повторный рейс)
+  NEW → IN_PROGRESS (водитель /claim) → IN_TRANSIT → DELIVERED      → CLOSED
+      ↘ REJECTED                                  ↘ PARTIALLY_DELIVERED → CLOSED
+                                                                       ↘ IN_PROGRESS (повторный рейс)
 
-Статус ASSIGNED упразднён: водитель сам берёт заявку через /claim,
-затем сразу переводит в in_transit. Менеджер уже не назначает водителей.
+Статус ASSIGNED удалён: водитель берёт заявку из NEW через /claim (NEW → IN_PROGRESS),
+затем переводит в in_transit. Менеджер не назначает водителей.
 """
 from app.models.order import OrderStatus
 from app.core.exceptions import StatusTransitionError, ForbiddenError
@@ -21,6 +21,7 @@ ROLE_CLIENT = "client"
 # allowed_transitions[from_status] = {to_status: {roles_that_can_do_it}}
 ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
     OrderStatus.NEW: {
+        # Менеджер может взять в работу напрямую (например для срочного заказа)
         OrderStatus.IN_PROGRESS: {ROLE_MANAGER, ROLE_ADMIN},
         OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
     },

@@ -6,7 +6,7 @@ from alembic import context
 
 # Import all models so Alembic can detect them
 from app.models import (  # noqa: F401
-    Order, OrderStatus, FuelType, PaymentType, OrderPriority,
+    Order, OrderStatus, FuelType, PaymentType, DeliveryWindow,
     OrderStatusLog,
     Payment, PaymentStatus, PaymentMethod, PaymentKind,
     OrderYearCounter,

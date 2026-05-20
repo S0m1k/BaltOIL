@@ -1,4 +1,4 @@
-"""Fetch client context (type, credit flag, tariff) from auth_service.
+"""Fetch client context (type, credit flag, tariff, credit_limit) from auth_service.
 
 Called once per order-create to determine allowed payment types and pricing.
 If auth_service is unavailable, raises HTTP 503 — we never silently fall back
@@ -7,6 +7,7 @@ to defaults that could allow a forbidden payment type through.
 import uuid
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 import httpx
 from fastapi import HTTPException
@@ -25,6 +26,7 @@ class ClientContext:
     client_type: str          # "individual" | "company"
     credit_allowed: bool
     tariff_id: uuid.UUID | None   # None → use default tariff
+    credit_limit: Decimal | None  # None → no credit limit configured
 
 
 async def get_client_context(client_id: uuid.UUID) -> ClientContext:
@@ -53,6 +55,7 @@ async def get_client_context(client_id: uuid.UUID) -> ClientContext:
             client_type=data["client_type"],
             credit_allowed=data["credit_allowed"],
             tariff_id=uuid.UUID(data["tariff_id"]) if data.get("tariff_id") else None,
+            credit_limit=Decimal(str(data["credit_limit"])) if data.get("credit_limit") is not None else None,
         )
     except HTTPException:
         raise

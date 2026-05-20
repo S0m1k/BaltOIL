@@ -1,6 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,6 +47,10 @@ class ClientProfile(Base):
     # Ссылка на тариф в order_service БД (soft FK — разные БД, FK не создаётся).
     # NULL означает «использовать default-тариф» — order_service делает fallback сам.
     tariff_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Кредитный лимит: максимальная сумма, на которую клиент может закрыть заявку в долг.
+    # NULL = лимита нет (требуется оплата или одобрение менеджера).
+    credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     # Устаревшие коэффициенты — оставлены для возможного отката; не используются в новой логике.
     # Удалить после стабилизации тарифной системы на проде (≥ 1 недели).

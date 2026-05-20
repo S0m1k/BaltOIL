@@ -11,6 +11,7 @@ from .client_profile import ClientProfileResponse
 class UserShortResponse(BaseModel):
     id: uuid.UUID
     email: str
+    phone: str | None
     full_name: str
     role: UserRole
     is_active: bool

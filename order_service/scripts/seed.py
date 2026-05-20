@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 sys.path.insert(0, "/app")
 
 from app.config import get_settings
-from app.models import Order, OrderStatus, FuelType, PaymentType, OrderPriority, OrderStatusLog, OrderYearCounter
+from app.models import Order, OrderStatus, FuelType, PaymentType, DeliveryWindow, OrderStatusLog, OrderYearCounter
 from app.models import Payment, PaymentStatus, PaymentMethod, PaymentKind
 from app.models import LegalEntity
 
@@ -52,7 +52,7 @@ ORDERS = [
         fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("5000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("95000"),
-        status=OrderStatus.NEW, payment_status="unpaid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.NEW, payment_status="unpaid", delivery_window=DeliveryWindow.AFTERNOON,
         desired_date=now + timedelta(days=2),
     ),
     # 2. NEW — urgent, on_delivery
@@ -62,7 +62,7 @@ ORDERS = [
         fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY,
-        status=OrderStatus.NEW, payment_status="unpaid", priority=OrderPriority.URGENT,
+        status=OrderStatus.NEW, payment_status="unpaid", delivery_window=DeliveryWindow.MORNING,
     ),
     # 3. IN_PROGRESS — trade_credit client
     dict(
@@ -71,7 +71,7 @@ ORDERS = [
         fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("10000"),
         delivery_address="г. Москва, ул. Ленина, 10",
         payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
-        status=OrderStatus.IN_PROGRESS, payment_status="unpaid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.IN_PROGRESS, payment_status="unpaid", delivery_window=DeliveryWindow.AFTERNOON,
     ),
     # 4. IN_PROGRESS — postpaid, partially paid
     dict(
@@ -80,7 +80,7 @@ ORDERS = [
         fuel_type=FuelType.PETROL_92, volume_requested=Decimal("3000"),
         delivery_address="г. Москва, Лесная ул., 25",
         payment_type=PaymentType.POSTPAID, expected_amount=Decimal("90000"),
-        status=OrderStatus.IN_PROGRESS, payment_status="partially_paid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.IN_PROGRESS, payment_status="partially_paid", delivery_window=DeliveryWindow.EVENING,
     ),
     # 5. IN_TRANSIT — prepaid, fully paid upfront
     dict(
@@ -89,7 +89,7 @@ ORDERS = [
         fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("8000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("120000"),
-        status=OrderStatus.IN_TRANSIT, payment_status="paid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.IN_TRANSIT, payment_status="paid", delivery_window=DeliveryWindow.AFTERNOON,
     ),
     # 6. DELIVERED — on_delivery, fully paid (can be closed)
     dict(
@@ -98,7 +98,7 @@ ORDERS = [
         fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"), volume_delivered=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY, final_amount=Decimal("56000"),
-        status=OrderStatus.DELIVERED, payment_status="paid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.DELIVERED, payment_status="paid", delivery_window=DeliveryWindow.AFTERNOON,
     ),
     # 7. DELIVERED — postpaid, unpaid (awaiting payment — cannot be closed)
     dict(
@@ -107,7 +107,7 @@ ORDERS = [
         fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("6000"), volume_delivered=Decimal("6000"),
         delivery_address="г. Москва, ул. Садовая, 7",
         payment_type=PaymentType.POSTPAID, final_amount=Decimal("126000"),
-        status=OrderStatus.DELIVERED, payment_status="unpaid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.DELIVERED, payment_status="unpaid", delivery_window=DeliveryWindow.NIGHT,
     ),
     # 8. PARTIALLY_DELIVERED — prepaid, overpaid (paid 100k, delivered for 80k)
     dict(
@@ -116,7 +116,7 @@ ORDERS = [
         fuel_type=FuelType.PETROL_92, volume_requested=Decimal("5000"), volume_delivered=Decimal("4000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("100000"), final_amount=Decimal("80000"),
-        status=OrderStatus.PARTIALLY_DELIVERED, payment_status="overpaid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.PARTIALLY_DELIVERED, payment_status="overpaid", delivery_window=DeliveryWindow.MORNING,
     ),
     # 9. CLOSED — trade_credit, contract signed, paid
     dict(
@@ -126,7 +126,7 @@ ORDERS = [
         delivery_address="г. Москва, ул. Ленина, 10",
         payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
         expected_amount=Decimal("315000"), final_amount=Decimal("315000"),
-        status=OrderStatus.CLOSED, payment_status="paid", priority=OrderPriority.NORMAL,
+        status=OrderStatus.CLOSED, payment_status="paid", delivery_window=DeliveryWindow.AFTERNOON,
     ),
     # 10. REJECTED
     dict(
@@ -135,7 +135,7 @@ ORDERS = [
         fuel_type=FuelType.FUEL_OIL, volume_requested=Decimal("20000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY, status=OrderStatus.REJECTED,
-        payment_status="unpaid", priority=OrderPriority.NORMAL,
+        payment_status="unpaid", delivery_window=DeliveryWindow.AFTERNOON,
         rejection_reason="Недостаточный запас топлива. Обратитесь позже.",
     ),
 ]

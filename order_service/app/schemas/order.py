@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
-from app.models.order import FuelType, OrderStatus, PaymentType, OrderPriority
+from app.models.order import FuelType, OrderStatus, PaymentType, DeliveryWindow
 from .order_status_log import OrderStatusLogResponse
 
 
@@ -11,6 +11,7 @@ class OrderCreateRequest(BaseModel):
     volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 1000, максимум 200 000")
     delivery_address: str
     desired_date: datetime | None = None
+    delivery_window: DeliveryWindow
     payment_type: PaymentType = PaymentType.ON_DELIVERY
     expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
@@ -19,7 +20,6 @@ class OrderCreateRequest(BaseModel):
     client_id: uuid.UUID | None = None
     # Только для менеджера/админа: сразу поставить статус «в работе»
     start_in_progress: bool = False
-    priority: OrderPriority = OrderPriority.NORMAL
     manager_comment: str | None = None
 
     @field_validator("volume_requested")
@@ -31,8 +31,8 @@ class OrderCreateRequest(BaseModel):
 
 
 class OrderUpdateRequest(BaseModel):
-    """Менеджер может обновить приоритет, комментарий, желаемую дату и финансовые поля."""
-    priority: OrderPriority | None = None
+    """Менеджер может обновить комментарий, желаемую дату, окно доставки и финансовые поля."""
+    delivery_window: DeliveryWindow | None = None
     manager_comment: str | None = None
     desired_date: datetime | None = None
     expected_amount: Decimal | None = Field(None, ge=0)
@@ -61,13 +61,13 @@ class OrderResponse(BaseModel):
     volume_delivered: float | None
     delivery_address: str
     desired_date: datetime | None
+    delivery_window: DeliveryWindow
     payment_type: PaymentType
     payment_status: str
     expected_amount: Decimal | None
     final_amount: Decimal | None
     trade_credit_contract_signed: bool
     status: OrderStatus
-    priority: OrderPriority
     manager_id: uuid.UUID | None
     driver_id: uuid.UUID | None
     client_comment: str | None
@@ -95,7 +95,7 @@ class OrderListResponse(BaseModel):
     volume_delivered: float | None
     delivery_address: str
     status: OrderStatus
-    priority: OrderPriority
+    delivery_window: DeliveryWindow
     manager_id: uuid.UUID | None
     driver_id: uuid.UUID | None
     client_comment: str | None

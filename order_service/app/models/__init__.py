@@ -1,4 +1,4 @@
-from .order import Order, OrderStatus, FuelType, PaymentType, OrderPriority
+from .order import Order, OrderStatus, FuelType, PaymentType, DeliveryWindow
 from .order_status_log import OrderStatusLog
 from .payment import Payment, PaymentStatus, PaymentMethod, PaymentKind
 from .order_counter import OrderYearCounter
@@ -7,7 +7,7 @@ from .document import Document, DocumentType, DocumentStatus
 from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier
 
 __all__ = [
-    "Order", "OrderStatus", "FuelType", "PaymentType", "OrderPriority",
+    "Order", "OrderStatus", "FuelType", "PaymentType", "DeliveryWindow",
     "OrderStatusLog",
     "Payment", "PaymentStatus", "PaymentMethod", "PaymentKind",
     "OrderYearCounter",

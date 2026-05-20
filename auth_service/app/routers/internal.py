@@ -6,6 +6,7 @@ on the Docker internal network. Auth is done via X-Internal-Secret header
 """
 import hmac
 import uuid
+from decimal import Decimal
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ class ClientContextResponse(BaseModel):
     client_type: str           # "individual" | "company"
     credit_allowed: bool
     tariff_id: uuid.UUID | None  # None → order_service uses default tariff
+    credit_limit: Decimal | None  # None → no credit limit configured
 
 
 @router.get(
@@ -57,6 +59,7 @@ async def get_client_context(
         client_type=profile.client_type.value,
         credit_allowed=profile.credit_allowed,
         tariff_id=profile.tariff_id,
+        credit_limit=profile.credit_limit,
     )
 
 

@@ -9,7 +9,7 @@ import httpx
 from jose import jwt as jose_jwt
 
 from app.config import get_settings as _get_settings
-from app.models.order import Order, OrderStatus, PaymentType, OrderPriority
+from app.models.order import Order, OrderStatus, PaymentType
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
@@ -129,13 +129,13 @@ async def list_orders(
     if actor.role == ROLE_CLIENT:
         conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
-        # Водитель видит: свои заявки + свободные in_progress (биржа)
+        # Водитель видит: свои заявки + свободные new (биржа)
         from sqlalchemy import or_
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
-                    Order.status == OrderStatus.IN_PROGRESS,
+                    Order.status == OrderStatus.NEW,
                     Order.driver_id == None,  # noqa: E711
                 ),
             )
@@ -183,13 +183,17 @@ async def create_order(
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
     ctx = await get_client_context(client_id)
 
-    # Validate payment_type against role × client_type × credit_allowed matrix
-    validate_payment_type(
-        data.payment_type,
-        actor_role=actor.role,
-        client_type=ctx.client_type,
-        credit_allowed=ctx.credit_allowed,
-    )
+    # Физлица всегда платят по факту (on_delivery) — выбор игнорируется
+    if ctx.client_type == "individual":
+        data.payment_type = PaymentType.ON_DELIVERY
+    else:
+        # Validate payment_type against role × client_type × credit_allowed matrix
+        validate_payment_type(
+            data.payment_type,
+            actor_role=actor.role,
+            client_type=ctx.client_type,
+            credit_allowed=ctx.credit_allowed,
+        )
 
     # Дата доставки не может быть в прошлом
     if data.desired_date:
@@ -217,9 +221,9 @@ async def create_order(
         volume_requested=data.volume_requested,
         delivery_address=data.delivery_address,
         desired_date=data.desired_date,
+        delivery_window=data.delivery_window,
         payment_type=data.payment_type,
         expected_amount=expected_amount,
-        priority=data.priority if is_staff else OrderPriority.NORMAL,
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
         status=initial_status,
@@ -289,8 +293,8 @@ async def update_order(
 
     order = await get_order(db, order_id, actor)
 
-    if data.priority is not None:
-        order.priority = data.priority
+    if data.delivery_window is not None:
+        order.delivery_window = data.delivery_window
     if data.manager_comment is not None:
         order.manager_comment = data.manager_comment
     if data.desired_date is not None:
@@ -316,8 +320,9 @@ async def claim_order(
     order_id: uuid.UUID,
     actor: TokenUser,
 ) -> Order:
-    """Водитель берёт свободную заявку из биржи (IN_PROGRESS, driver_id IS NULL).
-    Атомарная операция: UPDATE ... WHERE driver_id IS NULL защищает от гонки.
+    """Водитель берёт свободную заявку из биржи (NEW, driver_id IS NULL).
+    Атомарная операция: SELECT FOR UPDATE защищает от гонки двух водителей.
+    Переход NEW → IN_PROGRESS, driver_id устанавливается.
     """
     if actor.role != ROLE_DRIVER:
         raise ForbiddenError("Взять заявку может только водитель")
@@ -327,7 +332,7 @@ async def claim_order(
             select(Order).where(
                 Order.id == order_id,
                 Order.is_archived == False,  # noqa: E712
-                Order.status == OrderStatus.IN_PROGRESS,
+                Order.status == OrderStatus.NEW,
                 Order.driver_id == None,  # noqa: E711
             ).with_for_update()
         )
@@ -337,12 +342,13 @@ async def claim_order(
         raise NotFoundError("Заявка не найдена или уже занята другим водителем")
 
     order.driver_id = actor.id
+    order.status = OrderStatus.IN_PROGRESS
     await db.flush()
 
     db.add(OrderStatusLog(
         order_id=order.id,
-        from_status=order.status,
-        to_status=order.status,
+        from_status=OrderStatus.NEW,
+        to_status=OrderStatus.IN_PROGRESS,
         changed_by_id=actor.id,
         changed_by_role=actor.role,
         comment="Заявка взята водителем",
@@ -367,8 +373,9 @@ async def transition_status(
     # Бизнес-проверки при конкретных переходах
 
     # Шлагбаум закрытия: заявка не закрывается без оплаты.
-    # Исключение: кредитные типы (trade_credit / debt) с подписанным договором —
-    # закрываются без оплаты (долг фиксируется в отчётности).
+    # Исключения:
+    #   1. Кредитные типы (trade_credit / debt) с подписанным договором.
+    #   2. Клиент имеет credit_limit >= final_amount → автоматически ставим DEBT.
     if data.to_status == OrderStatus.CLOSED:
         # Пересчитываем статус оплаты по актуальным данным из БД,
         # чтобы не полагаться на кешированное поле order.payment_status
@@ -378,11 +385,20 @@ async def transition_status(
         )
         credit_bypass = is_credit_payment and order.trade_credit_contract_signed
         if order.payment_status != "paid" and not credit_bypass:
-            raise StatusTransitionError(
-                f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
-                "Зафиксируйте оплату или, для товарного кредита / долга, "
-                "отметьте подписание договора."
-            )
+            # Проверяем credit_limit клиента
+            ctx = await get_client_context(order.client_id)
+            from decimal import Decimal as _Decimal
+            if ctx.credit_limit is not None and ctx.credit_limit >= (order.final_amount or _Decimal("0")):
+                # Автоматически закрываем в долг по лимиту
+                order.payment_type = PaymentType.DEBT
+                order.trade_credit_contract_signed = True
+                data.comment = (data.comment or "") + " [закрыта в долг по кредитному лимиту]"
+            else:
+                raise StatusTransitionError(
+                    f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
+                    "Зафиксируйте оплату или, для товарного кредита / долга, "
+                    "отметьте подписание договора."
+                )
 
     # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
     # Если delivery_service вернёт ошибку (нет топлива, недоступен) — прерываем переход.
@@ -415,6 +431,13 @@ async def transition_status(
                 f"({order.volume_requested} л) более чем на 5 %"
             )
         order.volume_delivered = data.volume_delivered
+        # Пересчитываем final_amount по фактическому объёму доставки (1.5)
+        ctx = await get_client_context(order.client_id)
+        recalc = await compute_expected_amount(
+            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id
+        )
+        if recalc is not None:
+            order.final_amount = recalc
 
     prev_status = order.status
     order.status = data.to_status

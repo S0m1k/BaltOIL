@@ -21,9 +21,8 @@ class FuelType(str, enum.Enum):
 
 class OrderStatus(str, enum.Enum):
     NEW = "new"                                   # Новая
-    IN_PROGRESS = "in_progress"                   # В работе (менеджер принял)
-    ASSIGNED = "assigned"                         # Водитель назначен (legacy, alias IN_PROGRESS)
-    IN_TRANSIT = "in_transit"                     # В рейсе (водитель взял и выехал)
+    IN_PROGRESS = "in_progress"                   # В работе (водитель взял)
+    IN_TRANSIT = "in_transit"                     # В рейсе (водитель выехал)
     DELIVERED = "delivered"                       # Доставлена
     PARTIALLY_DELIVERED = "partially_delivered"   # Частично доставлена
     CLOSED = "closed"                             # Закрыта
@@ -38,9 +37,11 @@ class PaymentType(str, enum.Enum):
     DEBT = "debt"                   # Условно в долг (семантически = trade_credit, разделён для отчётности)
 
 
-class OrderPriority(str, enum.Enum):
-    NORMAL = "normal"
-    URGENT = "urgent"
+class DeliveryWindow(str, enum.Enum):
+    MORNING   = "07-13"
+    AFTERNOON = "13-16"
+    EVENING   = "16-20"
+    NIGHT     = "20-24"
 
 
 class Order(Base):
@@ -63,6 +64,10 @@ class Order(Base):
     # Доставка
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
     desired_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_window: Mapped[DeliveryWindow] = mapped_column(
+        SAEnum(DeliveryWindow, values_callable=lambda x: [e.value for e in x], name="deliverywindow"),
+        nullable=False,
+    )
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
@@ -78,12 +83,9 @@ class Order(Base):
     # Для trade_credit: подписан ли договор (разблокирует закрытие без оплаты)
     trade_credit_contract_signed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Статус и приоритет
+    # Статус
     status: Mapped[OrderStatus] = mapped_column(
         SAEnum(OrderStatus), nullable=False, default=OrderStatus.NEW, index=True
-    )
-    priority: Mapped[OrderPriority] = mapped_column(
-        SAEnum(OrderPriority), nullable=False, default=OrderPriority.NORMAL
     )
 
     # Кто обрабатывает

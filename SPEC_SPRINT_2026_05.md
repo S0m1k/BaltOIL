@@ -14,50 +14,96 @@
 
 Объём: ~10 часов Sonnet. Не требует внешних интеграций.
 
+### 1.0 Снос тестовых заявок
+
+**Что.** Перед миграциями вычищаем все тестовые заявки и связанные с ними записи. Это упрощает все последующие миграции (NOT NULL вместо nullable, без backfill).
+
+**Файлы:**
+- `order_service/alembic/versions/<first_of_sprint>_truncate_orders.py`:
+  ```sql
+  TRUNCATE TABLE
+      payments,
+      documents,
+      order_status_logs,
+      orders,
+      order_counters
+  RESTART IDENTITY CASCADE;
+  ```
+  `order_counters` тоже сбрасываем, чтобы номера ORD-2026-* стартовали с 1.
+
+**Acceptance:**
+- `SELECT count(*) FROM orders` → 0
+- Следующая созданная заявка → `ORD-2026-000001`
+
 ### 1.1 Интервалы доставки вместо точного времени (#1)
 
 **Что.** Заменить выбор точного времени на 4 фиксированных интервала: `07:00-13:00`, `13:00-16:00`, `16:00-20:00`, `20:00-00:00`.
 
 **Файлы:**
-- `order_service/app/models/order.py` — добавить `delivery_window: str` (nullable, длина 11), оставить `desired_date` (используется как дата без времени).
-  - Добавить класс `class DeliveryWindow(str, enum.Enum): MORNING="07-13"; AFTERNOON="13-16"; EVENING="16-20"; NIGHT="20-24"`.
-- `order_service/app/schemas/order.py` — поле `delivery_window: DeliveryWindow` в create/update/response.
-- `order_service/alembic/versions/<new>_delivery_window.py` — миграция: `ADD COLUMN delivery_window VARCHAR(11) NULL`. Для старых заявок оставляем NULL (UI покажет "не указан").
+- `order_service/app/models/order.py` — добавить enum `DeliveryWindow` и колонку `delivery_window`:
+  ```python
+  class DeliveryWindow(str, enum.Enum):
+      MORNING = "07-13"
+      AFTERNOON = "13-16"
+      EVENING = "16-20"
+      NIGHT = "20-24"
+
+  delivery_window: Mapped[DeliveryWindow] = mapped_column(
+      SAEnum(DeliveryWindow, values_callable=lambda x: [e.value for e in x], name="deliverywindow"),
+      nullable=False,
+  )
+  ```
+- `order_service/app/schemas/order.py` — `delivery_window: DeliveryWindow` в create/update/response. Required при создании.
+- `order_service/alembic/versions/<new>_delivery_window.py` — миграция: `ADD COLUMN delivery_window deliverywindow NOT NULL` (после TRUNCATE из 1.0 это безопасно).
 - `frontend/index.html` — в форме создания заявки заменить time picker на `<select>` с 4 значениями. В карточке заявки и в списках — показывать "Доставка: 13–16".
 
 **Acceptance:**
-- Создать заявку → выбор интервала, без поля времени
+- Создать заявку → выбор интервала, обязательный, без поля времени
 - В карточке заявки видно "Дата: 20.05.2026, окно: 13–16"
-- Старые заявки без `delivery_window` — отображаются без ошибки
 
-### 1.2 Убрать приоритет (#3)
+### 1.2 Убрать приоритет полностью (#3)
 
-**Что.** Убрать поле "приоритет (обычная/срочная)" из UI создания заявки. Поле `priority` в БД оставить (используется в фильтрах админа в будущем), но всегда = `normal` при создании.
+**Что.** Удалить поле `priority` из БД и кода. Тестовые заявки сносятся, ничего не теряется.
 
 **Файлы:**
-- `frontend/index.html` — убрать селектор priority из формы создания.
-- `order_service/app/schemas/order.py` — `OrderCreateRequest.priority` сделать опциональным с дефолтом `NORMAL`.
-- `order_service/app/services/order_service.py` — `priority` всегда `NORMAL` для не-staff (уже так), для staff тоже принудительно `NORMAL` пока в форме нет селектора.
+- `order_service/app/models/order.py` — удалить `priority` колонку и класс `OrderPriority`.
+- `order_service/app/schemas/order.py` — удалить `priority` из всех схем (create/update/response). Удалить импорт `OrderPriority`.
+- `order_service/app/services/order_service.py` — удалить все упоминания `priority` (строки 222, 292, 293 — см. grep).
+- `order_service/alembic/versions/<new>_drop_priority.py`:
+  ```sql
+  ALTER TABLE orders DROP COLUMN priority;
+  DROP TYPE orderpriority;
+  ```
+- `frontend/index.html` — убрать селектор priority из формы создания. Убрать все упоминания (фильтры, бейджи "Срочная" и т.п.).
 
 **Acceptance:**
+- `grep -ri priority order_service/ frontend/index.html` → пусто
 - В форме создания заявки нет поля priority
-- В БД все новые заявки = `normal`
+- Колонка `priority` в БД отсутствует
 
 ### 1.3 Новый статус-флоу: заявки сразу доступны водителям (#4, вариант A2)
 
 **Что.** Заявка `NEW` сразу доступна всем активным водителям. Любой водитель может взять её → переход в `ASSIGNED` (или `IN_PROGRESS`, выбрать одно — см. ниже). Менеджер может вмешаться (отменить, переназначить) — без отдельного "подтверждения".
 
-**Решение:** оставляем `IN_PROGRESS` как алиас "взято в работу" — это **общий** статус для случая "водитель взял". `ASSIGNED` (legacy) убираем из активного использования, миграцией перевести существующие `ASSIGNED` → `IN_PROGRESS`.
+**Решение:** оставляем единственный активный статус "водитель взял" = `IN_PROGRESS`. `ASSIGNED` удаляем из enum'а полностью (тестовые заявки снесены, мигрировать нечего).
 
 **Файлы:**
-- `order_service/app/models/order.py` — в комментарии к `OrderStatus.ASSIGNED` пометить как deprecated.
+- `order_service/app/models/order.py` — удалить `OrderStatus.ASSIGNED` из enum.
 - `order_service/app/services/order_service.py`:
   - В `take_order(order_id, driver_id)`: разрешить переход `NEW → IN_PROGRESS` если `current_status == NEW` (раньше требовался манагер). Установить `driver_id`. Логировать в `OrderStatusLog`.
-  - В `transition_status`: убрать обязательность `manager_id` для перехода `NEW → IN_PROGRESS`.
+  - В `transition_status`: убрать обязательность `manager_id` для перехода `NEW → IN_PROGRESS`. Убрать все упоминания `ASSIGNED`.
 - `order_service/app/routers/orders.py`:
   - Эндпоинт `POST /api/v1/orders/{id}/take` (если нет — создать) — доступен `role=driver`. Без проверки наличия `manager_id`.
-  - `GET /api/v1/orders` для роли `driver`: возвращать `status in (NEW, IN_PROGRESS where driver_id=self, ...)`. Сейчас, возможно, фильтр `NEW` отсутствует — проверить.
-- `order_service/alembic/versions/<new>_status_remap.py` — `UPDATE orders SET status='in_progress' WHERE status='assigned'`.
+  - `GET /api/v1/orders` для роли `driver`: возвращать `status=NEW` (доступные) + `IN_PROGRESS where driver_id=self` (мои в работе) + `IN_TRANSIT where driver_id=self`.
+- `order_service/alembic/versions/<new>_drop_assigned.py`:
+  ```sql
+  -- старых заявок нет (TRUNCATE в 1.0), можно пересоздать enum
+  ALTER TYPE orderstatus RENAME TO orderstatus_old;
+  CREATE TYPE orderstatus AS ENUM ('new', 'in_progress', 'in_transit', 'delivered', 'partially_delivered', 'closed', 'rejected');
+  ALTER TABLE orders ALTER COLUMN status TYPE orderstatus USING status::text::orderstatus;
+  ALTER TABLE order_status_logs ALTER COLUMN status TYPE orderstatus USING status::text::orderstatus;
+  DROP TYPE orderstatus_old;
+  ```
 - `frontend/index.html`:
   - В роли driver: вкладка "Доступные заявки" показывает `status=NEW` (всем водителям, не привязанные). Кнопка "Взять заявку" → POST /take.
   - В роли manager: видит `NEW` сразу, без кнопки "Подтвердить". Только "Отменить" / "Переназначить" / комментарий.

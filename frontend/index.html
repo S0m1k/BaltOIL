@@ -37,7 +37,6 @@
 
     --s-new:      #3b82f6;
     --s-progress: #d97706;
-    --s-assigned: #ea580c;
     --s-transit:  #7c3aed;
     --s-delivered:#0d9488;
     --s-partial:  #d97706;
@@ -516,11 +515,6 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     opacity: .8;
   }
-  .priority-dot {
-    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
-  }
-  .priority-normal { background: var(--text3); }
-  .priority-urgent { background: var(--red); box-shadow: 0 0 6px var(--red); }
 
   .status-badge {
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; letter-spacing: 1px;
@@ -530,7 +524,6 @@
   }
   .status-new              { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
   .status-in_progress      { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
-  .status-assigned         { color: var(--s-assigned);  border-color: var(--s-assigned);  background: rgba(249,115,22,.1); }
   .status-in_transit       { color: var(--s-transit);   border-color: var(--s-transit);   background: rgba(168,85,247,.1); }
   .status-delivered        { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
   .status-partially_delivered { color: var(--s-partial); border-color: var(--s-partial); background: rgba(245,158,11,.1); }
@@ -1613,20 +1606,11 @@
         <!-- Только для менеджера/админа -->
         <div id="manager-create-fields" style="display:none">
           <div class="section-divider">Параметры менеджера</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Клиент <span style="color:var(--red)">*</span></label>
-              <select id="c-client-id" class="form-input">
-                <option value="">— выберите клиента —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Приоритет</label>
-              <select id="c-priority" class="form-input">
-                <option value="normal">Обычный</option>
-                <option value="urgent">Срочный</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label class="form-label">Клиент <span style="color:var(--red)">*</span></label>
+            <select id="c-client-id" class="form-input">
+              <option value="">— выберите клиента —</option>
+            </select>
           </div>
           <div class="form-group">
             <label class="form-label">Комментарий менеджера</label>
@@ -1666,8 +1650,17 @@
           </div>
           <div class="form-group">
             <label class="form-label">Желаемая дата доставки</label>
-            <input type="datetime-local" id="c-date" class="form-input">
+            <input type="date" id="c-date" class="form-input">
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Окно доставки <span style="color:var(--red)">*</span></label>
+          <select id="c-delivery-window" class="form-input">
+            <option value="07-13">07:00 – 13:00</option>
+            <option value="13-16">13:00 – 16:00</option>
+            <option value="16-20">16:00 – 20:00</option>
+            <option value="20-24">20:00 – 00:00</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -2362,7 +2355,7 @@ const STATUS_LABELS = {
   in_progress:         'В работе',
   in_transit:          'В рейсе',
   delivered:           'Доставлена',
-  partially_delivered: 'Частично',
+  partially_delivered: 'Частично доставлена',
   closed:              'Закрыта',
   rejected:            'Отклонена',
 };
@@ -2783,7 +2776,6 @@ function orderCardHTML(o) {
   return `
   <div class="order-card" id="card-${o.id}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
-      <div class="priority-dot priority-${o.priority}"></div>
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
       <div class="order-volume">
@@ -2802,9 +2794,10 @@ function orderCardHTML(o) {
         <div class="detail-item"><div class="detail-label">Объём заказан</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
-        <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${fmtDate(o.desired_date)}</div></div>
+        <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
+        <div class="detail-item"><div class="detail-label">Окно доставки</div><div class="detail-value">${o.delivery_window ? o.delivery_window.replace('-','–') : '—'}</div></div>
         <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
-        <div class="detail-item"><div class="detail-label">Приоритет</div><div class="detail-value">${o.priority === 'urgent' ? `${icon('warning',14,'color:var(--red);margin-right:4px')} Срочно` : 'Обычный'}</div></div>
+        ${(o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
         ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
@@ -2975,8 +2968,8 @@ function actionBarHTML(o) {
   }
 
   if (role === 'driver') {
-    // Свободная заявка — водитель может взять
-    if (s === 'in_progress' && !o.driver_id)
+    // Свободная заявка — водитель может взять (биржа: status=new, driver_id=null)
+    if (s === 'new' && !o.driver_id)
       btns.push(`<button class="btn btn-sm btn-success" onclick="claimOrder('${o.id}')">${icon('check',14)} Взять заявку</button>`);
     // Своя заявка — можно начать рейс
     if (s === 'in_progress' && o.driver_id === currentUser?.id)
@@ -3113,7 +3106,7 @@ function promptAssign(orderId) {
       const comment   = document.getElementById('modal-assign-comment').value.trim() || undefined;
       if (!driver_id) { toast('Выберите водителя', 'error'); return; }
       closeModal();
-      await transitionOrder(orderId, 'assigned', { driver_id, comment });
+      await transitionOrder(orderId, 'in_progress', { driver_id, comment });
     }
   );
   loadDriverSelectForAssign();
@@ -3229,8 +3222,9 @@ async function doCreateOrder() {
     volume_requested: parseFloat(document.getElementById('c-volume').value),
     delivery_address: document.getElementById('c-address').value.trim(),
     desired_date:     document.getElementById('c-date').value
-                        ? new Date(document.getElementById('c-date').value).toISOString()
+                        ? new Date(document.getElementById('c-date').value + 'T00:00:00').toISOString()
                         : undefined,
+    delivery_window:  document.getElementById('c-delivery-window').value,
     payment_type:     document.querySelector('input[name="payment"]:checked').value,
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
   };
@@ -3242,7 +3236,6 @@ async function doCreateOrder() {
       return;
     }
     body.client_id        = clientId;
-    body.priority         = document.getElementById('c-priority').value;
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
     body.start_in_progress = document.querySelector('input[name="init-status"]:checked')?.value === 'in_progress';
   }
@@ -3274,7 +3267,6 @@ async function doCreateOrder() {
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';
-      document.getElementById('c-priority').value = 'normal';
     }
     switchTab('orders');
   } catch (e) {
@@ -4884,6 +4876,7 @@ function filterClients() {
   renderClients(_allClients.filter(u =>
     (u.full_name || '').toLowerCase().includes(q) ||
     (u.email || '').toLowerCase().includes(q) ||
+    (u.phone || '').toLowerCase().includes(q) ||
     (u.id || '').toLowerCase().includes(q)
   ));
 }
@@ -4922,7 +4915,7 @@ function clientCardHTML(u) {
 
 async function openClientOrders(clientId, clientName) {
   const STATUS_LABELS = {
-    new: 'Новая', in_progress: 'В работе', assigned: 'Назначена',
+    new: 'Новая', in_progress: 'В работе',
     in_transit: 'В рейсе', delivered: 'Доставлена',
     partially_delivered: 'Частично', rejected: 'Отклонена', closed: 'Закрыта',
   };
@@ -5767,6 +5760,15 @@ async function renderPaymentRadios(clientId) {
   if (!container) return;
   try {
     const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
+    // Физлица всегда платят по факту — скрываем выбор типа оплаты
+    const wrapper = container.closest('.form-group');
+    if (opts.client_type === 'individual') {
+      if (wrapper) wrapper.style.display = 'none';
+      // Ensure on_delivery is selected in the hidden group
+      container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()"> По факту (при прибытии)</label>`;
+      return;
+    }
+    if (wrapper) wrapper.style.display = '';
     const types = opts.available_payment_types || [];
     const current = container.querySelector('input[name="payment"]:checked')?.value || types[0];
     container.innerHTML = types.map((pt, i) => `
