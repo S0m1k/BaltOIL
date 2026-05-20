@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Inter-service
     internal_api_secret: str = "baltoil-internal-secret-2026"
 
+    # DaData (INN lookup). Optional — if not set, lookup endpoint returns found=False.
+    dadata_api_key: str | None = None
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

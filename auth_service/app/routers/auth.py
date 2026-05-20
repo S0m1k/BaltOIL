@@ -1,8 +1,9 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.config import get_settings
 from app.core.dependencies import CurrentUser, get_request_meta
 from app.core.rate_limit import limiter
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest
@@ -78,3 +79,24 @@ async def logout(
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: CurrentUser):
     return current_user
+
+
+@router.get("/lookup/inn")
+@limiter.limit("5/minute")
+async def lookup_inn(
+    request: Request,
+    inn: str = Query(..., min_length=10, max_length=12),
+):
+    """Поиск организации по ИНН через DaData. Без авторизации.
+
+    Возвращает {found, data: {company_name, kpp, ogrn, legal_address}} или {found: false}.
+    Если DADATA_API_KEY не задан — возвращает found=false (регистрация вручную).
+    """
+    from app.services.dadata_service import lookup_by_inn
+    api_key = get_settings().dadata_api_key
+    if not api_key:
+        return {"found": False, "data": None}
+    result = await lookup_by_inn(inn, api_key)
+    if result:
+        return {"found": True, "data": result}
+    return {"found": False, "data": None}

@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text, Numeric
+from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text, Numeric, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -51,6 +51,9 @@ class ClientProfile(Base):
     # Кредитный лимит: максимальная сумма, на которую клиент может закрыть заявку в долг.
     # NULL = лимита нет (требуется оплата или одобрение менеджера).
     credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    # Короткий номер клиента (C-00042). Автоприсваивается через SEQUENCE при создании.
+    client_number: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=True)
 
     # Устаревшие коэффициенты — оставлены для возможного отката; не используются в новой логике.
     # Удалить после стабилизации тарифной системы на проде (≥ 1 недели).

@@ -357,6 +357,27 @@ async def claim_order(
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
     order = result.scalar_one()
     await attach_payment_totals_one(db, order)
+
+    # Notify chat_service to create the client↔driver conversation for this order.
+    # Fire-and-forget: if chat_service is unavailable, the order is still claimed
+    # and the chat will be created on the next /conversations load.
+    try:
+        _settings = _get_settings()
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            await http.post(
+                f"{_settings.chat_service_url}/internal/conversations/ensure-client-driver",
+                json={
+                    "order_id": str(order.id),
+                    "client_id": str(order.client_id),
+                    "driver_id": str(order.driver_id),
+                    "driver_name": "",
+                    "order_number": order.order_number,
+                },
+                headers={"X-Internal-Secret": _settings.internal_api_secret},
+            )
+    except Exception as exc:
+        log.warning("claim_order: chat ensure_client_driver failed for order %s: %s", order.id, exc)
+
     return order
 
 

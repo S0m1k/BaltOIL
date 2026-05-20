@@ -1396,7 +1396,7 @@
             <span class="reg-type-icon"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 256 256" fill="currentColor"><path d="M230.92,212c-15.23-26.33-38.7-45.21-66.09-54.16a72,72,0,1,0-73.66,0C63.78,166.78,40.31,185.66,25.08,212a8,8,0,1,0,13.85,8c18.84-32.56,52.14-52,89.07-52s70.23,19.44,89.07,52a8,8,0,1,0,13.85-8ZM72,96a56,56,0,1,1,56,56A56.06,56.06,0,0,1,72,96Z"/></svg></span>
             Физическое<br>лицо
           </button>
-          <button class="reg-type-btn" onclick="switchAuthTab('reg-company')">
+          <button class="reg-type-btn" onclick="switchAuthTab('reg-company-inn')">
             <span class="reg-type-icon"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 256 256" fill="currentColor"><path d="M240,208H224V96a16,16,0,0,0-16-16H144V40a16,16,0,0,0-24.37-13.61L39.63,74.39A16,16,0,0,0,32,88V208H16a8,8,0,0,0,0,16H240a8,8,0,0,0,0-16ZM208,96V208H144V96ZM48,88l80-48V208H48ZM112,112v16a8,8,0,0,1-16,0V112a8,8,0,0,1,16,0Zm-32,0v16a8,8,0,0,1-16,0V112a8,8,0,0,1,16,0Zm0,56v16a8,8,0,0,1-16,0V168a8,8,0,0,1,16,0Zm32,0v16a8,8,0,0,1-16,0V168a8,8,0,0,1,16,0Z"/></svg></span>
             Юридическое<br>лицо / ИП
           </button>
@@ -1434,9 +1434,21 @@
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
     </div>
 
-    <!-- Register Company (step 2) -->
-    <div id="auth-reg-company" style="display:none">
+    <!-- Register Company (step 1): INN lookup -->
+    <div id="auth-reg-company-inn" style="display:none">
       <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
+      <div class="form-group">
+        <label class="form-label">ИНН организации</label>
+        <input type="text" id="rc-inn-step1" class="form-input" placeholder="7701234567 (10 или 12 цифр)" maxlength="12" inputmode="numeric">
+      </div>
+      <div id="rc-inn-error" style="margin-bottom:8px"></div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:10px" onclick="doInnLookup(this)">Найти по ИНН</button>
+      <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="switchAuthTab('reg-company');document.getElementById('rc-inn').value=document.getElementById('rc-inn-step1').value||''">Ввести вручную без поиска</button>
+    </div>
+
+    <!-- Register Company (step 2): full form, pre-filled from DaData or manual -->
+    <div id="auth-reg-company" style="display:none">
+      <button class="auth-back" onclick="switchAuthTab('reg-company-inn')">← назад</button>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email</label>
@@ -2011,8 +2023,8 @@
     <div class="tab-pane" id="pane-clients">
       <div class="toolbar">
         <div class="toolbar-title">Клиенты</div>
-        <input type="text" id="clients-search" class="form-input" placeholder="Поиск по имени, email или UUID..."
-          oninput="filterClients()" style="max-width:260px;margin-left:auto">
+        <input type="text" id="clients-search" class="form-input" placeholder="Имя, email, телефон, C-номер..."
+          oninput="filterClients()" style="max-width:280px;margin-left:auto">
         <button class="btn btn-sm btn-ghost" onclick="loadClients()">↻ Обновить</button>
       </div>
       <div id="clients-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px">
@@ -2065,7 +2077,6 @@
         <div class="chat-sidebar" id="chat-sidebar">
           <div class="chat-sidebar-header">
             <span class="chat-sidebar-title">Диалоги</span>
-            <button class="btn btn-sm btn-warn" onclick="promptNewConv()" style="font-size:10px;padding:4px 10px">+ Новый</button>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -2499,17 +2510,19 @@ function switchAuthMode(mode) {
   document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
   document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
   // Hide form panels when switching top mode
-  document.getElementById('auth-reg-individual').style.display = 'none';
-  document.getElementById('auth-reg-company').style.display    = 'none';
+  document.getElementById('auth-reg-individual').style.display    = 'none';
+  document.getElementById('auth-reg-company-inn').style.display   = 'none';
+  document.getElementById('auth-reg-company').style.display       = 'none';
 }
 
 // Switch to a specific sub-panel within auth
 function switchAuthTab(tab) {
   // reg-picker = back to choose individual/company
   const isPicker = tab === 'reg-picker';
-  document.getElementById('auth-mode-picker').style.display   = isPicker || tab === 'login' ? '' : 'none';
-  document.getElementById('auth-reg-individual').style.display = tab === 'reg-individual' ? '' : 'none';
-  document.getElementById('auth-reg-company').style.display    = tab === 'reg-company'    ? '' : 'none';
+  document.getElementById('auth-mode-picker').style.display        = isPicker || tab === 'login' ? '' : 'none';
+  document.getElementById('auth-reg-individual').style.display     = tab === 'reg-individual'   ? '' : 'none';
+  document.getElementById('auth-reg-company-inn').style.display    = tab === 'reg-company-inn'  ? '' : 'none';
+  document.getElementById('auth-reg-company').style.display        = tab === 'reg-company'      ? '' : 'none';
 
   if (tab === 'login') {
     switchAuthMode('login');
@@ -2567,6 +2580,37 @@ async function doRegisterIndividual() {
     await initApp();
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doInnLookup(btn) {
+  const inn = document.getElementById('rc-inn-step1').value.trim();
+  const errEl = document.getElementById('rc-inn-error');
+  errEl.innerHTML = '';
+  if (!/^\d{10}(\d{2})?$/.test(inn)) {
+    errEl.innerHTML = '<div class="inline-error">ИНН должен содержать 10 или 12 цифр</div>';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Поиск...';
+  try {
+    const result = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(r => r.json());
+    if (result.found && result.data) {
+      const d = result.data;
+      document.getElementById('rc-inn').value          = inn;
+      document.getElementById('rc-company').value      = d.company_name || '';
+      document.getElementById('rc-kpp').value          = d.kpp || '';
+      document.getElementById('rc-legal-addr').value   = d.legal_address || '';
+    } else {
+      document.getElementById('rc-inn').value = inn;
+      errEl.innerHTML = '<div style="color:var(--text2);font-size:12px;margin-top:4px">Организация не найдена — заполните реквизиты вручную</div>';
+    }
+    switchAuthTab('reg-company');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">Ошибка поиска: ${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Найти по ИНН';
   }
 }
 
@@ -4122,9 +4166,10 @@ let chatWs        = null;
 let chatWsRetry   = null;
 let _chatPoll     = null;   // polling interval for new messages
 
-const CONV_TYPE_LABELS = {
-  client_support: 'Клиент',
-  internal:       'Внутренний',
+const CONV_KIND_LABELS = {
+  client_manager:      'Поддержка',
+  client_driver_order: 'Заявка',
+  staff_group:         'Группа',
 };
 
 function fmtTime(dt) {
@@ -4204,9 +4249,26 @@ async function loadConversations() {
 }
 
 function convTitle(c) {
+  const role = currentUser?.role;
+  if (c.kind === 'client_manager') {
+    if (role === 'client') return 'Менеджер';
+    return c.title || 'Клиент';
+  }
+  if (c.kind === 'client_driver_order') {
+    const label = c.title || (c.order_id ? `Заявка ${c.order_id.slice(0,8)}…` : 'Заявка');
+    if (role === 'client')  return `Водитель — ${label}`;
+    if (role === 'driver')  return `Клиент — ${label}`;
+    return label;
+  }
+  if (c.kind === 'staff_group') {
+    if (c.group_code === 'general')  return 'Общий чат';
+    if (c.group_code === 'drivers')  return 'Чат водителей';
+    if (c.group_code === 'managers') return 'Чат менеджеров';
+    return c.group_code || 'Группа';
+  }
+  // Legacy fallback for old conversations (if any remain)
   if (c.title) return c.title;
-  if (c.type === 'client_support') return c.order_id ? `Заявка ${c.order_id.slice(0,8)}…` : 'Поддержка';
-  return 'Внутренний чат';
+  return 'Чат';
 }
 
 function updateChatTabBadge(convs) {
@@ -4232,7 +4294,7 @@ function renderConvList(convs) {
     <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
       <div class="conv-item-title">${escHtml(convTitle(c))}</div>
       <div class="conv-item-meta">
-        <span class="conv-type-chip conv-type-${c.type}">${CONV_TYPE_LABELS[c.type] || c.type}</span>
+        <span class="conv-type-chip conv-type-${c.kind}">${CONV_KIND_LABELS[c.kind] || c.kind}</span>
         <span class="conv-item-last">${c.last_message ? escHtml(c.last_message.text) : 'Нет сообщений'}</span>
         ${c.unread_count > 0 ? `<span class="unread-badge">${c.unread_count}</span>` : ''}
         <span class="conv-item-time">${fmtTime(c.updated_at)}</span>
@@ -4271,7 +4333,7 @@ async function openConversation(convId) {
     document.getElementById('chat-conv-title').textContent = convTitle(conv);
     const sub = document.getElementById('chat-conv-sub');
     sub.innerHTML =
-      `${escHtml(CONV_TYPE_LABELS[conv.type] || conv.type)}` +
+      `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
       (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
       ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
 
@@ -4870,6 +4932,10 @@ async function loadClients() {
   }
 }
 
+function fmtClientNum(n) {
+  return n != null ? `C-${String(n).padStart(5, '0')}` : '';
+}
+
 function filterClients() {
   const q = document.getElementById('clients-search').value.trim().toLowerCase();
   if (!q) { renderClients(_allClients); return; }
@@ -4877,7 +4943,8 @@ function filterClients() {
     (u.full_name || '').toLowerCase().includes(q) ||
     (u.email || '').toLowerCase().includes(q) ||
     (u.phone || '').toLowerCase().includes(q) ||
-    (u.id || '').toLowerCase().includes(q)
+    (u.id || '').toLowerCase().includes(q) ||
+    (u.client_number != null && fmtClientNum(u.client_number).toLowerCase().includes(q))
   ));
 }
 
@@ -4895,11 +4962,14 @@ function clientCardHTML(u) {
     .split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
   const safeName = escHtml(u.full_name || u.email);
+  const numBadge = u.client_number != null
+    ? `<span style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.5px">${fmtClientNum(u.client_number)}</span>`
+    : '';
   return `
   <div class="client-card" style="cursor:pointer" onclick="openClientOrders('${u.id}', '${safeName}')">
     <div class="client-avatar">${escHtml(initials)}</div>
     <div class="client-info">
-      <div class="client-name">${safeName}</div>
+      <div class="client-name" style="display:flex;align-items:center;gap:8px">${safeName}${numBadge}</div>
       <div class="client-email">${escHtml(u.email)}</div>
       ${u.phone ? `<div class="client-phone">${escHtml(u.phone)}</div>` : ''}
     </div>
@@ -4954,85 +5024,47 @@ async function openClientOrders(clientId, clientName) {
 }
 
 async function startClientChat(clientId, clientName) {
-  openModal('Новый диалог с клиентом',
-    `<p style="color:var(--text2);font-size:13px;margin-bottom:14px">
-      Будет создан диалог типа <b>client_support</b> с клиентом <b>${escHtml(clientName)}</b>.
-    </p>
-    <div class="form-group">
-      <label class="form-label">UUID заявки (необязательно)</label>
-      <input type="text" id="scc-order-id" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Тема диалога</label>
-      <input type="text" id="scc-title" class="form-input" placeholder="Уточнение по доставке...">
-    </div>`,
-    async () => {
-      const orderId = document.getElementById('scc-order-id').value.trim() || null;
-      const title   = document.getElementById('scc-title').value.trim() || null;
-      closeModal();
-      try {
-        const conv = await chatPost('/conversations', {
-          type: 'client_support',
-          title: title || `Чат с ${clientName}`,
-          order_id: orderId,
-          participant_ids: [clientId],
-        });
-        toast(`Диалог с ${clientName} создан`);
-        switchTab('chat');
-        await loadConversations();
-        openConversation(conv.id);
-      } catch (e) {
-        toast(e.message, 'error');
-      }
-    }
-  );
-}
-
-/**
- * Клиент нажимает "Написать менеджеру" на своей заявке.
- * Ищем существующий чат по этой заявке; если нет — создаём с менеджером.
- */
-async function openOrderChat(orderId, orderNumber, managerId) {
-  if (!managerId) {
-    // No manager yet — still let client open a support chat for this order
-    try {
-      const conv = await chatPost('/conversations', {
-        type: 'client_support',
-        title: `Заявка ${orderNumber}`,
-        order_id: orderId,
-        participant_ids: [],
-      });
-      toast('Чат создан — менеджер ответит после назначения');
-      switchTab('chat');
-      await loadConversations();
-      openConversation(conv.id);
-    } catch (e) {
-      toast('Ошибка создания чата: ' + e.message, 'error');
-    }
-    return;
-  }
+  // Ensure the client_manager conversation exists and open it
   try {
-    // Ищем уже существующий чат по этой заявке (среди чатов, где клиент — участник)
-    const existing = await chatGet(`/conversations?order_id=${orderId}`);
-    if (existing && existing.length > 0) {
-      switchTab('chat');
-      await loadConversations();
-      openConversation(existing[0].id);
-      return;
-    }
-    // Создаём новый чат с менеджером
-    const conv = await chatPost('/conversations', {
-      type: 'client_support',
-      title: `Заявка ${orderNumber}`,
-      order_id: orderId,
-      participant_ids: [managerId],
-    });
-    toast('Чат с менеджером создан');
+    const conv = await chatPost('/conversations/ensure-client-manager', { client_id: clientId });
     switchTab('chat');
     await loadConversations();
     openConversation(conv.id);
   } catch (e) {
-    toast('Ошибка: ' + e.message, 'error');
+    toast('Ошибка открытия чата: ' + e.message, 'error');
+  }
+}
+
+/**
+ * Клиент нажимает "Написать" на своей заявке.
+ * Ищем client_driver_order чат для этой заявки; если нет — открываем client_manager.
+ */
+async function openOrderChat(orderId, orderNumber, managerId) {
+  try {
+    const convs = await chatGet('/conversations');
+    // Prefer the order-specific driver chat if it exists
+    const orderConv = (convs || []).find(c =>
+      c.kind === 'client_driver_order' && c.order_id === orderId
+    );
+    if (orderConv) {
+      switchTab('chat');
+      await loadConversations();
+      openConversation(orderConv.id);
+      return;
+    }
+    // Fall back to the client↔manager conversation
+    const managerConv = (convs || []).find(c => c.kind === 'client_manager');
+    if (managerConv) {
+      switchTab('chat');
+      await loadConversations();
+      openConversation(managerConv.id);
+      return;
+    }
+    // Last resort: just switch to chat tab and let the list load
+    switchTab('chat');
+    await loadConversations();
+  } catch (e) {
+    toast('Ошибка открытия чата: ' + e.message, 'error');
   }
 }
 

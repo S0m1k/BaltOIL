@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 # Import all models so Alembic can detect them
-from app.models import Conversation, ConversationType, ConversationParticipant, Message  # noqa: F401
+from app.models import Conversation, ConversationKind, ConversationParticipant, Message  # noqa: F401
 from app.database import Base
 from app.config import get_settings
 

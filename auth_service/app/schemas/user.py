@@ -15,6 +15,7 @@ class UserShortResponse(BaseModel):
     full_name: str
     role: UserRole
     is_active: bool
+    client_number: int | None = None  # set for CLIENT role, None for staff
 
     model_config = {"from_attributes": True}
 

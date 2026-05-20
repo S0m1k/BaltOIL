@@ -26,10 +26,23 @@ async def list_users(
     include_inactive: bool = Query(False),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    client_number: int | None = Query(None, description="Найти клиента по короткому номеру"),
 ):
-    return await user_service.list_users(
-        db, role=role, include_inactive=include_inactive, offset=offset, limit=limit
+    users = await user_service.list_users(
+        db,
+        role=role,
+        include_inactive=include_inactive,
+        offset=offset,
+        limit=limit,
+        client_number=client_number,
     )
+    result = []
+    for u in users:
+        entry = UserShortResponse.model_validate(u)
+        if hasattr(u, "client_profile") and u.client_profile:
+            entry.client_number = u.client_profile.client_number
+        result.append(entry)
+    return result
 
 
 @router.get("/directory", response_model=list[UserDirectoryEntry])

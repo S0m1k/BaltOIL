@@ -1,32 +1,36 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, ForeignKey, func, Text, UniqueConstraint
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class ConversationType(str, enum.Enum):
-    CLIENT_SUPPORT = "client_support"  # клиент ↔ менеджер/админ (привязан к заявке)
-    INTERNAL       = "internal"        # внутренний: менеджер/админ/водитель
+class ConversationKind(str, enum.Enum):
+    CLIENT_MANAGER      = "client_manager"       # клиент ↔ все активные менеджеры/админы
+    CLIENT_DRIVER_ORDER = "client_driver_order"  # клиент ↔ водитель (на конкретный заказ)
+    STAFF_GROUP         = "staff_group"           # групповой чат сотрудников
 
 
 class Conversation(Base):
     __tablename__ = "conversations"
-    __table_args__ = (
-        # Уникальность по набору участников: один чат на один состав
-        UniqueConstraint("participants_hash", name="uq_conversation_participants_hash"),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    type: Mapped[ConversationType] = mapped_column(SAEnum(ConversationType), nullable=False, index=True)
+    # Тип диалога — определяет правила доступа и членство
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
 
-    # Хэш (sha256) от отсортированных UUID участников — для upsert-дедупликации
-    participants_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Snapshot-поля членства (для client_manager и client_driver_order).
+    # Хранятся в строке — доступ проверяется без RPC.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    order_id:  Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
-    # Заголовок
+    # Для staff_group: 'general' | 'drivers' | 'managers'
+    group_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # Заголовок (опциональный, иначе генерируется на фронте по kind/group_code)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -37,6 +41,8 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # ConversationParticipant сохраняется только для last_read_at (счётчики непрочитанных).
+    # Membership определяется snapshot-полями выше, а не этой таблицей.
     participants: Mapped[list["ConversationParticipant"]] = relationship(
         "ConversationParticipant", back_populates="conversation", cascade="all, delete-orphan"
     )
@@ -48,7 +54,11 @@ class Conversation(Base):
 
 
 class ConversationParticipant(Base):
-    """Участник диалога с меткой последнего прочитанного сообщения."""
+    """Хранит last_read_at для подсчёта непрочитанных.
+
+    Не определяет членство — только для unread-счётчиков.
+    Участник добавляется при первом открытии диалога (auto-enroll).
+    """
 
     __tablename__ = "conversation_participants"
 

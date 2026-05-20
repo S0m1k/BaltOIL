@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel
-from app.models.conversation import ConversationType
 from .message import MessageResponse
 
 
@@ -14,20 +13,20 @@ class ParticipantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ConversationCreateRequest(BaseModel):
-    type: ConversationType = ConversationType.CLIENT_SUPPORT
-    title: str | None = None
-    # Дополнительные участники; создатель добавляется автоматически
-    participant_ids: list[uuid.UUID] = []
+class EnsureClientManagerRequest(BaseModel):
+    client_id: uuid.UUID
 
 
 class ConversationListResponse(BaseModel):
     id: uuid.UUID
-    type: ConversationType
+    kind: str
     title: str | None
+    client_id: uuid.UUID | None = None
+    driver_id: uuid.UUID | None = None
+    order_id: uuid.UUID | None = None
+    group_code: str | None = None
     created_by_id: uuid.UUID
     created_by_role: str
-    participant_ids: list[str] = []
     unread_count: int = 0
     last_message: MessageResponse | None = None
     updated_at: datetime
@@ -37,8 +36,12 @@ class ConversationListResponse(BaseModel):
 
 class ConversationResponse(BaseModel):
     id: uuid.UUID
-    type: ConversationType
+    kind: str
     title: str | None
+    client_id: uuid.UUID | None = None
+    driver_id: uuid.UUID | None = None
+    order_id: uuid.UUID | None = None
+    group_code: str | None = None
     created_by_id: uuid.UUID
     created_by_role: str
     participants: list[ParticipantResponse] = []

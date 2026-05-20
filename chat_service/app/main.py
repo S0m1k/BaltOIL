@@ -13,11 +13,20 @@ from app.routers import conversations, websocket as ws_router, internal as inter
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
     app.state.redis = aioredis.from_url(
         settings.redis_url,
         decode_responses=True,
         max_connections=50,
     )
+
+    # Ensure the three staff_group conversations exist on every startup (idempotent).
+    # These are pre-configured groups that must always exist: general, drivers, managers.
+    from app.database import AsyncSessionLocal
+    from app.services.conversation_service import ensure_staff_groups
+    async with AsyncSessionLocal() as db:
+        await ensure_staff_groups(db)
+
     try:
         yield
     finally:

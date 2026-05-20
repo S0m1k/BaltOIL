@@ -1,7 +1,7 @@
 """Internal endpoints — service-to-service only.
 
-Не выставляются через nginx; доступны только в Docker-сети.
-Авторизация: header X-Internal-Secret == INTERNAL_API_SECRET (HMAC compare).
+Not exposed through nginx; reachable only on the Docker internal network.
+Auth: X-Internal-Secret header (HMAC-safe compare).
 """
 import hmac
 import uuid
@@ -15,7 +15,8 @@ from app.config import get_settings
 from app.core.redis_dep import get_redis
 from app.database import get_db
 from app.schemas.message import MessageResponse
-from app.services import message_service
+from app.schemas.conversation import ConversationListResponse
+from app.services import message_service, conversation_service
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -31,6 +32,14 @@ class SystemMessageRequest(BaseModel):
     metadata: dict | None = None
 
 
+class EnsureClientDriverRequest(BaseModel):
+    order_id: uuid.UUID
+    client_id: uuid.UUID
+    driver_id: uuid.UUID
+    driver_name: str = ""
+    order_number: str = ""
+
+
 @router.post(
     "/conversations/{conv_id}/system-message",
     response_model=MessageResponse,
@@ -43,11 +52,54 @@ async def post_system_message(
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[aioredis.Redis, Depends(get_redis)],
 ):
-    """Записать системное сообщение в диалог (например, события звонка).
+    """Post a system message into a conversation (e.g., call events).
 
-    sender_id фиксированный UUID нулей, sender_role='system', msg_type='system'.
-    Не триггерит push-уведомления — только мгновенно прилетает в WS.
+    sender_id = zero UUID, sender_role='system', msg_type='system'.
+    Does not trigger push notifications — only published to WS.
     """
     return await message_service.post_system_message(
         db, conv_id, body.text, redis, metadata=body.metadata
+    )
+
+
+@router.post(
+    "/conversations/ensure-client-driver",
+    response_model=ConversationListResponse,
+    status_code=200,
+    dependencies=[Depends(_require_internal)],
+)
+async def ensure_client_driver(
+    body: EnsureClientDriverRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+):
+    """Ensure a client_driver_order conversation exists for this order.
+
+    Called by order_service when a driver claims an order (claim_order).
+    Idempotent — returns existing conversation if one already exists for the order.
+    Posts a system message announcing the driver.
+    """
+    conv = await conversation_service.ensure_client_driver_order(
+        db,
+        order_id=body.order_id,
+        client_id=body.client_id,
+        driver_id=body.driver_id,
+        driver_name=body.driver_name,
+        order_number=body.order_number,
+        redis=redis,
+    )
+    await db.commit()
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
     )

@@ -1,143 +1,203 @@
-import hashlib
+"""Conversation service — snapshot-based membership model.
+
+Three conversation kinds:
+  client_manager      — one per client; managers/admins see all of them.
+  client_driver_order — one per active order; client + assigned driver.
+  staff_group         — three pre-created groups: general, drivers, managers.
+
+Membership is enforced by snapshot fields in the Conversation row (client_id,
+driver_id, order_id, group_code) — no RPC to auth_service needed for access checks.
+ConversationParticipant is kept only for last_read_at (unread counters).
+"""
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
-import httpx
-from sqlalchemy import select, func, and_, delete
+from sqlalchemy import select, func, and_, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import redis.asyncio as aioredis
 
 logger = logging.getLogger(__name__)
 
-from app.models.conversation import Conversation, ConversationParticipant, ConversationType
+from app.models.conversation import Conversation, ConversationParticipant, ConversationKind
 from app.models.message import Message
-from app.schemas.conversation import ConversationCreateRequest
 from app.schemas.message import MessageResponse
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
-from app.config import settings
 
+# UUID used as sender_id for system messages
+_SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
-STAFF_ROLES = {"admin", "manager", "driver"}
+STAFF_GROUPS = ("general", "drivers", "managers")
+
 MANAGER_ROLES = {"admin", "manager"}
 
 
-def _participants_hash(user_ids: list[uuid.UUID]) -> str:
-    """SHA-256 от отсортированных UUID участников — для upsert-дедупликации."""
-    sorted_ids = sorted(str(u) for u in user_ids)
-    return hashlib.sha256("|".join(sorted_ids).encode()).hexdigest()
+# ─────────────────────────────────────────────────────────────────────────────
+# Access control
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _check_access(conv: Conversation, actor: TokenUser) -> None:
+    """Raise ForbiddenError if the actor cannot access this conversation."""
+    if actor.role in MANAGER_ROLES:
+        return  # managers/admins see everything
+
+    if conv.kind == ConversationKind.CLIENT_MANAGER:
+        if actor.id == conv.client_id:
+            return
+        raise ForbiddenError("Это ваш диалог с менеджером")
+
+    if conv.kind == ConversationKind.CLIENT_DRIVER_ORDER:
+        if actor.id in (conv.client_id, conv.driver_id):
+            return
+        raise ForbiddenError("Вы не участник этого диалога")
+
+    if conv.kind == ConversationKind.STAFF_GROUP:
+        if actor.role == "driver" and conv.group_code in ("general", "drivers"):
+            return
+        raise ForbiddenError("У вас нет доступа к этому групповому чату")
+
+    raise ForbiddenError("Доступ запрещён")
 
 
-async def _fetch_client_ids() -> set[uuid.UUID]:
-    """Спросить auth_service: чьи user_id принадлежат роли 'client'.
-    Возвращает пустое множество при сбое — в этом случае проверки на «клиент в участниках»
-    не сработают (fail-open для доступности), но при норм. работе сети правило соблюдается.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(
-                f"{settings.auth_service_url}/internal/users-by-role",
-                params={"roles": "client"},
-                headers={"X-Internal-Secret": settings.internal_api_secret},
-            )
-            resp.raise_for_status()
-            return {uuid.UUID(u) for u in resp.json()}
-    except Exception:
-        logger.warning("Could not fetch client IDs from auth_service", exc_info=True)
-        return set()
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
-
-async def create_conversation(
-    db: AsyncSession,
-    data: ConversationCreateRequest,
-    actor: TokenUser,
-    redis: aioredis.Redis,
-) -> Conversation:
-    # Клиенты могут создавать только client_support
-    if actor.role == "client" and data.type != ConversationType.CLIENT_SUPPORT:
-        raise ForbiddenError("Клиент может создавать только чаты поддержки")
-
-    # Водитель — только internal (не support с клиентом)
-    if actor.role == "driver" and data.type != ConversationType.INTERNAL:
-        raise ForbiddenError("Водитель может создавать только внутренние чаты")
-
-    # Internal-чат не должен содержать клиентов — проверка действует для всех,
-    # кто пытается создать internal (включая admin/manager: фронт это фильтрует,
-    # но инвариант стоит держать на сервере).
-    if data.type == ConversationType.INTERNAL and data.participant_ids:
-        client_ids = await _fetch_client_ids()
-        bad = [pid for pid in data.participant_ids if pid in client_ids]
-        if bad:
-            raise ForbiddenError("В внутренний чат нельзя добавлять клиентов")
-
-    # Полный список участников (включая создателя)
-    participant_ids: list[uuid.UUID] = [actor.id]
-    for pid in data.participant_ids:
-        if pid not in participant_ids:
-            participant_ids.append(pid)
-
-    p_hash = _participants_hash(participant_ids)
-
-    # Upsert: если чат с таким составом уже есть — вернуть его
-    existing = await db.execute(
-        select(Conversation)
-        .options(
-            selectinload(Conversation.participants),
-            selectinload(Conversation.messages),
+async def _auto_enroll(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+    """Add actor to participants (for last_read_at tracking) if not already enrolled."""
+    result = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conv_id,
+            ConversationParticipant.user_id == actor.id,
         )
-        .where(
-            Conversation.participants_hash == p_hash,
+    )
+    if not result.scalar_one_or_none():
+        db.add(ConversationParticipant(
+            conversation_id=conv_id,
+            user_id=actor.id,
+            user_role=actor.role,
+            last_read_at=datetime.now(timezone.utc),
+        ))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ensure helpers (idempotent create-or-return)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def ensure_client_manager(
+    db: AsyncSession,
+    client_id: uuid.UUID,
+) -> Conversation:
+    """Return existing client_manager conversation for this client, or create one."""
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.kind == ConversationKind.CLIENT_MANAGER,
+            Conversation.client_id == client_id,
             Conversation.is_archived == False,  # noqa: E712
         )
     )
-    ex = existing.scalar_one_or_none()
-    if ex:
-        return ex
+    conv = result.scalar_one_or_none()
+    if conv:
+        return conv
 
     conv = Conversation(
-        type=data.type,
-        title=data.title,
-        participants_hash=p_hash,
-        created_by_id=actor.id,
-        created_by_role=actor.role,
+        kind=ConversationKind.CLIENT_MANAGER,
+        client_id=client_id,
+        created_by_id=_SYSTEM_UUID,
+        created_by_role="system",
+    )
+    db.add(conv)
+    await db.flush()
+    return conv
+
+
+async def ensure_client_driver_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    client_id: uuid.UUID,
+    driver_id: uuid.UUID,
+    driver_name: str = "",
+    order_number: str = "",
+    redis: aioredis.Redis | None = None,
+) -> Conversation:
+    """Return existing client_driver_order conversation for this order, or create one.
+
+    Called by order_service when a driver claims an order.
+    """
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
+            Conversation.order_id == order_id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv:
+        # Update driver_id if it changed (shouldn't happen normally)
+        if conv.driver_id != driver_id:
+            conv.driver_id = driver_id
+        return conv
+
+    title = f"Заявка {order_number}" if order_number else None
+    conv = Conversation(
+        kind=ConversationKind.CLIENT_DRIVER_ORDER,
+        client_id=client_id,
+        driver_id=driver_id,
+        order_id=order_id,
+        title=title,
+        created_by_id=_SYSTEM_UUID,
+        created_by_role="system",
     )
     db.add(conv)
     await db.flush()
 
-    for pid in participant_ids:
-        db.add(ConversationParticipant(
-            conversation_id=conv.id,
-            user_id=pid,
-            user_role="unknown",
+    # Post system message so participants see context
+    if redis:
+        system_text = (
+            f"Водитель {driver_name} принял заявку {order_number}. "
+            "Можете связаться напрямую."
+        ) if driver_name else "Водитель принял заявку."
+        await _post_system_message_raw(db, conv.id, system_text, redis)
+
+    return conv
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Staff group bootstrap (called at app startup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def ensure_staff_groups(db: AsyncSession) -> None:
+    """Create the three staff_group conversations if they don't exist."""
+    for code in STAFF_GROUPS:
+        result = await db.execute(
+            select(Conversation).where(
+                Conversation.kind == ConversationKind.STAFF_GROUP,
+                Conversation.group_code == code,
+            )
+        )
+        if result.scalar_one_or_none():
+            continue
+
+        titles = {
+            "general": "Общий чат",
+            "drivers": "Чат водителей",
+            "managers": "Чат менеджеров",
+        }
+        db.add(Conversation(
+            kind=ConversationKind.STAFF_GROUP,
+            group_code=code,
+            title=titles.get(code, code),
+            created_by_id=_SYSTEM_UUID,
+            created_by_role="system",
         ))
 
     await db.commit()
 
-    result = await db.execute(
-        select(Conversation)
-        .options(
-            selectinload(Conversation.participants),
-            selectinload(Conversation.messages),
-        )
-        .where(Conversation.id == conv.id)
-    )
-    created_conv = result.scalar_one()
 
-    # Уведомить менеджеров о новом чате поддержки от клиента
-    if actor.role == "client" and data.type == ConversationType.CLIENT_SUPPORT:
-        try:
-            await redis.publish("events:chat", json.dumps({
-                "event": "conversation_created",
-                "conv_id": str(created_conv.id),
-                "client_name": actor.name,
-            }))
-        except Exception:
-            logger.exception("Failed to publish conversation_created event")
-
-    return created_conv
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def get_conversation(
     db: AsyncSession,
@@ -155,47 +215,69 @@ async def get_conversation(
     conv = result.scalar_one_or_none()
     if not conv:
         raise NotFoundError("Диалог не найден")
+
     _check_access(conv, actor)
-
-    # Auto-enroll staff on first view so they appear in participant lists
-    # (call notifications, unread badges) without having to send a message first.
-    if actor.role in MANAGER_ROLES:
-        already_in = any(p.user_id == actor.id for p in conv.participants)
-        if not already_in:
-            db.add(ConversationParticipant(
-                conversation_id=conv_id,
-                user_id=actor.id,
-                user_role=actor.role,
-                last_read_at=datetime.now(timezone.utc),
-            ))
-            await db.commit()
-            await db.refresh(conv, ["participants"])
-
+    await _auto_enroll(db, conv_id, actor)
+    await db.commit()
+    await db.refresh(conv, ["participants"])
     return conv
 
 
 async def list_conversations(
     db: AsyncSession,
     actor: TokenUser,
-    order_id: uuid.UUID | None = None,
+    order_id: uuid.UUID | None = None,  # kept for API compatibility, not used in new model
 ) -> list[dict]:
-    """Список диалогов с количеством непрочитанных и последним сообщением."""
-    q = select(Conversation).where(Conversation.is_archived == False)  # noqa: E712
+    """List conversations visible to this actor with unread counts and last message."""
+    role = actor.role
 
-    if actor.role not in MANAGER_ROLES:
-        participant_subq = (
-            select(ConversationParticipant.conversation_id)
-            .where(ConversationParticipant.user_id == actor.id)
-            .scalar_subquery()
+    # ── Build visibility filter ───────────────────────────────────────────────
+    if role == "client":
+        # Auto-create client_manager if it doesn't exist yet
+        cm = await ensure_client_manager(db, actor.id)
+        await db.commit()
+
+        visibility = or_(
+            and_(
+                Conversation.kind == ConversationKind.CLIENT_MANAGER,
+                Conversation.client_id == actor.id,
+            ),
+            and_(
+                Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
+                Conversation.client_id == actor.id,
+                Conversation.is_archived == False,  # noqa: E712
+            ),
         )
-        q = q.where(Conversation.id.in_(participant_subq))
+    elif role == "driver":
+        visibility = or_(
+            and_(
+                Conversation.kind == ConversationKind.STAFF_GROUP,
+                Conversation.group_code.in_(["general", "drivers"]),
+            ),
+            and_(
+                Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
+                Conversation.driver_id == actor.id,
+                Conversation.is_archived == False,  # noqa: E712
+            ),
+        )
+    else:  # manager / admin
+        visibility = or_(
+            and_(
+                Conversation.kind == ConversationKind.STAFF_GROUP,
+                Conversation.group_code.in_(["general", "managers"]),
+            ),
+            Conversation.kind == ConversationKind.CLIENT_MANAGER,
+            and_(
+                Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
+                Conversation.is_archived == False,  # noqa: E712
+            ),
+        )
 
-        if actor.role == "client":
-            q = q.where(Conversation.type == ConversationType.CLIENT_SUPPORT)
-        elif actor.role == "driver":
-            q = q.where(Conversation.type == ConversationType.INTERNAL)
-
-    q = q.order_by(Conversation.updated_at.desc())
+    q = (
+        select(Conversation)
+        .where(Conversation.is_archived == False, visibility)  # noqa: E712
+        .order_by(Conversation.updated_at.desc())
+    )
     result = await db.execute(q)
     conversations = result.scalars().all()
 
@@ -204,51 +286,7 @@ async def list_conversations(
 
     conv_ids = [c.id for c in conversations]
 
-    # ── Запрос 1: все участники + last_read_at текущего актора за один SELECT ──
-    parts_result = await db.execute(
-        select(ConversationParticipant).where(
-            ConversationParticipant.conversation_id.in_(conv_ids)
-        )
-    )
-    all_parts = parts_result.scalars().all()
-
-    # Индекс: conv_id → [participants], conv_id → actor's last_read_at
-    parts_by_conv: dict[uuid.UUID, list[ConversationParticipant]] = {}
-    actor_read_at: dict[uuid.UUID, datetime | None] = {}
-    for p in all_parts:
-        parts_by_conv.setdefault(p.conversation_id, []).append(p)
-        if p.user_id == actor.id:
-            actor_read_at[p.conversation_id] = p.last_read_at
-
-    # ── Запрос 2: последнее сообщение на каждый диалог (MAX created_at + JOIN) ──
-    max_ts_subq = (
-        select(
-            Message.conversation_id.label("conv_id"),
-            func.max(Message.created_at).label("max_ts"),
-        )
-        .where(
-            Message.conversation_id.in_(conv_ids),
-            Message.is_archived == False,  # noqa: E712
-        )
-        .group_by(Message.conversation_id)
-        .subquery()
-    )
-    last_msgs_result = await db.execute(
-        select(Message).join(
-            max_ts_subq,
-            and_(
-                Message.conversation_id == max_ts_subq.c.conv_id,
-                Message.created_at == max_ts_subq.c.max_ts,
-            ),
-        ).where(Message.is_archived == False)  # noqa: E712
-    )
-    last_msgs: dict[uuid.UUID, Message] = {
-        m.conversation_id: m for m in last_msgs_result.scalars().all()
-    }
-
-    # ── Запрос 3: непрочитанные — один SQL с LEFT JOIN на last_read_at актора ──
-    # Считаем в БД: messages от других, новее actor.last_read_at в этом диалоге.
-    # NULL last_read_at → все сообщения непрочитаны.
+    # ── Unread counts ─────────────────────────────────────────────────────────
     actor_part_alias = ConversationParticipant.__table__.alias("actor_part")
     unread_q = (
         select(
@@ -277,17 +315,45 @@ async def list_conversations(
         row.conversation_id: row.unread for row in unread_res
     }
 
+    # ── Last message per conversation ─────────────────────────────────────────
+    max_ts_subq = (
+        select(
+            Message.conversation_id.label("conv_id"),
+            func.max(Message.created_at).label("max_ts"),
+        )
+        .where(
+            Message.conversation_id.in_(conv_ids),
+            Message.is_archived == False,  # noqa: E712
+        )
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+    last_msgs_result = await db.execute(
+        select(Message).join(
+            max_ts_subq,
+            and_(
+                Message.conversation_id == max_ts_subq.c.conv_id,
+                Message.created_at == max_ts_subq.c.max_ts,
+            ),
+        ).where(Message.is_archived == False)  # noqa: E712
+    )
+    last_msgs: dict[uuid.UUID, Message] = {
+        m.conversation_id: m for m in last_msgs_result.scalars().all()
+    }
+
     output = []
     for conv in conversations:
-        parts = parts_by_conv.get(conv.id, [])
         last_msg = last_msgs.get(conv.id)
         output.append({
             "id": conv.id,
-            "type": conv.type,
+            "kind": conv.kind,
             "title": conv.title,
+            "client_id": conv.client_id,
+            "driver_id": conv.driver_id,
+            "order_id": conv.order_id,
+            "group_code": conv.group_code,
             "created_by_id": conv.created_by_id,
             "created_by_role": conv.created_by_role,
-            "participant_ids": [str(p.user_id) for p in parts],
             "unread_count": unread_counts.get(conv.id, 0),
             "last_message": MessageResponse.model_validate(last_msg) if last_msg else None,
             "updated_at": conv.updated_at,
@@ -306,11 +372,19 @@ async def mark_read(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> N
     participant = result.scalar_one_or_none()
     if participant:
         participant.last_read_at = datetime.now(timezone.utc)
-        await db.commit()
+    else:
+        # Auto-enroll and mark read simultaneously
+        db.add(ConversationParticipant(
+            conversation_id=conv_id,
+            user_id=actor.id,
+            user_role=actor.role,
+            last_read_at=datetime.now(timezone.utc),
+        ))
+    await db.commit()
 
 
 async def archive_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
-    """Архивировать диалог — только менеджер/админ."""
+    """Archive a conversation — manager/admin only."""
     result = await db.execute(
         select(Conversation).where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
     )
@@ -329,7 +403,7 @@ async def delete_conversation(
     actor: TokenUser,
     redis: aioredis.Redis,
 ) -> None:
-    """Hard-delete диалога — только администратор."""
+    """Hard-delete — admin only."""
     if actor.role != "admin":
         raise ForbiddenError("Удалить диалог полностью может только администратор")
     result = await db.execute(select(Conversation).where(Conversation.id == conv_id))
@@ -342,7 +416,6 @@ async def delete_conversation(
     )
     await db.delete(conv)
     await db.commit()
-    # Notify open WS clients so they can close the chat UI
     try:
         await redis.publish(f"chat:{conv_id}", json.dumps({
             "event": "conversation_deleted",
@@ -358,7 +431,7 @@ async def clear_conversation(
     actor: TokenUser,
     redis: aioredis.Redis,
 ) -> None:
-    """Очистить историю сообщений — только администратор."""
+    """Clear message history — admin only."""
     if actor.role != "admin":
         raise ForbiddenError("Очистить историю может только администратор")
     result = await db.execute(
@@ -368,7 +441,6 @@ async def clear_conversation(
         raise NotFoundError("Диалог не найден")
     await db.execute(delete(Message).where(Message.conversation_id == conv_id))
     await db.commit()
-    # Notify open WS clients so they can clear the message list in UI
     try:
         await redis.publish(f"chat:{conv_id}", json.dumps({
             "event": "conversation_cleared",
@@ -378,13 +450,48 @@ async def clear_conversation(
         logger.exception("Failed to publish conversation_cleared event")
 
 
-def _check_access(conv: Conversation, actor: TokenUser) -> None:
-    if actor.role in MANAGER_ROLES:
-        return
-    participant_ids = {p.user_id for p in conv.participants}
-    if actor.id not in participant_ids:
-        raise ForbiddenError("Вы не участник этого диалога")
-    if actor.role == "client" and conv.type != ConversationType.CLIENT_SUPPORT:
-        raise ForbiddenError("Клиент может обращаться только в поддержку")
-    if actor.role == "driver" and conv.type != ConversationType.INTERNAL:
-        raise ForbiddenError("Водитель может использовать только внутренний чат")
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _post_system_message_raw(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    text: str,
+    redis: aioredis.Redis,
+) -> None:
+    """Post a system message without going through message_service (avoids circular import)."""
+    from app.models.message import Message as _Message
+    msg = _Message(
+        conversation_id=conv_id,
+        sender_id=_SYSTEM_UUID,
+        sender_role="system",
+        text=text,
+        msg_type="system",
+    )
+    db.add(msg)
+    await db.flush()
+
+    # Update conversation updated_at
+    result = await db.execute(select(Conversation).where(Conversation.id == conv_id))
+    conv = result.scalar_one_or_none()
+    if conv:
+        conv.updated_at = datetime.now(timezone.utc)
+
+    try:
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "event": "new_message",
+            "message": {
+                "id": str(msg.id),
+                "conversation_id": str(conv_id),
+                "sender_id": str(_SYSTEM_UUID),
+                "sender_role": "system",
+                "text": text,
+                "msg_type": "system",
+                "metadata": None,
+                "is_archived": False,
+                "created_at": msg.created_at.isoformat() if hasattr(msg, "created_at") and msg.created_at else None,
+            },
+        }))
+    except Exception:
+        logger.warning("Failed to publish system message event for conv %s", conv_id)

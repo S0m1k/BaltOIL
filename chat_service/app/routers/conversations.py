@@ -6,23 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import get_current_user, TokenUser
 from app.core.redis_dep import get_redis
+from app.core.exceptions import ForbiddenError
 from app.schemas.conversation import (
-    ConversationCreateRequest, ConversationResponse, ConversationListResponse
+    ConversationResponse, ConversationListResponse, EnsureClientManagerRequest,
 )
 from app.schemas.message import MessageResponse, SendMessageRequest
 from app.services import conversation_service, message_service
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
-
-
-@router.post("", response_model=ConversationResponse, status_code=201)
-async def create_conversation(
-    data: ConversationCreateRequest,
-    db: AsyncSession = Depends(get_db),
-    actor: TokenUser = Depends(get_current_user),
-    redis: aioredis.Redis = Depends(get_redis),
-):
-    return await conversation_service.create_conversation(db, data, actor, redis=redis)
 
 
 @router.get("", response_model=list[ConversationListResponse])
@@ -33,6 +24,37 @@ async def list_conversations(
 ):
     rows = await conversation_service.list_conversations(db, actor, order_id)
     return [ConversationListResponse(**r) for r in rows]
+
+
+@router.post("/ensure-client-manager", response_model=ConversationListResponse)
+async def ensure_client_manager(
+    body: EnsureClientManagerRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Ensure a client_manager conversation exists for the given client.
+
+    Returns existing or newly created conversation. Staff-only endpoint used when
+    a manager clicks the "Чат" button on a client card.
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Только менеджер или администратор")
+    conv = await conversation_service.ensure_client_manager(db, body.client_id)
+    await db.commit()
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+    )
 
 
 @router.get("/{conv_id}", response_model=ConversationResponse)
@@ -60,7 +82,7 @@ async def delete_conversation(
     actor: TokenUser = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Hard-delete диалога вместе с сообщениями — только администратор."""
+    """Hard-delete conversation and all messages — admin only."""
     await conversation_service.delete_conversation(db, conv_id, actor, redis=redis)
 
 
@@ -71,7 +93,7 @@ async def clear_conversation(
     actor: TokenUser = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Очистить историю сообщений — только администратор."""
+    """Clear message history — admin only."""
     await conversation_service.clear_conversation(db, conv_id, actor, redis=redis)
 
 
