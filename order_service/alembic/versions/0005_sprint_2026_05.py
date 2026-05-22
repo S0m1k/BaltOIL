@@ -10,6 +10,8 @@ Consolidates all Deploy 1 DB changes into one migration:
 3. Drop priority column and orderpriority enum
 4. Recreate orderstatus enum without ASSIGNED (rename old → create new → alter → drop old)
    Applied to: orders.status, order_status_logs.status, from_status, to_status
+
+All DDL steps use IF EXISTS / DO $$ guards so re-runs after a partial failure are safe.
 """
 
 revision = "0005"
@@ -18,7 +20,6 @@ branch_labels = None
 depends_on = None
 
 from alembic import op
-import sqlalchemy as sa
 
 
 def upgrade() -> None:
@@ -33,34 +34,48 @@ def upgrade() -> None:
         RESTART IDENTITY CASCADE;
     """)
 
-    # 1.1 — Add deliverywindow enum and column
+    # 1.1 — Add deliverywindow enum and column (IF NOT EXISTS guards for idempotency)
     op.execute("""
-        CREATE TYPE deliverywindow AS ENUM ('07-13', '13-16', '16-20', '20-24');
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'deliverywindow') THEN
+                CREATE TYPE deliverywindow AS ENUM ('07-13', '13-16', '16-20', '20-24');
+            END IF;
+        END $$;
     """)
     op.execute("""
-        ALTER TABLE orders ADD COLUMN delivery_window deliverywindow NOT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_window deliverywindow NOT NULL DEFAULT '07-13';
+    """)
+    op.execute("""
+        ALTER TABLE orders ALTER COLUMN delivery_window DROP DEFAULT;
     """)
 
     # 1.2 — Drop priority column and enum
-    op.execute("""
-        ALTER TABLE orders DROP COLUMN priority;
-    """)
-    op.execute("""
-        DROP TYPE orderpriority;
-    """)
+    op.execute("ALTER TABLE orders DROP COLUMN IF EXISTS priority;")
+    op.execute("DROP TYPE IF EXISTS orderpriority;")
 
     # 1.3 — Recreate orderstatus enum without ASSIGNED
     # (no existing rows due to TRUNCATE above, so USING cast is trivial)
-    # order_status_logs has from_status + to_status (no plain `status` column)
+    # Guards handle re-runs where rename already happened or new type already exists.
     op.execute("""
-        ALTER TYPE orderstatus RENAME TO orderstatus_old;
+        DO $$ BEGIN
+            -- Only rename if orderstatus_old doesn't exist yet (i.e. rename not done yet)
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orderstatus')
+               AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orderstatus_old')
+            THEN
+                ALTER TYPE orderstatus RENAME TO orderstatus_old;
+            END IF;
+        END $$;
     """)
     op.execute("""
-        CREATE TYPE orderstatus AS ENUM (
-            'new', 'in_progress', 'in_transit',
-            'delivered', 'partially_delivered',
-            'closed', 'rejected'
-        );
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orderstatus') THEN
+                CREATE TYPE orderstatus AS ENUM (
+                    'new', 'in_progress', 'in_transit',
+                    'delivered', 'partially_delivered',
+                    'closed', 'rejected'
+                );
+            END IF;
+        END $$;
     """)
     op.execute("""
         ALTER TABLE orders
@@ -77,9 +92,7 @@ def upgrade() -> None:
             ALTER COLUMN to_status TYPE orderstatus
             USING to_status::text::orderstatus;
     """)
-    op.execute("""
-        DROP TYPE orderstatus_old;
-    """)
+    op.execute("DROP TYPE IF EXISTS orderstatus_old;")
 
 
 def downgrade() -> None:
