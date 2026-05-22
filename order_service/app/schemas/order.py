@@ -18,8 +18,6 @@ class OrderCreateRequest(BaseModel):
 
     # Только для менеджера/админа: создать от имени конкретного клиента
     client_id: uuid.UUID | None = None
-    # Только для менеджера/админа: сразу поставить статус «в работе»
-    start_in_progress: bool = False
     manager_comment: str | None = None
 
     @field_validator("volume_requested")

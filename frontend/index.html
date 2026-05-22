@@ -1628,19 +1628,6 @@
             <label class="form-label">Комментарий менеджера</label>
             <input type="text" id="c-manager-comment" class="form-input" placeholder="...">
           </div>
-          <div class="form-group">
-            <label class="form-label">Начальный статус</label>
-            <div class="radio-group">
-              <label class="radio-label selected" id="status-new-label">
-                <input type="radio" name="init-status" value="new" checked onchange="updateStatusUI()">
-                Новая
-              </label>
-              <label class="radio-label" id="status-progress-label">
-                <input type="radio" name="init-status" value="in_progress" onchange="updateStatusUI()">
-                Сразу в работе
-              </label>
-            </div>
-          </div>
           <div class="section-divider">Данные заявки</div>
         </div>
 
@@ -2330,7 +2317,7 @@ function buildBurgerMenu() {
 
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
-    { tab: 'create',    label: 'Создать заявку',       show: true },
+    { tab: 'create',    label: 'Создать заявку',       show: role !== 'driver' },
     { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
     { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
     { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
@@ -3227,11 +3214,6 @@ function updatePaymentUI() {
   });
 }
 
-function updateStatusUI() {
-  const val = document.querySelector('input[name="init-status"]:checked')?.value;
-  document.getElementById('status-new-label')?.classList.toggle('selected', val === 'new');
-  document.getElementById('status-progress-label')?.classList.toggle('selected', val === 'in_progress');
-}
 
 async function loadClientSelectForOrder() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
@@ -3281,7 +3263,6 @@ async function doCreateOrder() {
     }
     body.client_id        = clientId;
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
-    body.start_in_progress = document.querySelector('input[name="init-status"]:checked')?.value === 'in_progress';
   }
 
   // Stock pre-check: warn if insufficient fuel in stock
@@ -3302,8 +3283,7 @@ async function doCreateOrder() {
 
   try {
     const order = await orderPost('/orders', body);
-    const statusNote = body.start_in_progress ? ' — сразу в работе' : '';
-    toast(`Заявка ${order.order_number} создана${statusNote}!`);
+    toast(`Заявка ${order.order_number} создана!`);
     // Reset form
     document.getElementById('c-volume').value = '';
     document.getElementById('c-address').value = '';

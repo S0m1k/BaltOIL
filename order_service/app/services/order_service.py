@@ -203,10 +203,8 @@ async def create_order(
 
     order_number = await generate_order_number(db)
 
-    # Менеджер может сразу поставить «В работе», клиент создаёт только «Новую»
+    # Все заявки создаются со статусом NEW — водитель берёт через /claim
     initial_status = OrderStatus.NEW
-    if is_staff and data.start_in_progress:
-        initial_status = OrderStatus.IN_PROGRESS
 
     # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
     expected_amount = await compute_expected_amount(
@@ -240,17 +238,6 @@ async def create_order(
         changed_by_role=actor.role,
         comment="Заявка создана" if not is_staff else "Заявка создана менеджером",
     ))
-
-    # Если менеджер сразу взял в работу — добавляем второй лог-переход
-    if initial_status == OrderStatus.IN_PROGRESS:
-        db.add(OrderStatusLog(
-            order_id=order.id,
-            from_status=OrderStatus.NEW,
-            to_status=OrderStatus.IN_PROGRESS,
-            changed_by_id=actor.id,
-            changed_by_role=actor.role,
-            comment="Автоматически принята при создании",
-        ))
 
     await db.flush()
 
