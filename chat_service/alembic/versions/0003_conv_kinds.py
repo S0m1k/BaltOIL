@@ -22,10 +22,17 @@ def upgrade() -> None:
     # Wipe all chat data — new conversation model is incompatible with old one
     op.execute("TRUNCATE TABLE messages, conversation_participants, conversations CASCADE")
 
-    # Drop old columns that are replaced by the new model
-    op.drop_constraint("uq_conversation_participants_hash", "conversations", type_="unique")
-    op.drop_column("conversations", "participants_hash")
-    op.drop_column("conversations", "type")
+    # Drop old columns that are replaced by the new model.
+    # Use IF EXISTS for the constraint — prod may have a different name or none.
+    op.execute(
+        "ALTER TABLE conversations DROP CONSTRAINT IF EXISTS uq_conversation_participants_hash"
+    )
+    op.execute(
+        "ALTER TABLE conversations DROP COLUMN IF EXISTS participants_hash"
+    )
+    op.execute(
+        "ALTER TABLE conversations DROP COLUMN IF EXISTS type"
+    )
     op.execute("DROP TYPE IF EXISTS conversationtype")
 
     # Add new discriminator column: client_manager | client_driver_order | staff_group
