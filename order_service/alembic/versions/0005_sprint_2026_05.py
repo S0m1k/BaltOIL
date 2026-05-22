@@ -30,7 +30,7 @@ def upgrade() -> None:
             documents,
             order_status_logs,
             orders,
-            order_counters
+            order_year_counters
         RESTART IDENTITY CASCADE;
     """)
 

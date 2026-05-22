@@ -1,7 +1,7 @@
-from .conversation import ConversationResponse, ConversationCreateRequest, ConversationListResponse
+from .conversation import ConversationResponse, ConversationListResponse, EnsureClientManagerRequest
 from .message import MessageResponse, SendMessageRequest
 
 __all__ = [
-    "ConversationResponse", "ConversationCreateRequest", "ConversationListResponse",
+    "ConversationResponse", "ConversationListResponse", "EnsureClientManagerRequest",
     "MessageResponse", "SendMessageRequest",
 ]
