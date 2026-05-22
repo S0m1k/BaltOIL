@@ -85,7 +85,8 @@ class Order(Base):
 
     # Статус
     status: Mapped[OrderStatus] = mapped_column(
-        SAEnum(OrderStatus), nullable=False, default=OrderStatus.NEW, index=True
+        SAEnum(OrderStatus, values_callable=lambda x: [e.value for e in x], name="orderstatus"),
+        nullable=False, default=OrderStatus.NEW, index=True,
     )
 
     # Кто обрабатывает

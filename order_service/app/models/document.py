@@ -37,10 +37,14 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
-    doc_type: Mapped[DocumentType] = mapped_column(SAEnum(DocumentType), nullable=False)
+    doc_type: Mapped[DocumentType] = mapped_column(
+        SAEnum(DocumentType, values_callable=lambda x: [e.value for e in x], name="documenttype"),
+        nullable=False,
+    )
     doc_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
     status: Mapped[DocumentStatus] = mapped_column(
-        SAEnum(DocumentStatus), nullable=False, default=DocumentStatus.DRAFT
+        SAEnum(DocumentStatus, values_callable=lambda x: [e.value for e in x], name="documentstatus"),
+        nullable=False, default=DocumentStatus.DRAFT,
     )
 
     # Снимки реквизитов на момент генерации

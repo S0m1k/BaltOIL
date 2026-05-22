@@ -21,8 +21,14 @@ class OrderStatusLog(Base):
         nullable=False,
         index=True,
     )
-    from_status: Mapped[OrderStatus | None] = mapped_column(SAEnum(OrderStatus), nullable=True)
-    to_status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus), nullable=False)
+    from_status: Mapped[OrderStatus | None] = mapped_column(
+        SAEnum(OrderStatus, values_callable=lambda x: [e.value for e in x], name="orderstatus"),
+        nullable=True,
+    )
+    to_status: Mapped[OrderStatus] = mapped_column(
+        SAEnum(OrderStatus, values_callable=lambda x: [e.value for e in x], name="orderstatus"),
+        nullable=False,
+    )
 
     changed_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     changed_by_role: Mapped[str | None] = mapped_column(nullable=True)

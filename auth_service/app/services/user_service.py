@@ -201,12 +201,8 @@ async def list_users(
     if not include_inactive:
         conditions.append(User.is_active == True)  # noqa: E712
 
-    query = select(User).where(and_(*conditions))
+    query = select(User).where(and_(*conditions)).options(selectinload(User.client_profile))
 
-    # Eagerly load client_profile when listing clients or filtering by client_number
-    needs_profile = client_number is not None or role == UserRole.CLIENT
-    if needs_profile:
-        query = query.options(selectinload(User.client_profile))
     if client_number is not None:
         query = query.join(ClientProfile, ClientProfile.user_id == User.id).where(
             ClientProfile.client_number == client_number
