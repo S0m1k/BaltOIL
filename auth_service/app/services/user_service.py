@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile, ClientType
@@ -201,7 +201,7 @@ async def list_users(
     if not include_inactive:
         conditions.append(User.is_active == True)  # noqa: E712
 
-    query = select(User).where(and_(*conditions)).options(selectinload(User.client_profile))
+    query = select(User).where(and_(*conditions)).options(joinedload(User.client_profile))
 
     if client_number is not None:
         query = query.join(ClientProfile, ClientProfile.user_id == User.id).where(

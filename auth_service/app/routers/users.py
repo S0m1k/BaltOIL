@@ -39,8 +39,10 @@ async def list_users(
     result = []
     for u in users:
         entry = UserShortResponse.model_validate(u)
-        if hasattr(u, "client_profile") and u.client_profile:
-            entry.client_number = u.client_profile.client_number
+        # Read from instance dict to avoid triggering SQLAlchemy lazy load
+        profile = u.__dict__.get("client_profile")
+        if profile is not None:
+            entry.client_number = profile.client_number
         result.append(entry)
     return result
 
