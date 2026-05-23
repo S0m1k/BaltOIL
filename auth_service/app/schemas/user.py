@@ -71,20 +71,33 @@ class RegisterIndividualRequest(BaseModel):
 
 
 class RegisterCompanyRequest(BaseModel):
-    """Регистрация юридического лица."""
+    """Регистрация юридического лица.
+
+    Минимум, что собираем руками: email/password/phone/full_name (контактное лицо),
+    inn (для лукапа в ЕГРЮЛ), bik+bank_account (для лукапа банка + наш расчётный).
+    Остальное (company_name, kpp, ogrn, legal_address, bank_name, correspondent_account,
+    director_name, okved/okpo/okato) — автозаполняется из DaData при регистрации.
+    Если DaData недоступна, поля можно прислать вручную.
+    """
     email: EmailStr
     phone: str
     password: str
     full_name: str           # ФИО контактного лица
-    company_name: str
+
     inn: str
-    kpp: str | None = None
-    legal_address: str
-    delivery_address: str | None = None
-    bank_account: str | None = None
-    bank_name: str | None = None
+    # bik+bank_account — нужно для регистрации; bik используется для bank lookup,
+    # bank_account (р/с) клиент вводит сам — DaData его не знает.
     bik: str | None = None
+    bank_account: str | None = None
+
+    # Всё ниже — опционально: либо приедет из DaData, либо клиент введёт вручную.
+    company_name: str | None = None
+    kpp: str | None = None
+    legal_address: str | None = None
+    delivery_address: str | None = None
+    bank_name: str | None = None
     correspondent_account: str | None = None
+    billing_email: EmailStr | None = None
 
     @field_validator("password")
     @classmethod

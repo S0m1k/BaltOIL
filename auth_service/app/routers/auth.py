@@ -89,7 +89,8 @@ async def lookup_inn(
 ):
     """Поиск организации по ИНН через DaData. Без авторизации.
 
-    Возвращает {found, data: {company_name, kpp, ogrn, legal_address}} или {found: false}.
+    Возвращает {found, data: {company_name, kpp, ogrn, legal_address,
+        okved, okpo, okato, fns_status, director_name}} или {found: false}.
     Если DADATA_API_KEY не задан — возвращает found=false (регистрация вручную).
     """
     from app.services.dadata_service import lookup_by_inn
@@ -97,6 +98,28 @@ async def lookup_inn(
     if not api_key:
         return {"found": False, "data": None}
     result = await lookup_by_inn(inn, api_key)
+    if result:
+        return {"found": True, "data": result}
+    return {"found": False, "data": None}
+
+
+@router.get("/lookup/bik")
+@limiter.limit("10/minute")
+async def lookup_bik(
+    request: Request,
+    bik: str = Query(..., min_length=9, max_length=9, pattern=r"^\d{9}$"),
+):
+    """Поиск банка по БИК через DaData. Без авторизации.
+
+    Возвращает {found, data: {bank_name, correspondent_account, swift,
+        bank_status, bank_address}} или {found: false}.
+    Если DADATA_API_KEY не задан — found=false; никаких 500 наружу.
+    """
+    from app.services.dadata_service import lookup_by_bik
+    api_key = get_settings().dadata_api_key
+    if not api_key:
+        return {"found": False, "data": None, "error": "service_unavailable"}
+    result = await lookup_by_bik(bik, api_key)
     if result:
         return {"found": True, "data": result}
     return {"found": False, "data": None}

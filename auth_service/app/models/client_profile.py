@@ -44,6 +44,22 @@ class ClientProfile(Base):
     contract_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     credit_allowed: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Расширенные реквизиты из DaData (ФНС / банковский справочник).
+    # Заполняются при регистрации и при ресинке POST /users/{id}/fns-resync.
+    okved: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    okpo: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    okato: Mapped[str | None] = mapped_column(String(11), nullable=True)
+    # ACTIVE / LIQUIDATING / LIQUIDATED / REORGANIZING — из DaData state.status.
+    fns_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    director_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    swift: Mapped[str | None] = mapped_column(String(11), nullable=True)
+
+    # Отдельный email для документов и уведомлений (если не задан — используем User.email).
+    billing_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Когда последний раз дёргали DaData — null если данных нет/сервис был недоступен.
+    fns_last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Ссылка на тариф в order_service БД (soft FK — разные БД, FK не создаётся).
     # NULL означает «использовать default-тариф» — order_service делает fallback сам.
     tariff_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

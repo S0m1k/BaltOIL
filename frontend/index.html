@@ -1467,40 +1467,76 @@
         <label class="form-label">Пароль</label>
         <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
       </div>
-      <div class="section-divider">Реквизиты организации</div>
-      <div class="form-group">
-        <label class="form-label">Название организации</label>
-        <input type="text" id="rc-company" class="form-input" placeholder='ООО "Нефтяная Компания"'>
+      <div class="section-divider">Реквизиты из ФНС</div>
+      <!-- Превью данных, подтянутых из DaData. Видно если есть rc-inn и был сделан lookup. -->
+      <div id="rc-fns-preview" style="display:none;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg2,#f6f7f8);font-size:13px;line-height:1.5">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div id="rc-fns-preview-body" style="flex:1;min-width:0"></div>
+          <button type="button" class="btn btn-sm btn-ghost" onclick="rcToggleManual(true)" style="flex-shrink:0">Не то — вручную</button>
+        </div>
       </div>
+      <!-- ИНН (всегда видимый — это якорь для lookup) -->
       <div class="form-row">
-        <div class="form-group">
+        <div class="form-group" style="flex:1">
           <label class="form-label">ИНН</label>
-          <input type="text" id="rc-inn" class="form-input" placeholder="7701234567">
+          <input type="text" id="rc-inn" class="form-input" placeholder="7701234567" maxlength="12" inputmode="numeric" onblur="rcLookupInn()">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="rc-kpp-wrap">
           <label class="form-label">КПП</label>
-          <input type="text" id="rc-kpp" class="form-input" placeholder="770101001">
+          <input type="text" id="rc-kpp" class="form-input" placeholder="770101001" maxlength="9">
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Юридический адрес</label>
-        <input type="text" id="rc-legal-addr" class="form-input" placeholder="190000, г. СПб, ...">
-      </div>
-      <div class="section-divider">Банковские реквизиты (необязательно)</div>
-      <div class="form-row">
+      <!-- Ручные поля юрлица — скрыты пока есть валидный lookup; раскрываются при "Не то" или fail -->
+      <div id="rc-manual-party" style="display:none">
         <div class="form-group">
-          <label class="form-label">Расчётный счёт</label>
-          <input type="text" id="rc-bank-acc" class="form-input" placeholder="40702810...">
+          <label class="form-label">Название организации</label>
+          <input type="text" id="rc-company" class="form-input" placeholder='ООО "Нефтяная Компания"'>
         </div>
+        <div class="form-group">
+          <label class="form-label">Юридический адрес</label>
+          <input type="text" id="rc-legal-addr" class="form-input" placeholder="190000, г. СПб, ...">
+        </div>
+      </div>
+
+      <div class="section-divider">Банковские реквизиты</div>
+      <div class="form-row">
         <div class="form-group">
           <label class="form-label">БИК</label>
-          <input type="text" id="rc-bik" class="form-input" placeholder="044030786">
+          <input type="text" id="rc-bik" class="form-input" placeholder="044030786" maxlength="9" inputmode="numeric" onblur="rcLookupBik()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Расчётный счёт</label>
+          <input type="text" id="rc-bank-acc" class="form-input" placeholder="40702810..." maxlength="20" inputmode="numeric">
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Название банка</label>
-        <input type="text" id="rc-bank-name" class="form-input" placeholder="ПАО Сбербанк">
+      <!-- Превью банка из DaData -->
+      <div id="rc-bank-preview" style="display:none;padding:8px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg2,#f6f7f8);font-size:13px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div id="rc-bank-preview-body" style="flex:1;min-width:0"></div>
+          <button type="button" class="btn btn-sm btn-ghost" onclick="rcToggleManualBank(true)" style="flex-shrink:0">Не то — вручную</button>
+        </div>
       </div>
+      <div id="rc-manual-bank" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Название банка</label>
+          <input type="text" id="rc-bank-name" class="form-input" placeholder="ПАО Сбербанк">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Корр. счёт</label>
+          <input type="text" id="rc-corr-acc" class="form-input" placeholder="30101810..." maxlength="20" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="section-divider">Дополнительно (необязательно)</div>
+      <div class="form-group">
+        <label class="form-label">Email для документов</label>
+        <input type="email" id="rc-billing-email" class="form-input" placeholder="accounting@company.ru — если отличается от логина">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Адрес доставки</label>
+        <input type="text" id="rc-delivery-addr" class="form-input" placeholder="Если отличается от юридического">
+      </div>
+
       <div id="rc-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterCompany()">Зарегистрировать организацию</button>
     </div>
@@ -1539,6 +1575,7 @@
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
+      <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
       <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат<span class="chat-tab-badge" id="chat-tab-badge" style="display:none"></span></button>
       <!-- Hidden tabs (accessible via JS) -->
       <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')" style="display:none">ТС</button>
@@ -2057,6 +2094,81 @@
       </div>
     </div>
 
+    <!-- LEGAL ENTITY (SELLER REQUISITES) TAB -->
+    <div class="tab-pane" id="pane-legal-entity">
+      <div class="users-toolbar">
+        <div class="toolbar-title">Реквизиты компании (продавца)</div>
+        <button class="btn btn-sm btn-ghost" onclick="loadLegalEntity()">↻ Обновить</button>
+        <button class="btn btn-sm btn-ghost" onclick="loadLegalEntityHistory()" style="margin-left:auto">История версий</button>
+      </div>
+      <div id="legal-entity-info" style="margin:10px 0;font-size:12px;color:var(--text3)"></div>
+      <form id="legal-entity-form" onsubmit="saveLegalEntity(event)" style="max-width:760px">
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-size:12px;color:var(--text3)">Юридическое лицо</legend>
+          <div class="form-row"><label class="form-label">Наименование *</label>
+            <input class="form-input" name="name" required maxlength="255"></div>
+          <div class="form-row"><label class="form-label">Краткое наименование</label>
+            <input class="form-input" name="short_name" maxlength="100"></div>
+          <div class="form-row" style="display:flex;gap:10px">
+            <div style="flex:1"><label class="form-label">ИНН *</label>
+              <input class="form-input" name="inn" required pattern="\d{10}|\d{12}" maxlength="12"></div>
+            <div style="flex:1"><label class="form-label">КПП</label>
+              <input class="form-input" name="kpp" pattern="\d{9}" maxlength="9"></div>
+          </div>
+          <div class="form-row" style="display:flex;gap:10px">
+            <div style="flex:1"><label class="form-label">ОГРН</label>
+              <input class="form-input" name="ogrn" pattern="\d{13,15}" maxlength="15"></div>
+            <div style="flex:1"><label class="form-label">ОКПО</label>
+              <input class="form-input" name="okpo" pattern="\d{8,10}" maxlength="10"></div>
+          </div>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-size:12px;color:var(--text3)">Банковские реквизиты</legend>
+          <div class="form-row"><label class="form-label">Банк</label>
+            <input class="form-input" name="bank_name" maxlength="255"></div>
+          <div class="form-row" style="display:flex;gap:10px">
+            <div style="flex:1"><label class="form-label">БИК</label>
+              <input class="form-input" name="bik" pattern="\d{9}" maxlength="9"></div>
+            <div style="flex:2"><label class="form-label">Корр. счёт</label>
+              <input class="form-input" name="correspondent_account" pattern="\d{20}" maxlength="20"></div>
+          </div>
+          <div class="form-row"><label class="form-label">Расчётный счёт</label>
+            <input class="form-input" name="checking_account" pattern="\d{20}" maxlength="20"></div>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-size:12px;color:var(--text3)">Адреса и контакты</legend>
+          <div class="form-row"><label class="form-label">Юридический адрес</label>
+            <textarea class="form-input" name="legal_address" rows="2"></textarea></div>
+          <div class="form-row"><label class="form-label">Фактический адрес</label>
+            <textarea class="form-input" name="actual_address" rows="2"></textarea></div>
+          <div class="form-row" style="display:flex;gap:10px">
+            <div style="flex:1"><label class="form-label">Телефон</label>
+              <input class="form-input" name="phone" maxlength="20"></div>
+            <div style="flex:1"><label class="form-label">Email</label>
+              <input class="form-input" name="email" type="email" maxlength="255"></div>
+          </div>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-size:12px;color:var(--text3)">Подписант</legend>
+          <div class="form-row" style="display:flex;gap:10px">
+            <div style="flex:2"><label class="form-label">ФИО</label>
+              <input class="form-input" name="director_name" maxlength="255"></div>
+            <div style="flex:1"><label class="form-label">Должность</label>
+              <input class="form-input" name="director_title" maxlength="100" value="Директор"></div>
+          </div>
+        </fieldset>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button type="submit" class="btn btn-warn">Сохранить новую версию</button>
+          <span style="font-size:12px;color:var(--text3)">Каждое сохранение создаёт новую версию; старые остаются в истории для уже выпущенных документов.</span>
+        </div>
+      </form>
+      <div id="legal-entity-history" style="margin-top:20px"></div>
+    </div>
+
     <!-- CHAT TAB -->
     <div class="tab-pane" id="pane-chat">
       <div class="chat-shell">
@@ -2327,6 +2439,7 @@ function buildBurgerMenu() {
     { tab: 'fuels',     label: 'Топливо',              show: true },
     { tab: 'clients',   label: 'Клиенты',              show: role === 'manager' || role === 'admin' },
     { tab: 'users',     label: 'Пользователи',         show: role === 'admin' },
+    { tab: 'legal-entity', label: 'Реквизиты',         show: role === 'admin' },
     { tab: 'chat',      label: 'Чат',                 show: true },
   ];
 
@@ -2570,7 +2683,13 @@ async function doRegisterIndividual() {
   }
 }
 
+// Состояние lookup'ов на форме регистрации юрлица.
+// Когда поле заполнилось из DaData — сохраняем сюда, чтобы при сабмите отправить
+// именно то, что увидел пользователь в превью (а не пустые ручные поля).
+const _rcFns  = { party: null, bank: null };
+
 async function doInnLookup(btn) {
+  // Step1: ИНН с лендинга — переходим на форму, дёргаем lookup автоматически.
   const inn = document.getElementById('rc-inn-step1').value.trim();
   const errEl = document.getElementById('rc-inn-error');
   errEl.innerHTML = '';
@@ -2578,43 +2697,123 @@ async function doInnLookup(btn) {
     errEl.innerHTML = '<div class="inline-error">ИНН должен содержать 10 или 12 цифр</div>';
     return;
   }
-  btn.disabled = true;
-  btn.textContent = 'Поиск...';
+  document.getElementById('rc-inn').value = inn;
+  switchAuthTab('reg-company');
+  // Триггерим тот же handler, что навешен на blur поля
+  await rcLookupInn();
+}
+
+async function rcLookupInn() {
+  const inn = (document.getElementById('rc-inn').value || '').trim();
+  const preview = document.getElementById('rc-fns-preview');
+  if (!/^\d{10}(\d{2})?$/.test(inn)) {
+    _rcFns.party = null;
+    preview.style.display = 'none';
+    return;
+  }
   try {
-    const result = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(r => r.json());
-    if (result.found && result.data) {
-      const d = result.data;
-      document.getElementById('rc-inn').value          = inn;
-      document.getElementById('rc-company').value      = d.company_name || '';
-      document.getElementById('rc-kpp').value          = d.kpp || '';
-      document.getElementById('rc-legal-addr').value   = d.legal_address || '';
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(r => r.json());
+    if (r && r.found && r.data) {
+      _rcFns.party = r.data;
+      document.getElementById('rc-kpp').value = r.data.kpp || '';
+      document.getElementById('rc-fns-preview-body').innerHTML =
+        `<div><strong>${escHtml(r.data.company_name || '—')}</strong></div>` +
+        `<div style="color:var(--text3);font-size:12px;margin-top:2px">ИНН ${escHtml(inn)}` +
+        (r.data.kpp ? ` · КПП ${escHtml(r.data.kpp)}` : '') +
+        (r.data.fns_status ? ` · ${escHtml(r.data.fns_status)}` : '') +
+        `</div>` +
+        (r.data.legal_address ? `<div style="color:var(--text2);font-size:12px;margin-top:4px">${escHtml(r.data.legal_address)}</div>` : '') +
+        (r.data.director_name ? `<div style="color:var(--text3);font-size:12px;margin-top:2px">Директор: ${escHtml(r.data.director_name)}</div>` : '');
+      preview.style.display = '';
+      rcToggleManual(false);
     } else {
-      document.getElementById('rc-inn').value = inn;
-      errEl.innerHTML = '<div style="color:var(--text2);font-size:12px;margin-top:4px">Организация не найдена — заполните реквизиты вручную</div>';
+      _rcFns.party = null;
+      preview.style.display = 'none';
+      rcToggleManual(true);
+      toast('Организация не найдена в ФНС — заполните вручную', 'warn');
     }
-    switchAuthTab('reg-company');
   } catch (e) {
-    errEl.innerHTML = `<div class="inline-error">Ошибка поиска: ${escHtml(e.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Найти по ИНН';
+    _rcFns.party = null;
+    preview.style.display = 'none';
+    rcToggleManual(true);
   }
 }
 
+async function rcLookupBik() {
+  const bik = (document.getElementById('rc-bik').value || '').trim();
+  const preview = document.getElementById('rc-bank-preview');
+  if (!/^\d{9}$/.test(bik)) {
+    _rcFns.bank = null;
+    preview.style.display = 'none';
+    return;
+  }
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/bik?bik=${encodeURIComponent(bik)}`).then(r => r.json());
+    if (r && r.found && r.data) {
+      _rcFns.bank = r.data;
+      document.getElementById('rc-bank-preview-body').innerHTML =
+        `<div><strong>${escHtml(r.data.bank_name || '—')}</strong></div>` +
+        (r.data.correspondent_account ? `<div style="color:var(--text3);font-size:12px;margin-top:2px">К/с ${escHtml(r.data.correspondent_account)}</div>` : '') +
+        (r.data.bank_status ? `<div style="color:var(--text3);font-size:12px">Статус: ${escHtml(r.data.bank_status)}</div>` : '');
+      preview.style.display = '';
+      rcToggleManualBank(false);
+    } else {
+      _rcFns.bank = null;
+      preview.style.display = 'none';
+      rcToggleManualBank(true);
+      toast('Банк не найден по БИК — заполните вручную', 'warn');
+    }
+  } catch (e) {
+    _rcFns.bank = null;
+    preview.style.display = 'none';
+    rcToggleManualBank(true);
+  }
+}
+
+function rcToggleManual(show) {
+  document.getElementById('rc-manual-party').style.display = show ? '' : 'none';
+  if (show) document.getElementById('rc-fns-preview').style.display = 'none';
+}
+function rcToggleManualBank(show) {
+  document.getElementById('rc-manual-bank').style.display = show ? '' : 'none';
+  if (show) document.getElementById('rc-bank-preview').style.display = 'none';
+}
+
 async function doRegisterCompany() {
+  const manualPartyVisible = document.getElementById('rc-manual-party').style.display !== 'none';
+  const manualBankVisible  = document.getElementById('rc-manual-bank').style.display !== 'none';
+  const party = _rcFns.party || {};
+  const bank  = _rcFns.bank  || {};
+
+  // Если форма ручного ввода открыта — берём её значения. Иначе — что показано в превью.
+  const company_name  = manualPartyVisible
+    ? (document.getElementById('rc-company').value || '').trim()
+    : (party.company_name || '');
+  const legal_address = manualPartyVisible
+    ? (document.getElementById('rc-legal-addr').value || '').trim()
+    : (party.legal_address || '');
+  const bank_name = manualBankVisible
+    ? (document.getElementById('rc-bank-name').value || '').trim()
+    : (bank.bank_name || '');
+  const correspondent_account = manualBankVisible
+    ? (document.getElementById('rc-corr-acc').value || '').trim()
+    : (bank.correspondent_account || '');
+
   const body = {
     email:        document.getElementById('rc-email').value.trim(),
     phone:        document.getElementById('rc-phone').value.trim(),
     full_name:    document.getElementById('rc-fullname').value.trim(),
     password:     document.getElementById('rc-password').value,
-    company_name: document.getElementById('rc-company').value.trim(),
     inn:          document.getElementById('rc-inn').value.trim(),
     kpp:          document.getElementById('rc-kpp').value.trim() || undefined,
-    legal_address: document.getElementById('rc-legal-addr').value.trim(),
-    delivery_address: undefined,
-    bank_account: document.getElementById('rc-bank-acc').value.trim() || undefined,
+    company_name: company_name || undefined,
+    legal_address: legal_address || undefined,
     bik:          document.getElementById('rc-bik').value.trim() || undefined,
-    bank_name:    document.getElementById('rc-bank-name').value.trim() || undefined,
+    bank_account: document.getElementById('rc-bank-acc').value.trim() || undefined,
+    bank_name:    bank_name || undefined,
+    correspondent_account: correspondent_account || undefined,
+    delivery_address: document.getElementById('rc-delivery-addr').value.trim() || undefined,
+    billing_email: document.getElementById('rc-billing-email').value.trim() || undefined,
   };
   const errEl = document.getElementById('rc-error');
   errEl.innerHTML = '';
@@ -2673,9 +2872,10 @@ async function initApp() {
   roleEl.className = `role-chip role-${currentUser.role}`;
 
   const role = currentUser.role;
-  // Create order — clients + manager/admin
-  document.getElementById('tab-create-btn').style.display =
-    role === 'client' ? '' : (role === 'manager' || role === 'admin') ? '' : 'none';
+  // Create order — clients + manager/admin; drivers cannot create orders
+  const canCreate = role === 'client' || role === 'manager' || role === 'admin';
+  document.getElementById('tab-create-btn').style.display   = canCreate ? '' : 'none';
+  document.getElementById('tab-create-caret').style.display = canCreate ? '' : 'none';
   // Show manager-only fields in the form
   const isStaff = role === 'manager' || role === 'admin';
   document.getElementById('manager-create-fields').style.display = isStaff ? '' : 'none';
@@ -2721,6 +2921,10 @@ async function initApp() {
   const btnCreate = document.getElementById('btn-create-user');
   if (btnCreate) btnCreate.style.display = role === 'admin' ? '' : 'none';
 
+  // Legal entity (seller requisites) — admin only
+  document.getElementById('tab-legal-entity-btn').style.display =
+    role === 'admin' ? '' : 'none';
+
   initNotifications();
   buildBurgerMenu();
   switchTab('orders');
@@ -2739,6 +2943,7 @@ function toggleCreateSub(e) {
 }
 
 function switchTab(tab) {
+  if (tab === 'create' && currentUser?.role === 'driver') { tab = 'orders'; }
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.nav-sub-tab').forEach(t =>
@@ -2762,6 +2967,7 @@ function switchTab(tab) {
   if (tab === 'profile')   loadProfile();
   if (tab === 'chat')      loadConversations();
   if (tab === 'users')     loadUsers();
+  if (tab === 'legal-entity') loadLegalEntity();
   // Stop chat poll when leaving the chat tab
   if (tab !== 'chat') stopChatPoll();
 }
@@ -3845,6 +4051,84 @@ function reportHTML(r) {
     <div class="section-header">Рейсы за период</div>
     ${tripRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Рейсов не найдено</div>'}
   `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEGAL ENTITY (seller requisites)
+// ═══════════════════════════════════════════════════════════════
+const LEGAL_ENTITY_FIELDS = [
+  'name','short_name','inn','kpp','ogrn','okpo',
+  'bank_name','bik','checking_account','correspondent_account',
+  'legal_address','actual_address',
+  'phone','email','director_name','director_title'
+];
+
+async function loadLegalEntity() {
+  const info = document.getElementById('legal-entity-info');
+  const form = document.getElementById('legal-entity-form');
+  info.textContent = 'Загрузка...';
+  try {
+    const entity = await orderGet('/admin/legal-entity');
+    if (!entity) {
+      info.innerHTML = '<span style="color:var(--warn,#b00)">Реквизиты ещё не заданы — заполните форму и сохраните первую версию.</span>';
+      form.reset();
+      return;
+    }
+    LEGAL_ENTITY_FIELDS.forEach(k => {
+      const el = form.elements[k];
+      if (el) el.value = entity[k] ?? '';
+    });
+    info.innerHTML = `Текущая версия от <strong>${fmtDate(entity.effective_from)}</strong> · ID <code>${entity.id}</code>`;
+  } catch (e) {
+    info.innerHTML = `<span style="color:var(--warn,#b00)">${escHtml(e.message)}</span>`;
+  }
+}
+
+async function saveLegalEntity(ev) {
+  ev.preventDefault();
+  const form = document.getElementById('legal-entity-form');
+  const data = {};
+  LEGAL_ENTITY_FIELDS.forEach(k => {
+    const el = form.elements[k];
+    if (!el) return;
+    const v = (el.value ?? '').trim();
+    data[k] = v === '' ? null : v;
+  });
+  if (!data.name || !data.inn) {
+    toast('Заполните Наименование и ИНН', 'error');
+    return;
+  }
+  try {
+    await orderPost('/admin/legal-entity', data);
+    toast('Реквизиты сохранены', 'success');
+    loadLegalEntity();
+  } catch (e) {
+    toast(e.message || 'Ошибка сохранения', 'error');
+  }
+}
+
+async function loadLegalEntityHistory() {
+  const box = document.getElementById('legal-entity-history');
+  box.innerHTML = '<div class="loading"></div>';
+  try {
+    const items = await orderGet('/admin/legal-entity/history');
+    if (!items.length) { box.innerHTML = '<div class="empty-state">История пуста</div>'; return; }
+    box.innerHTML = '<h4 style="margin:0 0 8px">История версий</h4>' +
+      '<table class="users-table"><thead><tr>' +
+      '<th>С</th><th>По</th><th>Активна</th><th>Наименование</th><th>ИНН</th><th>ID</th>' +
+      '</tr></thead><tbody>' +
+      items.map(it => `<tr>
+        <td>${fmtDate(it.effective_from)}</td>
+        <td>${it.effective_to ? fmtDate(it.effective_to) : '—'}</td>
+        <td>${it.is_active ? '✓' : ''}</td>
+        <td>${escHtml(it.name)}</td>
+        <td>${escHtml(it.inn)}</td>
+        <td><code style="font-size:11px">${it.id}</code></td>
+      </tr>`).join('') +
+      '</tbody></table>';
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

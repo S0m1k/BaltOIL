@@ -25,6 +25,7 @@ class LegalEntity(Base):
     inn: Mapped[str] = mapped_column(String(12), nullable=False)
     kpp: Mapped[str | None] = mapped_column(String(9), nullable=True)
     ogrn: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    okpo: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Банковские реквизиты
     bank_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

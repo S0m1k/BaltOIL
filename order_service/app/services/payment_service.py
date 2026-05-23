@@ -42,6 +42,7 @@ async def get_seller_snapshot(db: AsyncSession) -> dict:
         "inn":     entity.inn or "—",
         "kpp":     entity.kpp or "—",
         "ogrn":    entity.ogrn or "—",
+        "okpo":    entity.okpo or "—",
         "address": entity.legal_address or entity.actual_address or "—",
         "phone":   entity.phone or "—",
         "email":   entity.email or "—",

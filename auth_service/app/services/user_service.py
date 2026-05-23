@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload, joinedload
 
+from app.config import get_settings
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile, ClientType
 from app.core.security import hash_password, verify_password
@@ -14,6 +15,16 @@ from app.schemas.user import (
 )
 from app.schemas.client_profile import UpdateClientProfileRequest
 from app.services.audit_service import log_action
+from app.services.dadata_service import lookup_by_inn, lookup_by_bik
+
+
+# Поля, которые мы умеем подтягивать из DaData при регистрации/ресинке.
+# Эти же поля используются в audit-логе для diff before/after при ресинке.
+FNS_PARTY_FIELDS = (
+    "company_name", "kpp", "legal_address",
+    "okved", "okpo", "okato", "fns_status", "director_name",
+)
+FNS_BANK_FIELDS = ("bank_name", "correspondent_account", "swift")
 
 
 def _normalize_email(email: str) -> str:
@@ -105,18 +116,40 @@ async def register_company(
     db.add(user)
     await db.flush()
 
+    # DaData lookup: тянем по ИНН и БИК; то что клиент прислал руками — приоритетнее.
+    api_key = get_settings().dadata_api_key
+    party = await lookup_by_inn(data.inn, api_key) if api_key else None
+    bank  = await lookup_by_bik(data.bik, api_key) if (api_key and data.bik) else None
+    fns_sync_at = datetime.now(timezone.utc) if (party or bank) else None
+
+    def _pick(user_val, dadata_val):
+        """Ручной ввод приоритетнее; DaData только если поле пустое."""
+        return user_val if (user_val not in (None, "")) else dadata_val
+
+    party = party or {}
+    bank  = bank  or {}
+
     profile = ClientProfile(
         user_id=user.id,
         client_type=ClientType.COMPANY,
         delivery_address=data.delivery_address,
-        company_name=data.company_name,
+        company_name=_pick(data.company_name, party.get("company_name")),
         inn=data.inn,
-        kpp=data.kpp,
-        legal_address=data.legal_address,
+        kpp=_pick(data.kpp, party.get("kpp")),
+        legal_address=_pick(data.legal_address, party.get("legal_address")),
         bank_account=data.bank_account,
-        bank_name=data.bank_name,
+        bank_name=_pick(data.bank_name, bank.get("bank_name")),
         bik=data.bik,
-        correspondent_account=data.correspondent_account,
+        correspondent_account=_pick(data.correspondent_account, bank.get("correspondent_account")),
+        # FNS-extra — только из DaData (нет полей в форме регистрации).
+        okved=party.get("okved"),
+        okpo=party.get("okpo"),
+        okato=party.get("okato"),
+        fns_status=party.get("fns_status"),
+        director_name=party.get("director_name"),
+        swift=bank.get("swift"),
+        billing_email=data.billing_email,
+        fns_last_sync_at=fns_sync_at,
     )
     db.add(profile)
     await db.flush()
@@ -127,11 +160,90 @@ async def register_company(
         actor_id=user.id,
         entity_type="user",
         entity_id=user.id,
-        details={"email": data.email, "company": data.company_name, "inn": data.inn},
+        details={
+            "email": data.email,
+            "company": profile.company_name,
+            "inn": data.inn,
+            "fns_lookup_used": party != {},
+            "bank_lookup_used": bank != {},
+        },
         ip_address=ip_address,
         user_agent=user_agent,
     )
     return await get_user_by_id(db, user.id)
+
+
+async def fns_resync_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID,
+    ip_address: str | None = None,
+) -> User:
+    """Заново вызвать DaData по сохранённому ИНН/БИК и обновить поля.
+
+    Доступ контролируется в роутере (admin/manager only). Сервис не падает,
+    если DaData недоступна — просто ничего не меняет и фиксирует это в audit.
+    """
+    target = await get_user_by_id(db, user_id)
+    profile = target.client_profile
+    if profile is None or profile.client_type != ClientType.COMPANY:
+        raise NotFoundError("Пользователь не является юридическим лицом")
+    if not profile.inn:
+        raise ConflictError("Нет сохранённого ИНН — нечего ресинкать")
+
+    api_key = get_settings().dadata_api_key
+    if not api_key:
+        raise ConflictError("DaData не настроена (DADATA_API_KEY)")
+
+    party = await lookup_by_inn(profile.inn, api_key) or {}
+    bank  = await lookup_by_bik(profile.bik, api_key) if profile.bik else None
+    bank  = bank or {}
+
+    # before/after — только для полей, которые мы трогаем; пустые из DaData игнорируем
+    before: dict = {}
+    after:  dict = {}
+    for f in FNS_PARTY_FIELDS:
+        new_val = party.get(f)
+        if new_val in (None, ""):
+            continue
+        old_val = getattr(profile, f)
+        if old_val != new_val:
+            before[f] = old_val
+            after[f]  = new_val
+            setattr(profile, f, new_val)
+    for f in FNS_BANK_FIELDS:
+        new_val = bank.get(f)
+        if new_val in (None, ""):
+            continue
+        old_val = getattr(profile, f)
+        if old_val != new_val:
+            before[f] = old_val
+            after[f]  = new_val
+            setattr(profile, f, new_val)
+
+    if party or bank:
+        profile.fns_last_sync_at = datetime.now(timezone.utc)
+
+    await db.flush()
+
+    await log_action(
+        db,
+        action="user.fns_resync",
+        actor_id=actor_id,
+        entity_type="user",
+        entity_id=target.id,
+        details={
+            "inn": profile.inn,
+            "bik": profile.bik,
+            "fns_lookup_used": party != {},
+            "bank_lookup_used": bank != {},
+            "before": before,
+            "after": after,
+        },
+        ip_address=ip_address,
+    )
+    return await get_user_by_id(db, user_id)
 
 
 async def create_user_by_admin(

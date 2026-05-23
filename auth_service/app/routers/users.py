@@ -149,6 +149,24 @@ async def update_client_tariff(
     )
 
 
+@router.post("/{user_id}/fns-resync", response_model=UserResponse)
+@limiter.limit("10/minute")
+async def fns_resync(
+    user_id: uuid.UUID,
+    current_user: CurrentUser,
+    _: AdminOrManager,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Перетянуть реквизиты юрлица из DaData (ЕГРЮЛ + банк-справочник)
+    и обновить ClientProfile. Доступ: admin / manager.
+    """
+    meta = get_request_meta(request)
+    return await user_service.fns_resync_user(
+        db, user_id, actor_id=current_user.id, ip_address=meta["ip_address"]
+    )
+
+
 
 @router.post("/me/change-password", status_code=204)
 async def change_password(

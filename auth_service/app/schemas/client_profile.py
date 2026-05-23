@@ -33,6 +33,16 @@ class ClientProfileResponse(BaseModel):
     delivery_coefficient: float
     client_number: int | None
 
+    # FNS-extra (DaData)
+    okved: str | None = None
+    okpo: str | None = None
+    okato: str | None = None
+    fns_status: str | None = None
+    director_name: str | None = None
+    swift: str | None = None
+    billing_email: str | None = None
+    fns_last_sync_at: datetime | None = None
+
     created_at: datetime
     updated_at: datetime
 
@@ -53,6 +63,7 @@ class UpdateClientProfileRequest(BaseModel):
     bik: str | None = None
     correspondent_account: str | None = None
     contract_number: str | None = None
+    billing_email: str | None = None
 
 
 class UpdateClientTariffRequest(BaseModel):

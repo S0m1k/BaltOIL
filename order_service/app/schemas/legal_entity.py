@@ -10,6 +10,7 @@ class LegalEntityCreate(BaseModel):
     inn: str = Field(..., min_length=10, max_length=12)
     kpp: str | None = Field(None, min_length=9, max_length=9)
     ogrn: str | None = Field(None, min_length=13, max_length=15)
+    okpo: str | None = Field(None, min_length=8, max_length=10)
 
     bank_name: str | None = Field(None, max_length=255)
     bik: str | None = Field(None, min_length=9, max_length=9)
@@ -47,6 +48,7 @@ class LegalEntityResponse(BaseModel):
     inn: str
     kpp: str | None
     ogrn: str | None
+    okpo: str | None
     bank_name: str | None
     bik: str | None
     checking_account: str | None
@@ -73,6 +75,7 @@ def legal_entity_to_snapshot(entity: "LegalEntityResponse | object") -> dict:
         "inn": entity.inn,
         "kpp": entity.kpp,
         "ogrn": entity.ogrn,
+        "okpo": entity.okpo,
         "bank_name": entity.bank_name,
         "bik": entity.bik,
         "checking_account": entity.checking_account,
