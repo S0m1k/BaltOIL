@@ -35,5 +35,8 @@ Thumbs.db
 # Claude Code personal working context — not project documentation
 CLAUDE.md
 
+# Claude scratchpad — локальные E2E-тесты и артефакты, не для репо
+.claire/
+
 # Backup cloud credentials — contains secrets
 scripts/backup.env

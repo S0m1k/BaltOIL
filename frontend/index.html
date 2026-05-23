@@ -1446,9 +1446,18 @@
       <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="switchAuthTab('reg-company');document.getElementById('rc-inn').value=document.getElementById('rc-inn-step1').value||''">Ввести вручную без поиска</button>
     </div>
 
+    <!-- Register Company (step 1.5): подтверждение найденной организации -->
+    <div id="auth-reg-company-confirm" style="display:none">
+      <button class="auth-back" onclick="switchAuthTab('reg-company-inn')">← назад</button>
+      <div style="margin-bottom:14px;color:var(--text2);font-size:13px">Нашли организацию по ИНН. Это вы?</div>
+      <div id="rc-confirm-card" style="padding:14px 16px;border:1px solid var(--border);border-radius:10px;margin-bottom:14px;background:var(--bg2,#f6f7f8);font-size:13px;line-height:1.55"></div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="confirmInnAndContinue()">Да, это моя организация — продолжить</button>
+      <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="switchAuthTab('reg-company-inn')">Нет, ввести другой ИНН</button>
+    </div>
+
     <!-- Register Company (step 2): full form, pre-filled from DaData or manual -->
     <div id="auth-reg-company" style="display:none">
-      <button class="auth-back" onclick="switchAuthTab('reg-company-inn')">← назад</button>
+      <button class="auth-back" onclick="rcBackFromFullForm()">← назад</button>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Email</label>
@@ -2610,19 +2619,21 @@ function switchAuthMode(mode) {
   document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
   document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
   // Hide form panels when switching top mode
-  document.getElementById('auth-reg-individual').style.display    = 'none';
-  document.getElementById('auth-reg-company-inn').style.display   = 'none';
-  document.getElementById('auth-reg-company').style.display       = 'none';
+  document.getElementById('auth-reg-individual').style.display     = 'none';
+  document.getElementById('auth-reg-company-inn').style.display    = 'none';
+  document.getElementById('auth-reg-company-confirm').style.display = 'none';
+  document.getElementById('auth-reg-company').style.display        = 'none';
 }
 
 // Switch to a specific sub-panel within auth
 function switchAuthTab(tab) {
   // reg-picker = back to choose individual/company
   const isPicker = tab === 'reg-picker';
-  document.getElementById('auth-mode-picker').style.display        = isPicker || tab === 'login' ? '' : 'none';
-  document.getElementById('auth-reg-individual').style.display     = tab === 'reg-individual'   ? '' : 'none';
-  document.getElementById('auth-reg-company-inn').style.display    = tab === 'reg-company-inn'  ? '' : 'none';
-  document.getElementById('auth-reg-company').style.display        = tab === 'reg-company'      ? '' : 'none';
+  document.getElementById('auth-mode-picker').style.display         = isPicker || tab === 'login' ? '' : 'none';
+  document.getElementById('auth-reg-individual').style.display      = tab === 'reg-individual'    ? '' : 'none';
+  document.getElementById('auth-reg-company-inn').style.display     = tab === 'reg-company-inn'   ? '' : 'none';
+  document.getElementById('auth-reg-company-confirm').style.display = tab === 'reg-company-confirm' ? '' : 'none';
+  document.getElementById('auth-reg-company').style.display         = tab === 'reg-company'       ? '' : 'none';
 
   if (tab === 'login') {
     switchAuthMode('login');
@@ -2689,7 +2700,9 @@ async function doRegisterIndividual() {
 const _rcFns  = { party: null, bank: null };
 
 async function doInnLookup(btn) {
-  // Step1: ИНН с лендинга — переходим на форму, дёргаем lookup автоматически.
+  // Step1: проверяем ИНН в DaData. Если нашли — показываем подтверждение
+  // на отдельном экране. Если не нашли — открываем полную форму
+  // с раскрытыми полями ручного ввода.
   const inn = document.getElementById('rc-inn-step1').value.trim();
   const errEl = document.getElementById('rc-inn-error');
   errEl.innerHTML = '';
@@ -2697,10 +2710,71 @@ async function doInnLookup(btn) {
     errEl.innerHTML = '<div class="inline-error">ИНН должен содержать 10 или 12 цифр</div>';
     return;
   }
+  const oldLabel = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Ищем в ФНС…'; }
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(r => r.json());
+    if (r && r.found && r.data) {
+      // Кэшируем — это используется при подтверждении и сабмите
+      _rcFns.party = r.data;
+      _rcFns.party._inn = inn;
+      renderConfirmCard(inn, r.data);
+      switchAuthTab('reg-company-confirm');
+    } else {
+      // ФНС ничего не дала — сразу открываем полную форму с ручным вводом
+      _rcFns.party = null;
+      document.getElementById('rc-inn').value = inn;
+      switchAuthTab('reg-company');
+      document.getElementById('rc-fns-preview').style.display = 'none';
+      rcToggleManual(true);
+      toast('Организация не найдена в ФНС — заполните данные вручную', 'warn');
+    }
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">Не удалось проверить ИНН: ${escHtml(e.message || 'ошибка сети')}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; if (oldLabel) btn.innerHTML = oldLabel; }
+  }
+}
+
+function renderConfirmCard(inn, data) {
+  const lines = [];
+  lines.push(`<div style="font-weight:600;font-size:14px">${escHtml(data.company_name || '—')}</div>`);
+  const meta = [`ИНН ${escHtml(inn)}`];
+  if (data.kpp) meta.push(`КПП ${escHtml(data.kpp)}`);
+  if (data.fns_status) meta.push(escHtml(data.fns_status));
+  lines.push(`<div style="color:var(--text3);font-size:12px;margin-top:4px">${meta.join(' · ')}</div>`);
+  if (data.legal_address) lines.push(`<div style="color:var(--text2);margin-top:8px">${escHtml(data.legal_address)}</div>`);
+  if (data.director_name) lines.push(`<div style="color:var(--text3);font-size:12px;margin-top:4px">Директор: ${escHtml(data.director_name)}</div>`);
+  document.getElementById('rc-confirm-card').innerHTML = lines.join('');
+}
+
+// Пользователь подтвердил на confirm-экране, что это его компания.
+// Открываем полную форму, заполняем поля и показываем preview ФНС.
+function confirmInnAndContinue() {
+  const data = _rcFns.party;
+  if (!data) { switchAuthTab('reg-company-inn'); return; }
+  const inn = data._inn || '';
   document.getElementById('rc-inn').value = inn;
+  document.getElementById('rc-kpp').value = data.kpp || '';
+  // Заполняем preview-блок ФНС (тот же, что показывается при blur-lookup на форме)
+  document.getElementById('rc-fns-preview-body').innerHTML =
+    `<div><strong>${escHtml(data.company_name || '—')}</strong></div>` +
+    `<div style="color:var(--text3);font-size:12px;margin-top:2px">ИНН ${escHtml(inn)}` +
+    (data.kpp ? ` · КПП ${escHtml(data.kpp)}` : '') +
+    (data.fns_status ? ` · ${escHtml(data.fns_status)}` : '') +
+    `</div>` +
+    (data.legal_address ? `<div style="color:var(--text2);font-size:12px;margin-top:4px">${escHtml(data.legal_address)}</div>` : '') +
+    (data.director_name ? `<div style="color:var(--text3);font-size:12px;margin-top:2px">Директор: ${escHtml(data.director_name)}</div>` : '');
+  document.getElementById('rc-fns-preview').style.display = '';
+  rcToggleManual(false);
   switchAuthTab('reg-company');
-  // Триггерим тот же handler, что навешен на blur поля
-  await rcLookupInn();
+}
+
+// "← назад" на полной форме: если был успешный lookup — вернуться на confirm,
+// иначе — на step 1 (ввод ИНН).
+function rcBackFromFullForm() {
+  if (_rcFns.party) switchAuthTab('reg-company-confirm');
+  else              switchAuthTab('reg-company-inn');
 }
 
 async function rcLookupInn() {
