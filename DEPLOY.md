@@ -63,6 +63,23 @@ docker compose up -d --force-recreate --no-deps <service_name>
 
 Используем `ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` и т.п. — допускается повторный `alembic upgrade head` без эффекта. Это избавляет от ручной сверки «применено ли уже» при rollback и параллельных деплоях.
 
+### 4. nginx и runtime-резолв upstream'ов (фикс 2026-05-23)
+
+До 2026-05-23 в `frontend/nginx.conf` все `proxy_pass` использовали имя контейнера напрямую (`proxy_pass http://auth_service:8001`). nginx резолвит такие имена **один раз при загрузке конфига** и кэширует IP навсегда. После `docker compose up -d --force-recreate <svc>` контейнер получает новый IP из подсети — nginx продолжает стучаться на старый и отдаёт `502 Bad Gateway` пока его не перезапустят.
+
+Симптом на фронте: запросы к `/api/.../...` валятся с `502`, в логах nginx — `connect() failed (111: Connection refused) while connecting to upstream: "http://172.18.0.<old_ip>:..."`.
+
+**Фикс уже в конфиге**: вверху `http`-контекста стоит `resolver 127.0.0.11 valid=10s ipv6=off;` (это docker embedded DNS), а в каждом `location` upstream задан через переменную:
+
+```nginx
+set $auth_upstream auth_service:8001;
+proxy_pass http://$auth_upstream;
+```
+
+С переменной nginx **обязан** иметь `resolver` и резолвит на каждый запрос с TTL из `valid=`. После `force-recreate` любого backend-контейнера фронт сам подхватит новый IP в течение ~10 секунд. **Перезапускать `frontend` теперь не обязательно.**
+
+Если когда-нибудь надо добавить новый upstream — обязательно через переменную, иначе вернётся старый баг. Прямой `proxy_pass http://имя:порт` без `set $...` — запрещён.
+
 ## История переезда (2026-05-23)
 
 - До 2026-05-23 на сервере жили **две** копии репо: `/root/BaltOIL/` (legacy, откуда стартовал compose) и `/opt/baltoil/` (новая каноническая). Часть контейнеров (`order_service`, `chat_service`) была привязана к `/root/BaltOIL/` через bind-mount, пока остальные уже работали из `/opt/baltoil/`.
