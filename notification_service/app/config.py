@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     smtp_user: str | None = None
     smtp_password: str | None = None
     smtp_from: str = "noreply@baltoil.ru"
-    smtp_use_tls: bool = True
+    smtp_use_tls: bool = True       # implicit TLS (port 465)
+    smtp_use_starttls: bool = False  # STARTTLS (port 587). Взаимоисключимо с smtp_use_tls.
+    smtp_force_ipv6: bool = False    # форс AF_INET6, нужно когда провайдер режет egress IPv4 (RU VPS + Yandex SMTP)
     email_enabled: bool = False  # глобальный kill-switch
 
     @property

@@ -8,6 +8,8 @@ Design:
   smtp_host missing) — logs a warning and returns False immediately.
 """
 import logging
+import socket
+from contextlib import contextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -16,6 +18,31 @@ import aiosmtplib
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _prefer_ipv6():
+    """Временно подменяет socket.getaddrinfo на IPv6-only.
+
+    Нужно, когда провайдер VPS режет egress IPv4 на SMTP-порты (классика для
+    RU-хостингов), а целевой SMTP доступен только по IPv6. asyncio через
+    aiosmtplib не даёт явно выбрать AF_INET6 при коннекте, поэтому
+    проще всего ограничить ответ резолвера.
+
+    Эффект — на весь процесс, но контекст узкий (только время send_email).
+    Внутренние Docker-хосты (auth_service и т.п.) при enable_ipv6=true в
+    compose-сети получают AAAA, так что параллельные хождения не сломаются.
+    """
+    orig = socket.getaddrinfo
+
+    def ipv6_only(host, port, family=0, *args, **kwargs):
+        return orig(host, port, socket.AF_INET6, *args, **kwargs)
+
+    socket.getaddrinfo = ipv6_only
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = orig
 
 
 async def send_email(to: str, subject: str, body_text: str) -> bool:
@@ -39,16 +66,27 @@ async def send_email(to: str, subject: str, body_text: str) -> bool:
     msg["X-BaltOIL-Notification"] = "1"
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
+    # Взаимоисключимо: только один из use_tls / use_starttls. STARTTLS приоритетнее
+    # — обычно правильный режим для порта 587 (subm). use_tls — для 465 (submissions).
+    use_tls = settings.smtp_use_tls and not settings.smtp_use_starttls
+    start_tls = settings.smtp_use_starttls
+
+    send_kwargs = dict(
+        hostname=settings.smtp_host,
+        port=settings.smtp_port,
+        username=settings.smtp_user,
+        password=settings.smtp_password,
+        use_tls=use_tls,
+        start_tls=start_tls,
+        timeout=10,
+    )
+
     try:
-        await aiosmtplib.send(
-            msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_user,
-            password=settings.smtp_password,
-            use_tls=settings.smtp_use_tls,
-            timeout=10,
-        )
+        if settings.smtp_force_ipv6:
+            with _prefer_ipv6():
+                await aiosmtplib.send(msg, **send_kwargs)
+        else:
+            await aiosmtplib.send(msg, **send_kwargs)
         logger.info("email sent to=%s subject=%r", to, subject)
         return True
     except Exception:
