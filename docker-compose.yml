@@ -161,3 +161,15 @@ services:
 
 volumes:
   postgres_data:
+
+# IPv6 включён, потому что провайдер режет egress IPv4 на smtp.yandex.ru:587
+# (любые SMTP-relay'и Yandex доступны только по IPv6). Подсеть — ULA fd00::/48,
+# Docker NAT'ит в публичный IPv6 хоста через ip6tables.
+# Требует в /etc/docker/daemon.json: "ipv6": true, "ip6tables": true.
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+        - subnet: fd00:dead:beef::/64
