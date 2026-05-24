@@ -11,6 +11,7 @@ from app.models.message import Message
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
 from app.services.conversation_service import _check_access
+from app.services import ws_manager
 from app.config import settings
 
 logger = logging.getLogger(__name__)

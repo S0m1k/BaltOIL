@@ -185,6 +185,22 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
         req = await _build_conv_created_request(payload)
     elif event == "call_initiated":
         req = await _build_call_request(payload)
+    elif event == "call_missed_notify":
+        # Targeted CALL_MISSED email notification for offline recipients.
+        call_id = payload.get("call_id")
+        initiator_name = payload.get("initiated_by_name", "Someone")
+        participant_ids = payload.get("participant_ids", [])
+        recipients = [uuid.UUID(pid) for pid in participant_ids]
+        if not recipients:
+            return
+        req = PublishRequest(
+            user_ids=recipients,
+            type=NotificationType.CALL_MISSED,
+            title=f"Пропущенный звонок от {initiator_name}",
+            body=f"{initiator_name} звонил вам",
+            entity_type="call",
+            entity_id=uuid.UUID(call_id) if call_id else None,
+        )
     elif event == "call_ended":
         # Сигнальное событие — раздаём только по personal-каналам без записи в БД.
         # Фронтенд закроет диалог входящего звонка / активный звонок.

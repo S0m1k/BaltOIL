@@ -63,6 +63,39 @@ async def get_client_context(
     )
 
 
+class EmailTargetResponse(BaseModel):
+    email: str | None
+
+
+@router.get(
+    "/users/{user_id}/email-target",
+    response_model=EmailTargetResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_email_target(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> EmailTargetResponse:
+    """Return billing_email (from ClientProfile) or fallback to User.email.
+
+    Used by notification_service to find the delivery address for email notifications.
+    Returns {"email": null} if the user does not exist.
+    """
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        return EmailTargetResponse(email=None)
+
+    profile_result = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == user_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if profile and profile.billing_email:
+        return EmailTargetResponse(email=profile.billing_email)
+
+    return EmailTargetResponse(email=user.email)
+
+
 @router.get(
     "/users-by-role",
     response_model=list[uuid.UUID],

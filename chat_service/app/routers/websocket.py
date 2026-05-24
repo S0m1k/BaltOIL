@@ -27,6 +27,7 @@ from app.core.exceptions import AuthError, ForbiddenError
 from app.models.conversation import Conversation
 from app.services.conversation_service import _check_access
 from app.services.message_service import send_message
+from app.services import ws_manager
 
 router = APIRouter(tags=["websocket"])
 
@@ -145,6 +146,7 @@ async def websocket_endpoint(
     conv_key = str(conv_id)
     _connections.setdefault(conv_key, set()).add(websocket)
     await _ensure_subscription(redis, conv_key)
+    await ws_manager.register(redis, actor.id)
 
     channel = f"chat:{conv_id}"
 
@@ -185,6 +187,11 @@ async def websocket_endpoint(
         log.exception("WebSocket error for conv %s", conv_id)
     finally:
         _connections[conv_key].discard(websocket)
+        # Remove the online marker on disconnect.  If the user simultaneously has
+        # another WS open (different conv), they will re-register on the next
+        # incoming message; the 300 s TTL also prevents false "offline" readings
+        # for brief gaps.  This is safe for the current single-process deployment.
+        await ws_manager.unregister(redis, actor.id)
         if not _connections[conv_key]:
             _connections.pop(conv_key, None)
             # Listener will stop itself when it sees no connections on next message.

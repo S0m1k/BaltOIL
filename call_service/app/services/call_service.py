@@ -1,6 +1,7 @@
 import uuid
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -152,6 +153,28 @@ async def start_call(
         "initiated_by_name": actor.name,
         "participant_ids": recipient_ids,
     }))
+
+    # Publish CALL_MISSED email trigger for any addressee who is currently offline.
+    # notification_service will gate on ws:online internally, but we also check here
+    # so the event only fires for recipients who genuinely cannot see the call ring.
+    _WS_KEY_TTL = 300
+    for uid in p_ids:
+        if uid == actor.id:
+            continue
+        try:
+            val = await redis.get(f"ws:online:{uid}")
+            is_offline = (val is None) or ((time.time() - int(val)) >= _WS_KEY_TTL)
+            if is_offline:
+                await redis.publish("events:calls", json.dumps({
+                    "event": "call_missed_notify",
+                    "call_id": str(call.id),
+                    "conversation_id": str(conv_id),
+                    "initiated_by_id": str(actor.id),
+                    "initiated_by_name": actor.name,
+                    "participant_ids": [str(uid)],
+                }))
+        except Exception:
+            logger.warning("Could not check ws:online for call recipient %s", uid, exc_info=True)
 
     # Лог звонка в чат — system-сообщение с кнопкой «Присоединиться»
     await _post_chat_system_message(

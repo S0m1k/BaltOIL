@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_port: int = 8005
 
+    # SMTP / email
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "noreply@baltoil.ru"
+    smtp_use_tls: bool = True
+    email_enabled: bool = False  # глобальный kill-switch
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
