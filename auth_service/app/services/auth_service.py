@@ -85,6 +85,30 @@ async def refresh_tokens(
     token_hash = hash_token(raw_refresh_token)
     now = datetime.now(timezone.utc)
 
+    # Reuse detection: ищем токен БЕЗ фильтра is_revoked. Если он был ротирован
+    # (is_revoked=True) — это сигнал что либо легитимный клиент дёрнул refresh
+    # дважды (редко), либо атакующий пытается переиграть украденный токен.
+    # Безопаснее всего — снести ВСЮ refresh-цепочку юзера, заставить
+    # перелогиниться. Лог в audit с пометкой.
+    stolen_result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )
+    seen = stolen_result.scalar_one_or_none()
+    if seen and seen.is_revoked:
+        await logout_all(db, user_id=seen.user_id)
+        await log_action(
+            db,
+            action="user.refresh_token_reuse_detected",
+            actor_id=seen.user_id,
+            entity_type="user",
+            entity_id=seen.user_id,
+            details={"reason": "revoked token re-used — all sessions invalidated"},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await db.commit()
+        raise AuthError("Refresh token недействителен или истёк")
+
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,

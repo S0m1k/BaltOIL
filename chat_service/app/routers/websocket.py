@@ -13,14 +13,17 @@ Flow:
 import asyncio
 import json
 import logging
+import time
 import uuid
 import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from jose import jwt, JWTError
 
 log = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.core.dependencies import _decode_token
 from app.core.exceptions import AuthError, ForbiddenError
@@ -113,10 +116,13 @@ async def websocket_endpoint(
         await websocket.close(code=4029)  # Too Many Requests (custom)
         return
 
-    # Authenticate
+    # Authenticate (and remember exp — we re-check expiry on every incoming msg
+    # so a long-lived WS doesn't outlive its access token).
     try:
         actor = _decode_token(token)
-    except AuthError:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
+        token_exp = int(payload.get("exp", 0))
+    except (AuthError, JWTError, ValueError):
         await websocket.close(code=4001)
         return
 
@@ -153,6 +159,14 @@ async def websocket_endpoint(
     try:
         while True:
             text = await websocket.receive_text()
+
+            # Re-check token expiry per message. Без этого WS живёт сколько угодно
+            # даже после истечения access_token; клиент должен периодически
+            # обновлять токен и переустанавливать соединение.
+            if token_exp and time.time() >= token_exp:
+                await websocket.send_text(json.dumps({"error": "token expired, reconnect"}))
+                await websocket.close(code=4401)
+                return
 
             # Validate message length (mirrors Pydantic schema max_length=4000)
             if len(text) > 4000:

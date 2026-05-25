@@ -5,6 +5,7 @@ and banks (БИК-справочник ЦБ РФ). All errors return None — th
 falls back to manual entry, never crashes.
 """
 import logging
+import re
 import httpx
 
 log = logging.getLogger(__name__)
@@ -12,6 +13,16 @@ log = logging.getLogger(__name__)
 _DADATA_PARTY_URL = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party"
 _DADATA_BANK_URL  = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/bank"
 _TIMEOUT_S = 5.0
+
+# DaData в норме не отдаёт HTML, но мы пишем эти поля в БД и потом рендерим
+# в инвойсах / письмах / UI. Подстраховка от MITM / подмены: режем теги.
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _sanitize(value):
+    if not isinstance(value, str):
+        return value
+    return _HTML_TAG_RE.sub("", value).strip() or None
 
 
 def _headers(api_key: str) -> dict:
@@ -52,15 +63,15 @@ async def lookup_by_inn(inn: str, api_key: str) -> dict | None:
         director = mgmt.get("name") or fio.get("full") or None
 
         return {
-            "company_name":  s.get("value") or None,
-            "kpp":           d.get("kpp") or None,
-            "ogrn":          d.get("ogrn") or None,
-            "legal_address": (address.get("value") if address else None) or None,
-            "okved":         d.get("okved") or None,
-            "okpo":          d.get("okpo") or None,
-            "okato":         d.get("okato") or None,
-            "fns_status":    state.get("status") or None,
-            "director_name": director,
+            "company_name":  _sanitize(s.get("value")),
+            "kpp":           _sanitize(d.get("kpp")),
+            "ogrn":          _sanitize(d.get("ogrn")),
+            "legal_address": _sanitize(address.get("value") if address else None),
+            "okved":         _sanitize(d.get("okved")),
+            "okpo":          _sanitize(d.get("okpo")),
+            "okato":         _sanitize(d.get("okato")),
+            "fns_status":    _sanitize(state.get("status")),
+            "director_name": _sanitize(director),
         }
     except Exception as exc:
         log.warning("DaData party lookup failed for INN %s: %s", inn, exc)
@@ -91,11 +102,11 @@ async def lookup_by_bik(bik: str, api_key: str) -> dict | None:
         address = d.get("address") or {}
         state   = d.get("state")   or {}
         return {
-            "bank_name":             s.get("value") or None,
-            "correspondent_account": d.get("correspondent_account") or None,
-            "swift":                 d.get("swift") or None,
-            "bank_status":           state.get("status") or None,
-            "bank_address":          (address.get("value") if address else None) or None,
+            "bank_name":             _sanitize(s.get("value")),
+            "correspondent_account": _sanitize(d.get("correspondent_account")),
+            "swift":                 _sanitize(d.get("swift")),
+            "bank_status":           _sanitize(state.get("status")),
+            "bank_address":          _sanitize(address.get("value") if address else None),
         }
     except Exception as exc:
         log.warning("DaData bank lookup failed for BIK %s: %s", bik, exc)

@@ -66,12 +66,19 @@ async def users_directory(
     limit: int = Query(500, ge=1, le=1000),
 ):
     """Адресная книга: id + ФИО + роль активных пользователей.
-    Доступна любому залогиненному — нужна чату для:
-      • резолва UUID участников в имена при просмотре участников диалога
-      • подсказок при создании нового внутреннего чата (водитель тоже выбирает)
-    Не возвращает email/телефон и архивированных/деактивированных.
+    Доступна любому залогиненному (нужна чату для резолва UUID → имя), но
+    клиенту никогда не видны другие клиенты — это утечка клиентской базы.
+    Клиент видит только staff (admin/manager/driver). Не возвращает email/телефон.
     """
-    _ = current_user  # explicit dependency: only authenticated requests allowed
+    if current_user.role == UserRole.CLIENT:
+        # Клиент может фильтровать только по staff-ролям. Если запросил CLIENT —
+        # вернём пустой список вместо 403, чтобы клиент UI не падал.
+        if role == UserRole.CLIENT:
+            return []
+        users = await user_service.list_users(
+            db, role=role, include_inactive=False, offset=0, limit=limit
+        )
+        return [u for u in users if u.role != UserRole.CLIENT]
     return await user_service.list_users(
         db, role=role, include_inactive=False, offset=0, limit=limit
     )
@@ -185,6 +192,18 @@ _XLSX_COLUMNS = [
 ]
 _XLSX_COL_WIDTHS = [12, 40, 14, 10, 16, 11, 35, 22, 22, 45, 45, 38, 14, 14, 32, 32, 18, 20]
 
+# Excel/LibreOffice трактуют строки, начинающиеся с этих символов, как формулу.
+# Клиент с company_name '=cmd|...' заразит файл, который потом скачает менеджер.
+# Префиксируем одинарной кавычкой — она съедается при отображении, но рвёт парсер формул.
+_XLSX_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _xlsx_safe(value):
+    """Защита от CSV/formula injection. Числа и None — без изменений."""
+    if isinstance(value, str) and value.startswith(_XLSX_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
+
 
 @router.post("/clients/export")
 async def export_clients(
@@ -244,7 +263,7 @@ async def export_clients(
             credit_allowed, credit_limit, u.email, billing_email, u.phone, created_at,
         ]
         for col_idx, value in enumerate(row_data, start=1):
-            ws.cell(row=row_idx, column=col_idx, value=value)
+            ws.cell(row=row_idx, column=col_idx, value=_xlsx_safe(value))
 
     meta = get_request_meta(request)
     await log_action(

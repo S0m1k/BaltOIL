@@ -14,9 +14,27 @@ from app.routers.redis_subscriber import redis_subscriber_task
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_DEFAULT_JWT_SECRET = "change-me-to-a-very-long-random-secret"
+_DEFAULT_INTERNAL_SECRET = "baltoil-internal-secret-2026"
+
+
+def _assert_prod_secrets_safe() -> None:
+    if settings.app_env != "production":
+        return
+    issues = []
+    if settings.jwt_secret_key == _DEFAULT_JWT_SECRET or len(settings.jwt_secret_key) < 32:
+        issues.append("JWT_SECRET_KEY")
+    if settings.internal_api_secret == _DEFAULT_INTERNAL_SECRET:
+        issues.append("INTERNAL_API_SECRET")
+    if any("localhost" in o for o in settings.cors_origins) or "*" in settings.cors_origins:
+        issues.append("ALLOWED_ORIGINS")
+    if issues:
+        raise RuntimeError("Небезопасные дефолты в production: " + ", ".join(issues))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _assert_prod_secrets_safe()
     # Add new enum values if not present (safe to run multiple times)
     from sqlalchemy import text as _sql_text
     _new_enum_values = ["report_ready", "call_initiated", "call_ended", "call_missed", "chat_new"]

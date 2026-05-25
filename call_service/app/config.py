@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Inter-service
     chat_service_url: str = "http://chat_service:8004"
-    internal_api_secret: str = "internal-shared-secret-change-me"
+    internal_api_secret: str = "baltoil-internal-secret-2026"
 
     @property
     def cors_origins(self) -> list[str]:

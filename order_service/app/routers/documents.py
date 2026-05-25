@@ -4,9 +4,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import datetime
 import httpx
+import redis.asyncio as aioredis
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
@@ -173,25 +174,44 @@ async def send_document_to_chat(
     return {"ok": True, "conv_id": conv_id}
 
 
-class SendEmailBody(BaseModel):
-    email: EmailStr | None = None
+async def _check_send_email_rate(actor_id: uuid.UUID) -> None:
+    """Лимит 5 отправок документов в минуту на пользователя. Защита от спама/DoS.
+
+    Считаем общее количество отправок этого менеджера, а не per-document — иначе
+    можно слать тот же документ в цикле меняя document_id (для разных заявок).
+    """
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        key = f"send_email_rl:{actor_id}"
+        n = await r.incr(key)
+        if n == 1:
+            await r.expire(key, 60)
+        if n > 5:
+            raise HTTPException(status_code=429, detail="too many email sends; wait 1 minute")
+    finally:
+        await r.aclose()
 
 
 @router.post("/{document_id}/send-email", status_code=200)
 async def send_document_by_email(
     order_id: uuid.UUID,
     document_id: uuid.UUID,
-    body: SendEmailBody,
     actor: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Отправить PDF документа клиенту на email.
 
-    Если email в теле не задан — берём billing_email или user.email из auth_service.
-    Доступно менеджеру и администратору. При ошибке SMTP — 503, статус не меняется.
+    Адрес получателя берётся ТОЛЬКО из профиля клиента заявки (billing_email
+    или user.email через auth_service). Произвольный адрес в теле запроса не
+    принимаем — иначе менеджер может слать чужие документы куда угодно.
+
+    Доступно менеджеру и администратору. Rate-limit: 5 отправок/мин на пользователя.
+    При ошибке SMTP — 503, статус документа не меняется.
     """
     if actor.role not in ("manager", "admin"):
         raise ForbiddenError("Отправлять документы по email может менеджер или администратор")
+
+    await _check_send_email_rate(actor.id)
 
     order = await get_order(db, order_id, actor)
     doc = await document_service.get_document(db, document_id)
@@ -210,23 +230,20 @@ async def send_document_by_email(
     if not full_path.exists():
         raise NotFoundError("document file missing")
 
-    # Разрешаем адрес получателя
-    if body.email:
-        recipient = str(body.email)
-    else:
-        auth_base = settings.auth_service_url.rstrip("/")
-        internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(
-                    f"{auth_base}/internal/users/{order.client_id}/email-target",
-                    headers=internal_headers,
-                )
-                r.raise_for_status()
-                recipient = r.json().get("email")
-        except Exception as exc:
-            log.error("auth_service email-target lookup failed: %s", exc)
-            raise HTTPException(status_code=503, detail="email service unavailable")
+    # Адрес получателя — только из профиля клиента, без override из тела
+    auth_base = settings.auth_service_url.rstrip("/")
+    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{auth_base}/internal/users/{order.client_id}/email-target",
+                headers=internal_headers,
+            )
+            r.raise_for_status()
+            recipient = r.json().get("email")
+    except Exception as exc:
+        log.error("auth_service email-target lookup failed: %s", exc)
+        raise HTTPException(status_code=503, detail="email service unavailable")
 
     if not recipient:
         raise HTTPException(status_code=422, detail="recipient has no email")

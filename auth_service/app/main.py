@@ -56,11 +56,36 @@ async def _bootstrap_admin() -> None:
         await db.commit()
 
 
+_DEFAULT_JWT_SECRET = "change-me-to-a-very-long-random-secret"
+_DEFAULT_BOOTSTRAP_PW = "change-me-strong-password"
+_DEFAULT_INTERNAL_SECRET = "baltoil-internal-secret-2026"
+
+
+def _assert_prod_secrets_safe() -> None:
+    """In production: refuse to start if any well-known default secret is still in use.
+    Better a loud crash on boot than a silent breach in prod."""
+    if settings.app_env != "production":
+        return
+    issues = []
+    if settings.jwt_secret_key == _DEFAULT_JWT_SECRET or len(settings.jwt_secret_key) < 32:
+        issues.append("JWT_SECRET_KEY — установить значение длиной 32+ байт (secrets.token_urlsafe(48))")
+    if settings.bootstrap_admin_password == _DEFAULT_BOOTSTRAP_PW:
+        issues.append("BOOTSTRAP_ADMIN_PASSWORD — сменить дефолт")
+    if settings.internal_api_secret == _DEFAULT_INTERNAL_SECRET:
+        issues.append("INTERNAL_API_SECRET — сгенерить и засинхронить между всеми сервисами")
+    if "*" in settings.cors_origins:
+        issues.append("ALLOWED_ORIGINS — wildcard '*' запрещён, перечислить домены явно")
+    if any("localhost" in o for o in settings.cors_origins):
+        issues.append("ALLOWED_ORIGINS содержит localhost в production")
+    if issues:
+        raise RuntimeError(
+            "Небезопасные дефолты в production-конфигурации:\n  - " + "\n  - ".join(issues)
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: проверяем небезопасную CORS-конфигурацию
-    if settings.app_env == "production" and "*" in settings.cors_origins:
-        raise RuntimeError("CORS wildcard '*' запрещён в production. Задайте ALLOWED_ORIGINS явно.")
+    _assert_prod_secrets_safe()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _bootstrap_admin()
