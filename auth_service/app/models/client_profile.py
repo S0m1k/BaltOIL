@@ -36,6 +36,7 @@ class ClientProfile(Base):
     company_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     inn: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
     kpp: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    ogrn: Mapped[str | None] = mapped_column(String(15), nullable=True)
     legal_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     bank_account: Mapped[str | None] = mapped_column(String(20), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

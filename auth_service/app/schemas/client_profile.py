@@ -20,6 +20,7 @@ class ClientProfileResponse(BaseModel):
     company_name: str | None
     inn: str | None
     kpp: str | None
+    ogrn: str | None = None
     legal_address: str | None
     bank_account: str | None
     bank_name: str | None

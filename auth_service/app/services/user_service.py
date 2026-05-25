@@ -21,7 +21,7 @@ from app.services.dadata_service import lookup_by_inn, lookup_by_bik
 # Поля, которые мы умеем подтягивать из DaData при регистрации/ресинке.
 # Эти же поля используются в audit-логе для diff before/after при ресинке.
 FNS_PARTY_FIELDS = (
-    "company_name", "kpp", "legal_address",
+    "company_name", "kpp", "ogrn", "legal_address",
     "okved", "okpo", "okato", "fns_status", "director_name",
 )
 FNS_BANK_FIELDS = ("bank_name", "correspondent_account", "swift")
@@ -136,6 +136,7 @@ async def register_company(
         company_name=_pick(data.company_name, party.get("company_name")),
         inn=data.inn,
         kpp=_pick(data.kpp, party.get("kpp")),
+        ogrn=party.get("ogrn"),
         legal_address=_pick(data.legal_address, party.get("legal_address")),
         bank_account=data.bank_account,
         bank_name=_pick(data.bank_name, bank.get("bank_name")),
