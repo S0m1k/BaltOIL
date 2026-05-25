@@ -1,10 +1,14 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import UserRole
+from app.models.audit_log import AuditLog
 from app.core.dependencies import CurrentUser, require_roles, get_request_meta
 from app.core.rate_limit import limiter
 from app.schemas.auth import ChangePasswordRequest
@@ -166,6 +170,39 @@ async def fns_resync(
         db, user_id, actor_id=current_user.id, ip_address=meta["ip_address"]
     )
 
+
+
+class AuditLogResponse(BaseModel):
+    id: uuid.UUID
+    actor_id: uuid.UUID | None
+    action: str
+    entity_type: str | None
+    entity_id: str | None
+    details: dict | None
+    ip_address: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{user_id}/audit", response_model=list[AuditLogResponse])
+async def get_user_audit(
+    user_id: uuid.UUID,
+    _: AdminOrManager,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Last N audit_log entries where actor_id or entity_id matches this user. Manager/admin only."""
+    result = await db.execute(
+        select(AuditLog)
+        .where(
+            (AuditLog.actor_id == user_id) |
+            (AuditLog.entity_id == str(user_id))
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
 
 
 @router.post("/me/change-password", status_code=204)

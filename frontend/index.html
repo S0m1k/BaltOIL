@@ -1056,6 +1056,118 @@
     color: var(--text3); font-size: 14px; pointer-events: none;
   }
 
+  /* ── CLIENT CARD MODAL ── */
+  #client-card-modal {
+    border: none; padding: 0; background: transparent;
+    width: 80vw; max-width: 1080px; max-height: 90vh;
+  }
+  #client-card-modal::backdrop {
+    background: rgba(15,23,42,.55); backdrop-filter: blur(4px);
+  }
+  .cc-modal-inner {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-top: 3px solid transparent; border-image: var(--grad) 1;
+    border-radius: 4px; display: flex; flex-direction: column;
+    max-height: 90vh; overflow: hidden;
+    box-shadow: 0 8px 40px rgba(14,165,233,.12), 0 2px 8px rgba(0,0,0,.08);
+  }
+  .cc-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 18px 24px 0; flex-shrink: 0;
+  }
+  .cc-title {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: 17px; font-weight: 700; color: var(--text); flex: 1;
+    letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cc-close {
+    background: none; border: none; color: var(--text3); cursor: pointer;
+    padding: 4px; display: flex; align-items: center; border-radius: 2px;
+    transition: color .15s;
+  }
+  .cc-close:hover { color: var(--text); }
+  .cc-tabs {
+    display: flex; gap: 0; padding: 14px 24px 0; border-bottom: 1px solid var(--border);
+    flex-shrink: 0; overflow-x: auto;
+  }
+  .cc-tab {
+    background: none; border: none; color: var(--text3); cursor: pointer;
+    padding: 8px 14px; font-size: 12px; font-weight: 600;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .cc-tab:hover { color: var(--text2); }
+  .cc-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .cc-body {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+  }
+  .cc-tab-panel { display: none; }
+  .cc-tab-panel.active { display: block; }
+  .cc-field-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px 20px;
+  }
+  .cc-field { display: flex; flex-direction: column; gap: 3px; }
+  .cc-field-label {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3);
+  }
+  .cc-field-value {
+    font-size: 13px; color: var(--text); word-break: break-word;
+  }
+  .cc-field-value.mono {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 12px;
+  }
+  .cc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cc-table th {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text3); padding: 6px 10px; border-bottom: 1px solid var(--border);
+    text-align: left; white-space: nowrap;
+  }
+  .cc-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    color: var(--text2); vertical-align: middle;
+  }
+  .cc-table tr:hover td { background: var(--bg3); }
+  .cc-balance-row {
+    display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .cc-balance-card {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
+    padding: 12px 18px; flex: 1; min-width: 120px;
+  }
+  .cc-balance-label {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3);
+    margin-bottom: 4px;
+  }
+  .cc-balance-value {
+    font-size: 18px; font-weight: 700; color: var(--text);
+  }
+  .cc-audit-row {
+    display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border);
+    align-items: flex-start; font-size: 12px;
+  }
+  .cc-audit-ts {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 10px; color: var(--text3); white-space: nowrap; flex-shrink: 0; padding-top: 1px;
+  }
+  .cc-audit-action { color: var(--amber); font-weight: 600; flex-shrink: 0; }
+  .cc-audit-details { color: var(--text2); word-break: break-word; flex: 1; }
+  .cc-spinner { text-align: center; padding: 32px; color: var(--text3); display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .cc-section-head {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: var(--text3);
+    padding-bottom: 6px; border-bottom: 1px solid var(--border); margin: 16px 0 12px;
+  }
+  .cc-section-head:first-child { margin-top: 0; }
+  .cc-btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+
   /* ── BURGER MENU ───────────────────────────────────────────── */
   .burger-btn {
     display: none; /* shown via @media below */
@@ -2300,6 +2412,57 @@
   </div>
 </div>
 
+<!-- Client Card Modal (Deploy 3) -->
+<dialog id="client-card-modal">
+  <div class="cc-modal-inner">
+    <div class="cc-header">
+      <div class="cc-title" id="cc-modal-title">Карточка клиента</div>
+      <button class="cc-close" onclick="closeClientCard()" title="Закрыть">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 256 256" fill="currentColor"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>
+      </button>
+    </div>
+    <div class="cc-tabs" id="cc-tabs">
+      <button class="cc-tab active" data-tab="profile" onclick="ccSwitchTab('profile',this)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M200,112a8,8,0,0,1-8,8H152a8,8,0,0,1,0-16h40A8,8,0,0,1,200,112Zm-8,24H152a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm40-80V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Zm-80.26-34a8,8,0,1,1-15.5,4c-2.63-10.26-13.06-18-24.25-18s-21.61,7.74-24.25,18a8,8,0,1,1-15.5-4,39.84,39.84,0,0,1,17.19-23.34,32,32,0,1,1,45.12,0A39.76,39.76,0,0,1,135.75,166ZM96,136a16,16,0,1,0-16-16A16,16,0,0,0,96,136Z"/></svg>
+        Реквизиты
+      </button>
+      <button class="cc-tab" data-tab="orders" onclick="ccSwitchTab('orders',this)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></svg>
+        Заявки
+      </button>
+      <button class="cc-tab" data-tab="docs" onclick="ccSwitchTab('docs',this)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-32-80a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,136Zm0,32a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,168Z"/></svg>
+        Документы
+      </button>
+      <button class="cc-tab" data-tab="payments" onclick="ccSwitchTab('payments',this)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm40-68a28,28,0,0,1-28,28h-4v8a8,8,0,0,1-16,0v-8H104a8,8,0,0,1,0-16h36a12,12,0,0,0,0-24H116a28,28,0,0,1,0-56h4V72a8,8,0,0,1,16,0v8h16a8,8,0,0,1,0,16H116a12,12,0,0,0,0,24h24A28,28,0,0,1,168,148Z"/></svg>
+        Платежи
+      </button>
+      <button class="cc-tab" data-tab="audit" onclick="ccSwitchTab('audit',this)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M136,80v43.47l36.12,21.67a8,8,0,0,1-8.24,13.72l-40-24A8,8,0,0,1,120,128V80a8,8,0,0,1,16,0Zm-8-48A95.44,95.44,0,0,0,60.08,60.15C52.81,67.51,46.35,74.59,40,82V64a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H72a8,8,0,0,0,0-16H49c7.15-8.42,14.27-16.35,22.39-24.57a80,80,0,1,1,1.66,114.75,8,8,0,1,0-11,11.64A96,96,0,1,0,128,32Z"/></svg>
+        Аудит
+      </button>
+    </div>
+    <div class="cc-body">
+      <div class="cc-tab-panel active" id="cc-panel-profile">
+        <div class="cc-spinner"><div class="loading"></div> Загрузка…</div>
+      </div>
+      <div class="cc-tab-panel" id="cc-panel-orders">
+        <div class="cc-spinner"><div class="loading"></div> Загрузка…</div>
+      </div>
+      <div class="cc-tab-panel" id="cc-panel-docs">
+        <div class="cc-spinner"><div class="loading"></div> Загрузка…</div>
+      </div>
+      <div class="cc-tab-panel" id="cc-panel-payments">
+        <div class="cc-spinner"><div class="loading"></div> Загрузка…</div>
+      </div>
+      <div class="cc-tab-panel" id="cc-panel-audit">
+        <div class="cc-spinner"><div class="loading"></div> Загрузка…</div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
 <script>
 // ── Phosphor Icons ────────────────────────────────────────────────────────────
 const ICONS = {
@@ -2339,6 +2502,11 @@ const ICONS = {
   'list-bullets':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z"/></svg>',
   'gas-pump':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M241,69.66,221.66,50.34a8,8,0,0,0-11.32,11.32L229.66,81A8,8,0,0,1,232,86.63V168a8,8,0,0,1-16,0V128a24,24,0,0,0-24-24H176V56a24,24,0,0,0-24-24H72A24,24,0,0,0,48,56V208H32a8,8,0,0,0,0,16H192a8,8,0,0,0,0-16H176V120h16a8,8,0,0,1,8,8v40a24,24,0,0,0,48,0V86.63A23.85,23.85,0,0,0,241,69.66ZM64,208V56a8,8,0,0,1,8-8h80a8,8,0,0,1,8,8V208Zm80-96a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h48A8,8,0,0,1,144,112Z"/></svg>',
   'chat-circle':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>',
+  'identification-card':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M200,112a8,8,0,0,1-8,8H152a8,8,0,0,1,0-16h40A8,8,0,0,1,200,112Zm-8,24H152a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm40-80V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Zm-80.26-34a8,8,0,1,1-15.5,4c-2.63-10.26-13.06-18-24.25-18s-21.61,7.74-24.25,18a8,8,0,1,1-15.5-4,39.84,39.84,0,0,1,17.19-23.34,32,32,0,1,1,45.12,0A39.76,39.76,0,0,1,135.75,166ZM96,136a16,16,0,1,0-16-16A16,16,0,0,0,96,136Z"/></svg>',
+  'download-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>',
+  'clock-counter-clockwise':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M136,80v43.47l36.12,21.67a8,8,0,0,1-8.24,13.72l-40-24A8,8,0,0,1,120,128V80a8,8,0,0,1,16,0Zm-8-48A95.44,95.44,0,0,0,60.08,60.15C52.81,67.51,46.35,74.59,40,82V64a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H72a8,8,0,0,0,0-16H49c7.15-8.42,14.27-16.35,22.39-24.57a80,80,0,1,1,1.66,114.75,8,8,0,1,0-11,11.64A96,96,0,1,0,128,32Z"/></svg>',
+  'envelope-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>',
+  'currency-circle-dollar':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm40-68a28,28,0,0,1-28,28h-4v8a8,8,0,0,1-16,0v-8H104a8,8,0,0,1,0-16h36a12,12,0,0,0,0-24H116a28,28,0,0,1,0-56h4V72a8,8,0,0,1,16,0v8h16a8,8,0,0,1,0,16H116a12,12,0,0,0,0,24h24A28,28,0,0,1,168,148Z"/></svg>',
 };
 
 function icon(name, size = 16, style = '') {
@@ -5295,7 +5463,13 @@ function renderClients(clients) {
   el.innerHTML = clients.map(u => clientCardHTML(u)).join('');
 }
 
+// Map of clientId → user object, populated by renderClients — used by openClientCard
+const _clientDataMap = {};
+
 function clientCardHTML(u) {
+  // Store user data for modal access (keyed by id)
+  _clientDataMap[u.id] = u;
+
   const initials = (u.full_name || u.email || '?')
     .split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
@@ -5304,7 +5478,7 @@ function clientCardHTML(u) {
     ? `<span style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.5px">${fmtClientNum(u.client_number)}</span>`
     : '';
   return `
-  <div class="client-card" style="cursor:pointer" onclick="openClientOrders('${u.id}', '${safeName}')">
+  <div class="client-card" style="cursor:pointer" onclick="openClientCard('${u.id}', '${safeName}')">
     <div class="client-avatar">${escHtml(initials)}</div>
     <div class="client-info">
       <div class="client-name" style="display:flex;align-items:center;gap:8px">${safeName}${numBadge}</div>
@@ -5358,6 +5532,378 @@ async function openClientOrders(clientId, clientName) {
   } catch (e) {
     const el = document.getElementById('co-list');
     if (el) el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENT CARD MODAL (Deploy 3)
+// ═══════════════════════════════════════════════════════════════
+
+// Per-open cache: tab name → loaded data (reset on each openClientCard call)
+let _ccCache = {};
+let _ccClientId = null;
+let _ccUserId = null;   // same as _ccClientId — user_id in auth service
+
+const CC_STATUS_LABELS = {
+  new: 'Новая', in_progress: 'В работе', in_transit: 'В рейсе',
+  delivered: 'Доставлена', partially_delivered: 'Частично',
+  rejected: 'Отклонена', closed: 'Закрыта',
+};
+const CC_DOC_TYPE_LABELS = {
+  invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)',
+  invoice_final: 'Счёт (финал)', upd: 'УПД', ttn: 'ТТН',
+};
+const CC_DOC_STATUS_LABELS = {
+  draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован',
+};
+const CC_PAYMENT_KIND_LABELS = { prepayment: 'Предоплата', actual: 'По факту' };
+const CC_PAYMENT_STATUS_LABELS = {
+  pending: 'Ожидает', paid: 'Оплачен', cancelled: 'Отменён', refunded: 'Возврат',
+};
+
+function openClientCard(clientId, clientName) {
+  _ccClientId = clientId;
+  _ccUserId = clientId;   // user_id == client_id in this system
+  _ccCache = {};
+
+  document.getElementById('cc-modal-title').textContent = clientName || 'Карточка клиента';
+
+  // Reset tabs — activate profile, reset other panels to spinner
+  document.querySelectorAll('.cc-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.cc-tab[data-tab="profile"]').classList.add('active');
+  document.querySelectorAll('.cc-tab-panel').forEach(p => {
+    p.classList.remove('active');
+    p.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  });
+  document.getElementById('cc-panel-profile').classList.add('active');
+
+  const dlg = document.getElementById('client-card-modal');
+  dlg.showModal();
+
+  // Load profile tab immediately
+  ccLoadProfile();
+}
+
+function closeClientCard() {
+  document.getElementById('client-card-modal').close();
+  _ccCache = {};
+  _ccClientId = null;
+  _ccUserId = null;
+}
+
+// Close on backdrop click
+document.getElementById('client-card-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeClientCard();
+});
+
+// Close on Escape is handled natively by <dialog>; but we also need to clear state
+document.getElementById('client-card-modal').addEventListener('close', function() {
+  _ccCache = {};
+  _ccClientId = null;
+  _ccUserId = null;
+});
+
+function ccSwitchTab(tabName, btnEl) {
+  document.querySelectorAll('.cc-tab').forEach(t => t.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  document.querySelectorAll('.cc-tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('cc-panel-' + tabName).classList.add('active');
+
+  // Lazy-load: only fetch if not yet cached
+  if (_ccCache[tabName]) return;
+  switch (tabName) {
+    case 'profile':  ccLoadProfile(); break;
+    case 'orders':   ccLoadOrders(); break;
+    case 'docs':     ccLoadDocs(); break;
+    case 'payments': ccLoadPayments(); break;
+    case 'audit':    ccLoadAudit(); break;
+  }
+}
+
+// ── Profile tab ───────────────────────────────────────────────
+
+async function ccLoadProfile() {
+  if (_ccCache.profile) return;
+  const panel = document.getElementById('cc-panel-profile');
+  panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  try {
+    const user = await authGet(`/users/${_ccUserId}`);
+    _ccCache.profile = user;
+    const p = user.client_profile || {};
+    const isAdmin = currentUser?.role === 'admin';
+    const isManager = currentUser?.role === 'manager';
+
+    const field = (label, val, mono = false) => `
+      <div class="cc-field">
+        <div class="cc-field-label">${label}</div>
+        <div class="cc-field-value${mono ? ' mono' : ''}">${val != null && val !== '' ? escHtml(String(val)) : '<span style="color:var(--text3)">—</span>'}</div>
+      </div>`;
+
+    const fmtBool = v => v ? 'Да' : 'Нет';
+    const fmtMoney = v => v != null ? Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽' : null;
+    const fmtNum = v => v != null ? fmtClientNum(v) : null;
+
+    panel.innerHTML = `
+      <div class="cc-section-head">Пользователь</div>
+      <div class="cc-field-grid">
+        ${field('ФИО / Контактное лицо', user.full_name)}
+        ${field('Email входа', user.email, true)}
+        ${field('Телефон', user.phone, true)}
+        ${field('Роль', user.role)}
+        ${field('Номер клиента', fmtNum(p.client_number), true)}
+        ${field('Активен', fmtBool(user.is_active))}
+        ${field('Зарегистрирован', fmtDate(user.created_at))}
+      </div>
+
+      <div class="cc-section-head">Профиль</div>
+      <div class="cc-field-grid">
+        ${field('Тип', p.client_type === 'company' ? 'Юридическое лицо' : p.client_type === 'individual' ? 'Физическое лицо' : p.client_type)}
+        ${field('Адрес доставки', p.delivery_address)}
+        ${field('Примечания', p.notes)}
+      </div>
+
+      ${p.client_type === 'company' ? `
+      <div class="cc-section-head">Реквизиты компании</div>
+      <div class="cc-field-grid">
+        ${field('Наименование', p.company_name)}
+        ${field('ИНН', p.inn, true)}
+        ${field('КПП', p.kpp, true)}
+        ${field('Юр. адрес', p.legal_address)}
+        ${field('Директор', p.director_name)}
+        ${field('ОКВЭД', p.okved, true)}
+        ${field('ОКПО', p.okpo, true)}
+        ${field('ОКАТО', p.okato, true)}
+        ${field('Статус ФНС', p.fns_status)}
+        ${field('Синхр. ФНС', p.fns_last_sync_at ? fmtDate(p.fns_last_sync_at) : null)}
+      </div>
+
+      <div class="cc-section-head">Банк</div>
+      <div class="cc-field-grid">
+        ${field('Банк', p.bank_name)}
+        ${field('БИК', p.bik, true)}
+        ${field('Р/с', p.bank_account, true)}
+        ${field('Корр. счёт', p.correspondent_account, true)}
+        ${field('SWIFT', p.swift, true)}
+      </div>` : ''}
+
+      ${p.client_type === 'individual' ? `
+      <div class="cc-section-head">Паспорт</div>
+      <div class="cc-field-grid">
+        ${field('Серия', p.passport_series, true)}
+        ${field('Номер', p.passport_number, true)}
+      </div>` : ''}
+
+      <div class="cc-section-head">Тариф и кредит</div>
+      <div class="cc-field-grid">
+        ${field('Billing email', p.billing_email, true)}
+        ${field('Тариф ID', p.tariff_id, true)}
+        ${field('Кредит разрешён', fmtBool(p.credit_allowed))}
+        ${field('Кредитный лимит', fmtMoney(p.credit_limit))}
+        ${field('Договор', p.contract_number)}
+      </div>
+
+      ${(isAdmin || isManager) ? `
+      <div class="cc-btn-row">
+        ${isAdmin ? `<button class="btn btn-sm btn-ghost" onclick="ccFnsResync('${user.id}')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></svg>
+          Обновить из ФНС
+        </button>` : ''}
+      </div>` : ''}
+    `;
+  } catch (e) {
+    panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function ccFnsResync(userId) {
+  try {
+    await api(`${AUTH_URL}/users/${userId}/fns-resync`, { method: 'POST' });
+    toast('Реквизиты обновлены из ФНС', 'success');
+    // Refresh profile tab
+    _ccCache.profile = null;
+    await ccLoadProfile();
+  } catch (e) {
+    toast('Ошибка ресинка: ' + e.message, 'error');
+  }
+}
+
+// ── Orders tab ────────────────────────────────────────────────
+
+async function ccLoadOrders() {
+  if (_ccCache.orders) return;
+  const panel = document.getElementById('cc-panel-orders');
+  panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  try {
+    const orders = await orderGet(`/orders?client_id=${_ccClientId}&limit=100`);
+    _ccCache.orders = orders;
+    if (!orders.length) {
+      panel.innerHTML = `<div class="empty-state" style="padding:30px">Заявок не найдено</div>`;
+      return;
+    }
+    panel.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">
+      ${orders.map(o => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-family:'SF Mono',ui-monospace,'Cascadia Code',monospace;font-size:11px;color:var(--amber);font-weight:600">${escHtml(o.order_number || o.id.slice(0,8))}</span>
+            <span class="status-badge status-${o.status}">${CC_STATUS_LABELS[o.status] || o.status}</span>
+            <span style="font-size:11px;color:var(--text3);margin-left:auto">${fmtDate(o.created_at)}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2)">${escHtml(o.delivery_address || '—')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">
+            ${escHtml(o.fuel_type || '')} · ${Number(o.volume_requested).toLocaleString('ru')} л
+            ${o.expected_amount != null ? ` · ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}
+          </div>
+        </div>`).join('')}
+    </div>`;
+  } catch (e) {
+    panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Documents tab ─────────────────────────────────────────────
+
+async function ccLoadDocs() {
+  if (_ccCache.docs) return;
+  const panel = document.getElementById('cc-panel-docs');
+  panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  try {
+    const docs = await orderGet(`/clients/${_ccClientId}/documents?limit=100`);
+    _ccCache.docs = docs;
+    if (!docs.length) {
+      panel.innerHTML = `<div class="empty-state" style="padding:30px">Документов не найдено</div>`;
+      return;
+    }
+    panel.innerHTML = `
+      <table class="cc-table">
+        <thead>
+          <tr>
+            <th>Тип</th><th>Номер</th><th>Статус</th><th>Дата</th><th>Сумма</th><th>Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${docs.map(d => `
+            <tr>
+              <td>${escHtml(CC_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)}</td>
+              <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.doc_number)}</td>
+              <td><span class="status-badge">${escHtml(CC_DOC_STATUS_LABELS[d.status] || d.status)}</span></td>
+              <td style="white-space:nowrap">${d.issued_at ? fmtDate(d.issued_at) : fmtDate(d.created_at)}</td>
+              <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>
+              <td style="white-space:nowrap">
+                ${d.status === 'ready' || d.status === 'sent' ? `
+                  <a href="${ORDER_URL}/orders/${d.order_id}/documents/${d.id}/download"
+                     target="_blank"
+                     class="btn btn-sm btn-ghost"
+                     title="Скачать PDF"
+                     onclick="event.stopPropagation()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>
+                    Скачать
+                  </a>
+                  <button class="btn btn-sm btn-ghost" title="Отправить в чат"
+                    onclick="ccDocToChat('${d.order_id}','${d.id}',this)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>
+                    В чат
+                  </button>
+                  <button class="btn btn-sm btn-ghost" disabled title="Доступно после Deploy 5"
+                    style="opacity:.4;cursor:not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>
+                    На почту
+                  </button>
+                ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function ccDocToChat(orderId, docId, btn) {
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  try {
+    await orderPost(`/orders/${orderId}/documents/${docId}/send`, {});
+    toast('Документ отправлен в чат', 'success');
+    // Invalidate docs cache so next open reflects SENT status
+    _ccCache.docs = null;
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+// ── Payments tab ──────────────────────────────────────────────
+
+async function ccLoadPayments() {
+  if (_ccCache.payments) return;
+  const panel = document.getElementById('cc-panel-payments');
+  panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  try {
+    const data = await orderGet(`/clients/${_ccClientId}/payments`);
+    _ccCache.payments = data;
+    const fmtM = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽';
+    const balColor = data.balance >= 0 ? 'var(--green)' : 'var(--red)';
+    panel.innerHTML = `
+      <div class="cc-balance-row">
+        <div class="cc-balance-card">
+          <div class="cc-balance-label">Оплачено</div>
+          <div class="cc-balance-value" style="color:var(--green)">${fmtM(data.total_paid)}</div>
+        </div>
+        <div class="cc-balance-card">
+          <div class="cc-balance-label">К оплате</div>
+          <div class="cc-balance-value" style="color:var(--amber)">${fmtM(data.total_due)}</div>
+        </div>
+        <div class="cc-balance-card">
+          <div class="cc-balance-label">Баланс</div>
+          <div class="cc-balance-value" style="color:${balColor}">${fmtM(data.balance)}</div>
+        </div>
+      </div>
+      ${data.payments.length ? `
+      <table class="cc-table">
+        <thead>
+          <tr><th>Вид</th><th>Статус</th><th>Сумма</th><th>Счёт №</th><th>Оплачено</th><th>Примечание</th></tr>
+        </thead>
+        <tbody>
+          ${data.payments.map(p => `
+            <tr>
+              <td>${escHtml(CC_PAYMENT_KIND_LABELS[p.kind] || p.kind)}</td>
+              <td><span class="status-badge">${escHtml(CC_PAYMENT_STATUS_LABELS[p.status] || p.status)}</span></td>
+              <td style="text-align:right;white-space:nowrap;font-weight:600">${fmtM(p.amount)}</td>
+              <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px">${escHtml(p.invoice_number || '—')}</td>
+              <td style="white-space:nowrap">${p.paid_at ? fmtDate(p.paid_at) : '—'}</td>
+              <td style="color:var(--text3)">${escHtml(p.notes || '')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>` : '<div style="color:var(--text3);padding:16px 0;text-align:center">Платежей нет</div>'}
+    `;
+  } catch (e) {
+    panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Audit tab ─────────────────────────────────────────────────
+
+async function ccLoadAudit() {
+  if (_ccCache.audit) return;
+  const panel = document.getElementById('cc-panel-audit');
+  panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
+  try {
+    const entries = await authGet(`/users/${_ccUserId}/audit?limit=50`);
+    _ccCache.audit = entries;
+    if (!entries.length) {
+      panel.innerHTML = `<div class="empty-state" style="padding:30px">Действий не найдено</div>`;
+      return;
+    }
+    panel.innerHTML = entries.map(e => {
+      const details = e.details ? JSON.stringify(e.details).slice(0, 120) : '';
+      return `<div class="cc-audit-row">
+        <div class="cc-audit-ts">${fmtDate(e.created_at)}</div>
+        <div class="cc-audit-action">${escHtml(e.action)}</div>
+        <div class="cc-audit-details">${details ? escHtml(details) : ''}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
 }
 
