@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.user import UserRole
 from app.models.client_profile import ClientType
 from .client_profile import ClientProfileResponse
@@ -152,3 +152,7 @@ class UpdateUserRequest(BaseModel):
     is_active: bool | None = None
     # Role change only by admin — validated at service level
     role: UserRole | None = None
+
+
+class ClientExportRequest(BaseModel):
+    client_ids: list[uuid.UUID] = Field(..., max_length=1000)

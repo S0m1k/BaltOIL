@@ -2171,6 +2171,11 @@
         <input type="text" id="clients-search" class="form-input" placeholder="Имя, email, телефон, C-номер..."
           oninput="filterClients()" style="max-width:280px;margin-left:auto">
         <button class="btn btn-sm btn-ghost" onclick="loadClients()">↻ Обновить</button>
+        <button id="btn-export-clients" class="btn btn-sm btn-ghost" onclick="exportClientsXlsx()" disabled
+          style="display:none;gap:5px;align-items:center">
+          <span id="btn-export-clients-icon" style="display:inline-flex;align-items:center"></span>
+          <span id="btn-export-clients-label">Экспорт в Excel</span>
+        </button>
       </div>
       <div id="clients-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px">
         <div class="empty-state"><div class="loading"></div></div>
@@ -2507,6 +2512,7 @@ const ICONS = {
   'clock-counter-clockwise':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M136,80v43.47l36.12,21.67a8,8,0,0,1-8.24,13.72l-40-24A8,8,0,0,1,120,128V80a8,8,0,0,1,16,0Zm-8-48A95.44,95.44,0,0,0,60.08,60.15C52.81,67.51,46.35,74.59,40,82V64a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H72a8,8,0,0,0,0-16H49c7.15-8.42,14.27-16.35,22.39-24.57a80,80,0,1,1,1.66,114.75,8,8,0,1,0-11,11.64A96,96,0,1,0,128,32Z"/></svg>',
   'envelope-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>',
   'currency-circle-dollar':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm40-68a28,28,0,0,1-28,28h-4v8a8,8,0,0,1-16,0v-8H104a8,8,0,0,1,0-16h36a12,12,0,0,0,0-24H116a28,28,0,0,1,0-56h4V72a8,8,0,0,1,16,0v8h16a8,8,0,0,1,0,16H116a12,12,0,0,0,0,24h24A28,28,0,0,1,168,148Z"/></svg>',
+  'microsoft-excel-logo':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M200,24H72A16,16,0,0,0,56,40V64H40A16,16,0,0,0,24,80v96a16,16,0,0,0,16,16H56v24a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V40A16,16,0,0,0,200,24Zm-40,80h40v48H160Zm40-16H160V80a16,16,0,0,0-16-16V40h56ZM72,40h56V64H72ZM40,80H144v79.83c0,.06,0,.11,0,.17s0,.11,0,.17V176H40ZM72,192h56v24H72Zm72,24V192a16,16,0,0,0,16-16v-8h40v48ZM65.85,146.88,81.59,128,65.85,109.12a8,8,0,0,1,12.3-10.24L92,115.5l13.85-16.62a8,8,0,1,1,12.3,10.24L102.41,128l15.74,18.88a8,8,0,0,1-12.3,10.24L92,140.5,78.15,157.12a8,8,0,0,1-12.3-10.24Z"/></svg>',
 };
 
 function icon(name, size = 16, style = '') {
@@ -3145,6 +3151,14 @@ async function initApp() {
   // Clients — admin + manager only
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
+
+  // Export button in clients tab — admin + manager only; init icon
+  const exportBtn = document.getElementById('btn-export-clients');
+  if (exportBtn) {
+    exportBtn.style.display = (role === 'admin' || role === 'manager') ? 'inline-flex' : 'none';
+    const iconEl = document.getElementById('btn-export-clients-icon');
+    if (iconEl) iconEl.innerHTML = icon('microsoft-excel-logo', 14);
+  }
 
   // Finance — admin + manager only
   document.getElementById('tab-finance-btn').style.display =
@@ -5425,10 +5439,13 @@ async function doClearConv(convId) {
 // CLIENTS (Список клиентов — для менеджера/админа)
 // ═══════════════════════════════════════════════════════════════
 let _allClients = [];
+const _selectedClientIds = new Set();
 
 async function loadClients() {
   const el = document.getElementById('clients-grid');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  _selectedClientIds.clear();
+  _updateExportBtn();
   try {
     const users = await authGet('/users?role=client&limit=200&include_inactive=false');
     _allClients = Array.isArray(users) ? users : (users.items || []);
@@ -5463,6 +5480,27 @@ function renderClients(clients) {
   el.innerHTML = clients.map(u => clientCardHTML(u)).join('');
 }
 
+function _updateExportBtn() {
+  const btn = document.getElementById('btn-export-clients');
+  if (!btn) return;
+  const n = _selectedClientIds.size;
+  btn.disabled = n === 0;
+  document.getElementById('btn-export-clients-label').textContent =
+    n > 0 ? `Экспорт в Excel (${n})` : 'Экспорт в Excel';
+  // Set icon once (idempotent after first call)
+  const iconEl = document.getElementById('btn-export-clients-icon');
+  if (iconEl && !iconEl.innerHTML) iconEl.innerHTML = icon('microsoft-excel-logo', 14);
+}
+
+function _toggleClientSelect(id, checked) {
+  if (checked) _selectedClientIds.add(id);
+  else _selectedClientIds.delete(id);
+  _updateExportBtn();
+  // Sync checkbox state in card
+  const cb = document.getElementById(`cb-client-${id}`);
+  if (cb) cb.checked = checked;
+}
+
 // Map of clientId → user object, populated by renderClients — used by openClientCard
 const _clientDataMap = {};
 
@@ -5477,8 +5515,12 @@ function clientCardHTML(u) {
   const numBadge = u.client_number != null
     ? `<span style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.5px">${fmtClientNum(u.client_number)}</span>`
     : '';
+  const isChecked = _selectedClientIds.has(u.id);
   return `
   <div class="client-card" style="cursor:pointer" onclick="openClientCard('${u.id}', '${safeName}')">
+    <input type="checkbox" id="cb-client-${u.id}" ${isChecked ? 'checked' : ''}
+      style="flex-shrink:0;width:15px;height:15px;cursor:pointer;accent-color:var(--amber)"
+      onclick="event.stopPropagation();_toggleClientSelect('${u.id}', this.checked)">
     <div class="client-avatar">${escHtml(initials)}</div>
     <div class="client-info">
       <div class="client-name" style="display:flex;align-items:center;gap:8px">${safeName}${numBadge}</div>
@@ -5493,6 +5535,43 @@ function clientCardHTML(u) {
       ${currentUser?.role === 'admin' ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();promptClientSettings('${u.id}', '${safeName}')" title="Тариф и кредитный лимит">${icon('gear',14)}</button>` : ''}
     </div>
   </div>`;
+}
+
+async function exportClientsXlsx() {
+  if (_selectedClientIds.size === 0) return;
+  const token = localStorage.getItem('access_token');
+  const ids = Array.from(_selectedClientIds);
+  let resp;
+  try {
+    resp = await fetch(`${AUTH_URL}/users/clients/export`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ client_ids: ids }),
+    });
+  } catch (e) {
+    alert('Ошибка сети: ' + e.message);
+    return;
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+    alert('Ошибка экспорта: ' + (err.detail || resp.status));
+    return;
+  }
+  // Parse filename from Content-Disposition if present, else use today's date
+  let filename = `clients_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const cd = resp.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename="([^"]+)"/);
+  if (m) filename = m[1];
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function openClientOrders(clientId, clientName) {

@@ -1,20 +1,27 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
+from io import BytesIO
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+import openpyxl
+from openpyxl.styles import Font
 
 from app.database import get_db
-from app.models.user import UserRole
+from app.models.user import User, UserRole
+from app.models.client_profile import ClientProfile, ClientType
 from app.models.audit_log import AuditLog
 from app.core.dependencies import CurrentUser, require_roles, get_request_meta
 from app.core.rate_limit import limiter
 from app.schemas.auth import ChangePasswordRequest
-from app.schemas.user import UserResponse, UserShortResponse, UserDirectoryEntry, CreateUserRequest, UpdateUserRequest
+from app.schemas.user import UserResponse, UserShortResponse, UserDirectoryEntry, CreateUserRequest, UpdateUserRequest, ClientExportRequest
 from app.schemas.client_profile import ClientProfileResponse, UpdateClientProfileRequest, UpdateClientTariffRequest
 from app.services import user_service
+from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -170,6 +177,94 @@ async def fns_resync(
         db, user_id, actor_id=current_user.id, ip_address=meta["ip_address"]
     )
 
+
+_XLSX_COLUMNS = [
+    "Тип", "Наименование", "ИНН", "КПП", "ОГРН", "БИК", "Банк", "Р/с",
+    "Корр.счёт", "Юр.адрес", "Адрес доставки", "Тариф", "Credit allowed",
+    "Credit limit", "Email логин", "Billing email", "Телефон", "Дата регистрации",
+]
+_XLSX_COL_WIDTHS = [12, 40, 14, 10, 16, 11, 35, 22, 22, 45, 45, 38, 14, 14, 32, 32, 18, 20]
+
+
+@router.post("/clients/export")
+async def export_clients(
+    data: ClientExportRequest,
+    current_user: CurrentUser,
+    _: AdminOrManager,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """Export selected clients to xlsx. Manager/admin only."""
+    if len(data.client_ids) > 1000:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="too many: max 1000 clients per export")
+
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.client_profile))
+        .where(User.id.in_(data.client_ids), User.role == UserRole.CLIENT)
+    )
+    users = list(result.scalars().all())
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Клиенты"
+
+    bold = Font(bold=True)
+    for col_idx, (header, width) in enumerate(zip(_XLSX_COLUMNS, _XLSX_COL_WIDTHS), start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = bold
+        ws.column_dimensions[cell.column_letter].width = width
+
+    for row_idx, u in enumerate(users, start=2):
+        p: ClientProfile | None = u.client_profile
+        is_company = p is not None and p.client_type == ClientType.COMPANY
+
+        client_type_label = "Юр.лицо" if is_company else "Физлицо"
+        name = (p.company_name if is_company and p else None) or u.full_name
+        inn = p.inn if p else None
+        kpp = p.kpp if p else None
+        ogrn = p.ogrn if p else None
+        bik = p.bik if p else None
+        bank_name = p.bank_name if p else None
+        bank_account = p.bank_account if p else None
+        correspondent_account = p.correspondent_account if p else None
+        legal_address = p.legal_address if p else None
+        delivery_address = p.delivery_address if p else None
+        tariff_id = str(p.tariff_id) if p and p.tariff_id else None
+        credit_allowed = "Да" if p and p.credit_allowed else "Нет"
+        credit_limit = float(p.credit_limit) if p and p.credit_limit is not None else None
+        billing_email = p.billing_email if p else None
+        # Format datetime without timezone suffix
+        created_at = u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else None
+
+        row_data = [
+            client_type_label, name, inn, kpp, ogrn, bik, bank_name, bank_account,
+            correspondent_account, legal_address, delivery_address, tariff_id,
+            credit_allowed, credit_limit, u.email, billing_email, u.phone, created_at,
+        ]
+        for col_idx, value in enumerate(row_data, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    meta = get_request_meta(request)
+    await log_action(
+        db,
+        action="clients.exported",
+        actor_id=current_user.id,
+        details={"count": len(users), "client_ids": [str(cid) for cid in data.client_ids]},
+        ip_address=meta["ip_address"],
+    )
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"clients_{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class AuditLogResponse(BaseModel):
