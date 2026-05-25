@@ -1,9 +1,10 @@
+import base64
 import uuid
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
 import httpx
 
@@ -170,3 +171,114 @@ async def send_document_to_chat(
     await db.commit()
 
     return {"ok": True, "conv_id": conv_id}
+
+
+class SendEmailBody(BaseModel):
+    email: EmailStr | None = None
+
+
+@router.post("/{document_id}/send-email", status_code=200)
+async def send_document_by_email(
+    order_id: uuid.UUID,
+    document_id: uuid.UUID,
+    body: SendEmailBody,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Отправить PDF документа клиенту на email.
+
+    Если email в теле не задан — берём billing_email или user.email из auth_service.
+    Доступно менеджеру и администратору. При ошибке SMTP — 503, статус не меняется.
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Отправлять документы по email может менеджер или администратор")
+
+    order = await get_order(db, order_id, actor)
+    doc = await document_service.get_document(db, document_id)
+
+    if doc.order_id != order_id:
+        raise ForbiddenError("Документ не принадлежит этой заявке")
+
+    # READY и SENT оба допустимы для повторной отправки
+    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
+        raise HTTPException(status_code=409, detail="document not ready")
+
+    if not doc.file_path:
+        raise NotFoundError("document file missing")
+
+    full_path = MEDIA_ROOT / doc.file_path
+    if not full_path.exists():
+        raise NotFoundError("document file missing")
+
+    # Разрешаем адрес получателя
+    if body.email:
+        recipient = str(body.email)
+    else:
+        auth_base = settings.auth_service_url.rstrip("/")
+        internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    f"{auth_base}/internal/users/{order.client_id}/email-target",
+                    headers=internal_headers,
+                )
+                r.raise_for_status()
+                recipient = r.json().get("email")
+        except Exception as exc:
+            log.error("auth_service email-target lookup failed: %s", exc)
+            raise HTTPException(status_code=503, detail="email service unavailable")
+
+    if not recipient:
+        raise HTTPException(status_code=422, detail="recipient has no email")
+
+    # Читаем PDF и кодируем
+    pdf_bytes = full_path.read_bytes()
+    content_b64 = base64.b64encode(pdf_bytes).decode()
+
+    # Составляем тему письма: "Документ ИНВ-2026-000123 по заявке ORD-2026-000045"
+    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
+    body_text = (
+        "Здравствуйте,\n\n"
+        "Во вложении документ по вашей заявке.\n\n"
+        "— BaltOIL"
+    )
+    filename = f"{doc.doc_number}.pdf"
+
+    # Вызываем notification_service
+    notif_base = settings.notification_service_url.rstrip("/")
+    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+    sent = False
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"{notif_base}/internal/email/send-with-attachment",
+                json={
+                    "to": recipient,
+                    "subject": subject,
+                    "body": body_text,
+                    "attachment": {
+                        "filename": filename,
+                        "content_base64": content_b64,
+                        "mime_type": "application/pdf",
+                    },
+                },
+                headers=internal_headers,
+            )
+            r.raise_for_status()
+            sent = r.json().get("sent", False)
+    except Exception as exc:
+        log.error("notification_service send-with-attachment failed: %s", exc)
+
+    if not sent:
+        raise HTTPException(status_code=503, detail="email service unavailable")
+
+    # Только после подтверждения от notification_service обновляем статус
+    doc.status = DocumentStatus.SENT
+    await db.commit()
+
+    log.info(
+        "document.sent_email action document_id=%s order_id=%s to=%s filename=%s",
+        document_id, order_id, recipient, filename,
+    )
+
+    return {"ok": True, "to": recipient}

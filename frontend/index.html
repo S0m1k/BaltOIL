@@ -5883,8 +5883,8 @@ async function ccLoadDocs() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>
                     В чат
                   </button>
-                  <button class="btn btn-sm btn-ghost" disabled title="Доступно после Deploy 5"
-                    style="opacity:.4;cursor:not-allowed">
+                  <button class="btn btn-sm btn-ghost" title="Отправить на почту"
+                    onclick="ccDocSendEmail('${d.order_id}','${d.id}',this)">
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>
                     На почту
                   </button>
@@ -5908,6 +5908,46 @@ async function ccDocToChat(orderId, docId, btn) {
     _ccCache.docs = null;
   } catch (e) {
     toast('Ошибка: ' + e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+async function ccDocSendEmail(orderId, docId, btn) {
+  // Resolve default email: billing_email from ClientProfile, fallback to user.email.
+  // Profile is always loaded before the docs tab is opened (ccLoadProfile runs on modal open),
+  // so _ccCache.profile should be available; fall back gracefully if not.
+  const profile = _ccCache.profile;
+  const defaultEmail = (profile && (profile.client_profile?.billing_email || profile.email)) || '';
+
+  const chosenEmail = prompt(
+    `Отправить на ${defaultEmail}? Можно изменить:`,
+    defaultEmail
+  );
+  if (chosenEmail === null) return; // user cancelled
+
+  const emailToSend = chosenEmail.trim() || defaultEmail;
+  if (!emailToSend) {
+    toast('Email не указан', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    // Always pass the email explicitly so the backend doesn't need to re-fetch it.
+    const res = await orderPost(
+      `/orders/${orderId}/documents/${docId}/send-email`,
+      { email: emailToSend }
+    );
+    toast('Письмо отправлено на ' + (res.to || emailToSend), 'success');
+    // Invalidate docs cache so next open reflects SENT status
+    _ccCache.docs = null;
+    ccLoadDocs();
+  } catch (e) {
+    if (e.status === 503) {
+      toast('SMTP недоступен, попробуйте позже', 'error');
+    } else {
+      toast('Ошибка: ' + e.message, 'error');
+    }
     btn.disabled = false;
   }
 }

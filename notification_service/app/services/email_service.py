@@ -10,6 +10,7 @@ Design:
 import logging
 import socket
 from contextlib import contextmanager
+from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -91,4 +92,69 @@ async def send_email(to: str, subject: str, body_text: str) -> bool:
         return True
     except Exception:
         logger.exception("failed to send email to=%s subject=%r", to, subject)
+        return False
+
+
+async def send_email_with_attachment(
+    to: str,
+    subject: str,
+    body_text: str,
+    filename: str,
+    content_bytes: bytes,
+    mime_type: str,
+) -> bool:
+    """Send a plain-text email with a single file attachment.
+
+    Returns True if the SMTP server accepted the message, False otherwise.
+    Never raises.
+    """
+    if not settings.email_enabled:
+        logger.debug("email disabled (EMAIL_ENABLED=false), skipping send to %s", to)
+        return False
+
+    if not settings.smtp_host:
+        logger.warning("email_enabled=true but SMTP_HOST is not set — cannot send email")
+        return False
+
+    logger.info(
+        "sending email with attachment to=%s subject=%r filename=%r size=%d",
+        to, subject, filename, len(content_bytes),
+    )
+
+    msg = MIMEMultipart()
+    msg["Subject"] = subject
+    msg["From"] = settings.smtp_from
+    msg["To"] = to
+    msg["X-BaltOIL-Notification"] = "1"
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+
+    part = MIMEApplication(content_bytes, _subtype=mime_type.split("/")[-1])
+    part.add_header("Content-Disposition", "attachment", filename=filename)
+    msg.attach(part)
+
+    # Взаимоисключимо: только один из use_tls / use_starttls. STARTTLS приоритетнее
+    # — обычно правильный режим для порта 587 (subm). use_tls — для 465 (submissions).
+    use_tls = settings.smtp_use_tls and not settings.smtp_use_starttls
+    start_tls = settings.smtp_use_starttls
+
+    send_kwargs = dict(
+        hostname=settings.smtp_host,
+        port=settings.smtp_port,
+        username=settings.smtp_user,
+        password=settings.smtp_password,
+        use_tls=use_tls,
+        start_tls=start_tls,
+        timeout=10,
+    )
+
+    try:
+        if settings.smtp_force_ipv6:
+            with _prefer_ipv6():
+                await aiosmtplib.send(msg, **send_kwargs)
+        else:
+            await aiosmtplib.send(msg, **send_kwargs)
+        logger.info("email with attachment sent to=%s subject=%r", to, subject)
+        return True
+    except Exception:
+        logger.exception("failed to send email with attachment to=%s subject=%r", to, subject)
         return False
