@@ -76,9 +76,15 @@ set $auth_upstream auth_service:8001;
 proxy_pass http://$auth_upstream;
 ```
 
-С переменной nginx **обязан** иметь `resolver` и резолвит на каждый запрос с TTL из `valid=`. После `force-recreate` любого backend-контейнера фронт сам подхватит новый IP в течение ~10 секунд. **Перезапускать `frontend` теперь не обязательно.**
+С переменной nginx **обязан** иметь `resolver` и резолвит на каждый запрос с TTL из `valid=`. После `force-recreate` любого backend-контейнера фронт сам подхватит новый IP в течение ~10 секунд — перезапускать `frontend` ради этого не нужно.
 
 Если когда-нибудь надо добавить новый upstream — обязательно через переменную, иначе вернётся старый баг. Прямой `proxy_pass http://имя:порт` без `set $...` — запрещён.
+
+**Подводный камень №1 (2026-05-25):** `set $upstream ...` обязан стоять **до** `rewrite ... break`. `break` останавливает все последующие директивы rewrite-модуля в этом location, а `set` — это тоже rewrite-модуль. Если порядок обратный — переменная остаётся пустой, `proxy_pass http://` → `[error] invalid URL prefix in "http://"` → 500 на всё, что проходит через этот location. В каждом `location`-блоке `set` идёт первым.
+
+**Подводный камень №2 (2026-05-25):** Сам `nginx.conf` подмонтирован **как файл, не директория** (`./frontend/nginx.conf:/etc/nginx/conf.d/default.conf`). Bind-mount файла привязан к inode. `git pull` переписывает файл через atomic rename → новый inode на диске, контейнер всё ещё видит старый. `docker exec frontend nginx -s reload` перечитает то же старое содержимое и ничего не изменится.
+
+Когда правится **сам nginx.conf** — обязательно `docker compose up -d --force-recreate --no-deps frontend` после `git pull`. Не `restart`, не `reload`. Это переустановит mount на актуальный inode. (Изменения только в JS/HTML внутри `frontend/` не задеты — там примонтирована директория, новый inode подхватывается.)
 
 ## История переезда (2026-05-23)
 
