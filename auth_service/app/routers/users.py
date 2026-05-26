@@ -2,14 +2,12 @@ import uuid
 from datetime import datetime, date
 from io import BytesIO
 from typing import Annotated
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, Request, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-import openpyxl
-from openpyxl.styles import Font
 
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -214,8 +212,16 @@ async def export_clients(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> StreamingResponse:
     """Export selected clients to xlsx. Manager/admin only."""
+    # Lazy import: openpyxl нужен только здесь. Если его нет в образе
+    # (старый build до sprint 2026-06 deploy 4) — top-level import уронит весь
+    # сервис. Сейчас импортим только при вызове, отдаём 503 если пакета нет.
+    try:
+        import openpyxl
+        from openpyxl.styles import Font
+    except ImportError:
+        raise HTTPException(status_code=503, detail="xlsx export module not installed; rebuild auth_service image")
+
     if len(data.client_ids) > 1000:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="too many: max 1000 clients per export")
 
     result = await db.execute(
