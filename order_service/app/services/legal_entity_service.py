@@ -55,21 +55,45 @@ async def create_version(
 
     now = datetime.now(timezone.utc)
 
-    # Закрываем текущую активную версию
+    # Снимаем «до» для audit log
     current = await get_active(db)
+    before_data: dict | None = None
     if current is not None:
+        before_data = {
+            "id": str(current.id),
+            "name": current.name,
+            "inn": current.inn,
+            "kpp": current.kpp,
+            "phone": current.phone,
+            "email": current.email,
+            "director_name": current.director_name,
+        }
         current.effective_to = now
         current.is_active = False
 
     new_entity = LegalEntity(
         effective_from=now,
+        created_by_id=actor.id,
         **data.model_dump(),
     )
     db.add(new_entity)
     await db.flush()
     await db.refresh(new_entity)
 
-    log.info("LegalEntity version created by admin %s: id=%s inn=%s", actor.id, new_entity.id, new_entity.inn)
+    after_data = {
+        "id": str(new_entity.id),
+        "name": new_entity.name,
+        "inn": new_entity.inn,
+        "kpp": new_entity.kpp,
+        "phone": new_entity.phone,
+        "email": new_entity.email,
+        "director_name": new_entity.director_name,
+    }
+
+    log.info(
+        "audit action=legal_entity.updated actor_id=%s before=%s after=%s",
+        actor.id, before_data, after_data,
+    )
     return new_entity
 
 
@@ -82,3 +106,31 @@ async def get_by_id(db: AsyncSession, entity_id, actor: TokenUser) -> LegalEntit
     if not entity:
         raise NotFoundError("Запись реквизитов не найдена")
     return entity
+
+
+async def get_seller_snapshot(db: AsyncSession) -> dict | None:
+    """Получить активные реквизиты продавца как плоский dict для хранения в JSONB-снимке.
+
+    Возвращает None если реквизиты ещё не заданы.
+    """
+    entity = await get_active(db)
+    if entity is None:
+        return None
+    return {
+        "name": entity.name,
+        "short_name": entity.short_name,
+        "inn": entity.inn,
+        "kpp": entity.kpp,
+        "ogrn": entity.ogrn,
+        "okpo": entity.okpo,
+        "bank_name": entity.bank_name,
+        "bik": entity.bik,
+        "checking_account": entity.checking_account,
+        "correspondent_account": entity.correspondent_account,
+        "legal_address": entity.legal_address,
+        "actual_address": entity.actual_address,
+        "phone": entity.phone,
+        "email": entity.email,
+        "director_name": entity.director_name,
+        "director_title": entity.director_title,
+    }

@@ -491,6 +491,22 @@
   }
   .order-card:hover { border-color: var(--border2); }
   .order-card.expanded { border-color: var(--amber); }
+  /* Цветной реестр (Deploy 4): оплата / отмена */
+  .order-card.row-paid    { border-left: 3px solid rgba(16,185,129,.7);  background: rgba(16,185,129,.04); }
+  .order-card.row-partial { border-left: 3px solid rgba(245,158,11,.7);  background: rgba(245,158,11,.05); }
+  .order-card.row-rejected { border-left: 3px solid rgba(239,68,68,.7);  background: rgba(239,68,68,.04); }
+  .order-card.row-rejected .order-number { opacity: .6; text-decoration: line-through; }
+  /* Иконка статуса оплаты в header */
+  .pay-icon { display:inline-flex; align-items:center; flex-shrink:0; }
+  /* Легенда реестра */
+  .registry-legend {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    padding: 8px 0 6px; font-size: 11px; color: var(--text3);
+  }
+  .legend-dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 5px; flex-shrink: 0;
+  }
 
   .order-header {
     padding: 14px 18px; cursor: pointer;
@@ -1762,6 +1778,12 @@
           ↻ Обновить
         </button>
       </div>
+      <div id="orders-registry-legend" class="registry-legend" style="display:none;padding-left:2px">
+        <span><span class="legend-dot" style="background:#10b981"></span>Оплачено</span>
+        <span><span class="legend-dot" style="background:#f59e0b"></span>Частичная оплата</span>
+        <span><span class="legend-dot" style="background:rgba(107,114,128,.4)"></span>Не оплачено</span>
+        <span><span class="legend-dot" style="background:#ef4444"></span>Отклонена</span>
+      </div>
       <div id="orders-list" class="orders-grid">
         <div class="empty-state">
           <div class="loading"></div>
@@ -2225,7 +2247,6 @@
       <div class="users-toolbar">
         <div class="toolbar-title">Реквизиты компании (продавца)</div>
         <button class="btn btn-sm btn-ghost" onclick="loadLegalEntity()">↻ Обновить</button>
-        <button class="btn btn-sm btn-ghost" onclick="loadLegalEntityHistory()" style="margin-left:auto">История версий</button>
       </div>
       <div id="legal-entity-info" style="margin:10px 0;font-size:12px;color:var(--text3)"></div>
       <form id="legal-entity-form" onsubmit="saveLegalEntity(event)" style="max-width:760px">
@@ -2237,9 +2258,9 @@
             <input class="form-input" name="short_name" maxlength="100"></div>
           <div class="form-row" style="display:flex;gap:10px">
             <div style="flex:1"><label class="form-label">ИНН *</label>
-              <input class="form-input" name="inn" required pattern="\d{10}|\d{12}" maxlength="12"></div>
+              <input class="form-input" name="inn" required pattern="\d{10}|\d{12}" maxlength="12" title="10 или 12 цифр"></div>
             <div style="flex:1"><label class="form-label">КПП</label>
-              <input class="form-input" name="kpp" pattern="\d{9}" maxlength="9"></div>
+              <input class="form-input" name="kpp" pattern="\d{9}" maxlength="9" title="9 цифр"></div>
           </div>
           <div class="form-row" style="display:flex;gap:10px">
             <div style="flex:1"><label class="form-label">ОГРН</label>
@@ -2255,12 +2276,12 @@
             <input class="form-input" name="bank_name" maxlength="255"></div>
           <div class="form-row" style="display:flex;gap:10px">
             <div style="flex:1"><label class="form-label">БИК</label>
-              <input class="form-input" name="bik" pattern="\d{9}" maxlength="9"></div>
+              <input class="form-input" name="bik" pattern="\d{9}" maxlength="9" title="9 цифр"></div>
             <div style="flex:2"><label class="form-label">Корр. счёт</label>
-              <input class="form-input" name="correspondent_account" pattern="\d{20}" maxlength="20"></div>
+              <input class="form-input" name="correspondent_account" pattern="\d{20}" maxlength="20" title="20 цифр"></div>
           </div>
           <div class="form-row"><label class="form-label">Расчётный счёт</label>
-            <input class="form-input" name="checking_account" pattern="\d{20}" maxlength="20"></div>
+            <input class="form-input" name="checking_account" pattern="\d{20}" maxlength="20" title="20 цифр"></div>
         </fieldset>
 
         <fieldset style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px">
@@ -2288,11 +2309,18 @@
         </fieldset>
 
         <div style="display:flex;gap:10px;align-items:center">
-          <button type="submit" class="btn btn-warn">Сохранить новую версию</button>
+          <button type="submit" class="btn btn-warn">Сохранить</button>
           <span style="font-size:12px;color:var(--text3)">Каждое сохранение создаёт новую версию; старые остаются в истории для уже выпущенных документов.</span>
         </div>
       </form>
-      <div id="legal-entity-history" style="margin-top:20px"></div>
+
+      <!-- История изменений (collapsible) -->
+      <details id="legal-entity-history-details" style="max-width:760px;margin-top:18px" onToggle="onHistoryToggle(this)">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);padding:8px 0;user-select:none">
+          История изменений
+        </summary>
+        <div id="legal-entity-history" style="margin-top:10px"></div>
+      </details>
     </div>
 
     <!-- CHAT TAB -->
@@ -2501,6 +2529,7 @@ const ICONS = {
   'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'clock':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>',
   'circle':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"/></svg>',
+  'x-circle':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M165.66,101.66,139.31,128l26.35,26.34a8,8,0,0,1-11.32,11.32L128,139.31l-26.34,26.35a8,8,0,0,1-11.32-11.32L116.69,128,90.34,101.66a8,8,0,0,1,11.32-11.32L128,116.69l26.34-26.35a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'dots-three-vertical':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M140,128a12,12,0,1,1-12-12A12,12,0,0,1,140,128ZM128,72a12,12,0,1,0-12-12A12,12,0,0,0,128,72Zm0,112a12,12,0,1,0,12,12A12,12,0,0,0,128,184Z"/></svg>',
   'arrows-clockwise':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></svg>',
   'sign-out':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z"/></svg>',
@@ -3250,6 +3279,9 @@ async function loadOrders() {
 
 function renderOrders(orders) {
   const el = document.getElementById('orders-list');
+  const legend = document.getElementById('orders-registry-legend');
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  if (legend) legend.style.display = isStaff ? 'flex' : 'none';
   if (!orders.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('package',36)}</div>Заявок не найдено</div>`;
     return;
@@ -3262,13 +3294,34 @@ function fmtDate(dt) {
   return new Date(dt).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
+function _orderRowClass(o) {
+  if (o.status === 'rejected') return 'row-rejected';
+  if (o.payment_status === 'paid') return 'row-paid';
+  if (o.payment_status === 'partially_paid') return 'row-partial';
+  return '';
+}
+
+function _payIcon(o) {
+  if (o.status === 'rejected') {
+    const tip = o.rejection_reason ? escHtml(o.rejection_reason) : 'Отклонена';
+    return `<span class="pay-icon" style="color:rgba(239,68,68,.8)" title="${tip}">${icon('x-circle',14)}</span>`;
+  }
+  if (o.payment_status === 'paid')
+    return `<span class="pay-icon" style="color:#10b981" title="Оплачено">${icon('check-circle',14)}</span>`;
+  if (o.payment_status === 'partially_paid')
+    return `<span class="pay-icon" style="color:#f59e0b" title="Частичная оплата">${icon('clock',14)}</span>`;
+  return `<span class="pay-icon" style="color:var(--text3)" title="Не оплачено">${icon('circle',14)}</span>`;
+}
+
 function orderCardHTML(o) {
   const statusLabel = STATUS_LABELS[o.status] || o.status;
   const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
   const isStaff     = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const rowClass    = _orderRowClass(o);
   return `
-  <div class="order-card" id="card-${o.id}">
+  <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
+      ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
       <div class="order-volume">
@@ -4355,12 +4408,19 @@ async function saveLegalEntity(ev) {
     return;
   }
   try {
-    await orderPost('/admin/legal-entity', data);
+    await orderPut('/admin/legal-entity', data);
     toast('Реквизиты сохранены', 'success');
     loadLegalEntity();
+    // Обновить историю если раскрыта
+    const details = document.getElementById('legal-entity-history-details');
+    if (details && details.open) loadLegalEntityHistory();
   } catch (e) {
     toast(e.message || 'Ошибка сохранения', 'error');
   }
+}
+
+function onHistoryToggle(details) {
+  if (details.open) loadLegalEntityHistory();
 }
 
 async function loadLegalEntityHistory() {
@@ -4368,20 +4428,22 @@ async function loadLegalEntityHistory() {
   box.innerHTML = '<div class="loading"></div>';
   try {
     const items = await orderGet('/admin/legal-entity/history');
-    if (!items.length) { box.innerHTML = '<div class="empty-state">История пуста</div>'; return; }
-    box.innerHTML = '<h4 style="margin:0 0 8px">История версий</h4>' +
+    const shown = items.slice(0, 10);
+    if (!shown.length) { box.innerHTML = '<div class="empty-state">История пуста</div>'; return; }
+    box.innerHTML =
       '<table class="users-table"><thead><tr>' +
-      '<th>С</th><th>По</th><th>Активна</th><th>Наименование</th><th>ИНН</th><th>ID</th>' +
+      '<th>Дата версии</th><th>Архивирована</th><th>Статус</th><th>Наименование</th><th>ИНН</th><th>Инициатор</th>' +
       '</tr></thead><tbody>' +
-      items.map(it => `<tr>
+      shown.map(it => `<tr>
         <td>${fmtDate(it.effective_from)}</td>
         <td>${it.effective_to ? fmtDate(it.effective_to) : '—'}</td>
-        <td>${it.is_active ? '✓' : ''}</td>
+        <td>${it.is_active ? '<span style="color:#10b981;font-weight:600">Активна</span>' : '<span style="color:var(--text3)">Архив</span>'}</td>
         <td>${escHtml(it.name)}</td>
         <td>${escHtml(it.inn)}</td>
-        <td><code style="font-size:11px">${it.id}</code></td>
+        <td><code style="font-size:11px">${it.created_by_id ? it.created_by_id.slice(0,8) + '…' : '—'}</code></td>
       </tr>`).join('') +
-      '</tbody></table>';
+      '</tbody></table>' +
+      (items.length > 10 ? `<div style="font-size:12px;color:var(--text3);margin-top:6px">Показаны последние 10 из ${items.length} версий</div>` : '');
   } catch (e) {
     box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
@@ -5630,7 +5692,7 @@ const CC_STATUS_LABELS = {
 };
 const CC_DOC_TYPE_LABELS = {
   invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)',
-  invoice_final: 'Счёт (финал)', upd: 'УПД', ttn: 'ТТН',
+  invoice_final: 'Счёт (финал)', upd: 'УПД', ttn: 'ТТН', poa: 'Доверенность',
 };
 const CC_DOC_STATUS_LABELS = {
   draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован',
@@ -5842,60 +5904,95 @@ async function ccLoadOrders() {
 
 // ── Documents tab ─────────────────────────────────────────────
 
+function _ccDocsRender(docs, typeFilter) {
+  const filtered = typeFilter ? docs.filter(d => d.doc_type === typeFilter) : docs;
+  const DOWNLOAD_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>';
+  const CHAT_ICON   = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>';
+  const EMAIL_ICON  = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>';
+
+  if (!filtered.length) return '<div style="color:var(--text3);font-size:12px;padding:10px 0">Нет документов этого типа</div>';
+
+  return `<table class="cc-table">
+    <thead><tr>
+      <th>Тип</th><th>Номер</th><th>Статус</th><th>Дата</th><th>Сумма</th><th>Действия</th>
+    </tr></thead>
+    <tbody>
+      ${filtered.map(d => `
+        <tr>
+          <td>${escHtml(CC_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)}</td>
+          <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.doc_number)}</td>
+          <td><span class="status-badge">${escHtml(CC_DOC_STATUS_LABELS[d.status] || d.status)}</span></td>
+          <td style="white-space:nowrap">${d.issued_at ? fmtDate(d.issued_at) : fmtDate(d.created_at)}</td>
+          <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>
+          <td style="white-space:nowrap">
+            ${d.status === 'ready' || d.status === 'sent' ? `
+              <a href="${ORDER_URL}/orders/${d.order_id}/documents/${d.id}/download"
+                 target="_blank" class="btn btn-sm btn-ghost" title="Скачать PDF"
+                 onclick="event.stopPropagation()">${DOWNLOAD_ICON} Скачать</a>
+              <button class="btn btn-sm btn-ghost" title="Отправить в чат"
+                onclick="ccDocToChat('${d.order_id}','${d.id}',this)">${CHAT_ICON} В чат</button>
+              <button class="btn btn-sm btn-ghost" title="Отправить на почту"
+                onclick="ccDocSendEmail('${d.order_id}','${d.id}',this)">${EMAIL_ICON} На почту</button>
+            ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
 async function ccLoadDocs() {
   if (_ccCache.docs) return;
   const panel = document.getElementById('cc-panel-docs');
   panel.innerHTML = '<div class="cc-spinner"><div class="loading"></div> Загрузка…</div>';
   try {
-    const docs = await orderGet(`/clients/${_ccClientId}/documents?limit=100`);
+    const docs = await orderGet(`/clients/${_ccClientId}/documents?limit=200`);
     _ccCache.docs = docs;
-    if (!docs.length) {
-      panel.innerHTML = `<div class="empty-state" style="padding:30px">Документов не найдено</div>`;
-      return;
-    }
-    panel.innerHTML = `
-      <table class="cc-table">
-        <thead>
-          <tr>
-            <th>Тип</th><th>Номер</th><th>Статус</th><th>Дата</th><th>Сумма</th><th>Действия</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${docs.map(d => `
-            <tr>
-              <td>${escHtml(CC_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)}</td>
-              <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.doc_number)}</td>
-              <td><span class="status-badge">${escHtml(CC_DOC_STATUS_LABELS[d.status] || d.status)}</span></td>
-              <td style="white-space:nowrap">${d.issued_at ? fmtDate(d.issued_at) : fmtDate(d.created_at)}</td>
-              <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>
-              <td style="white-space:nowrap">
-                ${d.status === 'ready' || d.status === 'sent' ? `
-                  <a href="${ORDER_URL}/orders/${d.order_id}/documents/${d.id}/download"
-                     target="_blank"
-                     class="btn btn-sm btn-ghost"
-                     title="Скачать PDF"
-                     onclick="event.stopPropagation()">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>
-                    Скачать
-                  </a>
-                  <button class="btn btn-sm btn-ghost" title="Отправить в чат"
-                    onclick="ccDocToChat('${d.order_id}','${d.id}',this)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg>
-                    В чат
-                  </button>
-                  <button class="btn btn-sm btn-ghost" title="Отправить на почту"
-                    onclick="ccDocSendEmail('${d.order_id}','${d.id}',this)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>
-                    На почту
-                  </button>
-                ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+    _ccRenderDocsPanel(docs, '');
   } catch (e) {
     panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
+}
+
+function _ccRenderDocsPanel(docs, typeFilter) {
+  const panel = document.getElementById('cc-panel-docs');
+
+  const filterBar = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <label style="font-size:12px;color:var(--text3)">Тип:</label>
+      <select class="form-input" style="width:auto;font-size:12px;padding:4px 8px"
+        onchange="_ccDocsFilter(this.value)">
+        <option value="">Все</option>
+        <option value="invoice_preliminary">Счёт (предв.)</option>
+        <option value="invoice_final">Счёт (финал)</option>
+        <option value="invoice">Счёт</option>
+        <option value="upd">УПД</option>
+        <option value="ttn">ТТН</option>
+        <option value="poa">Доверенность</option>
+      </select>
+      <span style="font-size:12px;color:var(--text3);margin-left:auto">${docs.length} документов</span>
+    </div>`;
+
+  // Contracts section (populated in Deploy 2 when contracts table exists)
+  const contractsSection = `
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Договоры</div>
+      <div id="cc-contracts-list" style="color:var(--text3);font-size:12px;padding:8px 0">
+        <em>Договоры появятся после следующего обновления системы</em>
+      </div>
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Документы по заявкам</div>`;
+
+  panel.innerHTML = contractsSection + filterBar +
+    `<div id="cc-docs-table">${_ccDocsRender(docs, typeFilter)}</div>`;
+
+  // Restore filter value if re-rendering
+  const sel = panel.querySelector('select');
+  if (sel) sel.value = typeFilter;
+}
+
+function _ccDocsFilter(typeFilter) {
+  const docs = _ccCache.docs || [];
+  document.getElementById('cc-docs-table').innerHTML = _ccDocsRender(docs, typeFilter);
 }
 
 async function ccDocToChat(orderId, docId, btn) {

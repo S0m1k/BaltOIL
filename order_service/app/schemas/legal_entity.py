@@ -59,6 +59,7 @@ class LegalEntityResponse(BaseModel):
     email: str | None
     director_name: str | None
     director_title: str | None
+    created_by_id: uuid.UUID | None
     effective_from: datetime
     effective_to: datetime | None
     is_active: bool

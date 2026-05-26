@@ -22,6 +22,25 @@ async def get_current(
     return await legal_entity_service.get_active(db)
 
 
+@router.put("", response_model=LegalEntityResponse)
+async def update(
+    data: LegalEntityCreate,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Обновить реквизиты: создаёт новую версию, старую архивирует.
+
+    Доступ: admin only. Каждый вызов создаёт новую запись с актуальными
+    реквизитами — старые версии сохраняются для уже выпущенных документов.
+    """
+    if actor.role != "admin":
+        from app.core.exceptions import ForbiddenError
+        raise ForbiddenError("Изменять реквизиты может только администратор")
+    entity = await legal_entity_service.create_version(db, data, actor)
+    await db.commit()
+    return entity
+
+
 @router.post("", response_model=LegalEntityResponse, status_code=201)
 async def create_or_update(
     data: LegalEntityCreate,
@@ -30,8 +49,7 @@ async def create_or_update(
 ):
     """Создать новую версию реквизитов (текущая архивируется).
 
-    Каждый вызов создаёт новую запись с актуальными реквизитами.
-    Старая версия сохраняется в истории — уже выпущенные документы остаются корректными.
+    Оставлен для обратной совместимости. Предпочтительный метод — PUT.
     """
     entity = await legal_entity_service.create_version(db, data, actor)
     await db.commit()

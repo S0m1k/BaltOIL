@@ -45,6 +45,9 @@ class LegalEntity(Base):
     director_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     director_title: Mapped[str | None] = mapped_column(String(100), nullable=True, default="Директор")
 
+    # Кто создал эту версию (UUID пользователя из auth_service)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
     # История: активная запись имеет effective_to=NULL
     effective_from: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
