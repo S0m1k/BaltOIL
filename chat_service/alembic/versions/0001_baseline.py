@@ -27,7 +27,7 @@ def upgrade() -> None:
     op.create_table(
         "conversations",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("type", sa.Enum("client_support", "internal", name="conversationtype"), nullable=False),
+        sa.Column("type", postgresql.ENUM("client_support", "internal", name="conversationtype", create_type=False), nullable=False),
         sa.Column("participants_hash", sa.String(64), nullable=True),
         sa.Column("title", sa.String(255), nullable=True),
         sa.Column("created_by_id", postgresql.UUID(as_uuid=True), nullable=False),
