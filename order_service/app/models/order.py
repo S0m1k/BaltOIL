@@ -57,7 +57,10 @@ class Order(Base):
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     # Топливо
-    fuel_type: Mapped[FuelType] = mapped_column(SAEnum(FuelType), nullable=False)
+    fuel_type: Mapped[FuelType] = mapped_column(
+        SAEnum(FuelType, values_callable=lambda x: [e.value for e in x], name="fueltype"),
+        nullable=False,
+    )
     volume_requested: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)  # литры
     volume_delivered: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)  # факт
 

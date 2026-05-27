@@ -35,7 +35,12 @@ def _assert_prod_secrets_safe() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _assert_prod_secrets_safe()
-    # Add new enum values if not present (safe to run multiple times)
+    # Create tables first — иначе ALTER TYPE ниже падает на пустой БД, где
+    # notificationtype ещё не создан (create_all лепит и тип, и таблицы).
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    # Затем добиваем новые enum-value, которые могли появиться в коде позже
+    # первичного create_all (он не модифицирует существующий тип).
     from sqlalchemy import text as _sql_text
     _new_enum_values = ["report_ready", "call_initiated", "call_ended", "call_missed", "chat_new"]
     async with engine.begin() as conn:
@@ -49,9 +54,6 @@ async def lifespan(app: FastAPI):
                     f"END $$;"
                 )
             )
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     logger.info("Notification DB tables ready")
 
     # Start Redis subscriber

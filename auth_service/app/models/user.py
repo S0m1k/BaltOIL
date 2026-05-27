@@ -23,7 +23,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, values_callable=lambda x: [e.value for e in x], name="userrole"),
+        nullable=False,
+    )
 
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
 

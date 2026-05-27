@@ -31,7 +31,8 @@ class Trip(Base):
     )
 
     status: Mapped[TripStatus] = mapped_column(
-        SAEnum(TripStatus), nullable=False, default=TripStatus.PLANNED, index=True
+        SAEnum(TripStatus, values_callable=lambda x: [e.value for e in x], name="tripstatus"),
+        nullable=False, default=TripStatus.PLANNED, index=True,
     )
 
     # Плановый и фактический объём

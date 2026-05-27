@@ -36,11 +36,18 @@ class Payment(Base):
     )
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
-    kind: Mapped[PaymentKind] = mapped_column(SAEnum(PaymentKind), nullable=False)
-    status: Mapped[PaymentStatus] = mapped_column(
-        SAEnum(PaymentStatus), nullable=False, default=PaymentStatus.PENDING, index=True
+    kind: Mapped[PaymentKind] = mapped_column(
+        SAEnum(PaymentKind, values_callable=lambda x: [e.value for e in x], name="paymentkind"),
+        nullable=False,
     )
-    method: Mapped[PaymentMethod | None] = mapped_column(SAEnum(PaymentMethod), nullable=True)
+    status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(PaymentStatus, values_callable=lambda x: [e.value for e in x], name="paymentstatus"),
+        nullable=False, default=PaymentStatus.PENDING, index=True,
+    )
+    method: Mapped[PaymentMethod | None] = mapped_column(
+        SAEnum(PaymentMethod, values_callable=lambda x: [e.value for e in x], name="paymentmethod"),
+        nullable=True,
+    )
 
     amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
 

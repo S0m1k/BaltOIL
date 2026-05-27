@@ -2,6 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 from decimal import Decimal
+import sqlalchemy as sa
 from sqlalchemy import String, ForeignKey, DateTime, Enum as SAEnum, func, Text, Numeric, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -22,7 +23,10 @@ class ClientProfile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
-    client_type: Mapped[ClientType] = mapped_column(SAEnum(ClientType), nullable=False)
+    client_type: Mapped[ClientType] = mapped_column(
+        SAEnum(ClientType, values_callable=lambda x: [e.value for e in x], name="clienttype"),
+        nullable=False,
+    )
 
     # Common fields
     delivery_address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -70,7 +74,12 @@ class ClientProfile(Base):
     credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     # Короткий номер клиента (C-00042). Автоприсваивается через SEQUENCE при создании.
-    client_number: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=True)
+    # server_default нужен, чтобы SQLAlchemy не подставлял NULL явно в INSERT
+    # (миграция 0004 кладёт DEFAULT nextval, ORM должен знать про него).
+    client_number: Mapped[int] = mapped_column(
+        Integer, unique=True, index=True, nullable=False,
+        server_default=sa.text("nextval('client_number_seq')"),
+    )
 
     # Устаревшие коэффициенты — оставлены для возможного отката; не используются в новой логике.
     # Удалить после стабилизации тарифной системы на проде (≥ 1 недели).

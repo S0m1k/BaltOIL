@@ -121,7 +121,7 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "INSERT INTO tariffs (id, name, is_default, description, created_at, updated_at) "
-            "VALUES (:id, :name, true, :desc, now(), now())"
+            "VALUES (CAST(:id AS uuid), :name, true, :desc, now(), now())"
         ).bindparams(
             id=default_tariff_id,
             name="Базовый",
@@ -139,7 +139,7 @@ def upgrade() -> None:
         op.execute(
             sa.text(
                 "INSERT INTO tariff_fuel_prices (id, tariff_id, fuel_type, price_per_liter) "
-                "VALUES (gen_random_uuid(), :tid, :ft, :price)"
+                "VALUES (gen_random_uuid(), CAST(:tid AS uuid), :ft, CAST(:price AS numeric))"
             ).bindparams(tid=default_tariff_id, ft=fuel_type, price=price)
         )
 

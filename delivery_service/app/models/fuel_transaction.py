@@ -32,7 +32,8 @@ class FuelTransaction(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     type: Mapped[TransactionType] = mapped_column(
-        SAEnum(TransactionType), nullable=False, index=True
+        SAEnum(TransactionType, values_callable=lambda x: [e.value for e in x], name="transactiontype"),
+        nullable=False, index=True,
     )
     fuel_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     volume: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # всегда > 0

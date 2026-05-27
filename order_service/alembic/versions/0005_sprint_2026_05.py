@@ -77,11 +77,15 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
+    # Перед сменой типа надо сбросить DEFAULT — он типизирован старым orderstatus_old
+    # и postgres не может автокастить его в новый orderstatus.
+    op.execute("ALTER TABLE orders ALTER COLUMN status DROP DEFAULT;")
     op.execute("""
         ALTER TABLE orders
             ALTER COLUMN status TYPE orderstatus
             USING status::text::orderstatus;
     """)
+    op.execute("ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'new';")
     op.execute("""
         ALTER TABLE order_status_logs
             ALTER COLUMN from_status TYPE orderstatus
