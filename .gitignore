@@ -15,6 +15,13 @@ build/
 *.db
 *.sqlite
 
+# TLS certs (self-signed для локального dev; на проде монтируются извне)
+tls/
+
+# Сгенерированные документы (PDF) — это user-data, не код
+*/media/
+media/
+
 # Alembic migration auto-generated (keep versions folder but not pycache)
 */migrations/versions/__pycache__/
 
