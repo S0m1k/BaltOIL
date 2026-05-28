@@ -76,7 +76,7 @@ async def claim_order(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Водитель берёт свободную заявку (IN_PROGRESS, без водителя)."""
+    """Водитель берёт свободную заявку (NEW, без водителя) → переходит в ACCEPTED."""
     return await order_service.claim_order(db, order_id, current_user)
 
 

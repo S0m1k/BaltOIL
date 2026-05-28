@@ -539,7 +539,7 @@
     border: 1px solid;
   }
   .status-new              { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
-  .status-in_progress      { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
+  .status-accepted         { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
   .status-in_transit       { color: var(--s-transit);   border-color: var(--s-transit);   background: rgba(168,85,247,.1); }
   .status-delivered        { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
   .status-partially_delivered { color: var(--s-partial); border-color: var(--s-partial); background: rgba(245,158,11,.1); }
@@ -1771,7 +1771,7 @@
         <div class="toolbar-title">Заявки</div>
         <div class="status-checkboxes" id="status-filter-group">
           <label class="status-cb-label"><input type="checkbox" name="sf" value="new" checked onchange="loadOrders()"> Новые</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_progress" checked onchange="loadOrders()"> В работе</label>
+          <label class="status-cb-label"><input type="checkbox" name="sf" value="accepted" checked onchange="loadOrders()"> Принята</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" checked onchange="loadOrders()"> В рейсе</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="delivered" checked onchange="loadOrders()"> Доставлены</label>
           <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
@@ -2679,7 +2679,7 @@ const FUEL_LABELS = {
 };
 const STATUS_LABELS = {
   new:                 'Новая',
-  in_progress:         'В работе',
+  accepted:            'Принята водителем',
   in_transit:          'В рейсе',
   delivered:           'Доставлена',
   partially_delivered: 'Частично доставлена',
@@ -3407,7 +3407,7 @@ async function loadTimeline(orderId) {
   }
 }
 
-const DOC_TYPE_LABELS = { invoice: 'Счёт', ttn: 'ТТН', upd: 'УПД' };
+const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)', invoice_final: 'Счёт (финал)', ttn: 'ТТН', upd: 'УПД' };
 const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
 const DOC_STATUS_COLORS = { draft: 'var(--text3)', ready: 'var(--green)', sent: 'var(--amber)', cancelled: 'var(--red)' };
 
@@ -3503,14 +3503,14 @@ function actionBarHTML(o) {
   const btns = [];
 
   if (role === 'manager' || role === 'admin') {
-    if (s === 'new')
-      btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','in_progress',{comment:'Принято менеджером'})">✓ Принять</button>`);
-    if (s === 'new' || s === 'in_progress')
+    // Менеджер больше не «принимает в работу» — это делает сам водитель из биржи.
+    // Менеджер только отклоняет и закрывает.
+    if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptReject('${o.id}')">✗ Отклонить</button>`);
     if (s === 'delivered' || s === 'partially_delivered')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
     if (s === 'partially_delivered')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','in_progress',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','accepted',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
     // Payment recording: any active order with outstanding debt or not fully paid
     const payable = s !== 'rejected' && s !== 'cancelled' && o.payment_status !== 'paid';
     if (payable)
@@ -3522,7 +3522,7 @@ function actionBarHTML(o) {
     if (s === 'new' && !o.driver_id)
       btns.push(`<button class="btn btn-sm btn-success" onclick="claimOrder('${o.id}')">${icon('check',14)} Взять заявку</button>`);
     // Своя заявка — можно начать рейс
-    if (s === 'in_progress' && o.driver_id === currentUser?.id)
+    if (s === 'accepted' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-warn" onclick="startOrderTrip('${o.id}')">▶ Начать рейс</button>`);
     if (s === 'in_transit' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">${icon('truck',14)} Перейти к рейсу</button>`);
@@ -3656,7 +3656,7 @@ function promptAssign(orderId) {
       const comment   = document.getElementById('modal-assign-comment').value.trim() || undefined;
       if (!driver_id) { toast('Выберите водителя', 'error'); return; }
       closeModal();
-      await transitionOrder(orderId, 'in_progress', { driver_id, comment });
+      await transitionOrder(orderId, 'accepted', { driver_id, comment });
     }
   );
   loadDriverSelectForAssign();
@@ -5642,7 +5642,7 @@ async function exportClientsXlsx() {
 
 async function openClientOrders(clientId, clientName) {
   const STATUS_LABELS = {
-    new: 'Новая', in_progress: 'В работе',
+    new: 'Новая', accepted: 'Принята водителем',
     in_transit: 'В рейсе', delivered: 'Доставлена',
     partially_delivered: 'Частично', rejected: 'Отклонена', closed: 'Закрыта',
   };
@@ -5690,7 +5690,7 @@ let _ccClientId = null;
 let _ccUserId = null;   // same as _ccClientId — user_id in auth service
 
 const CC_STATUS_LABELS = {
-  new: 'Новая', in_progress: 'В работе', in_transit: 'В рейсе',
+  new: 'Новая', accepted: 'Принята водителем', in_transit: 'В рейсе',
   delivered: 'Доставлена', partially_delivered: 'Частично',
   rejected: 'Отклонена', closed: 'Закрыта',
 };

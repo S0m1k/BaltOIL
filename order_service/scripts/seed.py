@@ -64,23 +64,23 @@ ORDERS = [
         payment_type=PaymentType.ON_DELIVERY,
         status=OrderStatus.NEW, payment_status="unpaid", delivery_window=DeliveryWindow.MORNING,
     ),
-    # 3. IN_PROGRESS — trade_credit client
+    # 3. ACCEPTED — trade_credit client (водитель взял, ещё не выехал)
     dict(
         id=ORDER_IDS["ord_3"], order_number="ORD-2026-000003",
-        client_id=USERS["client_tc"], manager_id=USERS["manager1"],
+        client_id=USERS["client_tc"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
         fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("10000"),
         delivery_address="г. Москва, ул. Ленина, 10",
         payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
-        status=OrderStatus.IN_PROGRESS, payment_status="unpaid", delivery_window=DeliveryWindow.AFTERNOON,
+        status=OrderStatus.ACCEPTED, payment_status="unpaid", delivery_window=DeliveryWindow.AFTERNOON,
     ),
-    # 4. IN_PROGRESS — postpaid, partially paid
+    # 4. ACCEPTED — postpaid, partially paid (водитель взял)
     dict(
         id=ORDER_IDS["ord_4"], order_number="ORD-2026-000004",
-        client_id=USERS["client_mix"], manager_id=USERS["manager2"],
+        client_id=USERS["client_mix"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
         fuel_type=FuelType.PETROL_92, volume_requested=Decimal("3000"),
         delivery_address="г. Москва, Лесная ул., 25",
         payment_type=PaymentType.POSTPAID, expected_amount=Decimal("90000"),
-        status=OrderStatus.IN_PROGRESS, payment_status="partially_paid", delivery_window=DeliveryWindow.EVENING,
+        status=OrderStatus.ACCEPTED, payment_status="partially_paid", delivery_window=DeliveryWindow.EVENING,
     ),
     # 5. IN_TRANSIT — prepaid, fully paid upfront
     dict(

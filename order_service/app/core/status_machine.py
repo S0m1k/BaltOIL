@@ -2,12 +2,12 @@
 Статусная машина заявок.
 
 Жизненный цикл:
-  NEW → IN_PROGRESS (водитель /claim) → IN_TRANSIT → DELIVERED      → CLOSED
-      ↘ REJECTED                                  ↘ PARTIALLY_DELIVERED → CLOSED
-                                                                       ↘ IN_PROGRESS (повторный рейс)
+  NEW → ACCEPTED (водитель /claim) → IN_TRANSIT (начал рейс) → DELIVERED → CLOSED
+      ↘ REJECTED                                            ↘ PARTIALLY_DELIVERED → CLOSED
+                                                                                  ↘ ACCEPTED (повторный рейс)
 
-Статус ASSIGNED удалён: водитель берёт заявку из NEW через /claim (NEW → IN_PROGRESS),
-затем переводит в in_transit. Менеджер не назначает водителей.
+IN_PROGRESS и ASSIGNED удалены: водитель сам берёт заявку из NEW и сам начинает рейс.
+Менеджер водителей не назначает и в работу не переводит — только отклоняет/закрывает.
 """
 from app.models.order import OrderStatus
 from app.core.exceptions import StatusTransitionError, ForbiddenError
@@ -21,14 +21,12 @@ ROLE_CLIENT = "client"
 # allowed_transitions[from_status] = {to_status: {roles_that_can_do_it}}
 ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
     OrderStatus.NEW: {
-        # Менеджер может взять в работу напрямую (например для срочного заказа)
-        OrderStatus.IN_PROGRESS: {ROLE_MANAGER, ROLE_ADMIN},
-        OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.ACCEPTED: {ROLE_DRIVER},
+        OrderStatus.REJECTED: {ROLE_MANAGER, ROLE_ADMIN},
     },
-    OrderStatus.IN_PROGRESS: {
-        # Водитель взял заявку и начинает рейс
-        OrderStatus.IN_TRANSIT:  {ROLE_DRIVER},
-        OrderStatus.REJECTED:    {ROLE_MANAGER, ROLE_ADMIN},
+    OrderStatus.ACCEPTED: {
+        OrderStatus.IN_TRANSIT: {ROLE_DRIVER},
+        OrderStatus.REJECTED:   {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.IN_TRANSIT: {
         OrderStatus.DELIVERED:           {ROLE_DRIVER},
@@ -38,9 +36,9 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
         OrderStatus.CLOSED: {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.PARTIALLY_DELIVERED: {
-        # Закрыть или вернуть в работу для повторного рейса
-        OrderStatus.CLOSED:       {ROLE_MANAGER, ROLE_ADMIN},
-        OrderStatus.IN_PROGRESS:  {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.CLOSED:   {ROLE_MANAGER, ROLE_ADMIN},
+        # Повторный рейс — возвращаем в ACCEPTED, водитель снова едет
+        OrderStatus.ACCEPTED: {ROLE_MANAGER, ROLE_ADMIN},
     },
     # Терминальные — переходов нет
     OrderStatus.CLOSED:   {},

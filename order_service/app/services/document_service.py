@@ -65,7 +65,13 @@ def _get_jinja_env() -> Environment:
 
 async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
     """Генерировать номер документа: TTN-2026-000001 / UPD-2026-000001 / INV-2026-000001."""
-    prefix = {"ttn": "TTN", "upd": "UPD", "invoice": "INV"}[doc_type.value]
+    prefix = {
+        "ttn": "TTN",
+        "upd": "UPD",
+        "invoice": "INV",
+        "invoice_preliminary": "INV",
+        "invoice_final": "INV",
+    }[doc_type.value]
     year = datetime.now(timezone.utc).year
     pattern = f"{prefix}-{year}-%"
     result = await db.execute(
@@ -249,6 +255,7 @@ async def generate_invoice_preliminary(
     """Предварительный счёт — выпускается при создании prepaid-заявки."""
     volume = float(order.volume_requested)
     amount = _order_amount(order, volume)
+    unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
     buyer  = _buyer_snapshot_from_order(order)
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_PRELIMINARY)
@@ -263,6 +270,7 @@ async def generate_invoice_preliminary(
         "order_number":     order.order_number,
         "delivery_address": order.delivery_address,
         "volume":           volume,
+        "unit_price":       unit_price,
         "amount":           amount,
         "doc_title":        "Счёт на оплату (предварительный)",
     }
@@ -302,6 +310,7 @@ async def generate_invoice_final(
     """Финальный счёт — выпускается при переходе в DELIVERED/PARTIALLY_DELIVERED."""
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
+    unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
     buyer  = _buyer_snapshot_from_order(order)
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_FINAL)
@@ -316,6 +325,7 @@ async def generate_invoice_final(
         "order_number":     order.order_number,
         "delivery_address": order.delivery_address,
         "volume":           volume,
+        "unit_price":       unit_price,
         "amount":           amount,
         "doc_title":        "Счёт на оплату (финальный)",
     }

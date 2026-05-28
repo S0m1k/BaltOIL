@@ -309,7 +309,7 @@ async def claim_order(
 ) -> Order:
     """Водитель берёт свободную заявку из биржи (NEW, driver_id IS NULL).
     Атомарная операция: SELECT FOR UPDATE защищает от гонки двух водителей.
-    Переход NEW → IN_PROGRESS, driver_id устанавливается.
+    Переход NEW → ACCEPTED, driver_id устанавливается.
     """
     if actor.role != ROLE_DRIVER:
         raise ForbiddenError("Взять заявку может только водитель")
@@ -329,13 +329,13 @@ async def claim_order(
         raise NotFoundError("Заявка не найдена или уже занята другим водителем")
 
     order.driver_id = actor.id
-    order.status = OrderStatus.IN_PROGRESS
+    order.status = OrderStatus.ACCEPTED
     await db.flush()
 
     db.add(OrderStatusLog(
         order_id=order.id,
         from_status=OrderStatus.NEW,
-        to_status=OrderStatus.IN_PROGRESS,
+        to_status=OrderStatus.ACCEPTED,
         changed_by_id=actor.id,
         changed_by_role=actor.role,
         comment="Заявка взята водителем",
@@ -413,7 +413,7 @@ async def transition_status(
     if data.to_status == OrderStatus.IN_TRANSIT:
         await _auto_start_trip(order, actor)
 
-    # При переводе in_progress → in_transit водитель должен быть уже в driver_id (через /claim)
+    # При переводе accepted → in_transit водитель должен быть уже в driver_id (через /claim)
     if data.to_status == OrderStatus.IN_TRANSIT and actor.role == ROLE_DRIVER:
         if not order.driver_id or order.driver_id != actor.id:
             from app.core.exceptions import StatusTransitionError

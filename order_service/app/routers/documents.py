@@ -137,7 +137,13 @@ async def send_document_to_chat(
                 conv_id = r2.json()["id"]
 
             # Отправляем document-сообщение
-            doc_type_label = {"invoice": "Счёт", "ttn": "ТТН", "upd": "УПД"}.get(
+            doc_type_label = {
+                "invoice": "Счёт",
+                "invoice_preliminary": "Счёт (предв.)",
+                "invoice_final": "Счёт (финал)",
+                "ttn": "ТТН",
+                "upd": "УПД",
+            }.get(
                 doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type, "Документ"
             )
             msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
