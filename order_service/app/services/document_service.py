@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from num2words import num2words
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,39 @@ from app.models.document import Document, DocumentType, DocumentStatus
 from app.models.order import Order
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
-from app.services.payment_service import get_seller_snapshot
+from app.services.legal_entity_service import get_seller_snapshot
+
+
+# ── Сумма прописью ────────────────────────────────────────────────────────────
+
+_KOPECK_FORMS = ("копейка", "копейки", "копеек")
+_RUBLE_FORMS  = ("рубль", "рубля", "рублей")
+
+
+def _ru_plural(n: int, forms: tuple[str, str, str]) -> str:
+    """forms = (1, 2-4, 5-20). Корректно склоняет существительное по числу."""
+    n = abs(n) % 100
+    if 10 < n < 20:
+        return forms[2]
+    n %= 10
+    if n == 1:
+        return forms[0]
+    if 2 <= n <= 4:
+        return forms[1]
+    return forms[2]
+
+
+def amount_to_words_ru(amount: float | Decimal) -> str:
+    """3168.50 → 'Три тысячи сто шестьдесят восемь рублей 50 копеек'."""
+    total_kopecks = int(round(float(amount) * 100))
+    rubles = total_kopecks // 100
+    kopecks = total_kopecks % 100
+    rub_words = num2words(rubles, lang="ru")
+    rub_text = rub_words[0].upper() + rub_words[1:]
+    return (
+        f"{rub_text} {_ru_plural(rubles, _RUBLE_FORMS)} "
+        f"{kopecks:02d} {_ru_plural(kopecks, _KOPECK_FORMS)}"
+    )
 
 log = logging.getLogger(__name__)
 
@@ -126,14 +159,132 @@ def _order_amount(order: Order, volume: float) -> float:
     return round(volume * _calc_unit_price(order, volume), 2)
 
 
+# ── Invoice context (по образцу заказчика) ────────────────────────────────────
+
+# Дефолтная ставка НДС, если в seller-снимке не указано. Образец заказчика —
+# 22%. Когда в LegalEntity появится поле vat_rate, использовать оттуда.
+DEFAULT_VAT_RATE = 22
+
+
+def _split_fuel_delivery(order: Order, volume: float, total_amount: float) -> tuple[float, float]:
+    """Разделить total_amount на (стоимость топлива, стоимость доставки).
+
+    Берёт долю топлива и доставки из BASE_* как соотношение, потом масштабирует
+    под фактический total_amount (он может отличаться, если менеджер выставил
+    final_amount/expected_amount вручную).
+    """
+    fuel_val = order.fuel_type.value if hasattr(order.fuel_type, "value") else str(order.fuel_type)
+    fuel_price = BASE_FUEL_PRICES.get(fuel_val, 50.0)
+    base_fuel = volume * fuel_price
+    base_delivery = volume * BASE_DELIVERY_PRICE_PER_LITER
+    base_total = base_fuel + base_delivery
+    if base_total <= 0:
+        return total_amount, 0.0
+    fuel_share = base_fuel / base_total
+    fuel_sum = round(total_amount * fuel_share, 2)
+    delivery_sum = round(total_amount - fuel_sum, 2)
+    return fuel_sum, delivery_sum
+
+
+def _build_invoice_ctx(
+    *,
+    doc_number: str,
+    issued_at: str,
+    seller: dict | None,
+    buyer: dict,
+    order: Order,
+    volume: float,
+    total_amount: float,
+    basis: str = "",
+) -> dict:
+    """Контекст для invoice.html — образец заказчика (Обр счета.xls)."""
+    fuel_sum, delivery_sum = _split_fuel_delivery(order, volume, total_amount)
+    fuel_unit_price = round(fuel_sum / volume, 2) if volume else 0.0
+
+    items = [
+        {
+            "name":  _fuel_name(order),
+            "qty":   volume,
+            "unit":  "л",
+            "price": fuel_unit_price,
+            "sum":   fuel_sum,
+        },
+    ]
+    if delivery_sum > 0:
+        items.append({
+            "name":  f"Доставка по адресу: {order.delivery_address}",
+            "qty":   1,
+            "unit":  "рейс",
+            "price": delivery_sum,
+            "sum":   delivery_sum,
+        })
+
+    # НДС включён в total_amount → выделяем «в т.ч.»
+    vat_rate = (seller or {}).get("vat_rate") or DEFAULT_VAT_RATE
+    vat_amount = round(total_amount * vat_rate / (100 + vat_rate), 2)
+
+    return {
+        "doc_number":      doc_number,
+        "issued_at":       issued_at,
+        "seller":          seller or {},
+        "buyer":           buyer,
+        "basis":           basis,
+        "items":           items,
+        "subtotal":        total_amount,
+        "vat_rate":        vat_rate,
+        "vat_amount":      vat_amount,
+        "total":           total_amount,
+        "amount_in_words": amount_to_words_ru(total_amount),
+        # Legacy переменные на случай если шаблон откатится:
+        "fuel_name":        _fuel_name(order),
+        "order_number":     order.order_number,
+        "delivery_address": order.delivery_address,
+        "volume":           volume,
+        "amount":           total_amount,
+        "unit_price":       fuel_unit_price,
+    }
+
+
 def _buyer_snapshot_from_order(order: Order) -> dict:
-    """Заглушка покупателя из заявки до интеграции с auth_service."""
+    """Fallback покупателя, если auth_service недоступен."""
     return {
         "name": str(order.client_id),
         "inn": "—",
         "kpp": None,
         "address": order.delivery_address,
     }
+
+
+async def _fetch_buyer_snapshot(order: Order) -> dict:
+    """Тянем реквизиты покупателя из auth_service.
+
+    Не падаем при недоступности — клонируем fallback на UUID, чтобы документ
+    хотя бы сгенерировался (документ — критичный артефакт, лучше с прочерком
+    чем не сформировать вовсе).
+    """
+    import httpx
+    from app.config import settings as _settings
+    base = _settings.auth_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": _settings.internal_api_secret}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{base}/internal/clients/{order.client_id}/buyer-snapshot",
+                headers=headers,
+            )
+            r.raise_for_status()
+            b = r.json()
+            return {
+                "name":    b.get("name") or str(order.client_id),
+                "inn":     b.get("inn") or "—",
+                "kpp":     b.get("kpp"),
+                "ogrn":    b.get("ogrn"),
+                "address": b.get("legal_address") or order.delivery_address,
+                "director_name": b.get("director_name"),
+            }
+    except Exception as exc:
+        log.warning("auth_service buyer-snapshot failed for %s: %s", order.client_id, exc)
+        return _buyer_snapshot_from_order(order)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -148,7 +299,7 @@ async def generate_ttn(
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
-    buyer  = _buyer_snapshot_from_order(order)
+    buyer  = await _fetch_buyer_snapshot(order)
     doc_number = await _next_doc_number(db, DocumentType.TTN)
 
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
@@ -203,7 +354,7 @@ async def generate_upd(
     amount = _order_amount(order, volume)
     unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
-    buyer  = _buyer_snapshot_from_order(order)
+    buyer  = await _fetch_buyer_snapshot(order)
     doc_number = await _next_doc_number(db, DocumentType.UPD)
 
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
@@ -255,25 +406,16 @@ async def generate_invoice_preliminary(
     """Предварительный счёт — выпускается при создании prepaid-заявки."""
     volume = float(order.volume_requested)
     amount = _order_amount(order, volume)
-    unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
-    buyer  = _buyer_snapshot_from_order(order)
+    buyer  = await _fetch_buyer_snapshot(order)
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_PRELIMINARY)
-
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
-    ctx = {
-        "doc_number":       doc_number,
-        "issued_at":        now_str,
-        "seller":           seller,
-        "buyer":            buyer,
-        "fuel_name":        _fuel_name(order),
-        "order_number":     order.order_number,
-        "delivery_address": order.delivery_address,
-        "volume":           volume,
-        "unit_price":       unit_price,
-        "amount":           amount,
-        "doc_title":        "Счёт на оплату (предварительный)",
-    }
+    ctx = _build_invoice_ctx(
+        doc_number=doc_number, issued_at=now_str,
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=f"Заявка №{order.order_number}",
+    )
 
     try:
         pdf_bytes = _render_pdf("invoice.html", ctx)
@@ -310,25 +452,16 @@ async def generate_invoice_final(
     """Финальный счёт — выпускается при переходе в DELIVERED/PARTIALLY_DELIVERED."""
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
-    unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
-    buyer  = _buyer_snapshot_from_order(order)
+    buyer  = await _fetch_buyer_snapshot(order)
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_FINAL)
-
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
-    ctx = {
-        "doc_number":       doc_number,
-        "issued_at":        now_str,
-        "seller":           seller,
-        "buyer":            buyer,
-        "fuel_name":        _fuel_name(order),
-        "order_number":     order.order_number,
-        "delivery_address": order.delivery_address,
-        "volume":           volume,
-        "unit_price":       unit_price,
-        "amount":           amount,
-        "doc_title":        "Счёт на оплату (финальный)",
-    }
+    ctx = _build_invoice_ctx(
+        doc_number=doc_number, issued_at=now_str,
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=f"Заявка №{order.order_number}",
+    )
 
     try:
         pdf_bytes = _render_pdf("invoice.html", ctx)

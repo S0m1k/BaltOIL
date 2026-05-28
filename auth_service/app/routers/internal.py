@@ -63,6 +63,54 @@ async def get_client_context(
     )
 
 
+class BuyerSnapshotResponse(BaseModel):
+    """Снимок реквизитов клиента для подстановки в счёт/ТТН/УПД."""
+    name: str             # юр. название или ФИО
+    inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    legal_address: str | None
+    director_name: str | None
+    delivery_address: str | None
+
+
+@router.get(
+    "/clients/{client_id}/buyer-snapshot",
+    response_model=BuyerSnapshotResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_buyer_snapshot(
+    client_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> BuyerSnapshotResponse:
+    """Реквизиты клиента для документов (счёт/ТТН/УПД)."""
+    user_result = await db.execute(select(User).where(User.id == client_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    profile_result = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == client_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if profile and profile.client_type.value == "company":
+        return BuyerSnapshotResponse(
+            name=profile.company_name or user.full_name,
+            inn=profile.inn,
+            kpp=profile.kpp,
+            ogrn=profile.ogrn,
+            legal_address=profile.legal_address or profile.delivery_address,
+            director_name=profile.director_name,
+            delivery_address=profile.delivery_address,
+        )
+    return BuyerSnapshotResponse(
+        name=user.full_name,
+        inn=None, kpp=None, ogrn=None,
+        legal_address=profile.delivery_address if profile else None,
+        director_name=None,
+        delivery_address=profile.delivery_address if profile else None,
+    )
+
+
 class EmailTargetResponse(BaseModel):
     email: str | None
 

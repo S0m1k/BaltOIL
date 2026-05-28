@@ -4,22 +4,65 @@
   <meta charset="UTF-8">
   <title>{% block title %}{% endblock %}</title>
   <style>
-    @page { size: A4; margin: 20mm 15mm; }
+    @page { size: A4; margin: 15mm 12mm; }
     * { box-sizing: border-box; }
     body {
       font-family: "Liberation Sans", Arial, sans-serif;
-      font-size: 11pt;
+      font-size: 10pt;
       color: #000;
       margin: 0;
     }
-    h1 { font-size: 14pt; text-align: center; margin: 0 0 4px; }
-    .subtitle { text-align: center; font-size: 10pt; color: #444; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-    th, td { border: 1px solid #888; padding: 5px 8px; font-size: 10pt; }
-    th { background: #f0f0f0; font-weight: bold; text-align: center; }
+    h1 { font-size: 13pt; text-align: left; margin: 14px 0 10px; font-weight: bold; }
+    .subtitle { font-size: 10pt; color: #444; margin-bottom: 12px; }
+    .warn {
+      font-size: 8.5pt;
+      font-style: italic;
+      padding: 4px 8px;
+      margin-bottom: 10px;
+    }
+    table { border-collapse: collapse; width: 100%; }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
-    .total-row td { font-weight: bold; background: #f7f7f7; }
+    .bold { font-weight: bold; }
+
+    /* Шапка с банк-реквизитами в рамке */
+    .bank-box { border: 1px solid #000; margin-bottom: 6px; }
+    .bank-box td { border: 1px solid #000; padding: 3px 6px; font-size: 9pt; vertical-align: middle; }
+    .bank-box .bank-name { font-weight: bold; }
+    .bank-box .bx-label { width: 12%; text-align: left; font-size: 8.5pt; }
+    .bank-box .bx-val   { width: 30%; }
+    .bank-box .bx-cap   { font-size: 7.5pt; color: #555; font-style: italic; border-top: none; padding-top: 0; }
+    .bank-box .bx-inn   { font-size: 9pt; }
+
+    /* Поставщик / Покупатель / Основание */
+    .party td { padding: 3px 0; vertical-align: top; font-size: 9.5pt; border: none; }
+    .party .party-label { width: 18%; font-weight: bold; }
+    .party .party-val { border-bottom: 1px solid #000; padding-bottom: 2px; }
+
+    /* Товарная таблица */
+    .items { margin-top: 12px; margin-bottom: 0; }
+    .items th, .items td { border: 1px solid #000; padding: 4px 6px; font-size: 9pt; }
+    .items th { background: #f2f2f2; font-weight: bold; text-align: center; }
+
+    /* Итоги — справа в столбик */
+    .totals { width: auto; margin-left: auto; margin-top: 4px; }
+    .totals td { padding: 2px 8px; font-size: 9.5pt; border: none; }
+    .totals .t-lbl { text-align: right; }
+    .totals .t-val { text-align: right; min-width: 90px; border-bottom: 1px solid #000; }
+
+    .summary { margin: 12px 0 2px; font-size: 9.5pt; }
+    .words { margin: 0 0 16px; font-size: 9.5pt; border-bottom: 1px solid #000; padding-bottom: 4px; }
+
+    /* Подписи */
+    .signs { margin-top: 18px; }
+    .signs td { padding: 4px 6px; font-size: 9pt; vertical-align: bottom; border: none; }
+    .signs .s-role { width: 25%; font-weight: bold; }
+    .signs .s-pos  { width: 28%; }
+    .signs .s-line { width: 22%; border-bottom: 1px solid #000; height: 14px; }
+    .signs .s-name { width: 25%; text-align: center; }
+    .signs .s-sub  { font-size: 7pt; color: #666; text-align: center; padding-top: 0; }
+
+    /* legacy classes (TTN / УПД пока пользуются старой версткой) */
     .req-grid { display: flex; gap: 30px; margin-bottom: 14px; }
     .req-block { flex: 1; }
     .req-block b { display: block; margin-bottom: 3px; font-size: 10pt; }
@@ -29,6 +72,7 @@
     .sign-line { border-bottom: 1px solid #000; margin-top: 24px; }
     .sign-label { font-size: 9pt; color: #555; margin-top: 4px; }
     .footer-note { font-size: 8.5pt; color: #666; margin-top: 10px; }
+    .total-row td { font-weight: bold; background: #f7f7f7; }
   </style>
 </head>
 <body>

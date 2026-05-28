@@ -1,71 +1,146 @@
 {% extends "base.html" %}
-{% block title %}Счёт № {{ doc_number }}{% endblock %}
+{% block title %}Счёт на оплату {{ doc_number }}{% endblock %}
 {% block content %}
 
-<h1>СЧЁТ НА ОПЛАТУ № {{ doc_number }} от {{ issued_at }}</h1>
-<div class="subtitle">{{ basis_label }}</div>
-
-<div class="req-grid">
-  <div class="req-block">
-    <b>Поставщик:</b>
-    <p>{{ seller.name }}</p>
-    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
-    <p>{{ seller.address }}</p>
-    {% if seller.phone %}<p>Тел.: {{ seller.phone }}</p>{% endif %}
-  </div>
-  <div class="req-block">
-    <b>Покупатель:</b>
-    <p>{{ buyer.name }}</p>
-    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
-    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
-  </div>
+<div class="warn">
+  Внимание! Оплата данного счёта означает согласие с условиями поставки товара.
+  Поставка осуществляется по факту прихода денег на р/с Поставщика.
 </div>
 
-<div class="req-block" style="margin-bottom:14px">
-  <b>Банковские реквизиты поставщика:</b>
-  <p>Банк: {{ seller.bank }}
-     &nbsp;|&nbsp; Р/с: {{ seller.rs }}
-     &nbsp;|&nbsp; К/с: {{ seller.ks }}
-     &nbsp;|&nbsp; БИК: {{ seller.bik }}</p>
-</div>
-
-<table>
+<table class="bank-box">
   <tr>
-    <th style="width:5%">№</th>
-    <th>Наименование товара / услуги</th>
-    <th style="width:12%">Кол-во (л)</th>
-    <th style="width:14%">Цена (₽/л)</th>
-    <th style="width:14%">Сумма (₽)</th>
+    <td rowspan="2" class="bank-name">{{ seller.bank_name or "" }}</td>
+    <td class="bx-label">БИК</td>
+    <td class="bx-val">{{ seller.bik or "" }}</td>
   </tr>
   <tr>
-    <td class="text-center">1</td>
-    <td>{{ fuel_name }}<br><small>Заявка {{ order_number }}, доставка: {{ delivery_address }}</small></td>
-    <td class="text-right">{{ volume | format_number }}</td>
-    <td class="text-right">{{ unit_price | format_number }}</td>
-    <td class="text-right">{{ amount | format_money }}</td>
+    <td class="bx-label">Сч.&nbsp;№</td>
+    <td class="bx-val">{{ seller.correspondent_account or "" }}</td>
   </tr>
-  <tr class="total-row">
-    <td colspan="4" class="text-right">ИТОГО К ОПЛАТЕ:</td>
-    <td class="text-right">{{ amount | format_money }} ₽</td>
+  <tr>
+    <td class="bx-cap">Банк получателя</td>
+    <td colspan="2"></td>
+  </tr>
+  <tr>
+    <td class="bx-inn">
+      ИНН&nbsp;{{ seller.inn or "" }}
+      {% if seller.kpp %}&nbsp;&nbsp;КПП&nbsp;{{ seller.kpp }}{% endif %}
+    </td>
+    <td class="bx-label">Сч.&nbsp;№</td>
+    <td class="bx-val">{{ seller.checking_account or "" }}</td>
+  </tr>
+  <tr>
+    <td class="bank-name">{{ (seller.short_name or seller.name or "").upper() }}</td>
+    <td colspan="2"></td>
+  </tr>
+  <tr>
+    <td class="bx-cap">Получатель</td>
+    <td colspan="2"></td>
   </tr>
 </table>
 
-<p class="footer-note">
-  Оплатить до: {{ payment_due }}.
-  НДС не предусмотрен (применяется УСН).
-</p>
+<h1>Счёт на оплату № {{ doc_number }} от {{ issued_at }} г.</h1>
 
-<div class="sign-area">
-  <div class="sign-item">
-    <div>{{ seller.director_title or "Руководитель" }}</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">{{ seller.director_name or "" }}</div>
-  </div>
-  <div class="sign-item">
-    <div>Бухгалтер</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">&nbsp;</div>
-  </div>
-</div>
+<table class="party">
+  <tr>
+    <td class="party-label">Поставщик<br>(Исполнитель):</td>
+    <td class="party-val">
+      {{ seller.name or "" }},
+      ИНН&nbsp;{{ seller.inn or "" }}{% if seller.kpp %}, КПП&nbsp;{{ seller.kpp }}{% endif %}{% if seller.legal_address %}, {{ seller.legal_address }}{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td class="party-label">Покупатель<br>(Заказчик):</td>
+    <td class="party-val">
+      {{ buyer.name or "" }}{% if buyer.inn and buyer.inn != "—" %}, ИНН&nbsp;{{ buyer.inn }}{% endif %}{% if buyer.kpp %}, КПП&nbsp;{{ buyer.kpp }}{% endif %}{% if buyer.address %}, {{ buyer.address }}{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td class="party-label">Основание:</td>
+    <td class="party-val">{{ basis or "" }}</td>
+  </tr>
+</table>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:5%">№</th>
+      <th>Товары (работы, услуги)</th>
+      <th style="width:10%">Кол-во</th>
+      <th style="width:7%">Ед.</th>
+      <th style="width:12%">Цена</th>
+      <th style="width:14%">Сумма</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td class="text-center">{{ loop.index }}</td>
+      <td>{{ it.name }}</td>
+      <td class="text-right">{{ it.qty | format_number }}</td>
+      <td class="text-center">{{ it.unit }}</td>
+      <td class="text-right">{{ it.price | format_money }}</td>
+      <td class="text-right">{{ it.sum | format_money }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr>
+    <td class="t-lbl">Итого:</td>
+    <td class="t-val">{{ subtotal | format_money }}</td>
+  </tr>
+  <tr>
+    <td class="t-lbl">{% if vat_rate %}В&nbsp;т.&nbsp;ч.&nbsp;НДС&nbsp;{{ vat_rate }}%:{% else %}Без&nbsp;НДС:{% endif %}</td>
+    <td class="t-val">{{ vat_amount | format_money }}</td>
+  </tr>
+  <tr>
+    <td class="t-lbl bold">Всего к оплате:</td>
+    <td class="t-val bold">{{ total | format_money }}</td>
+  </tr>
+</table>
+
+<p class="summary">Всего наименований {{ items|length }}, на сумму {{ total | format_money }} руб.</p>
+<p class="words"><b>{{ amount_in_words }}</b></p>
+
+<table class="signs">
+  <tr>
+    <td class="s-role">Руководитель</td>
+    <td class="s-pos">{{ seller.director_title or "Генеральный директор" }}</td>
+    <td class="s-line"></td>
+    <td class="s-name">{{ seller.director_name or "" }}</td>
+  </tr>
+  <tr>
+    <td></td>
+    <td class="s-sub">должность</td>
+    <td></td>
+    <td class="s-sub">расшифровка подписи</td>
+  </tr>
+  <tr>
+    <td class="s-role">Главный (старший) бухгалтер</td>
+    <td></td>
+    <td class="s-line"></td>
+    <td class="s-name">{{ seller.director_name or "" }}</td>
+  </tr>
+  <tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td class="s-sub">расшифровка подписи</td>
+  </tr>
+  <tr>
+    <td class="s-role">Ответственный</td>
+    <td></td>
+    <td class="s-line"></td>
+    <td class="s-name">{{ seller.director_name or "" }}</td>
+  </tr>
+  <tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td class="s-sub">расшифровка подписи</td>
+  </tr>
+</table>
 
 {% endblock %}
