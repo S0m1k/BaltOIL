@@ -1,77 +1,423 @@
-{% extends "base.html" %}
-{% block title %}ТТН {{ doc_number }}{% endblock %}
-{% block content %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ТТН {{ doc_number }}</title>
+<style>
+  @page { size: A4 landscape; margin: 7mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #000; margin: 0; line-height: 1.05; }
+  table { border-collapse: collapse; }
+  .page-break { page-break-before: always; }
+  /* транспортный раздел плотнее — он обязан уместиться на одну страницу */
+  .compact .liner { padding: 0; }
+  .compact .sec-title { margin: 3px 0 1px; font-size: 8pt; }
+  .compact .items { margin-top: 2px; page-break-inside: avoid; }
+  .compact .items th, .compact .items td { padding: 1px 2px; font-size: 6pt; }
+  .compact .sgn td { padding: 1px 3px 0; }
 
-<h1>ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ</h1>
-<div class="subtitle">№ {{ doc_number }} от {{ issued_at }}</div>
+  .formhdr { text-align: right; font-size: 6.8pt; margin-bottom: 2px; }
+  .okud { display: inline-block; border: 1px solid #000; }
+  .okud td { border: 1px solid #000; padding: 1px 4px; font-size: 6.8pt; }
 
-<div class="req-grid">
-  <div class="req-block">
-    <b>Грузоотправитель (поставщик):</b>
-    <p>{{ seller.name }}</p>
-    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
-    <p>{{ seller.address }}</p>
-  </div>
-  <div class="req-block">
-    <b>Грузополучатель (покупатель):</b>
-    <p>{{ buyer.name }}</p>
-    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
-    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
-  </div>
+  h2 { font-size: 11pt; text-align: center; margin: 4px 0; font-weight: bold; }
+  .sec-title { font-size: 8.5pt; font-weight: bold; text-align: center; margin: 6px 0 3px; }
+
+  .liner { display: table; width: 100%; padding: 1px 0; }
+  .liner .ll { display: table-cell; white-space: nowrap; padding-right: 5px; vertical-align: bottom; }
+  .liner .lv { display: table-cell; border-bottom: 1px solid #000; width: 100%; padding: 0 4px; vertical-align: bottom; }
+  .liner .lr { display: table-cell; white-space: nowrap; padding-left: 8px; vertical-align: bottom; }
+  .hint { font-size: 5.8pt; color: #666; text-align: center; }
+
+  .grid { width: 100%; }
+  .grid td { padding: 1px 2px; vertical-align: bottom; }
+  .ul { border-bottom: 1px solid #000; padding: 0 3px; min-height: 11px; display: inline-block; }
+
+  .items { width: 100%; margin-top: 3px; }
+  .items th, .items td { border: 1px solid #000; padding: 2px 3px; font-size: 6.6pt; }
+  .items th { background: #eee; font-weight: normal; text-align: center; line-height: 1.0; }
+  .items td.c { text-align: center; } .items td.r { text-align: right; }
+  .items .n td { text-align: center; font-style: italic; color: #666; font-size: 6.2pt; }
+
+  .twocol { display: table; width: 100%; margin-top: 4px; }
+  .twocol .cl { display: table-cell; width: 55%; vertical-align: top; padding-right: 10px; }
+  .twocol .cr { display: table-cell; width: 45%; vertical-align: top; border-left: 1px solid #000; padding-left: 10px; }
+
+  .sgn { width: 100%; }
+  .sgn td { padding: 3px 3px 0; vertical-align: bottom; }
+  .sl { border-bottom: 1px solid #000; height: 12px; }
+  .sub { font-size: 5.6pt; color: #555; text-align: center; }
+  .mp { font-weight: bold; font-size: 8pt; margin-top: 4px; }
+  .hint2 { font-size: 5.6pt; color: #666; }
+  .twocol2 { display: table; width: 100%; }
+  .twocol2 .hint2 { display: table-cell; }
+  .twocol2 .rgt { text-align: right; }
+</style>
+</head>
+<body>
+
+<!-- ───────────── СТРАНИЦА 1 — ТОВАРНЫЙ РАЗДЕЛ ───────────── -->
+<div class="formhdr">
+  Типовая межотраслевая форма № 1-Т<br>
+  Утверждена постановлением Госкомстата России от 28.11.97 № 78
 </div>
 
-<table>
-  <tr>
-    <th>Наименование груза</th>
-    <th style="width:14%">Ед. изм.</th>
-    <th style="width:14%">Кол-во (факт)</th>
-    <th style="width:16%">Сумма (₽)</th>
-  </tr>
-  <tr>
-    <td>{{ fuel_name }}<br>
-      <small>Заявка: {{ order_number }}</small>
-    </td>
-    <td class="text-center">л</td>
-    <td class="text-right">{{ volume_delivered | format_number }}</td>
-    <td class="text-right">{{ amount | format_money }}</td>
-  </tr>
-  <tr class="total-row">
-    <td colspan="3" class="text-right">ИТОГО:</td>
-    <td class="text-right">{{ amount | format_money }} ₽</td>
-  </tr>
+<table style="width:100%"><tr>
+  <td style="vertical-align:top">
+    <h2>ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ</h2>
+    <div class="liner">
+      <div class="ll">серия</div><div class="lv" style="min-width:50px">—</div>
+      <div class="lr">№</div><div class="lv">{{ doc_number }}</div>
+      <div class="lr">Дата составления</div><div class="lv" style="min-width:90px">{{ issued_at }}</div>
+    </div>
+  </td>
+  <td style="width:120px;vertical-align:top;text-align:center">
+    <table class="okud" style="margin:0 auto">
+      <tr><td>Коды</td></tr>
+      <tr><td style="font-size:6pt">Форма по ОКУД</td></tr>
+      <tr><td>0345009</td></tr>
+    </table>
+  </td>
+</tr></table>
+
+<div class="liner">
+  <div class="ll">Грузоотправитель</div>
+  <div class="lv">{{ seller.name or "—" }}{% if seller.legal_address %}, {{ seller.legal_address }}{% endif %}{% if seller.phone %}, тел. {{ seller.phone }}{% endif %}</div>
+  <div class="lr">по ОКПО</div><div class="lv" style="min-width:80px">{{ seller.okpo or "—" }}</div>
+</div>
+<div class="hint">полное наименование организации, адрес, номер телефона</div>
+
+<div class="liner">
+  <div class="ll">Грузополучатель</div>
+  <div class="lv">{{ buyer.name or "—" }}{% if buyer.address %}, {{ buyer.address }}{% endif %}</div>
+  <div class="lr">по ОКПО</div><div class="lv" style="min-width:80px">{{ buyer.okpo or "—" }}</div>
+</div>
+<div class="hint">полное наименование организации, адрес, номер телефона</div>
+
+<div class="liner">
+  <div class="ll">Плательщик</div>
+  <div class="lv">{{ buyer.name or "—" }}{% if buyer.inn %}, ИНН {{ buyer.inn }}{% endif %}{% if buyer.address %}, {{ buyer.address }}{% endif %}</div>
+  <div class="lr">по ОКПО</div><div class="lv" style="min-width:80px">{{ buyer.okpo or "—" }}</div>
+</div>
+<div class="hint">полное наименование организации, адрес, банковские реквизиты</div>
+
+<div class="sec-title">I. ТОВАРНЫЙ РАЗДЕЛ (заполняется грузоотправителем)</div>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:7%">Код продукции (номенклатурный номер)</th>
+      <th style="width:7%">Номер прейскуранта и дополнения к нему</th>
+      <th style="width:7%">Артикул или номер по прейскуранту</th>
+      <th style="width:6%">Коли-чество</th>
+      <th style="width:7%">Цена, руб. коп.</th>
+      <th style="width:20%">Наименование продукции, товара (груза). ТУ, марка, размер, сорт</th>
+      <th style="width:6%">Единица измерения</th>
+      <th style="width:6%">Вид упаковки</th>
+      <th style="width:6%">Количество мест</th>
+      <th style="width:6%">Масса, т.</th>
+      <th style="width:8%">Сумма, руб. коп.</th>
+      <th style="width:8%">Порядковый номер записи по складской картотеке (грузоотправителю, грузополучателю)</th>
+    </tr>
+    <tr class="n"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="c">—</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+      <td class="r">{{ volume | format_number }}</td>
+      <td class="r">{{ unit_price | format_money }}</td>
+      <td>{{ fuel_name }}</td>
+      <td class="c">л</td>
+      <td class="c">автоцистерна</td>
+      <td class="c">1</td>
+      <td class="c">—</td>
+      <td class="r">{{ amount | format_money }}</td>
+      <td class="c">—</td>
+    </tr>
+    <tr><td class="r" colspan="10">ИТОГО:</td><td class="r">{{ amount | format_money }}</td><td></td></tr>
+  </tbody>
 </table>
 
-<table style="margin-top:8px">
-  <tr>
-    <th style="width:25%">Заявка №</th>
-    <th style="width:25%">Дата доставки</th>
-    <th>Адрес доставки</th>
-    <th style="width:16%">Водитель</th>
-  </tr>
-  <tr>
-    <td class="text-center">{{ order_number }}</td>
-    <td class="text-center">{{ issued_at }}</td>
-    <td>{{ delivery_address }}</td>
-    <td class="text-center">{{ driver_name }}</td>
-  </tr>
-</table>
-
-<div class="sign-area" style="margin-top:24px">
-  <div class="sign-item">
-    <div>Сдал ({{ seller.director_title or "Поставщик" }})</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">{{ seller.director_name or "" }}</div>
-  </div>
-  <div class="sign-item">
-    <div>Принял (Покупатель)</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">&nbsp;</div>
-  </div>
+<div class="liner">
+  <div class="ll">Товарная накладная имеет продолжение на</div><div class="lv" style="min-width:30px">—</div>
+  <div class="lr">листах, на бланках за №</div><div class="lv" style="min-width:40px">—</div>
+</div>
+<div class="liner">
+  <div class="ll">и содержит</div><div class="lv" style="min-width:40px">—</div>
+  <div class="lr">порядковых номеров записей</div><div class="lv"></div>
 </div>
 
-<p class="footer-note">
-  Документ сформирован автоматически при фиксации доставки.
-  Статус заявки: {{ order_status }}.
-</p>
+<table style="width:100%;margin-top:3px"><tr>
+  <td style="width:62%;vertical-align:top">
+    <div class="liner"><div class="ll">Всего наименований</div><div class="lv">1 (одно)</div></div>
+    <div class="liner"><div class="ll">Всего мест</div><div class="lv">1 (одно)</div></div>
+    <div class="liner"><div class="ll">Масса груза (нетто)</div><div class="lv">—</div><div class="lr">т</div></div>
+    <div class="liner"><div class="ll">Масса груза (брутто)</div><div class="lv">—</div><div class="lr">т</div></div>
+  </td>
+  <td style="width:38%;vertical-align:top;padding-left:10px">
+    <div class="liner"><div class="ll">Наценка, %</div><div class="lv">—</div></div>
+    <div class="liner"><div class="ll">Складские или транспортные расходы</div><div class="lv">—</div></div>
+    <div class="liner"><div class="ll">Всего к оплате</div><div class="lv">{{ amount | format_money }}</div></div>
+  </td>
+</tr></table>
 
-{% endblock %}
+<div class="liner">
+  <div class="ll">Приложение (паспорта, сертификаты и т.п.) на</div><div class="lv" style="min-width:40px">—</div><div class="lr">листах</div>
+</div>
+<div class="liner">
+  <div class="ll">Всего отпущено на сумму</div><div class="lv">{{ amount_in_words }}</div>
+</div>
+
+<table class="twocol" style="margin-top:6px"><tr>
+  <td class="cl">
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Отпуск разрешил<div class="sub" style="text-align:left">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Главный (старший) бухгалтер</td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl"></div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Отпуск груза произвёл<div class="sub" style="text-align:left">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl"></div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+    <div class="mp">М.П. «___» __________ 20__ г.</div>
+  </td>
+  <td class="cr">
+    <div class="liner"><div class="ll">По доверенности №</div><div class="lv">—</div><div class="lr">от «__» ____ 20__ г.</div></div>
+    <div class="liner"><div class="ll">выданной</div><div class="lv">—</div></div>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Груз к перевозке принял<div class="sub" style="text-align:left">(должность)</div></td>
+      <td style="width:30%"><div class="sl">{{ driver_name }}</div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl">{{ driver_name }}</div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+    <div style="font-size:6pt;color:#555">(при личном приёме товара по количеству и ассортименту)</div>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Груз получил грузополучатель<div class="sub" style="text-align:left">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl">{{ buyer.director_name or "" }}</div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+  </td>
+</tr></table>
+
+<!-- ───────────── СТРАНИЦА 2 — ТРАНСПОРТНЫЙ РАЗДЕЛ ───────────── -->
+<div class="page-break"></div>
+<div class="compact">
+<div class="sec-title">II. ТРАНСПОРТНЫЙ РАЗДЕЛ</div>
+
+<table style="width:100%"><tr>
+  <td style="vertical-align:top">
+    <div class="liner"><div class="ll">Срок доставки груза «__» ______ 20__ г.</div><div class="lv"></div></div>
+  </td>
+  <td style="width:30%;vertical-align:top;padding-left:10px">
+    <div class="liner"><div class="ll">ТТН №</div><div class="lv">{{ doc_number }}</div></div>
+    <div class="liner"><div class="ll">К путевому листу №</div><div class="lv">—</div></div>
+  </td>
+</tr></table>
+
+<div class="liner"><div class="ll">Организация</div><div class="lv">{{ seller.name or "—" }}{% if seller.legal_address %}, {{ seller.legal_address }}{% endif %}{% if seller.phone %}, тел. {{ seller.phone }}{% endif %}</div></div>
+<div class="twocol2"><span class="hint2">наименование, адрес, номер телефона</span><span class="hint2 rgt">банковские реквизиты</span></div>
+
+<div class="liner">
+  <div class="ll">Автомобиль</div><div class="lv">—</div>
+  <div class="lr">Государственный номерной знак</div><div class="lv" style="min-width:80px">—</div>
+  <div class="lr">Гаражный номер</div><div class="lv" style="min-width:55px">—</div>
+</div>
+<div class="hint2" style="padding-left:60px">марка</div>
+
+<div class="liner"><div class="ll">Заказчик (плательщик)</div><div class="lv">{{ buyer.name or "—" }}{% if buyer.address %}, {{ buyer.address }}{% endif %}</div></div>
+<div class="twocol2"><span class="hint2">наименование, адрес, номер телефона</span><span class="hint2 rgt">банковские реквизиты</span></div>
+
+<div class="liner">
+  <div class="ll">Водитель</div><div class="lv">{{ driver_name }}</div>
+  <div class="lr">Удостоверение №</div><div class="lv" style="min-width:90px">—</div>
+</div>
+<div class="hint2" style="padding-left:55px">фамилия, имя, отчество</div>
+
+<div class="liner">
+  <div class="ll">Лицензионная карточка</div><div class="lv">стандартная / ограниченная</div>
+  <div class="lr">Вид перевозки</div><div class="lv" style="min-width:65px">—</div>
+  <div class="lr">Код</div><div class="lv" style="min-width:45px">—</div>
+</div>
+<div class="hint2" style="padding-left:110px">(ненужное зачеркнуть)</div>
+
+<div class="liner">
+  <div class="ll">Регистрационный №</div><div class="lv" style="min-width:70px">—</div>
+  <div class="lr">серия</div><div class="lv" style="min-width:50px">—</div>
+  <div class="lr">№</div><div class="lv" style="min-width:70px">—</div>
+</div>
+
+<div class="liner">
+  <div class="ll">Пункт погрузки</div><div class="lv">{{ seller.legal_address or "—" }}</div>
+</div>
+<div class="hint2" style="padding-left:70px">адрес, номер телефона</div>
+<div class="liner">
+  <div class="ll">Пункт разгрузки</div><div class="lv">{{ delivery_address or "—" }}</div>
+  <div class="lr">Маршрут</div><div class="lv" style="min-width:80px">—</div>
+</div>
+
+<div class="liner">
+  <div class="ll">Переадресовка</div><div class="lv">—</div>
+  <div class="lr">номер распоряжения</div><div class="lv" style="min-width:70px">—</div>
+</div>
+<div class="hint2" style="padding-left:75px">наименование и адрес нового грузополучателя</div>
+
+<div class="liner">
+  <div class="ll">1. Прицеп</div><div class="lv">—</div>
+  <div class="lr">Государственный номерной знак</div><div class="lv" style="min-width:80px">—</div>
+  <div class="lr">Гаражный номер</div><div class="lv" style="min-width:55px">—</div>
+</div>
+<div class="liner">
+  <div class="ll">2. Прицеп</div><div class="lv">—</div>
+  <div class="lr">Государственный номерной знак</div><div class="lv" style="min-width:80px">—</div>
+  <div class="lr">Гаражный номер</div><div class="lv" style="min-width:55px">—</div>
+</div>
+
+<div class="sec-title">СВЕДЕНИЯ О ГРУЗЕ</div>
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:22%">Краткое наименование груза</th>
+      <th style="width:18%">С грузом следуют документы</th>
+      <th style="width:9%">Вид упаковки</th>
+      <th style="width:8%">Количество мест</th>
+      <th style="width:15%">Способ определения массы</th>
+      <th style="width:7%">Код груза</th>
+      <th style="width:8%">Номер контейнера</th>
+      <th style="width:6%">Класс груза</th>
+      <th style="width:7%">Масса брутто, т</th>
+    </tr>
+    <tr class="n"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1. {{ fuel_name }}</td>
+      <td class="c">паспорт качества, счёт, УПД</td>
+      <td class="c">автоцистерна</td>
+      <td class="c">1</td>
+      <td class="c">по счётчику АЦ</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+    </tr>
+    <tr><td>2.</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr>
+    <tr><td>3.</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr>
+  </tbody>
+</table>
+
+<table class="twocol" style="margin-top:3px"><tr>
+  <td class="cl">
+    <div class="liner"><div class="ll">Указанный груз с исправной пломбой, тарой и упаковкой</div><div class="lv">—</div></div>
+    <div class="liner"><div class="ll">Количество мест</div><div class="lv" style="min-width:50px">1</div><div class="lr">к перевозке принял</div></div>
+    <div class="liner"><div class="ll">Масса брутто</div><div class="lv" style="min-width:50px">—</div><div class="lr">т</div></div>
+    <div class="hint2" style="padding-left:0">прописью</div>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Сдал<div class="sub" style="text-align:left">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+  </td>
+  <td class="cr">
+    <div class="liner"><div class="ll">Количество ездок, заездов</div><div class="lv" style="min-width:50px">1</div></div>
+    <div class="liner"><div class="ll">Итого: масса брутто, т</div><div class="lv">—</div></div>
+    <div class="liner"><div class="ll">Отметки о составленных актах</div><div class="lv">—</div></div>
+    <div class="liner"><div class="ll">Транспортные услуги</div><div class="lv">—</div></div>
+    <table class="sgn" style="width:100%"><tr>
+      <td style="width:34%">Принял водитель-экспедитор</td>
+      <td style="width:30%"><div class="sl">{{ driver_name }}</div><div class="sub">(подпись)</div></td>
+      <td style="width:36%"><div class="sl">{{ driver_name }}</div><div class="sub">(расшифровка)</div></td>
+    </tr></table>
+    <div class="hint2" style="padding-left:0">место для штампа</div>
+  </td>
+</tr></table>
+
+<div class="sec-title" style="margin-top:6px">Погрузочно-разгрузочные операции</div>
+<table class="items">
+  <thead>
+    <tr>
+      <th rowspan="2" style="width:9%">Операция</th>
+      <th rowspan="2" style="width:15%">Исполнитель (автовладелец, получатель, отправитель)</th>
+      <th rowspan="2" style="width:13%">Дополнительные операции</th>
+      <th rowspan="2" style="width:13%">Механизм, грузоподъёмность, ёмкость ковша</th>
+      <th rowspan="2" style="width:14%">Способ (ручной, механизированный, наливом, самосвалом)</th>
+      <th rowspan="2" style="width:4%">Код</th>
+      <th colspan="2" style="width:14%">Дата (число, месяц), время, ч. мин.</th>
+      <th rowspan="2" style="width:8%">Время доп. операций, мин.</th>
+      <th rowspan="2" style="width:8%">Подпись ответственного лица</th>
+    </tr>
+    <tr><th>прибытия</th><th>убытия</th></tr>
+    <tr class="n"><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td><td>16</td><td>17</td><td>18</td><td>19</td></tr>
+  </thead>
+  <tbody>
+    <tr><td class="c">погрузка</td><td class="c">грузоотправитель</td><td class="c">—</td><td class="c">—</td><td class="c">наливом</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c"></td></tr>
+    <tr><td class="c">разгрузка</td><td class="c">грузополучатель</td><td class="c">—</td><td class="c">—</td><td class="c">наливом</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c"></td></tr>
+  </tbody>
+</table>
+
+<div class="sec-title" style="margin-top:6px">Прочие сведения</div>
+<table class="items">
+  <thead>
+    <tr>
+      <th colspan="5">Расстояние перевозки по группам дорог, км</th>
+      <th rowspan="2" style="width:7%">Код экспеди-рования груза</th>
+      <th colspan="2">За транспортные услуги</th>
+      <th rowspan="2" style="width:9%">Сумма штрафа за неправильное оформление документов, руб. коп.</th>
+      <th colspan="2">Поправочный коэффициент</th>
+      <th colspan="2">Время простоя, ч. мин.</th>
+    </tr>
+    <tr>
+      <th>всего</th><th>в гор.</th><th>I гр.</th><th>II гр.</th><th>III гр.</th>
+      <th>с клиента</th><th>причитается водителю</th>
+      <th>расценка водителю</th><th>основной тариф</th>
+      <th>под погрузку</th><th>под разгрузку</th>
+    </tr>
+    <tr class="n"><td>20</td><td>21</td><td>22</td><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td><td>30</td><td>31</td><td>32</td></tr>
+  </thead>
+  <tbody>
+    <tr><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td></tr>
+  </tbody>
+</table>
+<div class="liner" style="margin-top:2px"><div class="ll">Таксировка:</div><div class="lv"></div></div>
+
+<div class="sec-title" style="margin-top:6px">Расчёт стоимости</div>
+<table class="items">
+  <thead>
+    <tr>
+      <th rowspan="2" style="width:13%"></th>
+      <th rowspan="2">за тонны</th>
+      <th rowspan="2">за тонны-км</th>
+      <th rowspan="2">Погрузочно-разгрузочные работы, тонн</th>
+      <th rowspan="2">Недогрузка автомобиля и прицепа</th>
+      <th rowspan="2">Экспеди-рование</th>
+      <th colspan="2">Сверхнормативный простой, ч. мин. при</th>
+      <th rowspan="2">За срочность заказа</th>
+      <th rowspan="2">За специальный транспорт</th>
+      <th rowspan="2">Прочие доплаты</th>
+      <th rowspan="2" style="width:11%">Всего</th>
+    </tr>
+    <tr><th>погрузка</th><th>разгрузка</th></tr>
+    <tr class="n"><td></td><td>33</td><td>34</td><td>35</td><td>36</td><td>37</td><td>38</td><td>39</td><td>40</td><td>41</td><td>42</td><td>43</td></tr>
+  </thead>
+  <tbody>
+    <tr><td>Выполнено</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="r">{{ amount | format_money }}</td></tr>
+    <tr><td>Расценка, руб. коп.</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td></tr>
+    <tr><td>К оплате, руб. коп.</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="r">{{ amount | format_money }}</td></tr>
+  </tbody>
+</table>
+
+<table class="sgn" style="width:55%;margin-top:6px"><tr>
+  <td style="width:28%">Таксировщик</td>
+  <td style="width:36%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+  <td style="width:36%"><div class="sl"></div><div class="sub">(расшифровка подписи)</div></td>
+</tr></table>
+</div>
+
+</body>
+</html>

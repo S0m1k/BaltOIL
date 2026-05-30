@@ -198,30 +198,9 @@ def _build_invoice_ctx(
     basis: str = "",
 ) -> dict:
     """Контекст для invoice.html — образец заказчика (Обр счета.xls)."""
-    fuel_sum, delivery_sum = _split_fuel_delivery(order, volume, total_amount)
-    fuel_unit_price = round(fuel_sum / volume, 2) if volume else 0.0
-
-    items = [
-        {
-            "name":  _fuel_name(order),
-            "qty":   volume,
-            "unit":  "л",
-            "price": fuel_unit_price,
-            "sum":   fuel_sum,
-        },
-    ]
-    if delivery_sum > 0:
-        items.append({
-            "name":  f"Доставка по адресу: {order.delivery_address}",
-            "qty":   1,
-            "unit":  "рейс",
-            "price": delivery_sum,
-            "sum":   delivery_sum,
-        })
-
-    # НДС включён в total_amount → выделяем «в т.ч.»
     vat_rate = (seller or {}).get("vat_rate") or DEFAULT_VAT_RATE
-    vat_amount = round(total_amount * vat_rate / (100 + vat_rate), 2)
+    items, subtotal, vat_amount, total = _build_line_items(order, volume, total_amount, vat_rate)
+    fuel_unit_price = items[0]["price"] if items else 0.0
 
     return {
         "doc_number":      doc_number,
@@ -230,18 +209,88 @@ def _build_invoice_ctx(
         "buyer":           buyer,
         "basis":           basis,
         "items":           items,
-        "subtotal":        total_amount,
+        "subtotal":        subtotal,      # пред-НДС
         "vat_rate":        vat_rate,
         "vat_amount":      vat_amount,
-        "total":           total_amount,
-        "amount_in_words": amount_to_words_ru(total_amount),
+        "total":           total,         # с НДС = total_amount (то, что платит клиент)
+        "amount_in_words": amount_to_words_ru(total),
         # Legacy переменные на случай если шаблон откатится:
         "fuel_name":        _fuel_name(order),
         "order_number":     order.order_number,
         "delivery_address": order.delivery_address,
         "volume":           volume,
-        "amount":           total_amount,
+        "amount":           total,
         "unit_price":       fuel_unit_price,
+    }
+
+
+def _build_line_items(
+    order: Order, volume: float, total_amount: float, vat_rate: int
+) -> tuple[list[dict], float, float, float]:
+    """Разбить заказ на позиции (топливо + доставка) с разбивкой НДС.
+
+    total_amount — сумма С НДС (то, что клиент платит, как order.expected/final_amount,
+    на этой сумме строится учёт долга). В образце счёта строки и «Итого» показаны
+    БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС. Поэтому
+    раскладываем total_amount обратно на пред-НДС базу и налог.
+
+    Возвращает (items, subtotal_no_vat, vat_amount, total), где total == total_amount.
+    """
+    rate = vat_rate or 0
+    pre_vat_total = round(total_amount / (1 + rate / 100), 2) if rate else total_amount
+    fuel_pre, delivery_pre = _split_fuel_delivery(order, volume, pre_vat_total)
+
+    def _line(name: str, qty: float, unit: str, unit_code: str | None, sum_no_vat: float) -> dict:
+        vat = round(sum_no_vat * rate / 100, 2)
+        return {
+            "name":       name,
+            "qty":        qty,
+            "unit":       unit,
+            "unit_code":  unit_code,
+            "price":      round(sum_no_vat / qty, 2) if qty else 0.0,
+            "sum_no_vat": sum_no_vat,
+            "vat":        vat,
+            "sum":        round(sum_no_vat + vat, 2),
+        }
+
+    items = [_line(_fuel_name(order), volume, "л", "112", fuel_pre)]
+    if delivery_pre > 0:
+        items.append(_line(f"Доставка по адресу: {order.delivery_address}", 1, "рейс", None, delivery_pre))
+
+    subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
+    # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
+    vat_amount = round(total_amount - subtotal_no_vat, 2)
+    return items, subtotal_no_vat, vat_amount, total_amount
+
+
+def _build_upd_ctx(
+    *,
+    doc_number: str,
+    issued_at: str,
+    seller: dict | None,
+    buyer: dict,
+    order: Order,
+    volume: float,
+    total_amount: float,
+) -> dict:
+    """Контекст для upd.html — официальная форма (Постановление Правительства РФ N 1137)."""
+    vat_rate = (seller or {}).get("vat_rate") or DEFAULT_VAT_RATE
+    items, subtotal, vat_amount, total = _build_line_items(order, volume, total_amount, vat_rate)
+    return {
+        "doc_number":       doc_number,
+        "issued_at":        issued_at,
+        "seller":           seller or {},
+        "buyer":            buyer,
+        "status_code":      "1" if vat_rate else "2",  # 1 = СФ+передаточный, 2 = только передаточный
+        "items":            items,
+        "subtotal":         subtotal,
+        "vat_rate":         vat_rate,
+        "vat_amount":       vat_amount,
+        "total":            total,
+        "order_number":     order.order_number,
+        "delivery_address": order.delivery_address,
+        "basis":            f"Заявка №{order.order_number}",
+        "transport_info":   "—",
     }
 
 
@@ -303,6 +352,7 @@ async def generate_ttn(
     doc_number = await _next_doc_number(db, DocumentType.TTN)
 
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    unit_price = round(amount / volume, 2) if volume else 0.0
     ctx = {
         "doc_number":        doc_number,
         "issued_at":         now_str,
@@ -311,9 +361,12 @@ async def generate_ttn(
         "fuel_name":         _fuel_name(order),
         "order_number":      order.order_number,
         "delivery_address":  order.delivery_address,
+        "volume":            volume,
         "volume_delivered":  volume,
+        "unit_price":        unit_price,
         "amount":            amount,
-        "driver_name":       driver_name,
+        "amount_in_words":   amount_to_words_ru(amount),
+        "driver_name":       driver_name or "—",
         "order_status":      order.status.value,
     }
 
@@ -352,24 +405,15 @@ async def generate_upd(
     """Сформировать УПД при закрытии заявки."""
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
-    unit_price = round(amount / volume, 2) if volume else 0
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     doc_number = await _next_doc_number(db, DocumentType.UPD)
-
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
-    ctx = {
-        "doc_number":        doc_number,
-        "issued_at":         now_str,
-        "seller":            seller,
-        "buyer":             buyer,
-        "fuel_name":         _fuel_name(order),
-        "order_number":      order.order_number,
-        "delivery_address":  order.delivery_address,
-        "volume_delivered":  volume,
-        "unit_price":        unit_price,
-        "amount":            amount,
-    }
+    ctx = _build_upd_ctx(
+        doc_number=doc_number, issued_at=now_str,
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+    )
 
     try:
         pdf_bytes = _render_pdf("upd.html", ctx)

@@ -1,86 +1,263 @@
-{% extends "base.html" %}
-{% block title %}УПД {{ doc_number }}{% endblock %}
-{% block content %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>УПД {{ doc_number }}</title>
+<style>
+  @page { size: A4 landscape; margin: 7mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #000; margin: 0; line-height: 1.1; }
 
-<h1>УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ ДОКУМЕНТ</h1>
-<div class="subtitle">№ {{ doc_number }} от {{ issued_at }} &nbsp;|&nbsp; Статус 2 (без НДС)</div>
+  table { border-collapse: collapse; }
+  .num { display: inline-block; min-width: 26px; text-align: right; font-size: 7pt; vertical-align: bottom; }
 
-<div class="req-grid">
-  <div class="req-block">
-    <b>Продавец:</b>
-    <p>{{ seller.name }}</p>
-    <p>ИНН: {{ seller.inn }}{% if seller.kpp %} / КПП: {{ seller.kpp }}{% endif %}</p>
-    {% if seller.ogrn %}<p>ОГРН: {{ seller.ogrn }}</p>{% endif %}
-    <p>{{ seller.address }}</p>
-    {% if seller.phone %}<p>Тел.: {{ seller.phone }}</p>{% endif %}
-    <p><b>Банк:</b> {{ seller.bank }}, р/с {{ seller.rs }}, к/с {{ seller.ks }}, БИК {{ seller.bik }}</p>
+  /* шапка */
+  .head { display: table; width: 100%; }
+  .head .vert-cell { display: table-cell; width: 20px; vertical-align: middle; }
+  .head .vert { writing-mode: vertical-lr; transform: rotate(180deg); font-weight: bold; font-size: 8pt; white-space: nowrap; }
+  .head .sf { display: table-cell; vertical-align: top; padding-left: 4px; }
+  .head .appx { display: table-cell; width: 230px; vertical-align: top; font-size: 6.8pt; text-align: left; }
+  .sf-row { display: table; width: 100%; }
+  .sf-row > div { display: table-cell; vertical-align: bottom; }
+  .ul { border-bottom: 1px solid #000; padding: 0 3px; }
+
+  /* реквизиты сторон */
+  .req { width: 100%; margin-top: 3px; }
+  .req td { padding: 1px 0; vertical-align: bottom; }
+  .req .rl { white-space: nowrap; padding-right: 6px; }
+  .req .rv { border-bottom: 1px solid #000; width: 100%; padding: 0 4px; }
+  .req .rn { width: 28px; text-align: right; font-size: 7pt; }
+
+  .status-box { border: 1px solid #000; padding: 3px 4px; width: 150px; font-size: 6.6pt; }
+  .status-box .cell { display: inline-block; width: 16px; height: 13px; border: 1px solid #000; text-align: center; line-height: 13px; font-weight: bold; }
+
+  /* таблица товаров */
+  .items { width: 100%; margin-top: 4px; }
+  .items th, .items td { border: 1px solid #000; padding: 1px 2px; font-size: 6.6pt; }
+  .items th { background: #eee; font-weight: normal; text-align: center; line-height: 1.0; }
+  .items td.c { text-align: center; }
+  .items td.r { text-align: right; }
+  .items .n td { text-align: center; font-style: italic; color: #666; font-size: 6.2pt; }
+  .items .tot td { font-weight: bold; }
+
+  .pages { margin-top: 3px; }
+  .signtbl { width: 100%; margin-top: 3px; }
+  .signtbl td { padding: 2px 4px; vertical-align: bottom; font-size: 7.3pt; }
+  .sl { border-bottom: 1px solid #000; height: 12px; }
+  .sub { font-size: 5.8pt; color: #555; text-align: center; }
+
+  .liner { display: table; width: 100%; padding: 1px 0; }
+  .liner .ll { display: table-cell; white-space: nowrap; padding-right: 5px; vertical-align: bottom; }
+  .liner .lv { display: table-cell; border-bottom: 1px solid #000; width: 100%; padding: 0 4px; vertical-align: bottom; }
+  .liner .ln { display: table-cell; width: 28px; text-align: right; font-size: 7pt; vertical-align: bottom; }
+  .hint { font-size: 5.8pt; color: #666; padding-left: 220px; }
+
+  .pass { display: table; width: 100%; margin-top: 4px; border-top: 1.5px solid #000; }
+  .pass .col { display: table-cell; width: 50%; vertical-align: top; padding: 4px 6px; }
+  .pass .col.l { border-right: 1px solid #000; }
+  .pass h3 { font-size: 7.5pt; margin: 0 0 3px; }
+  .pass .prow { display: table; width: 100%; padding: 1px 0; }
+  .pass .prow .pl { display: table-cell; white-space: nowrap; padding-right: 4px; vertical-align: bottom; font-size: 6.8pt; }
+  .pass .prow .pv { display: table-cell; border-bottom: 1px solid #000; width: 100%; padding: 0 3px; vertical-align: bottom; }
+  .pass .prow .pn { display: table-cell; width: 26px; text-align: right; font-size: 7pt; vertical-align: bottom; }
+  .pass .triple td { font-size: 6.8pt; vertical-align: bottom; }
+  .mp { font-weight: bold; font-size: 8pt; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="vert-cell"><div class="vert">Универсальный передаточный документ</div></div>
+  <div class="sf">
+    <div class="sf-row">
+      <div style="width:110px">Счёт-фактура N</div>
+      <div class="ul" style="min-width:120px">{{ doc_number }}</div>
+      <div style="width:24px;text-align:center">от</div>
+      <div class="ul" style="min-width:100px">{{ issued_at }}</div>
+      <div class="num">(1)</div>
+    </div>
+    <div class="sf-row">
+      <div style="width:110px">Исправление N</div>
+      <div class="ul" style="min-width:120px">—</div>
+      <div style="width:24px;text-align:center">от</div>
+      <div class="ul" style="min-width:100px">—</div>
+      <div class="num">(1а)</div>
+    </div>
   </div>
-  <div class="req-block">
-    <b>Покупатель:</b>
-    <p>{{ buyer.name }}</p>
-    {% if buyer.inn %}<p>ИНН: {{ buyer.inn }}</p>{% endif %}
-    {% if buyer.kpp %}<p>КПП: {{ buyer.kpp }}</p>{% endif %}
-    {% if buyer.address %}<p>{{ buyer.address }}</p>{% endif %}
+  <div class="appx">
+    Приложение N 1<br>
+    к постановлению Правительства РФ от 26.12.2011 N 1137<br>
+    (в редакции постановления Правительства РФ от 02.04.2021 N 534)
   </div>
 </div>
 
-<table>
+<table style="width:100%;margin-top:3px"><tr>
+  <td style="width:160px;vertical-align:top">
+    <div class="status-box">
+      Статус: <span class="cell">{{ status_code }}</span><br>
+      1 — счёт-фактура и передаточный документ (акт)<br>
+      2 — передаточный документ (акт)
+    </div>
+  </td>
+  <td style="vertical-align:top;padding-left:6px">
+    <table class="req">
+      <tr><td class="rl">Продавец</td><td class="rv">{{ seller.name or "—" }}</td><td class="rn">(2)</td></tr>
+      <tr><td class="rl">Адрес</td><td class="rv">{{ seller.legal_address or "—" }}</td><td class="rn">(2а)</td></tr>
+      <tr><td class="rl">ИНН/КПП продавца</td><td class="rv">{{ seller.inn or "—" }}{% if seller.kpp %} / {{ seller.kpp }}{% endif %}</td><td class="rn">(2б)</td></tr>
+      <tr><td class="rl">Грузоотправитель и его адрес</td><td class="rv">{{ seller.name or "—" }}{% if seller.legal_address %}, {{ seller.legal_address }}{% endif %}</td><td class="rn">(3)</td></tr>
+      <tr><td class="rl">Грузополучатель и его адрес</td><td class="rv">{{ buyer.name or "—" }}{% if delivery_address %}, {{ delivery_address }}{% endif %}</td><td class="rn">(4)</td></tr>
+      <tr><td class="rl">К платёжно-расчётному документу</td><td class="rv">N&nbsp;—&nbsp;&nbsp;от&nbsp;—</td><td class="rn">(5)</td></tr>
+      <tr><td class="rl">Документ об отгрузке</td><td class="rv">N&nbsp;п/п&nbsp;1&nbsp;&nbsp;N&nbsp;{{ order_number }}&nbsp;&nbsp;от&nbsp;{{ issued_at }}</td><td class="rn">(5а)</td></tr>
+      <tr><td class="rl">Покупатель</td><td class="rv">{{ buyer.name or "—" }}</td><td class="rn">(6)</td></tr>
+      <tr><td class="rl">Адрес</td><td class="rv">{{ buyer.address or "—" }}</td><td class="rn">(6а)</td></tr>
+      <tr><td class="rl">ИНН/КПП покупателя</td><td class="rv">{{ buyer.inn or "—" }}{% if buyer.kpp %} / {{ buyer.kpp }}{% endif %}</td><td class="rn">(6б)</td></tr>
+      <tr><td class="rl">Валюта: наименование, код</td><td class="rv">Российский рубль, 643</td><td class="rn">(7)</td></tr>
+      <tr><td class="rl">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="rv">—</td><td class="rn">(8)</td></tr>
+    </table>
+  </td>
+</tr></table>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th rowspan="2" style="width:4%">Код товара/<br>работ, услуг</th>
+      <th rowspan="2" style="width:3%">N<br>п/п</th>
+      <th rowspan="2" style="width:17%">Наименование товара (описание<br>выполненных работ, оказанных услуг),<br>имущественного права</th>
+      <th rowspan="2" style="width:4%">Код<br>вида<br>товара</th>
+      <th colspan="2" style="width:8%">Единица измерения</th>
+      <th rowspan="2" style="width:5%">Коли-<br>чество<br>(объём)</th>
+      <th rowspan="2" style="width:6%">Цена<br>(тариф)<br>за ед.</th>
+      <th rowspan="2" style="width:7%">Стоимость<br>без налога<br>— всего</th>
+      <th rowspan="2" style="width:4%">В т.ч.<br>сумма<br>акциза</th>
+      <th rowspan="2" style="width:4%">Нало-<br>говая<br>ставка</th>
+      <th rowspan="2" style="width:7%">Сумма налога,<br>предъявляемая<br>покупателю</th>
+      <th rowspan="2" style="width:7%">Стоимость<br>с налогом<br>— всего</th>
+      <th colspan="2" style="width:8%">Страна<br>происхождения товара</th>
+      <th rowspan="2" style="width:8%">Регистрационный<br>номер декларации<br>на товары</th>
+    </tr>
+    <tr>
+      <th>код</th><th>усл.<br>обозн.</th><th>Цифр.<br>код</th><th>Кратк.<br>наим.</th>
+    </tr>
+    <tr class="n">
+      <td>А</td><td>1</td><td>1а</td><td>1б</td><td>2</td><td>2а</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>10а</td><td>11</td>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td class="c">—</td>
+      <td class="c">{{ loop.index }}</td>
+      <td>{{ it.name }}</td>
+      <td class="c">—</td>
+      <td class="c">{{ it.unit_code or "—" }}</td>
+      <td class="c">{{ it.unit }}</td>
+      <td class="r">{{ it.qty | format_number }}</td>
+      <td class="r">{{ it.price | format_money }}</td>
+      <td class="r">{{ it.sum_no_vat | format_money }}</td>
+      <td class="c">без акциза</td>
+      <td class="c">{% if vat_rate %}{{ vat_rate }}%{% else %}без НДС{% endif %}</td>
+      <td class="r">{{ it.vat | format_money }}</td>
+      <td class="r">{{ it.sum | format_money }}</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+      <td class="c">—</td>
+    </tr>
+    {% endfor %}
+    <tr class="tot">
+      <td colspan="8" class="r">Всего к оплате (9)</td>
+      <td class="r">{{ subtotal | format_money }}</td>
+      <td class="c">Х</td>
+      <td class="c">Х</td>
+      <td class="r">{{ vat_amount | format_money }}</td>
+      <td class="r">{{ total | format_money }}</td>
+      <td colspan="3"></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="pages">Документ составлен на <span class="ul" style="min-width:26px">1</span> листах</div>
+
+<table class="signtbl">
   <tr>
-    <th style="width:5%">№</th>
-    <th>Наименование</th>
-    <th style="width:10%">Ед.</th>
-    <th style="width:12%">Кол-во</th>
-    <th style="width:13%">Цена (₽)</th>
-    <th style="width:13%">Сумма (₽)</th>
-    <th style="width:10%">НДС</th>
+    <td style="width:30%">Руководитель организации<br>или иное уполномоченное лицо</td>
+    <td style="width:18%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+    <td style="width:24%"><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+    <td style="width:28%"></td>
   </tr>
   <tr>
-    <td class="text-center">1</td>
-    <td>{{ fuel_name }}<br>
-      <small>Заявка: {{ order_number }}, доставка: {{ delivery_address }}</small>
-    </td>
-    <td class="text-center">л</td>
-    <td class="text-right">{{ volume_delivered | format_number }}</td>
-    <td class="text-right">{{ unit_price | format_number }}</td>
-    <td class="text-right">{{ amount | format_money }}</td>
-    <td class="text-center">Без НДС</td>
+    <td>Главный бухгалтер<br>или иное уполномоченное лицо</td>
+    <td><div class="sl"></div><div class="sub">(подпись)</div></td>
+    <td><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+    <td></td>
   </tr>
-  <tr class="total-row">
-    <td colspan="5" class="text-right">ИТОГО:</td>
-    <td class="text-right">{{ amount | format_money }} ₽</td>
-    <td class="text-center">—</td>
+  <tr>
+    <td>Индивидуальный предприниматель<br>или иное уполномоченное лицо</td>
+    <td><div class="sl"></div><div class="sub">(подпись)</div></td>
+    <td><div class="sl"></div><div class="sub">(Ф.И.О.)</div></td>
+    <td><div class="sl"></div><div class="sub">(реквизиты свидетельства о государственной регистрации индивидуального предпринимателя)</div></td>
   </tr>
 </table>
 
-<table style="margin-top:8px; font-size:9.5pt">
-  <tr>
-    <th style="width:30%">Основание передачи</th>
-    <th style="width:25%">Дата отгрузки</th>
-    <th>Заявка / договор</th>
-  </tr>
-  <tr>
-    <td>Доставка топлива</td>
-    <td class="text-center">{{ issued_at }}</td>
-    <td>{{ order_number }}</td>
-  </tr>
-</table>
+<div class="liner">
+  <div class="ll">Основание передачи (сдачи) / получения (приёмки)</div>
+  <div class="lv">{{ basis or "—" }}</div>
+  <div class="ln">(10)</div>
+</div>
+<div class="hint">(договор; доверенность и др.)</div>
 
-<div class="sign-area" style="margin-top:24px">
-  <div class="sign-item">
-    <div>Передал ({{ seller.director_title or "Руководитель" }})</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">{{ seller.director_name or "" }}</div>
+<div class="liner">
+  <div class="ll">Данные о транспортировке и грузе</div>
+  <div class="lv">{{ transport_info or "—" }}</div>
+  <div class="ln">(11)</div>
+</div>
+<div class="hint">(транспортная накладная и др., масса нетто/брутто груза)</div>
+
+<div class="pass">
+  <div class="col l">
+    <h3>Товар (груз) передал / услуги, результаты работ, права сдал <span class="num">(12)</span></h3>
+    <table class="triple" style="width:100%"><tr>
+      <td style="width:33%"><div class="sl">{{ seller.director_title or "" }}</div><div class="sub">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:37%"><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+    </tr></table>
+    <div class="prow"><div class="pl">Дата отгрузки, передачи (сдачи)</div><div class="pv">{{ issued_at }}</div><div class="pn">(13)</div></div>
+    <div class="prow"><div class="pl">Иные сведения об отгрузке, передаче</div><div class="pv">—</div><div class="pn">(14)</div></div>
+    <div class="hint" style="padding-left:0">(ссылки на неотъемлемые приложения, сопутствующие документы, иные документы и т.п.)</div>
+    <table class="triple" style="width:100%;margin-top:2px">
+      <tr><td colspan="3" style="font-size:6.5pt">Ответственный за правильность оформления факта хозяйственной жизни <span class="num">(15)</span></td></tr>
+      <tr>
+        <td style="width:33%"><div class="sl">{{ seller.director_title or "" }}</div><div class="sub">(должность)</div></td>
+        <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+        <td style="width:37%"><div class="sl">{{ seller.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+      </tr>
+    </table>
+    <div class="prow"><div class="pl">Наименование экономического субъекта — составителя документа (в т.ч. комиссионера / агента)</div><div class="pv">{{ seller.name or "" }}</div><div class="pn">(16)</div></div>
+    <div class="hint" style="padding-left:0">(может не заполняться при проставлении печати М.П., может быть указан ИНН / КПП)</div>
+    <div class="mp">М.П.</div>
   </div>
-  <div class="sign-item">
-    <div>Получил (Покупатель)</div>
-    <div class="sign-line"></div>
-    <div class="sign-label">&nbsp;</div>
+  <div class="col r">
+    <h3>Товар (груз) получил / услуги, результаты работ, права принял <span class="num">(17)</span></h3>
+    <table class="triple" style="width:100%"><tr>
+      <td style="width:33%"><div class="sl">{{ buyer.director_title or "" }}</div><div class="sub">(должность)</div></td>
+      <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+      <td style="width:37%"><div class="sl">{{ buyer.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+    </tr></table>
+    <div class="prow"><div class="pl">Дата получения (приёмки)</div><div class="pv">—</div><div class="pn">(18)</div></div>
+    <div class="prow"><div class="pl">Иные сведения о получении, приёмке</div><div class="pv">—</div><div class="pn">(19)</div></div>
+    <div class="hint" style="padding-left:0">(информация о наличии/отсутствии претензии; ссылки на неотъемлемые приложения и другие документы и т.п.)</div>
+    <table class="triple" style="width:100%;margin-top:2px">
+      <tr><td colspan="3" style="font-size:6.5pt">Ответственный за правильность оформления факта хозяйственной жизни <span class="num">(20)</span></td></tr>
+      <tr>
+        <td style="width:33%"><div class="sl">{{ buyer.director_title or "" }}</div><div class="sub">(должность)</div></td>
+        <td style="width:30%"><div class="sl"></div><div class="sub">(подпись)</div></td>
+        <td style="width:37%"><div class="sl">{{ buyer.director_name or "" }}</div><div class="sub">(Ф.И.О.)</div></td>
+      </tr>
+    </table>
+    <div class="prow"><div class="pl">Наименование экономического субъекта — составителя документа</div><div class="pv">{{ buyer.name or "" }}</div><div class="pn">(21)</div></div>
+    <div class="hint" style="padding-left:0">(может не заполняться при проставлении печати М.П., может быть указан ИНН / КПП)</div>
+    <div class="mp">М.П.</div>
   </div>
 </div>
 
-<p class="footer-note">
-  НДС не исчисляется (ст. 346.11 НК РФ, применяется УСН).
-  Документ сформирован при закрытии заявки.
-</p>
-
-{% endblock %}
+</body>
+</html>

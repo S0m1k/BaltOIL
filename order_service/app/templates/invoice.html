@@ -80,7 +80,7 @@
       <td class="text-right">{{ it.qty | format_number }}</td>
       <td class="text-center">{{ it.unit }}</td>
       <td class="text-right">{{ it.price | format_money }}</td>
-      <td class="text-right">{{ it.sum | format_money }}</td>
+      <td class="text-right">{{ it.sum_no_vat | format_money }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -92,7 +92,7 @@
     <td class="t-val">{{ subtotal | format_money }}</td>
   </tr>
   <tr>
-    <td class="t-lbl">{% if vat_rate %}В&nbsp;т.&nbsp;ч.&nbsp;НДС&nbsp;{{ vat_rate }}%:{% else %}Без&nbsp;НДС:{% endif %}</td>
+    <td class="t-lbl">{% if vat_rate %}НДС&nbsp;{{ vat_rate }}%:{% else %}Без&nbsp;НДС:{% endif %}</td>
     <td class="t-val">{{ vat_amount | format_money }}</td>
   </tr>
   <tr>
