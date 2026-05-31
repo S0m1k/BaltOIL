@@ -1,7 +1,7 @@
 import base64
 import uuid
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.models.document import DocumentType, DocumentStatus
 from app.services import document_service
+from app.services import document_export
 from app.services.order_service import get_order
 from app.config import settings
 from pathlib import Path
@@ -77,6 +78,40 @@ async def download_document(
         path=str(full_path),
         media_type="application/pdf",
         filename=f"{doc.doc_number}.pdf",
+    )
+
+
+@router.get("/{document_id}/export")
+async def export_document(
+    order_id: uuid.UUID,
+    document_id: uuid.UUID,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Выгрузить документ в редактируемом формате (xlsx — счёт/ТТН/УПД, docx — доверенность).
+
+    Файл строится на лету из сохранённого снимка документа, поэтому совпадает
+    с выпущенным PDF и доступен для уже существующих документов.
+    """
+    order = await get_order(db, order_id, actor)  # проверка доступа
+    doc = await document_service.get_document(db, document_id)
+    if doc.order_id != order_id:
+        raise ForbiddenError("Документ не принадлежит этой заявке")
+    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
+        raise NotFoundError("Документ ещё не готов")
+
+    dtype = doc.doc_type.value if hasattr(doc.doc_type, "value") else str(doc.doc_type)
+    try:
+        ctx = await document_service.build_export_ctx(db, doc, order)
+        content, ext, mime = document_export.export_document(dtype, ctx)
+    except ValueError as exc:
+        raise ValidationError(str(exc))
+
+    filename = f"{doc.doc_number}.{ext}"
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

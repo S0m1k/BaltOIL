@@ -3415,7 +3415,9 @@ async function loadTimeline(orderId) {
   }
 }
 
-const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)', invoice_final: 'Счёт (финал)', ttn: 'ТТН', upd: 'УПД' };
+const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)', invoice_final: 'Счёт (финал)', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
+// Редактируемый формат выгрузки по типу документа: Excel (xlsx) для таблиц, Word (docx) для текстовых.
+const DOC_EXPORT_FMT = { invoice: 'Excel', invoice_preliminary: 'Excel', invoice_final: 'Excel', ttn: 'Excel', upd: 'Excel', poa: 'Word' };
 const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
 const DOC_STATUS_COLORS = { draft: 'var(--text3)', ready: 'var(--green)', sent: 'var(--amber)', cancelled: 'var(--red)' };
 
@@ -3443,6 +3445,8 @@ async function loadDocs(orderId) {
         </div>
         ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
             onclick="downloadDoc('${orderId}','${d.id}')">⬇ PDF</button>` : ''}
+        ${canDownload && DOC_EXPORT_FMT[d.doc_type] ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+            onclick="downloadDocExport('${orderId}','${d.id}')">⬇ ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
         ${canSend ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
             onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
       </div>`;
@@ -3471,6 +3475,60 @@ function downloadDoc(orderId, docId) {
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
     .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
+}
+
+// Расширение по mime-типу редактируемой выгрузки.
+function _extFromMime(t) {
+  if (!t) return 'bin';
+  if (t.indexOf('spreadsheet') !== -1) return 'xlsx';
+  if (t.indexOf('word') !== -1) return 'docx';
+  return 'bin';
+}
+
+function downloadDocExport(orderId, docId) {
+  const token = localStorage.getItem('access_token');
+  const url = `${ORDER_URL}/orders/${orderId}/documents/${docId}/export`;
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      const ext = _extFromMime(blob.type);
+      if (ext === 'bin') throw new Error('сервер вернул неизвестный формат (' + (blob.type || '?') + ')');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `document_${docId.slice(0,8)}.${ext}`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => toast('Ошибка выгрузки: ' + e.message, 'error'));
+}
+
+function downloadContractPdf(contractId) {
+  const token = localStorage.getItem('access_token');
+  fetch(`${ORDER_URL}/contracts/${contractId}/download`, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      if (blob.type && blob.type.indexOf('pdf') === -1) throw new Error('сервер вернул не PDF');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `contract_${contractId.slice(0,8)}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
+}
+
+function downloadContractExport(contractId) {
+  const token = localStorage.getItem('access_token');
+  fetch(`${ORDER_URL}/contracts/${contractId}/export`, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `contract_${contractId.slice(0,8)}.docx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => toast('Ошибка выгрузки: ' + e.message, 'error'));
 }
 
 async function sendDocToChat(orderId, docId, btn) {
@@ -5994,9 +6052,10 @@ function _ccDocsRender(docs, typeFilter) {
           <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>
           <td style="white-space:nowrap">
             ${d.status === 'ready' || d.status === 'sent' ? `
-              <a href="${ORDER_URL}/orders/${d.order_id}/documents/${d.id}/download"
-                 target="_blank" class="btn btn-sm btn-ghost" title="Скачать PDF"
-                 onclick="event.stopPropagation()">${DOWNLOAD_ICON} Скачать</a>
+              <button class="btn btn-sm btn-ghost" title="Скачать PDF"
+                onclick="event.stopPropagation();downloadDoc('${d.order_id}','${d.id}')">${DOWNLOAD_ICON} PDF</button>
+              ${DOC_EXPORT_FMT[d.doc_type] ? `<button class="btn btn-sm btn-ghost" title="Выгрузить для редактирования"
+                onclick="event.stopPropagation();downloadDocExport('${d.order_id}','${d.id}')">${DOWNLOAD_ICON} ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
               <button class="btn btn-sm btn-ghost" title="Отправить в чат"
                 onclick="ccDocToChat('${d.order_id}','${d.id}',this)">${CHAT_ICON} В чат</button>
               <button class="btn btn-sm btn-ghost" title="Отправить на почту"
@@ -6079,7 +6138,8 @@ function _ccContractsRender(contracts) {
           <td style="white-space:nowrap;color:var(--text3);font-size:12px">${_CONTRACT_STATUS_LABEL[c.status] || c.status}</td>
           <td style="white-space:nowrap;color:var(--text3);font-size:12px">${c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU') : '—'}${c.effective_until ? ' — ' + new Date(c.effective_until).toLocaleDateString('ru-RU') : ''}</td>
           <td style="text-align:right;white-space:nowrap">
-            ${c.file_path ? `<a href="${ORDER_URL}/contracts/${c.id}/download" target="_blank" class="btn btn-sm btn-ghost" title="Скачать PDF" onclick="event.stopPropagation()">${DOWNLOAD_ICON} Скачать</a>` : '<span style="color:var(--text3);font-size:11px">PDF не готов</span>'}
+            ${c.file_path ? `<button class="btn btn-sm btn-ghost" title="Скачать PDF" onclick="event.stopPropagation();downloadContractPdf('${c.id}')">${DOWNLOAD_ICON} PDF</button>
+            <button class="btn btn-sm btn-ghost" title="Выгрузить в Word" onclick="event.stopPropagation();downloadContractExport('${c.id}')">${DOWNLOAD_ICON} Word</button>` : '<span style="color:var(--text3);font-size:11px">PDF не готов</span>'}
           </td>
         </tr>`).join('')}
     </tbody>

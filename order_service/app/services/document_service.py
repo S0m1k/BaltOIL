@@ -640,6 +640,72 @@ async def generate_invoice_final(
     return doc
 
 
+async def build_export_ctx(db: AsyncSession, doc: Document, order: Order) -> dict:
+    """Восстановить контекст документа из сохранённого снимка для выгрузки в xlsx/docx.
+
+    Использует СОХРАНЁННЫЕ значения (snapshot, суммы, номер, дата) — выгрузка
+    совпадает с уже выпущенным PDF. order нужен для разбивки на позиции и
+    адреса/топлива.
+    """
+    seller = doc.seller_snapshot or {}
+    buyer = doc.buyer_snapshot or {}
+    volume = float(doc.volume or order.volume_delivered or order.volume_requested or 0)
+    total = float(doc.total_amount or 0)
+    issued_at = doc.issued_at.strftime("%d.%m.%Y") if doc.issued_at else ""
+    dtype = doc.doc_type.value if hasattr(doc.doc_type, "value") else str(doc.doc_type)
+
+    if dtype in ("invoice", "invoice_preliminary", "invoice_final"):
+        return _build_invoice_ctx(
+            doc_number=doc.doc_number, issued_at=issued_at,
+            seller=seller, buyer=buyer, order=order,
+            volume=volume, total_amount=total,
+            basis=f"Заявка №{order.order_number}",
+        )
+    if dtype == "upd":
+        return _build_upd_ctx(
+            doc_number=doc.doc_number, issued_at=issued_at,
+            seller=seller, buyer=buyer, order=order,
+            volume=volume, total_amount=total,
+        )
+    if dtype == "ttn":
+        driver = await _fetch_driver_profile(order.driver_id)
+        unit_price = round(total / volume, 2) if volume else 0.0
+        return {
+            "doc_number": doc.doc_number, "issued_at": issued_at,
+            "seller": seller, "buyer": buyer,
+            "fuel_name": _fuel_name(order), "order_number": order.order_number,
+            "delivery_address": order.delivery_address,
+            "volume": volume, "volume_delivered": volume, "unit_price": unit_price,
+            "amount": total, "amount_in_words": amount_to_words_ru(total),
+            "driver_name": driver.get("full_name") or "—",
+        }
+    if dtype == "poa":
+        driver = await _fetch_driver_profile(order.driver_id)
+        issued_dt = doc.issued_at or datetime.now(timezone.utc)
+        issued_raw = driver.get("passport_issued_at")
+        p_issued = ""
+        if issued_raw:
+            try:
+                p_issued = datetime.fromisoformat(str(issued_raw)).strftime("%d.%m.%Y")
+            except ValueError:
+                p_issued = str(issued_raw)
+        return {
+            "doc_number": doc.doc_number, "issued_at": issued_at,
+            "valid_until": (issued_dt + timedelta(days=15)).strftime("%d.%m.%Y"),
+            "seller": seller, "buyer": buyer,
+            "driver_name": driver.get("full_name") or "—",
+            "passport_series": driver.get("passport_series") or "",
+            "passport_number": driver.get("passport_number") or "",
+            "passport_issued_by": driver.get("passport_issued_by") or "",
+            "passport_issued_at": p_issued,
+            "fuel_name": _fuel_name(order), "order_number": order.order_number,
+            "delivery_address": order.delivery_address,
+            "volume": volume, "amount": total,
+            "amount_in_words": amount_to_words_ru(total),
+        }
+    raise ValidationError(f"Экспорт для типа «{dtype}» не поддерживается")
+
+
 async def get_document(db: AsyncSession, document_id: uuid.UUID) -> Document:
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()

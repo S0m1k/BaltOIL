@@ -240,6 +240,25 @@ async def create_contract(
     return contract
 
 
+def build_contract_export_ctx(contract: Contract) -> dict:
+    """Контекст договора для выгрузки в docx (из сохранённого снимка)."""
+    seller = contract.seller_snapshot or {}
+    buyer = contract.buyer_snapshot or {}
+    signed = contract.signed_at
+    return {
+        "contract_number":  contract.contract_number,
+        "city":             "Санкт-Петербург",
+        "signed_day":       f"{signed.day:02d}" if signed else "",
+        "signed_month_ru":  _MONTHS_RU[signed.month] if signed else "",
+        "signed_year":      signed.year if signed else "",
+        "effective_until":  contract.effective_until.strftime("%d.%m.%Y") if contract.effective_until else "",
+        "seller":           seller,
+        "buyer":            buyer,
+        "seller_sign_name": _short_sign_name(seller.get("director_name")),
+        "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+    }
+
+
 async def list_contracts(db: AsyncSession, client_id: uuid.UUID) -> list[Contract]:
     result = await db.execute(
         select(Contract)

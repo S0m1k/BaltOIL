@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.contract import ContractStatus
 from app.services import contract_service
+from app.services import document_export
 
 router = APIRouter(tags=["contracts"])
 
@@ -84,6 +85,26 @@ async def get_contract(
     if actor.role not in ("manager", "admin") and contract.client_id != actor.id:
         raise ForbiddenError("Договор принадлежит другому клиенту")
     return contract
+
+
+@router.get("/contracts/{contract_id}/export")
+async def export_contract(
+    contract_id: uuid.UUID,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Выгрузить договор в редактируемом формате (docx)."""
+    contract = await contract_service.get_contract(db, contract_id)
+    if actor.role not in ("manager", "admin") and contract.client_id != actor.id:
+        raise ForbiddenError("Договор принадлежит другому клиенту")
+    ctx = contract_service.build_contract_export_ctx(contract)
+    content = document_export.contract_docx(ctx)
+    filename = f"contract_{contract.contract_number.replace('/', '-')}.docx"
+    return Response(
+        content=content,
+        media_type=document_export.DOCX_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/contracts/{contract_id}/download")
