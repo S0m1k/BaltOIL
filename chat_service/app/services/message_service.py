@@ -98,8 +98,17 @@ async def send_message(
     await db.commit()
     await db.refresh(msg)
 
-    # Publish to events:chat so notification_service can fan out to recipients
-    participant_ids = [str(p.user_id) for p in conv.participants]
+    # Publish to events:chat so notification_service can fan out to recipients.
+    # Членство определяется snapshot-полями (client_id/driver_id), а не таблицей
+    # participants (она наполняется лишь при ОТКРЫТИИ чата). Берём объединение,
+    # иначе первое сообщение водителя в свежем заказ-чате не доходило бы до клиента,
+    # ещё не открывавшего диалог. notification_service сам исключит отправителя.
+    recipient_ids = {str(p.user_id) for p in conv.participants}
+    if conv.client_id:
+        recipient_ids.add(str(conv.client_id))
+    if conv.driver_id:
+        recipient_ids.add(str(conv.driver_id))
+    participant_ids = list(recipient_ids)
     try:
         await redis.publish("events:chat", json.dumps({
             "event": "chat_message",

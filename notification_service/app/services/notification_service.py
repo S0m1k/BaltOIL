@@ -163,7 +163,12 @@ async def create_notifications(
     db: AsyncSession,
     data: PublishRequest,
 ) -> list[Notification]:
-    """Persist one Notification row per recipient and return them."""
+    """Persist one Notification row per recipient and return them.
+
+    Email delivery НЕ запускается здесь — иначе письмо могло уйти за уведомление,
+    которое затем откатилось (commit упал / rollback). Письма ставит в очередь
+    schedule_emails(), который вызывают ТОЛЬКО после успешного commit.
+    """
     notifications = []
     for uid in data.user_ids:
         n = Notification(
@@ -175,14 +180,32 @@ async def create_notifications(
             entity_id=data.entity_id,
         )
         db.add(n)
-        # Schedule email delivery without blocking notification creation.
-        # _schedule_email never raises; any failure is logged inside.
-        asyncio.create_task(_schedule_email(n))
         notifications.append(n)
     await db.flush()
     for n in notifications:
         await db.refresh(n)
     return notifications
+
+
+def schedule_emails(notifications: list[Notification]) -> None:
+    """Запланировать отправку email для уже закоммиченных уведомлений.
+
+    Вызывать ТОЛЬКО после db.commit() — гарантия, что письмо соответствует
+    durable-persisted строке. Строим транзиентные копии полей, чтобы фоновая
+    таска не обращалась к ORM-объекту после закрытия сессии (DetachedInstanceError).
+    Вызывать пока сессия ещё открыта (атрибуты доступны для чтения).
+    """
+    for n in notifications:
+        snapshot = Notification(
+            user_id=n.user_id,
+            type=n.type,
+            title=n.title,
+            body=n.body,
+            entity_type=n.entity_type,
+            entity_id=n.entity_id,
+        )
+        # _schedule_email never raises; any failure is logged inside.
+        asyncio.create_task(_schedule_email(snapshot))
 
 
 async def list_notifications(

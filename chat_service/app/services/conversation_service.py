@@ -466,6 +466,7 @@ async def _post_system_message_raw(
         conversation_id=conv_id,
         sender_id=_SYSTEM_UUID,
         sender_role="system",
+        sender_name="Система",  # Message.sender_name NOT NULL — иначе INSERT падает 500
         text=text,
         msg_type="system",
     )

@@ -16,6 +16,7 @@ from app.services.notification_service import (
     mark_read,
     mark_all_read,
     notif_to_json,
+    schedule_emails,
 )
 from app.config import settings
 
@@ -68,6 +69,10 @@ async def publish(
     db: AsyncSession = Depends(get_db),
 ):
     notifications = await create_notifications(db, data)
+    # Явный commit до планирования писем — письмо должно соответствовать durable-строке,
+    # а не полагаться на отложенный commit в get_db (который мог бы упасть).
+    await db.commit()
+    schedule_emails(notifications)
     r = _redis()
     try:
         for n in notifications:

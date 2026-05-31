@@ -33,7 +33,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.notification import NotificationType
 from app.schemas.notification import PublishRequest
-from app.services.notification_service import create_notifications, notif_to_json
+from app.services.notification_service import create_notifications, notif_to_json, schedule_emails
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +227,8 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
         try:
             notifications = await create_notifications(db, req)
             await db.commit()
+            # Письма — только после успешного commit (иначе ушли бы за откатанные уведомления).
+            schedule_emails(notifications)
             for n in notifications:
                 channel = f"notifs:{n.user_id}"
                 # Для звонков добавим room_name в SSE-пейлоад, чтобы фронт сразу мог подключиться
