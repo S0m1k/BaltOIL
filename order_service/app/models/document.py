@@ -13,6 +13,7 @@ class DocumentType(str, enum.Enum):
     INVOICE = "invoice"                          # Legacy — оставлен для совместимости
     UPD = "upd"                                  # УПД (универсальный передаточный документ)
     TTN = "ttn"                                  # ТТН (товарно-транспортная накладная)
+    CONTRACT = "contract"                        # Договор поставки (хранится в отдельной таблице contracts)
 
 
 class DocumentStatus(str, enum.Enum):

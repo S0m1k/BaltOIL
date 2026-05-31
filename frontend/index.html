@@ -5951,6 +5951,12 @@ async function ccLoadDocs() {
   try {
     const docs = await orderGet(`/clients/${_ccClientId}/documents?limit=200`);
     _ccCache.docs = docs;
+    // Договоры — отдельная таблица; не валим панель, если их ещё нет.
+    try {
+      _ccCache.contracts = await orderGet(`/clients/${_ccClientId}/contracts`);
+    } catch (e) {
+      _ccCache.contracts = [];
+    }
     _ccRenderDocsPanel(docs, '');
   } catch (e) {
     panel.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -5976,13 +5982,14 @@ function _ccRenderDocsPanel(docs, typeFilter) {
       <span style="font-size:12px;color:var(--text3);margin-left:auto">${docs.length} документов</span>
     </div>`;
 
-  // Contracts section (populated in Deploy 2 when contracts table exists)
+  // Contracts section (Deploy 2)
   const contractsSection = `
     <div style="margin-bottom:18px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Договоры</div>
-      <div id="cc-contracts-list" style="color:var(--text3);font-size:12px;padding:8px 0">
-        <em>Договоры появятся после следующего обновления системы</em>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em">Договоры</div>
+        <button class="btn btn-sm btn-primary" onclick="ccCreateContract(this)">Сформировать договор</button>
       </div>
+      <div id="cc-contracts-list">${_ccContractsRender(_ccCache.contracts || [])}</div>
     </div>
     <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Документы по заявкам</div>`;
 
@@ -5992,6 +5999,45 @@ function _ccRenderDocsPanel(docs, typeFilter) {
   // Restore filter value if re-rendering
   const sel = panel.querySelector('select');
   if (sel) sel.value = typeFilter;
+}
+
+const _CONTRACT_STATUS_LABEL = { active: 'Действует', terminated: 'Расторгнут', expired: 'Истёк' };
+
+function _ccContractsRender(contracts) {
+  if (!contracts || !contracts.length) {
+    return `<div style="color:var(--text3);font-size:12px;padding:8px 0"><em>Договоров пока нет</em></div>`;
+  }
+  return `<table class="cc-doc-table" style="width:100%;border-collapse:collapse">
+    <tbody>
+      ${contracts.map(c => `
+        <tr>
+          <td style="white-space:nowrap;font-weight:600">№ ${escHtml(c.contract_number)}</td>
+          <td style="white-space:nowrap;color:var(--text3);font-size:12px">${_CONTRACT_STATUS_LABEL[c.status] || c.status}</td>
+          <td style="white-space:nowrap;color:var(--text3);font-size:12px">${c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU') : '—'}${c.effective_until ? ' — ' + new Date(c.effective_until).toLocaleDateString('ru-RU') : ''}</td>
+          <td style="text-align:right;white-space:nowrap">
+            ${c.file_path ? `<a href="${ORDER_URL}/contracts/${c.id}/download" target="_blank" class="btn btn-sm btn-ghost" title="Скачать PDF" onclick="event.stopPropagation()">${DOWNLOAD_ICON} Скачать</a>` : '<span style="color:var(--text3);font-size:11px">PDF не готов</span>'}
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function ccCreateContract(btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Формируем…';
+  try {
+    await orderPost(`/clients/${_ccClientId}/contracts`, {});
+    toast('Договор сформирован', 'success');
+    _ccCache.contracts = await orderGet(`/clients/${_ccClientId}/contracts`);
+    const list = document.getElementById('cc-contracts-list');
+    if (list) list.innerHTML = _ccContractsRender(_ccCache.contracts);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
 }
 
 function _ccDocsFilter(typeFilter) {

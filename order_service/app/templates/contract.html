@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Договор поставки нефтепродуктов № {{ contract_number }}</title>
+  <style>
+    @page { size: A4; margin: 18mm 18mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Liberation Serif", "Times New Roman", serif;
+      font-size: 11pt;
+      line-height: 1.35;
+      color: #000;
+      margin: 0;
+    }
+    h1 { font-size: 13pt; text-align: center; margin: 0 0 2px; font-weight: bold; text-transform: uppercase; }
+    .header-row { display: flex; justify-content: space-between; font-size: 11pt; margin: 10px 0 16px; }
+    p { margin: 6px 0; text-align: justify; }
+    .preamble { text-align: justify; margin-bottom: 12px; }
+    h2 { font-size: 11pt; font-weight: bold; text-align: center; margin: 16px 0 6px; }
+    ol.clauses { margin: 0; padding-left: 22px; }
+    ol.clauses > li { margin: 5px 0; text-align: justify; }
+    .requisites { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .requisites td { width: 50%; vertical-align: top; padding: 4px 10px; font-size: 10pt; }
+    .requisites .party-title { font-weight: bold; margin-bottom: 4px; }
+    .requisites .line { margin: 2px 0; }
+    .sign-block { margin-top: 22px; }
+    .sign-line { display: inline-block; border-bottom: 1px solid #000; width: 180px; height: 14px; }
+    .sign-cap { font-size: 8pt; color: #555; }
+    .nowrap { white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+<h1>Договор поставки нефтепродуктов № {{ contract_number }}</h1>
+
+<div class="header-row">
+  <span>г.&nbsp;{{ city }}</span>
+  <span>«{{ signed_day }}»&nbsp;{{ signed_month_ru }}&nbsp;{{ signed_year }}&nbsp;года</span>
+</div>
+
+<p class="preamble">
+  {{ seller.name }}, именуемое в дальнейшем «Поставщик», в лице
+  {{ seller.director_title or "Генерального директора" }} {{ seller.director_name or "________________" }},
+  действующего на основании Устава, с одной стороны, и
+  {{ buyer.name }}, именуемое в дальнейшем «Покупатель», в лице
+  {{ buyer.director_title or "руководителя" }} {{ buyer.director_name or "________________" }},
+  действующего на основании Устава, с другой стороны, совместно именуемые «Стороны»,
+  заключили настоящий Договор о нижеследующем.
+</p>
+
+<h2>1. Предмет договора</h2>
+<ol class="clauses">
+  <li>Поставщик обязуется поставлять нефтепродукты (далее — «Товар»), а Покупатель —
+      принимать и оплачивать Товар на условиях настоящего Договора.</li>
+  <li>Наименование, ассортимент, количество, цена и сроки поставки каждой партии Товара
+      определяются заявками Покупателя и счетами Поставщика, являющимися неотъемлемой
+      частью настоящего Договора.</li>
+</ol>
+
+<h2>2. Порядок поставки</h2>
+<ol class="clauses">
+  <li>Поставка Товара осуществляется путём доставки силами Поставщика по адресу,
+      указанному Покупателем в заявке.</li>
+  <li>Право собственности на Товар и риск случайной гибели переходят к Покупателю
+      в момент передачи Товара, подтверждаемой товарно-транспортной накладной (ТТН)
+      и универсальным передаточным документом (УПД).</li>
+  <li>Приёмка Товара по количеству и качеству производится Покупателем в момент передачи.</li>
+</ol>
+
+<h2>3. Цена и порядок расчётов</h2>
+<ol class="clauses">
+  <li>Цена Товара указывается в счёте на каждую партию и включает НДС
+      по ставке, действующей на дату поставки.</li>
+  <li>Оплата производится в безналичном порядке на расчётный счёт Поставщика
+      на основании выставленного счёта.</li>
+  <li>Обязательство Покупателя по оплате считается исполненным с момента поступления
+      денежных средств на расчётный счёт Поставщика.</li>
+</ol>
+
+<h2>4. Ответственность сторон</h2>
+<ol class="clauses">
+  <li>За нарушение сроков оплаты Покупатель уплачивает Поставщику пеню в размере
+      0,1% от суммы задолженности за каждый день просрочки.</li>
+  <li>За нарушение сроков поставки Поставщик уплачивает Покупателю пеню в размере
+      0,1% от стоимости непоставленного в срок Товара за каждый день просрочки.</li>
+  <li>Стороны освобождаются от ответственности при наступлении обстоятельств
+      непреодолимой силы (форс-мажор).</li>
+</ol>
+
+<h2>5. Разрешение споров</h2>
+<ol class="clauses">
+  <li>Все споры разрешаются путём переговоров. Претензионный порядок обязателен,
+      срок ответа на претензию — 15 (пятнадцать) календарных дней.</li>
+  <li>При недостижении согласия спор передаётся на рассмотрение Арбитражного суда
+      по месту нахождения ответчика.</li>
+</ol>
+
+<h2>6. Срок действия и заключительные положения</h2>
+<ol class="clauses">
+  <li>Договор вступает в силу с момента подписания и действует
+      {% if effective_until %}до {{ effective_until }}{% else %}в течение 5 (пяти) лет{% endif %}.
+      Если ни одна из Сторон за 30 дней до окончания срока не заявит о расторжении,
+      Договор считается продлённым на каждый последующий год.</li>
+  <li>Все изменения и дополнения действительны при оформлении в письменном виде
+      и подписании обеими Сторонами.</li>
+  <li>Договор составлен в двух экземплярах, имеющих равную юридическую силу,
+      по одному для каждой из Сторон.</li>
+</ol>
+
+<h2>7. Реквизиты и подписи сторон</h2>
+<table class="requisites">
+  <tr>
+    <td>
+      <div class="party-title">ПОСТАВЩИК</div>
+      <div class="line">{{ seller.name }}</div>
+      {% if seller.legal_address %}<div class="line">Адрес: {{ seller.legal_address }}</div>{% endif %}
+      <div class="line">ИНН {{ seller.inn or "—" }}{% if seller.kpp %} / КПП {{ seller.kpp }}{% endif %}</div>
+      {% if seller.ogrn %}<div class="line">ОГРН {{ seller.ogrn }}</div>{% endif %}
+      {% if seller.okpo %}<div class="line">ОКПО {{ seller.okpo }}</div>{% endif %}
+      {% if seller.bank_name %}<div class="line">Банк: {{ seller.bank_name }}</div>{% endif %}
+      {% if seller.bik %}<div class="line">БИК {{ seller.bik }}</div>{% endif %}
+      {% if seller.checking_account %}<div class="line">Р/с {{ seller.checking_account }}</div>{% endif %}
+      {% if seller.correspondent_account %}<div class="line">К/с {{ seller.correspondent_account }}</div>{% endif %}
+      {% if seller.phone %}<div class="line">Тел.: {{ seller.phone }}</div>{% endif %}
+      {% if seller.email %}<div class="line">E-mail: {{ seller.email }}</div>{% endif %}
+    </td>
+    <td>
+      <div class="party-title">ПОКУПАТЕЛЬ</div>
+      <div class="line">{{ buyer.name }}</div>
+      {% if buyer.legal_address %}<div class="line">Адрес: {{ buyer.legal_address }}</div>{% endif %}
+      <div class="line">ИНН {{ buyer.inn or "—" }}{% if buyer.kpp %} / КПП {{ buyer.kpp }}{% endif %}</div>
+      {% if buyer.ogrn %}<div class="line">ОГРН {{ buyer.ogrn }}</div>{% endif %}
+      {% if buyer.okpo %}<div class="line">ОКПО {{ buyer.okpo }}</div>{% endif %}
+      {% if buyer.bank_name %}<div class="line">Банк: {{ buyer.bank_name }}</div>{% endif %}
+      {% if buyer.bik %}<div class="line">БИК {{ buyer.bik }}</div>{% endif %}
+      {% if buyer.checking_account %}<div class="line">Р/с {{ buyer.checking_account }}</div>{% endif %}
+      {% if buyer.correspondent_account %}<div class="line">К/с {{ buyer.correspondent_account }}</div>{% endif %}
+      {% if buyer.phone %}<div class="line">Тел.: {{ buyer.phone }}</div>{% endif %}
+      {% if buyer.email %}<div class="line">E-mail: {{ buyer.email }}</div>{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td class="sign-block">
+      <div>{{ seller.director_title or "Генеральный директор" }}</div>
+      <div style="margin-top:18px;">
+        <span class="sign-line"></span> / {{ seller_sign_name }} /
+      </div>
+      <div class="sign-cap">подпись&nbsp;/&nbsp;расшифровка</div>
+    </td>
+    <td class="sign-block">
+      <div>{{ buyer.director_title or "Руководитель" }}</div>
+      <div style="margin-top:18px;">
+        <span class="sign-line"></span> / {{ buyer_sign_name }} /
+      </div>
+      <div class="sign-cap">подпись&nbsp;/&nbsp;расшифровка</div>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

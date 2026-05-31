@@ -22,6 +22,7 @@ from app.services.payment_service import (
     attach_payment_totals_one,
 )
 from app.services import document_service
+from app.services import contract_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount
@@ -247,6 +248,18 @@ async def create_order(
             await document_service.generate_invoice_preliminary(db, order, actor)
         except Exception as exc:
             log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
+
+    # Auto-contract: для клиента-юрлица без активного договора формируем договор
+    # поставки. Не блокируем заявку — любая ошибка (нет реквизитов, сервис лёг)
+    # только логируется. Физлица пропускаются тихо.
+    if ctx.client_type == "company":
+        try:
+            existing = await contract_service.get_active_contract(db, client_id)
+            if existing is None:
+                await contract_service.create_contract(db, client_id, actor)
+        except Exception as exc:
+            log.warning("Auto-contract failed for client %s (order %s): %s",
+                        client_id, order.id, exc)
 
     # Re-fetch with eager-loaded status_logs to avoid lazy-load error during serialization
     result = await db.execute(

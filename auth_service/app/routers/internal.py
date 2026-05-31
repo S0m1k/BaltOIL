@@ -162,3 +162,82 @@ async def get_users_by_role(
         )
     )
     return [row[0] for row in result.all()]
+
+
+class LegalProfileResponse(BaseModel):
+    """Полные реквизиты клиента-юрлица для договора (включая банк)."""
+    name: str                       # company_name или full_name
+    inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    okpo: str | None
+    legal_address: str | None
+    bank_name: str | None
+    bik: str | None
+    checking_account: str | None    # р/с
+    correspondent_account: str | None  # к/с
+    director_name: str | None
+    phone: str | None
+    email: str | None
+
+
+@router.get(
+    "/users/{user_id}/legal-profile",
+    response_model=LegalProfileResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_legal_profile(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LegalProfileResponse:
+    """Реквизиты клиента-юрлица для генерации договора.
+
+    404 если клиент физлицо или у профиля не заполнены юр-данные (нет ИНН) —
+    вызывающая сторона трактует как «нельзя сформировать договор».
+    """
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    profile_result = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == user_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if not profile or profile.client_type.value != "company" or not profile.inn:
+        raise HTTPException(status_code=404, detail="Client has no legal profile")
+
+    return LegalProfileResponse(
+        name=profile.company_name or user.full_name,
+        inn=profile.inn,
+        kpp=profile.kpp,
+        ogrn=profile.ogrn,
+        okpo=profile.okpo,
+        legal_address=profile.legal_address or profile.delivery_address,
+        bank_name=profile.bank_name,
+        bik=profile.bik,
+        checking_account=profile.bank_account,
+        correspondent_account=profile.correspondent_account,
+        director_name=profile.director_name,
+        phone=None,
+        email=profile.billing_email or user.email,
+    )
+
+
+@router.get(
+    "/users/admin-recipients",
+    response_model=list[str],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_admin_recipients(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[str]:
+    """Email-ы всех активных admin+manager — для рассылки уведомлений о договоре."""
+    result = await db.execute(
+        select(User.email).where(
+            User.role.in_(["admin", "manager"]),
+            User.is_active == True,  # noqa: E712
+            User.email.isnot(None),
+        )
+    )
+    return [row[0] for row in result.all() if row[0]]

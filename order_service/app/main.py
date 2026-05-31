@@ -4,8 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.models import order, order_status_log, order_counter, payment, legal_entity, document, tariff  # noqa: F401 — register all models
-from app.routers import orders, fuel_types, payments, legal_entity as legal_entity_router, documents, finance, tariffs, clients as clients_router
+from app.models import order, order_status_log, order_counter, payment, legal_entity, document, tariff, contract  # noqa: F401 — register all models
+from app.routers import orders, fuel_types, payments, legal_entity as legal_entity_router, documents, finance, tariffs, clients as clients_router, contracts as contracts_router
 
 settings = get_settings()
 
@@ -58,6 +58,7 @@ app.include_router(documents.router, prefix="/api/v1")
 app.include_router(finance.router, prefix="/api/v1")
 app.include_router(tariffs.router, prefix="/api/v1")
 app.include_router(clients_router.router, prefix="/api/v1")
+app.include_router(contracts_router.router, prefix="/api/v1")
 
 
 @app.get("/health")

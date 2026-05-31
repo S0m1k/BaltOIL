@@ -1,0 +1,9 @@
+Договор № {{ contract_number }} с клиентом {{ client_name }} создан.
+
+Дата заключения: {{ signed_at }}
+Действителен до: {{ effective_until }}
+
+Файл договора во вложении.
+
+—
+BaltOIL
