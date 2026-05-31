@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     redis_url: str
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    internal_api_secret: str = "baltoil-internal-secret-2026"
+    # Required (no default): refuse to boot without an explicit inter-service secret.
+    internal_api_secret: str
     auth_service_url: str = "http://auth_service:8001/api/v1"
     allowed_origins: str = "http://localhost:8080"
     app_env: str = "development"

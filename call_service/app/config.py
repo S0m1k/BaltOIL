@@ -19,7 +19,8 @@ class Settings(BaseSettings):
 
     # Inter-service
     chat_service_url: str = "http://chat_service:8004"
-    internal_api_secret: str = "baltoil-internal-secret-2026"
+    # Required (no default): refuse to boot without an explicit inter-service secret.
+    internal_api_secret: str
 
     @property
     def cors_origins(self) -> list[str]:

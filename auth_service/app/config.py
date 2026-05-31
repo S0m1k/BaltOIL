@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str = "admin@baltoil.biz"
     bootstrap_admin_password: str
 
-    # Inter-service
-    internal_api_secret: str = "baltoil-internal-secret-2026"
+    # Inter-service. Required (no default) so a service refuses to boot without an
+    # explicit secret instead of silently trusting a publicly-known committed value.
+    internal_api_secret: str
 
     # DaData (INN lookup). Optional — if not set, lookup endpoint returns found=False.
     dadata_api_key: str | None = None

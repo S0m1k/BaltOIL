@@ -13,7 +13,8 @@ class Settings(BaseSettings):
 
     # Inter-service: needed to ask auth_service which user IDs are clients
     auth_service_url: str = "http://auth_service:8001/api/v1"
-    internal_api_secret: str = "baltoil-internal-secret-2026"
+    # Required (no default): refuse to boot without an explicit inter-service secret.
+    internal_api_secret: str
 
     @property
     def cors_origins(self) -> list[str]:
