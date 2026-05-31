@@ -304,6 +304,7 @@ async def list_users(
     db: AsyncSession,
     *,
     role: UserRole | None = None,
+    exclude_role: UserRole | None = None,
     include_inactive: bool = False,
     offset: int = 0,
     limit: int = 50,
@@ -312,10 +313,19 @@ async def list_users(
     conditions = [User.is_archived == False]  # noqa: E712
     if role:
         conditions.append(User.role == role)
+    if exclude_role:
+        # Исключаем роль на уровне SQL (а не в Python после LIMIT) — иначе LIMIT
+        # мог отрезать staff, оставив страницу из клиентов, которых потом отфильтровали.
+        conditions.append(User.role != exclude_role)
     if not include_inactive:
         conditions.append(User.is_active == True)  # noqa: E712
 
-    query = select(User).where(and_(*conditions)).options(joinedload(User.client_profile))
+    query = (
+        select(User)
+        .where(and_(*conditions))
+        .options(joinedload(User.client_profile))
+        .order_by(User.full_name)  # детерминированный порядок для LIMIT
+    )
 
     if client_number is not None:
         query = query.join(ClientProfile, ClientProfile.user_id == User.id).where(
@@ -479,7 +489,10 @@ async def update_client_profile(
         raise NotFoundError("Профиль клиента не найден")
 
     changed = {}
-    for field, value in data.model_dump(exclude_none=True).items():
+    # exclude_unset (а не exclude_none): пропущенные поля не трогаем, но явно
+    # переданный null МОЖЕТ сбросить значение (tariff_id=null → default-тариф,
+    # credit_limit=null → лимита нет). С exclude_none сброс в NULL был невозможен.
+    for field, value in data.model_dump(exclude_unset=True).items():
         old = getattr(profile, field)
         if old != value:
             changed[field] = {"old": str(old) if old is not None else None, "new": str(value)}
@@ -517,7 +530,9 @@ async def update_client_tariff(
     if not profile:
         raise NotFoundError("Профиль клиента не найден")
 
-    for field, value in data.model_dump(exclude_none=True).items():
+    # exclude_unset: позволяет сбросить tariff_id/credit_limit в NULL явным null,
+    # не затрагивая пропущенные поля.
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(profile, field, value)
 
     return profile

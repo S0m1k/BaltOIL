@@ -73,10 +73,11 @@ async def users_directory(
         # вернём пустой список вместо 403, чтобы клиент UI не падал.
         if role == UserRole.CLIENT:
             return []
-        users = await user_service.list_users(
-            db, role=role, include_inactive=False, offset=0, limit=limit
+        # Исключаем клиентов на уровне SQL (см. B9): иначе LIMIT отрезал бы staff.
+        return await user_service.list_users(
+            db, role=role, exclude_role=UserRole.CLIENT,
+            include_inactive=False, offset=0, limit=limit,
         )
-        return [u for u in users if u.role != UserRole.CLIENT]
     return await user_service.list_users(
         db, role=role, include_inactive=False, offset=0, limit=limit
     )
