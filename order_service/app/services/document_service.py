@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -101,6 +101,7 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
     prefix = {
         "ttn": "TTN",
         "upd": "UPD",
+        "poa": "POA",
         "invoice": "INV",
         "invoice_preliminary": "INV",
         "invoice_final": "INV",
@@ -198,7 +199,8 @@ def _build_invoice_ctx(
     basis: str = "",
 ) -> dict:
     """Контекст для invoice.html — образец заказчика (Обр счета.xls)."""
-    vat_rate = (seller or {}).get("vat_rate") or DEFAULT_VAT_RATE
+    _seller_vat = (seller or {}).get("vat_rate")
+    vat_rate = DEFAULT_VAT_RATE if _seller_vat is None else _seller_vat
     items, subtotal, vat_amount, total = _build_line_items(order, volume, total_amount, vat_rate)
     fuel_unit_price = items[0]["price"] if items else 0.0
 
@@ -274,7 +276,8 @@ def _build_upd_ctx(
     total_amount: float,
 ) -> dict:
     """Контекст для upd.html — официальная форма (Постановление Правительства РФ N 1137)."""
-    vat_rate = (seller or {}).get("vat_rate") or DEFAULT_VAT_RATE
+    _seller_vat = (seller or {}).get("vat_rate")
+    vat_rate = DEFAULT_VAT_RATE if _seller_vat is None else _seller_vat
     items, subtotal, vat_amount, total = _build_line_items(order, volume, total_amount, vat_rate)
     return {
         "doc_number":       doc_number,
@@ -336,6 +339,31 @@ async def _fetch_buyer_snapshot(order: Order) -> dict:
         return _buyer_snapshot_from_order(order)
 
 
+async def _fetch_driver_profile(driver_id: uuid.UUID | None) -> dict:
+    """ФИО + паспорт водителя из auth_service для доверенности (POA).
+
+    Любая ошибка/отсутствие водителя → пустой dict: доверенность всё равно
+    формируется, в PDF на месте данных будет прочерк.
+    """
+    if driver_id is None:
+        return {}
+    import httpx
+    from app.config import settings as _settings
+    base = _settings.auth_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": _settings.internal_api_secret}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{base}/api/v1/internal/users/{driver_id}/profile",
+                headers=headers,
+            )
+            r.raise_for_status()
+            return r.json()
+    except Exception as exc:
+        log.warning("auth_service driver profile failed for %s: %s", driver_id, exc)
+        return {}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def generate_ttn(
@@ -387,6 +415,84 @@ async def generate_ttn(
         seller_snapshot=seller,
         buyer_snapshot=buyer,
         issued_at=datetime.now(timezone.utc),
+        total_amount=amount,
+        volume=volume,
+        file_path=file_path,
+        created_by_id=actor.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def generate_poa(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Сформировать доверенность (М-2) на получение ТМЦ водителем.
+
+    Триггер — переход заявки в IN_TRANSIT. Паспорт водителя тянем из auth_service;
+    если не заполнен/водитель не назначен — в PDF прочерк, в логе warning.
+    """
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order, volume)
+    seller = await get_seller_snapshot(db)
+    buyer  = await _fetch_buyer_snapshot(order)
+    driver = await _fetch_driver_profile(order.driver_id)
+    doc_number = await _next_doc_number(db, DocumentType.POA)
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%d.%m.%Y")
+    valid_until = (now + timedelta(days=15)).strftime("%d.%m.%Y")
+
+    if not driver.get("passport_number"):
+        log.warning("poa.driver_passport_missing order=%s driver=%s",
+                    order.id, order.driver_id)
+
+    issued_at_raw = driver.get("passport_issued_at")
+    passport_issued_at = ""
+    if issued_at_raw:
+        try:
+            passport_issued_at = datetime.fromisoformat(str(issued_at_raw)).strftime("%d.%m.%Y")
+        except ValueError:
+            passport_issued_at = str(issued_at_raw)
+
+    ctx = {
+        "doc_number":          doc_number,
+        "issued_at":           now_str,
+        "valid_until":         valid_until,
+        "seller":              seller or {},
+        "buyer":               buyer,
+        "driver_name":         driver.get("full_name") or "—",
+        "passport_series":     driver.get("passport_series") or "",
+        "passport_number":     driver.get("passport_number") or "",
+        "passport_issued_by":  driver.get("passport_issued_by") or "",
+        "passport_issued_at":  passport_issued_at,
+        "fuel_name":           _fuel_name(order),
+        "order_number":        order.order_number,
+        "delivery_address":    order.delivery_address,
+        "volume":              volume,
+        "amount":              amount,
+        "amount_in_words":     amount_to_words_ru(amount),
+    }
+
+    try:
+        pdf_bytes = _render_pdf("poa.html", ctx)
+        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("POA PDF render failed for order %s: %s", order.id, exc)
+        file_path = None
+        status = DocumentStatus.DRAFT
+
+    doc = Document(
+        order_id=order.id,
+        doc_type=DocumentType.POA,
+        doc_number=doc_number,
+        status=status,
+        seller_snapshot=seller or {},
+        buyer_snapshot=buyer,
+        issued_at=now,
         total_amount=amount,
         volume=volume,
         file_path=file_path,

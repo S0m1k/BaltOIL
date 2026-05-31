@@ -14,6 +14,7 @@ class DocumentType(str, enum.Enum):
     UPD = "upd"                                  # УПД (универсальный передаточный документ)
     TTN = "ttn"                                  # ТТН (товарно-транспортная накладная)
     CONTRACT = "contract"                        # Договор поставки (хранится в отдельной таблице contracts)
+    POA = "poa"                                  # Доверенность на получение ТМЦ (форма М-2)
 
 
 class DocumentStatus(str, enum.Enum):

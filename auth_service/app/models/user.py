@@ -1,7 +1,7 @@
 import uuid
 import enum
-from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, func
+from datetime import datetime, date
+from sqlalchemy import String, Boolean, DateTime, Date, Enum as SAEnum, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -29,6 +29,12 @@ class User(Base):
     )
 
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Паспортные данные (для водителя — рендерятся в доверенность М-2)
+    passport_series: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    passport_number: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    passport_issued_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    passport_issued_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

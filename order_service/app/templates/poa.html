@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Доверенность № {{ doc_number }}</title>
+  <style>
+    @page { size: A4; margin: 16mm 16mm; }
+    * { box-sizing: border-box; }
+    body { font-family: "Liberation Serif", "Times New Roman", serif; font-size: 11pt; color: #000; margin: 0; line-height: 1.35; }
+    h1 { font-size: 14pt; text-align: center; margin: 0 0 2px; font-weight: bold; }
+    .sub { text-align: center; font-size: 10pt; color: #444; margin-bottom: 14px; }
+    .row { margin: 6px 0; }
+    .lbl { color: #333; }
+    .val { border-bottom: 1px solid #000; padding: 0 4px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    .items th, .items td { border: 1px solid #000; padding: 4px 6px; font-size: 10pt; }
+    .items th { background: #f2f2f2; text-align: center; font-weight: bold; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .signs { margin-top: 26px; }
+    .sign-line { display: inline-block; border-bottom: 1px solid #000; width: 160px; }
+    .sign-cap { font-size: 8pt; color: #555; }
+    .note { font-size: 9pt; color: #555; margin-top: 6px; }
+    p { text-align: justify; margin: 8px 0; }
+  </style>
+</head>
+<body>
+
+<h1>ДОВЕРЕННОСТЬ № {{ doc_number }}</h1>
+<div class="sub">(на получение товарно-материальных ценностей, форма М-2)</div>
+
+<div class="row">Дата выдачи: <span class="val">{{ issued_at }}</span>&nbsp;&nbsp;&nbsp;Действительна по: <span class="val">{{ valid_until }}</span></div>
+
+<p>
+  Организация-доверитель: <b>{{ buyer.name or "—" }}</b>{% if buyer.inn and buyer.inn != "—" %}, ИНН {{ buyer.inn }}{% endif %}{% if buyer.kpp %}, КПП {{ buyer.kpp }}{% endif %}{% if buyer.address %}, {{ buyer.address }}{% endif %}.
+</p>
+
+<p>
+  Доверенность выдана <b>{{ driver_name }}</b>,
+  паспорт серия <span class="val">{{ passport_series or "______" }}</span>
+  № <span class="val">{{ passport_number or "____________" }}</span>,
+  выдан {{ passport_issued_by or "________________________________" }}
+  {% if passport_issued_at %}«{{ passport_issued_at }}»{% endif %}.
+</p>
+
+<p>
+  на получение от <b>{{ seller.name or seller.short_name or "—" }}</b>{% if seller.inn %}, ИНН {{ seller.inn }}{% endif %}
+  товарно-материальных ценностей по заявке № {{ order_number }}
+  (адрес доставки: {{ delivery_address }}).
+</p>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:6%">№</th>
+      <th>Наименование товарно-материальных ценностей</th>
+      <th style="width:14%">Единица</th>
+      <th style="width:18%">Количество</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="text-center">1</td>
+      <td>{{ fuel_name }}</td>
+      <td class="text-center">л</td>
+      <td class="text-right">{{ volume | format_number }}</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Всего на сумму: <b>{{ amount | format_money }}</b> руб. ({{ amount_in_words }}).</p>
+
+<table class="signs">
+  <tr>
+    <td style="width:50%;border:none;padding:4px 6px;vertical-align:bottom">
+      Подпись лица, получившего доверенность:
+      <span class="sign-line"></span>
+      <div class="sign-cap">{{ driver_name }}</div>
+    </td>
+    <td style="width:50%;border:none;padding:4px 6px;vertical-align:bottom">
+      {{ buyer.director_title or "Руководитель" }}:
+      <span class="sign-line"></span>
+      <div class="sign-cap">{{ buyer.director_name or "" }}</div>
+    </td>
+  </tr>
+</table>
+
+<p class="note">Подпись доверенного лица удостоверяется. М.П.</p>
+
+</body>
+</html>

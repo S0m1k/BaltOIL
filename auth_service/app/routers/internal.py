@@ -224,6 +224,38 @@ async def get_user_legal_profile(
     )
 
 
+class DriverProfileResponse(BaseModel):
+    """ФИО + паспорт пользователя (водителя) для доверенности М-2."""
+    full_name: str
+    passport_series: str | None
+    passport_number: str | None
+    passport_issued_by: str | None
+    passport_issued_at: str | None  # ISO-дата или null
+
+
+@router.get(
+    "/users/{user_id}/profile",
+    response_model=DriverProfileResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_profile(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DriverProfileResponse:
+    """ФИО и паспортные данные пользователя (для рендера доверенности)."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return DriverProfileResponse(
+        full_name=user.full_name,
+        passport_series=user.passport_series,
+        passport_number=user.passport_number,
+        passport_issued_by=user.passport_issued_by,
+        passport_issued_at=user.passport_issued_at.isoformat() if user.passport_issued_at else None,
+    )
+
+
 @router.get(
     "/users/admin-recipients",
     response_model=list[str],

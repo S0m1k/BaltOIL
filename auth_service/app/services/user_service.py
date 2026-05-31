@@ -335,13 +335,15 @@ async def update_user(
 ) -> User:
     user = await get_user_by_id(db, user_id)
 
-    # Non-admin can only edit their own profile
-    if actor.role != UserRole.ADMIN and actor.id != user_id:
+    # Чужой профиль редактируют только admin/manager (напр. паспорт водителя); остальные — только свой
+    if actor.role not in (UserRole.ADMIN, UserRole.MANAGER) and actor.id != user_id:
         raise ForbiddenError("Редактирование чужого профиля запрещено")
 
-    # Only admin can change roles or deactivate others
+    # Только admin меняет роли и активность
     if data.role is not None and actor.role != UserRole.ADMIN:
         raise ForbiddenError("Изменение роли доступно только администратору")
+    if data.is_active is not None and actor.role != UserRole.ADMIN:
+        raise ForbiddenError("Изменение активности доступно только администратору")
 
     changed = {}
     if data.email and data.email != user.email:
@@ -358,6 +360,15 @@ async def update_user(
     if data.role is not None:
         changed["role"] = {"old": user.role.value, "new": data.role.value}
         user.role = data.role
+    # Паспортные данные (водитель) — для доверенности М-2
+    if data.passport_series is not None:
+        user.passport_series = data.passport_series or None
+    if data.passport_number is not None:
+        user.passport_number = data.passport_number or None
+    if data.passport_issued_by is not None:
+        user.passport_issued_by = data.passport_issued_by or None
+    if data.passport_issued_at is not None:
+        user.passport_issued_at = data.passport_issued_at
 
     if changed:
         await log_action(

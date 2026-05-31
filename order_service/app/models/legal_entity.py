@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean, func
+from sqlalchemy import String, Text, DateTime, Boolean, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
@@ -44,6 +44,9 @@ class LegalEntity(Base):
     # Подписант (для документов)
     director_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     director_title: Mapped[str | None] = mapped_column(String(100), nullable=True, default="Директор")
+
+    # Ставка НДС, % (по умолчанию 22 — образец заказчика). Используется в счёте/УПД.
+    vat_rate: Mapped[int] = mapped_column(Integer, nullable=False, default=22)
 
     # Кто создал эту версию (UUID пользователя из auth_service)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

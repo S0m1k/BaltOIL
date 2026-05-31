@@ -133,4 +133,5 @@ async def get_seller_snapshot(db: AsyncSession) -> dict | None:
         "email": entity.email,
         "director_name": entity.director_name,
         "director_title": entity.director_title,
+        "vat_rate": entity.vat_rate,
     }

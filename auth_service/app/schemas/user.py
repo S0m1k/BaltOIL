@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.user import UserRole
 from app.models.client_profile import ClientType
@@ -39,6 +39,10 @@ class UserResponse(BaseModel):
     is_active: bool
     is_archived: bool
     archived_at: datetime | None
+    passport_series: str | None = None
+    passport_number: str | None = None
+    passport_issued_by: str | None = None
+    passport_issued_at: date | None = None
     client_profile: ClientProfileResponse | None
     created_at: datetime
     updated_at: datetime
@@ -152,6 +156,11 @@ class UpdateUserRequest(BaseModel):
     is_active: bool | None = None
     # Role change only by admin — validated at service level
     role: UserRole | None = None
+    # Паспортные данные водителя (для доверенности М-2)
+    passport_series: str | None = None
+    passport_number: str | None = None
+    passport_issued_by: str | None = None
+    passport_issued_at: date | None = None
 
 
 class ClientExportRequest(BaseModel):

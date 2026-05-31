@@ -26,6 +26,8 @@ class LegalEntityCreate(BaseModel):
     director_name: str | None = Field(None, max_length=255)
     director_title: str | None = Field("Директор", max_length=100)
 
+    vat_rate: int = Field(22, ge=0, le=100)
+
     @field_validator("inn")
     @classmethod
     def inn_digits(cls, v: str) -> str:
@@ -59,6 +61,7 @@ class LegalEntityResponse(BaseModel):
     email: str | None
     director_name: str | None
     director_title: str | None
+    vat_rate: int
     created_by_id: uuid.UUID | None
     effective_from: datetime
     effective_to: datetime | None
@@ -87,4 +90,5 @@ def legal_entity_to_snapshot(entity: "LegalEntityResponse | object") -> dict:
         "email": entity.email,
         "director_name": entity.director_name,
         "director_title": entity.director_title,
+        "vat_rate": getattr(entity, "vat_rate", 22),
     }

@@ -489,6 +489,11 @@ async def transition_status(
                 await document_service.generate_ttn(db, order, actor)
             except Exception as exc:
                 log.warning("Auto-TTN (preliminary) failed for order %s: %s", order.id, exc)
+        # Доверенность (М-2) на получение ТМЦ водителем — на выезд, для всех типов оплаты
+        try:
+            await document_service.generate_poa(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-POA failed for order %s: %s", order.id, exc)
 
     if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
         for gen_fn, label in [
