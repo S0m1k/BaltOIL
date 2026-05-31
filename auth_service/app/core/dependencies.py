@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.core.security import decode_access_token
+from app.core.token_revocation import is_token_revoked
 from app.core.exceptions import AuthError, ForbiddenError
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -29,6 +30,10 @@ async def get_current_user(
     user_id: str = payload.get("sub")
     if not user_id:
         raise AuthError("Некорректный токен")
+
+    # Серверная ревокация (logout / смена пароля / деактивация)
+    if await is_token_revoked(user_id, payload.get("iat")):
+        raise AuthError("Сессия завершена, войдите снова")
 
     result = await db.execute(
         select(User)

@@ -15,6 +15,7 @@ from app.core.exceptions import AuthError
 from app.schemas.auth import TokenResponse
 from app.services.audit_service import log_action
 from app.services import login_throttle
+from app.core.token_revocation import revoke_user_tokens
 
 
 async def login(
@@ -170,6 +171,10 @@ async def logout(
     if db_token:
         db_token.is_revoked = True
 
+    # Отозвать уже выпущенные access-токены (живут до 15 мин) — иначе разлогин
+    # не отрезает украденный/активный токен до его естественного истечения.
+    await revoke_user_tokens(str(actor_id))
+
     await log_action(
         db,
         action="user.logout",
@@ -189,3 +194,5 @@ async def logout_all(db: AsyncSession, *, user_id) -> None:
     )
     for token in result.scalars().all():
         token.is_revoked = True
+
+    await revoke_user_tokens(str(user_id))

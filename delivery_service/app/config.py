@@ -4,6 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     database_url: str
+    redis_url: str = "redis://redis:6379"  # для серверной ревокации токенов
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     app_env: str = "development"

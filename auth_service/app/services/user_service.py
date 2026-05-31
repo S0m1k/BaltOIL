@@ -16,6 +16,7 @@ from app.schemas.user import (
 from app.schemas.client_profile import UpdateClientProfileRequest
 from app.services.audit_service import log_action
 from app.services.dadata_service import lookup_by_inn, lookup_by_bik
+from app.core.token_revocation import revoke_user_tokens
 
 
 # Поля, которые мы умеем подтягивать из DaData при регистрации/ресинке.
@@ -370,6 +371,11 @@ async def update_user(
     if data.passport_issued_at is not None:
         user.passport_issued_at = data.passport_issued_at
 
+    # Деактивация или смена роли должны немедленно отрезать активные access-токены
+    # (прочие сервисы не перечитывают User из БД).
+    if data.is_active is False or "role" in changed:
+        await revoke_user_tokens(str(user_id))
+
     if changed:
         await log_action(
             db,
@@ -398,6 +404,10 @@ async def archive_user(
     user.is_archived = True
     user.archived_at = datetime.now(timezone.utc)
     user.is_active = False
+
+    # Немедленно отозвать активные access-токены архивируемого: прочие сервисы
+    # не перечитывают User из БД, иначе токен жил бы до естественного истечения.
+    await revoke_user_tokens(str(user_id))
 
     await log_action(
         db,
@@ -434,6 +444,8 @@ async def change_password(
     )
     for token in result.scalars().all():
         token.is_revoked = True
+
+    await revoke_user_tokens(str(actor.id))
 
     await log_action(
         db,

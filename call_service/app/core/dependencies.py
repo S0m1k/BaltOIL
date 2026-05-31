@@ -4,6 +4,7 @@ from fastapi import Header
 from jose import JWTError, jwt
 from app.config import settings
 from app.core.exceptions import AuthError
+from app.core.token_revocation import is_token_revoked
 
 
 @dataclass
@@ -29,4 +30,12 @@ def _decode_token(token: str) -> TokenUser:
 async def get_current_user(authorization: str = Header(...)) -> TokenUser:
     if not authorization.startswith("Bearer "):
         raise AuthError("Missing Bearer token")
-    return _decode_token(authorization[7:])
+    token = authorization[7:]
+    actor = _decode_token(token)
+    try:
+        iat = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]).get("iat")
+    except Exception:
+        iat = None
+    if await is_token_revoked(str(actor.id), iat):
+        raise AuthError("Session ended, log in again")
+    return actor

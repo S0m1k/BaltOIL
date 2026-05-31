@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from app.config import get_settings
 from app.core.exceptions import AuthError, ForbiddenError
+from app.core.token_revocation import is_token_revoked
 
 settings = get_settings()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -42,6 +43,9 @@ async def get_current_user(
     role    = payload.get("role")
     if not user_id or not role:
         raise AuthError("Некорректный токен")
+
+    if await is_token_revoked(user_id, payload.get("iat")):
+        raise AuthError("Сессия завершена, войдите снова")
 
     return TokenUser(id=uuid.UUID(user_id), role=role)
 

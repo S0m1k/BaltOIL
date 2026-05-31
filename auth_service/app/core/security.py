@@ -26,13 +26,13 @@ def verify_password(plain: str, hashed: str) -> bool:
 # --- Access Token (JWT) ---
 
 def create_access_token(user_id: str, role: str, name: str = "") -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": user_id,
         "role": role,
         "name": name,
+        "iat": now,            # нужен для серверной ревокации (logout/смена пароля/деактивация)
         "exp": expire,
         "type": "access",
     }
