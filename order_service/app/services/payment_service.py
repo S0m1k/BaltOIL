@@ -285,6 +285,9 @@ async def record_payment(
         pending_payment.status = PaymentStatus.PAID
         pending_payment.paid_at = datetime.now(timezone.utc)
         pending_payment.method = method
+        # Записываем фактически введённую сумму, а не сумму из pending-инвойса —
+        # иначе частичная/скорректированная оплата сохранится как полная.
+        pending_payment.amount = Decimal(str(amount))
         if notes:
             pending_payment.notes = notes
         payment = pending_payment

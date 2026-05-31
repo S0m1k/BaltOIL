@@ -15,9 +15,10 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from num2words import num2words
 from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.document import Document, DocumentType, DocumentStatus
+from app.models.document import Document, DocumentType, DocumentStatus, DocNumberCounter
 from app.models.order import Order
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
@@ -97,7 +98,12 @@ def _get_jinja_env() -> Environment:
 # ── Document numbering ────────────────────────────────────────────────────────
 
 async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
-    """Генерировать номер документа: TTN-2026-000001 / UPD-2026-000001 / INV-2026-000001."""
+    """Сгенерировать номер документа: TTN-2026-000001 / UPD-2026-000001 / INV-2026-000001.
+
+    Атомарно через DocNumberCounter (INSERT ... ON CONFLICT DO UPDATE ... RETURNING) —
+    как нумерация заказов/договоров. Прежний COUNT(*)+1 давал гонки: две одновременные
+    доставки получали один номер → IntegrityError на flush внутри транзакции перехода.
+    """
     prefix = {
         "ttn": "TTN",
         "upd": "UPD",
@@ -107,13 +113,36 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
         "invoice_final": "INV",
     }[doc_type.value]
     year = datetime.now(timezone.utc).year
-    pattern = f"{prefix}-{year}-%"
-    result = await db.execute(
-        select(func.count()).select_from(Document)
-        .where(Document.doc_number.like(pattern))
+    prefix_key = f"{prefix}-{year}"
+    stmt = (
+        pg_insert(DocNumberCounter)
+        .values(prefix_key=prefix_key, last_seq=1)
+        .on_conflict_do_update(
+            index_elements=["prefix_key"],
+            set_={"last_seq": DocNumberCounter.last_seq + 1},
+        )
+        .returning(DocNumberCounter.last_seq)
     )
-    seq = (result.scalar() or 0) + 1
+    seq: int = (await db.execute(stmt)).scalar_one()
     return f"{prefix}-{year}-{seq:06d}"
+
+
+async def _existing_document(
+    db: AsyncSession, order_id: uuid.UUID, doc_type: DocumentType
+) -> Document | None:
+    """Уже выпущенный (не аннулированный) документ этого типа по заявке — для идемпотентности.
+
+    Повторный рейс (PARTIALLY_DELIVERED → ACCEPTED → IN_TRANSIT → DELIVERED) иначе
+    плодил бы дубли POA/ТТН/УПД/счёта с новыми номерами и собственными суммами.
+    """
+    result = await db.execute(
+        select(Document).where(
+            Document.order_id == order_id,
+            Document.doc_type == doc_type,
+            Document.status != DocumentStatus.CANCELLED,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 # ── PDF rendering ─────────────────────────────────────────────────────────────
@@ -377,6 +406,9 @@ async def generate_ttn(
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
+    existing = await _existing_document(db, order.id, DocumentType.TTN)
+    if existing:
+        return existing
     doc_number = await _next_doc_number(db, DocumentType.TTN)
 
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
@@ -440,6 +472,9 @@ async def generate_poa(
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     driver = await _fetch_driver_profile(order.driver_id)
+    existing = await _existing_document(db, order.id, DocumentType.POA)
+    if existing:
+        return existing
     doc_number = await _next_doc_number(db, DocumentType.POA)
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%d.%m.%Y")
@@ -513,6 +548,9 @@ async def generate_upd(
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
+    existing = await _existing_document(db, order.id, DocumentType.UPD)
+    if existing:
+        return existing
     doc_number = await _next_doc_number(db, DocumentType.UPD)
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     ctx = _build_upd_ctx(
@@ -558,6 +596,9 @@ async def generate_invoice_preliminary(
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE_PRELIMINARY)
+    if existing:
+        return existing
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_PRELIMINARY)
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     ctx = _build_invoice_ctx(
@@ -604,6 +645,9 @@ async def generate_invoice_final(
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE_FINAL)
+    if existing:
+        return existing
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_FINAL)
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     ctx = _build_invoice_ctx(

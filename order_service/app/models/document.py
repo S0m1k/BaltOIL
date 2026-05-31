@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Enum as SAEnum, func, ForeignKey
+from sqlalchemy import String, Text, DateTime, Integer, Enum as SAEnum, func, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -72,3 +72,16 @@ class Document(Base):
     )
 
     order: Mapped["Order"] = relationship("Order", back_populates="documents")
+
+
+class DocNumberCounter(Base):
+    """Атомарный счётчик номеров документов по (префикс, год).
+
+    Ключ = "INV-2026" / "TTN-2026" / "UPD-2026" / "POA-2026". last_seq инкрементится
+    через INSERT ... ON CONFLICT DO UPDATE (как OrderYearCounter / ContractMonthCounter)
+    — без гонок, в отличие от прежнего COUNT(*)+1 (давал коллизии doc_number под нагрузкой).
+    """
+    __tablename__ = "doc_number_counters"
+
+    prefix_key: Mapped[str] = mapped_column(String(16), primary_key=True)  # "INV-2026"
+    last_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

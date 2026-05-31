@@ -405,7 +405,9 @@ async def transition_status(
             PaymentType.TRADE_CREDIT, PaymentType.DEBT
         )
         credit_bypass = is_credit_payment and order.trade_credit_contract_signed
-        if order.payment_status != "paid" and not credit_bypass:
+        # "overpaid" (клиент заплатил больше плана) тоже удовлетворяет шлагбауму —
+        # иначе переплаченную заявку нельзя закрыть и её ошибочно уводят в DEBT.
+        if order.payment_status not in ("paid", "overpaid") and not credit_bypass:
             # Проверяем credit_limit клиента
             ctx = await get_client_context(order.client_id)
             from decimal import Decimal as _Decimal
@@ -483,15 +485,21 @@ async def transition_status(
 
     _credit_types = (PaymentType.TRADE_CREDIT, PaymentType.DEBT)
 
+    # Каждый генератор — в SAVEPOINT (begin_nested): если flush одного документа
+    # упадёт (например IntegrityError на дубле doc_number), откатывается только этот
+    # документ, а не вся транзакция перехода статуса. Иначе одна ошибка PDF/insert
+    # «отравляла» сессию и срывала весь переход (заявка не доходила до DELIVERED).
     if data.to_status == OrderStatus.IN_TRANSIT:
         if order.payment_type in _credit_types:
             try:
-                await document_service.generate_ttn(db, order, actor)
+                async with db.begin_nested():
+                    await document_service.generate_ttn(db, order, actor)
             except Exception as exc:
                 log.warning("Auto-TTN (preliminary) failed for order %s: %s", order.id, exc)
         # Доверенность (М-2) на получение ТМЦ водителем — на выезд, для всех типов оплаты
         try:
-            await document_service.generate_poa(db, order, actor)
+            async with db.begin_nested():
+                await document_service.generate_poa(db, order, actor)
         except Exception as exc:
             log.warning("Auto-POA failed for order %s: %s", order.id, exc)
 
@@ -502,7 +510,8 @@ async def transition_status(
             (document_service.generate_ttn, "TTN"),
         ]:
             try:
-                await gen_fn(db, order, actor)
+                async with db.begin_nested():
+                    await gen_fn(db, order, actor)
             except Exception as exc:
                 log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
 
