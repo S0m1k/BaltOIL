@@ -3456,14 +3456,19 @@ async function loadDocs(orderId) {
 
 function downloadDoc(orderId, docId) {
   const token = localStorage.getItem('access_token');
-  const url = `${window.ORDER_API || '/api/v1'}/orders/${orderId}/documents/${docId}/download`;
+  const url = `${ORDER_URL}/orders/${orderId}/documents/${docId}/download`;
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
     .then(blob => {
+      // Защита от misroute: если вернулся не PDF (напр. SPA index.html) — не сохраняем «битый» файл.
+      if (blob.type && blob.type.indexOf('pdf') === -1) {
+        throw new Error('сервер вернул не PDF (' + (blob.type || 'unknown') + ')');
+      }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `document_${docId.slice(0,8)}.pdf`;
       a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
     .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
 }
@@ -5051,10 +5056,10 @@ function msgHTML(m) {
           <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_number)}</div>
           <div style="font-size:11px;color:var(--text3)">Заявка ${escHtml(meta.order_number || '')}</div>
         </div>
-        <a href="${safeHttpUrl(meta.download_path)}" target="_blank" rel="noopener noreferrer"
-           style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border-radius:6px;text-decoration:none;white-space:nowrap">
+        <button type="button" onclick="downloadDoc('${escHtml(meta.order_id)}','${escHtml(meta.document_id)}')"
+           style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">
           ⬇ PDF
-        </a>
+        </button>
       </div>`;
   } else {
     bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
@@ -7075,16 +7080,17 @@ function exportFinanceCsv() {
   const token = localStorage.getItem('access_token');
   // Создаём временную ссылку с токеном в query (т.к. FileResponse не принимает заголовок)
   // В продакшне лучше signed URL, но для внутреннего инструмента это приемлемо
-  const url = `${window.ORDER_API || '/api/v1'}/finance/export.csv${qs}`;
+  const url = `${ORDER_URL}/finance/export.csv${qs}`;
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => r.blob())
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
     .then(blob => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `payments_${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
-    .catch(() => showToast('Ошибка экспорта CSV', 'error'));
+    .catch(e => toast('Ошибка экспорта CSV: ' + e.message, 'error'));
 }
 
 // ═══════════════════════════════════════════════════════════════
