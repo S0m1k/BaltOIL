@@ -35,11 +35,16 @@ def _make_service_token(actor: TokenUser) -> str:
     )
 
 
-async def _update_order_status(order_id: uuid.UUID, actor: TokenUser, **kwargs) -> None:
-    """Обновить статус заявки в order_service (fire-and-forget).
+async def _update_order_status(
+    order_id: uuid.UUID, actor: TokenUser, *, raise_on_error: bool = False, **kwargs
+) -> None:
+    """Обновить статус заявки в order_service.
     kwargs передаются как поля тела запроса вместе с to_status.
-    Ошибки логируются на уровне ERROR — не прерывают текущую операцию,
-    но должны попасть в мониторинг, так как order может зависнуть в IN_TRANSIT.
+
+    raise_on_error=False (по умолчанию, fire-and-forget): ошибки только логируются.
+    raise_on_error=True: любой не-200 (или сетевой сбой) поднимает ValidationError —
+    нужно для complete_trip, чтобы при отказе перехода не зафиксировать рейс
+    COMPLETED с уже списанным топливом и не оставить заявку висеть в IN_TRANSIT.
     """
     try:
         token = _make_service_token(actor)
@@ -49,16 +54,24 @@ async def _update_order_status(order_id: uuid.UUID, actor: TokenUser, **kwargs) 
                 json=kwargs,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            if r.status_code not in (200, 400, 422):
-                log.error(
-                    "_update_order_status: unexpected HTTP %s for order %s — order may be stuck. body=%s",
-                    r.status_code, order_id, r.text[:300],
-                )
     except Exception as exc:
         log.error(
             "_update_order_status failed for order %s — order may be stuck in current status: %s",
             order_id, exc,
         )
+        if raise_on_error:
+            raise ValidationError("Не удалось обновить статус заявки — попробуйте ещё раз")
+        return
+
+    if r.status_code != 200:
+        log.error(
+            "_update_order_status: HTTP %s for order %s (-> %s). body=%s",
+            r.status_code, order_id, kwargs.get("to_status"), r.text[:300],
+        )
+        if raise_on_error:
+            raise ValidationError(
+                f"Заявку не удалось перевести в «{kwargs.get('to_status')}» (код {r.status_code})"
+            )
 
 
 async def get_trip_by_id(
@@ -273,6 +286,15 @@ async def complete_trip(
     if trip.status != TripStatus.IN_TRANSIT:
         raise ValidationError(f"Нельзя завершить рейс со статусом «{trip.status.value}»")
 
+    # Объём не должен превышать план более чем на 5%: иначе order_service отбивает
+    # переход в «доставлено» (422), а рейс уже стал бы COMPLETED с уже списанным
+    # топливом, и заявка навсегда зависла бы в IN_TRANSIT. Проверяем ДО мутаций.
+    if trip.volume_planned and float(data.volume_actual) > float(trip.volume_planned) * 1.05:
+        raise ValidationError(
+            f"Фактический объём ({data.volume_actual} л) превышает план "
+            f"({trip.volume_planned} л) более чем на 5% — проверьте ввод"
+        )
+
     trip.status = TripStatus.COMPLETED
     trip.arrived_at = datetime.now(timezone.utc)
     trip.volume_actual = data.volume_actual
@@ -283,17 +305,20 @@ async def complete_trip(
     await inventory_service.record_departure_adjustment(db, trip, actor)
 
     await db.flush()
-    await db.refresh(trip)
 
-    # Переводим заявку в delivered (водитель завершил доставку)
+    # Переводим заявку в delivered (водитель завершил доставку). raise_on_error=True:
+    # если переход отклонён, поднимаем ошибку → get_db откатит завершение рейса и
+    # корректировку топлива, рейс останется IN_TRANSIT и водитель повторит.
     if trip.order_id:
         await _update_order_status(
             trip.order_id, actor,
+            raise_on_error=True,
             to_status="delivered",
             volume_delivered=float(data.volume_actual),
             comment="Доставка подтверждена водителем",
         )
 
+    await db.refresh(trip)
     return trip
 
 
@@ -314,10 +339,22 @@ async def cancel_trip(
 
     prev_status = trip.status
     trip.status = TripStatus.CANCELLED
+    order_id = trip.order_id
 
     if prev_status == TripStatus.IN_TRANSIT:
         await inventory_service.record_reversal_for_cancelled_trip(db, trip, actor)
 
     await db.flush()
     await db.refresh(trip)
+
+    # Рейс в пути отменён → топливо возвращено, но заявка осталась в IN_TRANSIT.
+    # Возвращаем её в ACCEPTED (компенсирующий переход), иначе заказ застрянет
+    # навсегда. Fire-and-forget: ошибка перехода не должна откатывать отмену рейса.
+    if prev_status == TripStatus.IN_TRANSIT and order_id:
+        await _update_order_status(
+            order_id, actor,
+            to_status="accepted",
+            comment="Рейс отменён — заявка возвращена в работу",
+        )
+
     return trip

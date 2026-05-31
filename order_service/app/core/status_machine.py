@@ -31,6 +31,9 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
     OrderStatus.IN_TRANSIT: {
         OrderStatus.DELIVERED:           {ROLE_DRIVER},
         OrderStatus.PARTIALLY_DELIVERED: {ROLE_DRIVER},
+        # Компенсация при отмене рейса в пути: заявка возвращается в ACCEPTED,
+        # её можно переназначить. Иначе заказ навсегда застревал в IN_TRANSIT.
+        OrderStatus.ACCEPTED:            {ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.DELIVERED: {
         OrderStatus.CLOSED: {ROLE_MANAGER, ROLE_ADMIN},
