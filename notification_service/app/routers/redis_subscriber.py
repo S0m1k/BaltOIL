@@ -126,21 +126,9 @@ def _build_chat_request(payload: dict) -> PublishRequest | None:
     )
 
 
-async def _build_conv_created_request(payload: dict) -> PublishRequest | None:
-    """Новый диалог от клиента — уведомить всех менеджеров/админов."""
-    conv_id = payload.get("conv_id")
-    client_name = payload.get("client_name", "Клиент")
-    recipients = await _fetch_staff_ids()
-    if not recipients:
-        return None
-    return PublishRequest(
-        user_ids=recipients,
-        type=NotificationType.CHAT_NEW,
-        title="Новый чат поддержки",
-        body=f"{client_name} открыл чат",
-        entity_type="conversation",
-        entity_id=uuid.UUID(conv_id) if conv_id else None,
-    )
+# Примечание: событие conversation_created никто не публикует (client_manager-беседу
+# создаёт менеджер через staff-only ensure-client-manager, а не клиент), поэтому
+# мёртвый хендлер и его билдер удалены, чтобы не создавать ложного впечатления.
 
 
 async def _build_call_request(payload: dict) -> PublishRequest | None:
@@ -181,8 +169,6 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
         req = await _build_order_request(payload)
     elif event == "chat_message":
         req = _build_chat_request(payload)
-    elif event == "conversation_created":
-        req = await _build_conv_created_request(payload)
     elif event == "call_initiated":
         req = await _build_call_request(payload)
     elif event == "call_missed_notify":

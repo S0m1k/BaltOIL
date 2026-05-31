@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select, func, and_, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_loader_criteria
 import redis.asyncio as aioredis
 
 logger = logging.getLogger(__name__)
@@ -209,6 +209,9 @@ async def get_conversation(
         .options(
             selectinload(Conversation.participants),
             selectinload(Conversation.messages),
+            # Не отдаём soft-deleted сообщения: иначе удалённое сообщение всплывало
+            # снова при переоткрытии диалога (в отличие от /messages, который их прячет).
+            with_loader_criteria(Message, Message.is_archived == False),  # noqa: E712
         )
         .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
     )
@@ -480,19 +483,19 @@ async def _post_system_message_raw(
         conv.updated_at = datetime.now(timezone.utc)
 
     try:
+        # Плоский payload — как message_service.post_system_message и websocket.py.
+        # Раньше слался вложенный {event, message}, который фронт (ws.onmessage ждёт
+        # плоскую структуру) не мог отрисовать → битый пузырь до перезагрузки.
         await redis.publish(f"chat:{conv_id}", json.dumps({
-            "event": "new_message",
-            "message": {
-                "id": str(msg.id),
-                "conversation_id": str(conv_id),
-                "sender_id": str(_SYSTEM_UUID),
-                "sender_role": "system",
-                "text": text,
-                "msg_type": "system",
-                "metadata": None,
-                "is_archived": False,
-                "created_at": msg.created_at.isoformat() if hasattr(msg, "created_at") and msg.created_at else None,
-            },
+            "id": str(msg.id),
+            "conversation_id": str(conv_id),
+            "sender_id": str(_SYSTEM_UUID),
+            "sender_role": "system",
+            "sender_name": "Система",
+            "msg_type": "system",
+            "text": text,
+            "metadata": None,
+            "created_at": msg.created_at.isoformat() if hasattr(msg, "created_at") and msg.created_at else None,
         }))
     except Exception:
         logger.warning("Failed to publish system message event for conv %s", conv_id)

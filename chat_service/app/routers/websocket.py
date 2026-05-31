@@ -43,6 +43,11 @@ _connections: dict[str, set[WebSocket]] = {}
 # conv_key → running asyncio Task that listens on Redis and fans out to _connections
 _subscriptions: dict[str, asyncio.Task] = {}
 
+# user_id → число открытых WS этого юзера в процессе. Снимаем online-маркер только
+# когда закрылось ПОСЛЕДНЕЕ соединение (иначе закрытие одного из нескольких чатов
+# помечало активного юзера offline → лишний email-спам).
+_user_connections: dict[str, int] = {}
+
 # Lock ensures at most one listener task is started per conv_key
 _sub_lock = asyncio.Lock()
 
@@ -158,7 +163,9 @@ async def websocket_endpoint(
 
     # (already accepted above — auth happens via the first frame)
     conv_key = str(conv_id)
+    uid = str(actor.id)
     _connections.setdefault(conv_key, set()).add(websocket)
+    _user_connections[uid] = _user_connections.get(uid, 0) + 1
     await _ensure_subscription(redis, conv_key)
     await ws_manager.register(redis, actor.id)
 
@@ -209,11 +216,15 @@ async def websocket_endpoint(
         log.exception("WebSocket error for conv %s", conv_id)
     finally:
         _connections[conv_key].discard(websocket)
-        # Remove the online marker on disconnect.  If the user simultaneously has
-        # another WS open (different conv), they will re-register on the next
-        # incoming message; the 300 s TTL also prevents false "offline" readings
-        # for brief gaps.  This is safe for the current single-process deployment.
-        await ws_manager.unregister(redis, actor.id)
+        # Online-маркер снимаем только когда у юзера закрылось ПОСЛЕДНЕЕ соединение
+        # (он может держать несколько чатов одновременно). Иначе закрытие одного
+        # помечало активного юзера offline и слало ему лишние email-уведомления.
+        remaining = _user_connections.get(uid, 1) - 1
+        if remaining <= 0:
+            _user_connections.pop(uid, None)
+            await ws_manager.unregister(redis, actor.id)
+        else:
+            _user_connections[uid] = remaining
         if not _connections[conv_key]:
             _connections.pop(conv_key, None)
             # Listener will stop itself when it sees no connections on next message.
