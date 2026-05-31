@@ -318,7 +318,7 @@ async def _fetch_buyer_snapshot(order: Order) -> dict:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
-                f"{base}/internal/clients/{order.client_id}/buyer-snapshot",
+                f"{base}/api/v1/internal/clients/{order.client_id}/buyer-snapshot",
                 headers=headers,
             )
             r.raise_for_status()

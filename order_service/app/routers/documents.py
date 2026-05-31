@@ -242,7 +242,7 @@ async def send_document_by_email(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(
-                f"{auth_base}/internal/users/{order.client_id}/email-target",
+                f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
                 headers=internal_headers,
             )
             r.raise_for_status()
