@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <!-- LiveKit JS SDK для звонков -->
-<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.10/dist/livekit-client.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.10/dist/livekit-client.umd.min.js" integrity="sha384-2gTbWDkF6pQCt7SJaPwyR5ouo6fvpVtqteT3INKz2sbuHSzU3kBxaOsXWG2YJ7ae" crossorigin="anonymous"></script>
 <style>
   :root {
     --bg:        #eef2fb;
@@ -4352,8 +4352,11 @@ async function initReport() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  document.getElementById('rpt-from').value = from.toISOString().slice(0, 10);
-  document.getElementById('rpt-to').value   = to.toISOString().slice(0, 10);
+  // Форматируем по ЛОКАЛЬНЫМ компонентам: toISOString() переводит локальную полночь
+  // в UTC и в зонах с положительным смещением (МСК) сдвигал дату на день назад.
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  document.getElementById('rpt-from').value = ymd(from);
+  document.getElementById('rpt-to').value   = ymd(to);
 
   const sel = document.getElementById('rpt-driver-id');
   if (currentUser?.role === 'driver') {
@@ -4900,8 +4903,10 @@ function connectNotifSSE() {
 
   async function _pollNotifs() {
     try {
+      // after_id не поддерживается бэкендом (молча игнорировался) — не шлём его;
+      // инкрементальность обеспечивает client-side dedup по knownIds ниже.
       const url = _lastSeenId
-        ? `${NOTIF_URL}/notifications?unread_only=true&after_id=${_lastSeenId}&limit=20`
+        ? `${NOTIF_URL}/notifications?unread_only=true&limit=20`
         : `${NOTIF_URL}/notifications?unread_only=true&limit=20`;
       const fresh = await api(url);
       if (!Array.isArray(fresh) || fresh.length === 0) return;
@@ -5247,6 +5252,20 @@ function connectWs(convId) {
       if (activeConvId !== convId) return;
       try {
         const msg = JSON.parse(evt.data);
+        // Управляющие события беседы — не обычные сообщения. Без этой ветки фронт
+        // рисовал из них мусорный пузырь вместо очистки/закрытия чата.
+        if (msg.event === 'conversation_deleted') {
+          activeConvId = null;
+          document.getElementById('chat-window').style.display = 'none';
+          document.getElementById('chat-empty').style.display = '';
+          loadConversations().catch(() => {});
+          return;
+        }
+        if (msg.event === 'conversation_cleared') {
+          const el = document.getElementById('chat-messages');
+          if (el) el.innerHTML = '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
+          return;
+        }
         // Avoid duplicate if we sent it (we already append optimistically on send)
         const existing = document.getElementById(`msg-${msg.id}`);
         if (existing) return;
@@ -7708,10 +7727,19 @@ function startCallPolling() {
   stopCallPolling();
   if (!localStorage.getItem('access_token')) return;
   callState.pollTimer = setInterval(async () => {
-    if (callState.room || callState.incoming) return;
+    if (callState.room) return;  // уже в активном звонке
     try {
       const list = await _callGet('/calls/active');
       if (!Array.isArray(list)) return;
+      // Если уже показываем входящий — проверим, что он всё ещё звонит. call_ended
+      // приходит только по SSE (фронт его не слушает), поэтому при отбое инициатором
+      // диалог иначе висел бы до 45-сек таймаута. Снимаем его, как только звонок
+      // пропал из active (≈3с) — замена непришедшему call_ended.
+      if (callState.incoming) {
+        const still = list.find(c => String(c.id) === String(callState.incoming.call_id) && c.status === 'ringing');
+        if (!still) _handleCallEnded(callState.incoming.call_id);
+        return;
+      }
       // Показываем первый RINGING звонок, где мы НЕ инициатор и нет joined_at
       for (const c of list) {
         if (c.status !== 'ringing') continue;
