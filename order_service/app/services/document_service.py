@@ -4,6 +4,7 @@
 Файлы сохраняются в /app/media/documents/{order_id}/{doc_number}.pdf.
 Путь записывается в Document.file_path для последующей отдачи клиенту.
 """
+import asyncio
 import logging
 import os
 import re
@@ -431,7 +432,7 @@ async def generate_ttn(
     }
 
     try:
-        pdf_bytes = _render_pdf("ttn.html", ctx)
+        pdf_bytes = await asyncio.to_thread(_render_pdf,"ttn.html", ctx)
         file_path = _save_pdf(order.id, doc_number, pdf_bytes)
         status = DocumentStatus.READY
     except Exception as exc:
@@ -512,7 +513,7 @@ async def generate_poa(
     }
 
     try:
-        pdf_bytes = _render_pdf("poa.html", ctx)
+        pdf_bytes = await asyncio.to_thread(_render_pdf,"poa.html", ctx)
         file_path = _save_pdf(order.id, doc_number, pdf_bytes)
         status = DocumentStatus.READY
     except Exception as exc:
@@ -560,7 +561,7 @@ async def generate_upd(
     )
 
     try:
-        pdf_bytes = _render_pdf("upd.html", ctx)
+        pdf_bytes = await asyncio.to_thread(_render_pdf,"upd.html", ctx)
         file_path = _save_pdf(order.id, doc_number, pdf_bytes)
         status = DocumentStatus.READY
     except Exception as exc:
@@ -609,7 +610,7 @@ async def generate_invoice_preliminary(
     )
 
     try:
-        pdf_bytes = _render_pdf("invoice.html", ctx)
+        pdf_bytes = await asyncio.to_thread(_render_pdf,"invoice.html", ctx)
         file_path = _save_pdf(order.id, doc_number, pdf_bytes)
         status = DocumentStatus.READY
     except Exception as exc:
@@ -658,7 +659,7 @@ async def generate_invoice_final(
     )
 
     try:
-        pdf_bytes = _render_pdf("invoice.html", ctx)
+        pdf_bytes = await asyncio.to_thread(_render_pdf,"invoice.html", ctx)
         file_path = _save_pdf(order.id, doc_number, pdf_bytes)
         status = DocumentStatus.READY
     except Exception as exc:

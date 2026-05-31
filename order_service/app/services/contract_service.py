@@ -7,6 +7,7 @@
 
 PDF сохраняется в MEDIA_ROOT/contracts/{client_id}/{contract_number}.pdf.
 """
+import asyncio
 import logging
 import os
 import re
@@ -216,7 +217,8 @@ async def create_contract(
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
     }
 
-    pdf_bytes = _render_pdf("contract.html", ctx)
+    # WeasyPrint — CPU-bound; в отдельный поток, чтобы не блокировать event loop.
+    pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
     file_path = _save_contract_pdf(client_id, contract_number, pdf_bytes)
 
     contract = Contract(
