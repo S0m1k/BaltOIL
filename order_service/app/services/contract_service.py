@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -189,6 +189,14 @@ async def create_contract(
     Идемпотентно: если активный договор уже есть — возвращаем его без повторной
     генерации и без письма.
     """
+    # Транзакционный advisory-lock по клиенту сериализует параллельные создания
+    # договора для одного клиента (защита от гонки «два активных договора»),
+    # не требуя схемных изменений. Снимается автоматически на commit/rollback.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"contract:{client_id}"},
+    )
+
     existing = await get_active_contract(db, client_id)
     if existing is not None:
         log.info("audit action=contract.skip_existing client_id=%s number=%s",

@@ -56,13 +56,18 @@ async def _auto_start_trip(order: Order, actor: TokenUser) -> None:
     """
     try:
         token = _make_service_token(actor)
+        # Повторный рейс (после PARTIALLY_DELIVERED) должен планировать только
+        # остаток, иначе топливо списывается за весь исходный объём повторно.
+        remaining = float(order.volume_requested) - float(order.volume_delivered or 0)
+        if remaining <= 0:
+            remaining = float(order.volume_requested)
         payload = {
             "order_id": str(order.id),
             "driver_id": str(order.driver_id),
             "inv_fuel_type": order.fuel_type.value if order.fuel_type else None,
             "inv_order_number": order.order_number,
             "inv_client_id": str(order.client_id),
-            "volume_planned": float(order.volume_requested),
+            "volume_planned": remaining,
             "delivery_address": order.delivery_address or "",
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -378,6 +383,19 @@ async def claim_order(
     except Exception as exc:
         log.warning("claim_order: chat ensure_client_driver failed for order %s: %s", order.id, exc)
 
+    # Публикуем order_status, как все прочие переходы — иначе клиент не получает
+    # уведомление о принятии заявки (NEW→ACCEPTED раньше событие не слал).
+    await publish_order_event({
+        "event": "order_status",
+        "order_id": str(order.id),
+        "client_id": str(order.client_id),
+        "manager_id": str(order.manager_id) if order.manager_id else None,
+        "driver_id": str(order.driver_id) if order.driver_id else None,
+        "status": order.status.value,
+        "title": f"Заявка №{order.order_number} принята",
+        "body": "Водитель принял вашу заявку",
+    })
+
     return order
 
 
@@ -446,15 +464,20 @@ async def transition_status(
             raise StatusTransitionError("Укажите фактический объём доставки (volume_delivered)")
         if data.volume_delivered <= 0:
             raise StatusTransitionError("volume_delivered должен быть > 0")
-        # Разрешаем до 5 % погрешности сверх заказанного объёма
+        # data.volume_delivered — объём ТЕКУЩЕГО рейса. Накапливаем по всем рейсам
+        # (повторная доставка), иначе volume_delivered и final_amount отражали бы
+        # только последний рейс — недосчёт по multi-trip заявке.
+        prior_delivered = float(order.volume_delivered or 0)
+        new_total = prior_delivered + float(data.volume_delivered)
+        # Кумулятив не должен превышать заказанный объём более чем на 5 %
         max_allowed = float(order.volume_requested) * 1.05
-        if data.volume_delivered > max_allowed:
+        if new_total > max_allowed:
             raise StatusTransitionError(
-                f"volume_delivered ({data.volume_delivered} л) превышает заказанный объём "
+                f"Суммарный доставленный объём ({new_total} л) превышает заказанный "
                 f"({order.volume_requested} л) более чем на 5 %"
             )
-        order.volume_delivered = data.volume_delivered
-        # Пересчитываем final_amount по фактическому объёму доставки (1.5)
+        order.volume_delivered = new_total
+        # Пересчитываем final_amount по кумулятивному объёму доставки (1.5)
         ctx = await get_client_context(order.client_id)
         recalc = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id

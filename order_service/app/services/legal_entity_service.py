@@ -57,6 +57,13 @@ async def create_version(
 
     # Снимаем «до» для audit log
     current = await get_active(db)
+    # Идемпотентность: если активная запись побайтово совпадает с новыми данными —
+    # не плодим новую версию (docstring это обещает, но раньше версия создавалась всегда).
+    if current is not None:
+        _new = data.model_dump()
+        if all(getattr(current, _k, None) == _v for _k, _v in _new.items()):
+            log.info("audit action=legal_entity.unchanged actor_id=%s id=%s", actor.id, current.id)
+            return current
     before_data: dict | None = None
     if current is not None:
         before_data = {

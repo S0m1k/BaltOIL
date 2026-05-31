@@ -100,6 +100,7 @@ class OrderListResponse(BaseModel):
     manager_comment: str | None
     payment_type: PaymentType
     payment_status: str
+    rejection_reason: str | None = None
     expected_amount: Decimal | None
     final_amount: Decimal | None
     desired_date: datetime | None

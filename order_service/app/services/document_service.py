@@ -292,6 +292,14 @@ def _build_line_items(
     subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
     # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
     vat_amount = round(total_amount - subtotal_no_vat, 2)
+    # Согласуем построчный НДС с итоговым: остаток округления вешаем на последнюю
+    # строку, иначе сумма столбцов «НДС»/«Сумма с НДС» по строкам могла на копейку
+    # не совпасть с итоговой строкой (бухгалтер расценит как ошибку документа).
+    line_vat_sum = round(sum(i["vat"] for i in items), 2)
+    residual = round(vat_amount - line_vat_sum, 2)
+    if residual and items:
+        items[-1]["vat"] = round(items[-1]["vat"] + residual, 2)
+        items[-1]["sum"] = round(items[-1]["sum_no_vat"] + items[-1]["vat"], 2)
     return items, subtotal_no_vat, vat_amount, total_amount
 
 
