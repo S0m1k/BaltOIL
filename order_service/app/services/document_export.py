@@ -40,6 +40,19 @@ def _g(d, *keys, default=""):
     return default
 
 
+# Excel/LibreOffice трактуют строки, начинающиеся с этих символов, как формулу.
+# Клиент с company_name/адресом '=cmd|...' заразит файл, который потом скачает
+# менеджер. Префиксуем одинарной кавычкой — она съедается при отображении, но
+# рвёт парсер формул. Числа/None не трогаем. (Аналог auth_service._xlsx_safe.)
+_XLSX_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _xlsx_safe(value):
+    if isinstance(value, str) and value.startswith(_XLSX_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
+
+
 def _hrow(ws, row, cols, widths=None):
     for c, title in enumerate(cols, 1):
         cell = ws.cell(row=row, column=c, value=title)
@@ -50,7 +63,7 @@ def _hrow(ws, row, cols, widths=None):
 
 
 def _c(ws, row, col, value, *, bold=False, fmt=None, align=None, fill=None, border=True):
-    cell = ws.cell(row=row, column=col, value=value)
+    cell = ws.cell(row=row, column=col, value=_xlsx_safe(value))
     cell.font = Font(name="Calibri", bold=bold, size=10)
     cell.alignment = align or _LEFT
     if border:
@@ -68,7 +81,7 @@ def _party_block(ws, row, seller, buyer, basis=None):
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=1)
         a = ws.cell(row=r, column=1, value=label); a.font = _LABEL_FONT; a.alignment = _LEFT
         ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
-        b = ws.cell(row=r, column=2, value=value); b.font = _NORMAL; b.alignment = _LEFT
+        b = ws.cell(row=r, column=2, value=_xlsx_safe(value)); b.font = _NORMAL; b.alignment = _LEFT
     s_inn = _g(seller, "inn")
     s_kpp = _g(seller, "kpp")
     seller_line = f'{_g(seller,"name")}, ИНН {s_inn}' + (f', КПП {s_kpp}' if s_kpp else '') + \
@@ -86,7 +99,7 @@ def _party_block(ws, row, seller, buyer, basis=None):
 
 
 def _signatures(ws, row, seller):
-    director = _g(seller, "director_name")
+    director = _xlsx_safe(_g(seller, "director_name"))
     title = _g(seller, "director_title", default="Генеральный директор")
     ws.cell(row=row, column=1, value="Руководитель").font = _LABEL_FONT
     ws.cell(row=row, column=3, value="______________").font = _NORMAL
@@ -151,7 +164,7 @@ def ttn_xlsx(ctx: dict) -> bytes:
     def info(r, label, value):
         a = ws.cell(row=r, column=1, value=label); a.font = _LABEL_FONT
         ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
-        b = ws.cell(row=r, column=2, value=value); b.font = _NORMAL; b.alignment = _LEFT
+        b = ws.cell(row=r, column=2, value=_xlsx_safe(value)); b.font = _NORMAL; b.alignment = _LEFT
     info(row, "Адрес доставки:", ctx.get("delivery_address", "")); row += 1
     info(row, "Водитель:", ctx.get("driver_name", "—")); row += 2
     _hrow(ws, row, ["№", "Наименование груза", "Ед.", "Кол-во", "Цена", "Сумма"],
@@ -173,7 +186,7 @@ def ttn_xlsx(ctx: dict) -> bytes:
     row += 2
     ws.cell(row=row, column=1, value="Отпуск разрешил").font = _LABEL_FONT
     ws.cell(row=row, column=3, value="______________").font = _NORMAL
-    ws.cell(row=row, column=5, value=_g(ctx.get("seller"), "director_name")).font = _NORMAL
+    ws.cell(row=row, column=5, value=_xlsx_safe(_g(ctx.get("seller"), "director_name"))).font = _NORMAL
     ws.cell(row=row + 1, column=1, value="Груз получил").font = _LABEL_FONT
     ws.cell(row=row + 1, column=3, value="______________").font = _NORMAL
     return _save(wb)
@@ -214,7 +227,7 @@ def upd_xlsx(ctx: dict) -> bytes:
     _c(ws, row, 7, float(ctx.get("vat_amount", 0)), bold=True, fmt=_MONEY, align=_RIGHT, fill=_TOTAL_FILL)
     _c(ws, row, 8, float(ctx.get("total", 0)), bold=True, fmt=_MONEY, align=_RIGHT, fill=_TOTAL_FILL)
     row += 2
-    director = _g(ctx.get("seller"), "director_name")
+    director = _xlsx_safe(_g(ctx.get("seller"), "director_name"))
     ws.cell(row=row, column=1, value="Товар передал (руководитель):").font = _LABEL_FONT
     ws.cell(row=row, column=5, value=director).font = _NORMAL
     ws.cell(row=row + 1, column=1, value="Товар получил:").font = _LABEL_FONT

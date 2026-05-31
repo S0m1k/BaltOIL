@@ -38,8 +38,19 @@ def _header_row(ws, cols: list[str], row: int = 1) -> None:
         cell.border    = _THIN_B
 
 
+# Защита от CSV/formula injection: supplier/invoice/client/driver names и адреса —
+# свободный текст. Excel исполнит ячейку, начинающуюся с = + - @. Префиксуем кавычкой.
+_XLSX_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _xlsx_safe(value):
+    if isinstance(value, str) and value.startswith(_XLSX_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
+
+
 def _cell(ws, row: int, col: int, value, fill=None, bold=False, fmt=None, align=None):
-    cell = ws.cell(row=row, column=col, value=value)
+    cell = ws.cell(row=row, column=col, value=_xlsx_safe(value))
     cell.font      = Font(name="Calibri", bold=bold, size=10)
     cell.alignment = align or _LEFT
     cell.border    = _THIN_B
