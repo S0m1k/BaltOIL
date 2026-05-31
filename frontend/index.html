@@ -4049,7 +4049,10 @@ async function loadVehicles() {
   }
 }
 
+const _vehicleDataMap = {};
+
 function vehicleCardHTML(v) {
+  _vehicleDataMap[v.id] = v;   // онклик передаёт только UUID, объект берём отсюда
   const role = currentUser?.role;
   const isStaff = role === 'admin' || role === 'manager';
   const statusBadge = v.is_active
@@ -4060,7 +4063,7 @@ function vehicleCardHTML(v) {
     : '<span class="vehicle-badge">Свободно</span>';
   const actions = isStaff ? `
     <div class="vehicle-actions">
-      <button class="btn btn-sm btn-ghost" onclick="promptEditVehicle(${JSON.stringify(v).replace(/"/g, '&quot;')})">Редактировать</button>
+      <button class="btn btn-sm btn-ghost" onclick="promptEditVehicle('${v.id}')">Редактировать</button>
       <button class="btn btn-sm btn-danger" onclick="archiveVehicle('${v.id}')">Архив</button>
     </div>` : '';
   return `
@@ -4121,7 +4124,11 @@ function promptAddVehicle() {
   );
 }
 
-function promptEditVehicle(v) {
+function promptEditVehicle(vehicleId) {
+  // Раньше сюда инлайнился JSON.stringify(v) в onclick — это давало stored XSS
+  // через notes/model (двойной декод &quot;). Теперь принимаем только UUID.
+  const v = _vehicleDataMap[vehicleId];
+  if (!v) return;
   openModal('Редактировать ТС',
     `<div class="form-row">
       <div class="form-group">
@@ -5225,11 +5232,13 @@ function connectWs(convId) {
     // refreshes it via api(), so a reconnect never reuses a stale/expired token.
     const token = localStorage.getItem('access_token');
     if (!token) return;
-    const wsUrl = `${_wsproto}://${_H}/api/chat/ws/${convId}?token=${encodeURIComponent(token)}`;
+    // Токен НЕ кладём в URL (утекает в логи nginx/историю) — шлём первым WS-фреймом.
+    const wsUrl = `${_wsproto}://${_H}/api/chat/ws/${convId}`;
     const ws = new WebSocket(wsUrl);
     chatWs = ws;
 
     ws.onopen = () => {
+      try { ws.send(JSON.stringify({ token })); } catch (_) {}
       badge.textContent = '● ONLINE';
       badge.className = 'ws-status ws-online';
     };

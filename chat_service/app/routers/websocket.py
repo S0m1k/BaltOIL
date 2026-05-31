@@ -2,7 +2,8 @@
 WebSocket endpoint with Redis Pub/Sub broadcasting.
 
 Flow:
-  1. Client connects: ws://host/ws/{conv_id}?token=<JWT>
+  1. Client connects: ws://host/ws/{conv_id} (no token in URL), then sends
+     {"token": "<JWT>"} as the first frame.
   2. Server validates JWT, checks conversation access.
   3. Server registers the WS in the process-level _connections map.
   4. A single Redis pubsub listener per (conv_id, process) fans messages out to
@@ -104,7 +105,6 @@ async def _ensure_subscription(redis: aioredis.Redis, conv_key: str) -> None:
 async def websocket_endpoint(
     websocket: WebSocket,
     conv_id: uuid.UUID,
-    token: str = Query(...),
 ):
     redis: aioredis.Redis = websocket.app.state.redis
 
@@ -116,14 +116,23 @@ async def websocket_endpoint(
         await websocket.close(code=4029)  # Too Many Requests (custom)
         return
 
-    # Authenticate (and remember exp — we re-check expiry on every incoming msg
-    # so a long-lived WS doesn't outlive its access token).
+    await websocket.accept()
+
+    # First-frame auth: the client must send {"token": "<JWT>"} as the FIRST message.
+    # The token is deliberately NOT in the URL — a query-string token leaks into nginx
+    # access logs, browser history and Referer. We remember exp and re-check it on every
+    # incoming msg so a long-lived WS doesn't outlive its access token.
     try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+        token = (json.loads(raw) or {}).get("token", "")
         actor = _decode_token(token)
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
         token_exp = int(payload.get("exp", 0))
-    except (AuthError, JWTError, ValueError):
-        await websocket.close(code=4001)
+    except Exception:
+        try:
+            await websocket.close(code=4001)
+        except Exception:
+            pass
         return
 
     # Check conversation access
@@ -147,8 +156,7 @@ async def websocket_endpoint(
             await websocket.close(code=4003)
             return
 
-    await websocket.accept()
-
+    # (already accepted above — auth happens via the first frame)
     conv_key = str(conv_id)
     _connections.setdefault(conv_key, set()).add(websocket)
     await _ensure_subscription(redis, conv_key)
