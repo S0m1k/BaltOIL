@@ -372,15 +372,38 @@ async def generate_report(
         row.fuel_type: float(row.balance) for row in opening_result.all()
     }
 
+    # Обороты за период — тоже агрегация в БД, иначе при >10 000 операций приход/
+    # расход/остаток молча занижались (период считался по обрезанному period_txs).
+    period_q = (
+        select(
+            FuelTransaction.fuel_type,
+            sa_func.coalesce(sa_func.sum(case(
+                (FuelTransaction.type == TransactionType.ARRIVAL, FuelTransaction.volume), else_=0.0
+            )), 0.0).label("arrivals"),
+            sa_func.coalesce(sa_func.sum(case(
+                (FuelTransaction.type == TransactionType.DEPARTURE, FuelTransaction.volume), else_=0.0
+            )), 0.0).label("departures"),
+        )
+        .where(
+            and_(
+                FuelTransaction.transaction_date >= date_from,
+                FuelTransaction.transaction_date <= date_to,
+                FuelTransaction.fuel_type.in_(fuel_types_scope),
+            )
+        )
+        .group_by(FuelTransaction.fuel_type)
+    )
+    period_result = await db.execute(period_q)
+    period_by_ft: dict[str, tuple[float, float]] = {
+        row.fuel_type: (float(row.arrivals), float(row.departures)) for row in period_result.all()
+    }
+
     summaries: list[FuelSummary] = []
     for ft in fuel_types_scope:
         opening = opening_by_ft.get(ft, 0.0)
 
-        # Обороты за период
-        period_ft = [tx for tx in period_txs if tx.fuel_type == ft]
-        arrivals   = sum(tx.volume for tx in period_ft if tx.type == "arrival")
-        departures = sum(tx.volume for tx in period_ft if tx.type == "departure")
-        closing    = opening + arrivals - departures
+        arrivals, departures = period_by_ft.get(ft, (0.0, 0.0))
+        closing = opening + arrivals - departures
 
         summaries.append(FuelSummary(
             fuel_type=ft,

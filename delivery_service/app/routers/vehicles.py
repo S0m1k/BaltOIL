@@ -38,7 +38,7 @@ async def get_vehicle(
     current_user: StaffOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await vehicle_service.get_vehicle(db, vehicle_id)
+    return await vehicle_service.get_vehicle(db, vehicle_id, current_user)
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)

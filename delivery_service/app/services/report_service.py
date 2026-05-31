@@ -34,7 +34,11 @@ async def driver_report(
     completed = [t for t in trips if t.status == TripStatus.COMPLETED]
     cancelled = [t for t in trips if t.status == TripStatus.CANCELLED]
 
-    total_volume_planned = sum(float(t.volume_planned) for t in trips)
+    # План считаем без отменённых рейсов — иначе план/факт искажается (отменённые
+    # имеют volume_planned, но никогда не дают факт).
+    total_volume_planned = sum(
+        float(t.volume_planned) for t in trips if t.status != TripStatus.CANCELLED
+    )
     total_volume_actual  = sum(float(t.volume_actual) for t in completed if t.volume_actual)
 
     return DriverReportResponse(

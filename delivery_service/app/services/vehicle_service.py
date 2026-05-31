@@ -34,10 +34,13 @@ async def list_vehicles(
     return list(result.scalars().all())
 
 
-async def get_vehicle(db: AsyncSession, vehicle_id: uuid.UUID) -> Vehicle:
-    result = await db.execute(
-        select(Vehicle).where(Vehicle.id == vehicle_id, Vehicle.is_archived == False)  # noqa: E712
-    )
+async def get_vehicle(db: AsyncSession, vehicle_id: uuid.UUID, actor=None) -> Vehicle:
+    conditions = [Vehicle.id == vehicle_id, Vehicle.is_archived == False]  # noqa: E712
+    # Водитель может читать только свою назначенную машину — как и в списке.
+    # Иначе по id можно было прочитать любую (в т.ч. чужую/неактивную).
+    if actor is not None and actor.role == "driver":
+        conditions.append(Vehicle.assigned_driver_id == actor.id)
+    result = await db.execute(select(Vehicle).where(and_(*conditions)))
     v = result.scalar_one_or_none()
     if not v:
         raise NotFoundError("Транспортное средство не найдено")
