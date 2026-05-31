@@ -2766,12 +2766,66 @@ function toast(msg, type = 'success', opts = {}) {
 // ═══════════════════════════════════════════════════════════════
 // HTTP HELPERS
 // ═══════════════════════════════════════════════════════════════
-async function api(url, opts = {}) {
+// Single in-flight refresh shared by all concurrent 401s, so a burst of parallel
+// requests triggers exactly one POST /auth/refresh instead of a stampede.
+let _refreshPromise = null;
+
+async function _doRefresh() {
+  const rt = localStorage.getItem('refresh_token');
+  if (!rt) return false;
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      // Raw fetch (NOT api()) to avoid recursion through the 401 handler.
+      const res = await fetch(`${AUTH_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: rt }),
+      });
+      if (!res.ok) return false;
+      const tokens = await res.json();
+      if (!tokens || !tokens.access_token) return false;
+      localStorage.setItem('access_token', tokens.access_token);
+      // Backend rotates the refresh token on every refresh — persist the new one.
+      if (tokens.refresh_token) localStorage.setItem('refresh_token', tokens.refresh_token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+}
+
+// Refresh failed / no refresh token → drop to the auth screen without calling the
+// server logout (which would itself recurse through api()).
+function _sessionExpired() {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  currentUser = null;
+  try { if (chatWs) { chatWs.close(); chatWs = null; } } catch {}
+  if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
+  const appS = document.getElementById('app-screen');
+  const authS = document.getElementById('auth-screen');
+  if (appS) appS.style.display = 'none';
+  if (authS) authS.style.display = 'flex';
+}
+
+async function api(url, opts = {}, _retry = false) {
   const token = localStorage.getItem('access_token');
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(url, { ...opts, headers });
+
+  // Access token expired mid-session → try one silent refresh + single retry.
+  if (res.status === 401 && !_retry && localStorage.getItem('refresh_token')) {
+    const ok = await _doRefresh();
+    if (ok) return api(url, opts, true);
+    _sessionExpired();
+    throw new Error('Сессия истекла, войдите снова');
+  }
 
   if (res.status === 204) return null;
 
@@ -5143,7 +5197,12 @@ function escHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    // Экранируем ' и ` тоже: значения попадают в одинарно-кавыченные onclick-строки
+    // (openClientCard/startClientChat/promptEditVehicle) — без этого ' рвёт JS-литерал
+    // и даёт stored XSS через full_name/notes. См. аудит 2026-05-31 (S4/S5).
+    .replace(/'/g, '&#39;')
+    .replace(/`/g, '&#96;');
 }
 
 function safeHttpUrl(u) {
@@ -5157,13 +5216,16 @@ function connectWs(convId) {
   if (chatWs) { chatWs.close(); chatWs = null; }
   if (chatWsRetry) { clearTimeout(chatWsRetry); chatWsRetry = null; }
 
-  const token = localStorage.getItem('access_token');
-  if (!token) return;
+  if (!localStorage.getItem('access_token')) return;
 
-  const wsUrl = `${_wsproto}://${_H}/api/chat/ws/${convId}?token=${encodeURIComponent(token)}`;
   const badge = document.getElementById('ws-status-badge');
 
   function connect() {
+    // Read the token fresh on every (re)connect — the 15s notification poll
+    // refreshes it via api(), so a reconnect never reuses a stale/expired token.
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+    const wsUrl = `${_wsproto}://${_H}/api/chat/ws/${convId}?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(wsUrl);
     chatWs = ws;
 
@@ -5708,7 +5770,7 @@ function clientCardHTML(u) {
     : '';
   const isChecked = _selectedClientIds.has(u.id);
   return `
-  <div class="client-card" style="cursor:pointer" onclick="openClientCard('${u.id}', '${safeName}')">
+  <div class="client-card" style="cursor:pointer" onclick="openClientCard('${u.id}')">
     <input type="checkbox" id="cb-client-${u.id}" ${isChecked ? 'checked' : ''}
       style="flex-shrink:0;width:15px;height:15px;cursor:pointer;accent-color:var(--amber)"
       onclick="event.stopPropagation();_toggleClientSelect('${u.id}', this.checked)">
@@ -5720,10 +5782,10 @@ function clientCardHTML(u) {
     </div>
     <div class="client-actions">
       <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();copyUUID('${u.id}', this)" title="Скопировать UUID">ID</button>
-      <button class="btn btn-sm btn-primary-outline" onclick="event.stopPropagation();startClientChat('${u.id}', '${safeName}')">
+      <button class="btn btn-sm btn-primary-outline" onclick="event.stopPropagation();startClientChat('${u.id}')">
         ${icon('chat-circle',14)} Чат
       </button>
-      ${currentUser?.role === 'admin' ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();promptClientSettings('${u.id}', '${safeName}')" title="Тариф и кредитный лимит">${icon('gear',14)}</button>` : ''}
+      ${currentUser?.role === 'admin' ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();promptClientSettings('${u.id}')" title="Тариф и кредитный лимит">${icon('gear',14)}</button>` : ''}
     </div>
   </div>`;
 }
@@ -5832,6 +5894,9 @@ const CC_PAYMENT_STATUS_LABELS = {
 };
 
 function openClientCard(clientId, clientName) {
+  // clientName больше не передаётся из карточки (XSS-hardening, см. аудит S4) —
+  // берём из кеша по id. Заголовок всё равно ставится через textContent.
+  if (!clientName) { const _u = _clientDataMap[clientId]; clientName = _u ? (_u.full_name || _u.email) : ''; }
   _ccClientId = clientId;
   _ccUserId = clientId;   // user_id == client_id in this system
   _ccCache = {};
@@ -7113,7 +7178,7 @@ async function promptClientSettings(userId, clientName) {
     ).join('');
   } catch (_) {}
 
-  openModal(`Настройки клиента: ${escHtml(clientName)}`, `
+  openModal(`Настройки клиента: ${escHtml(clientName || user.full_name || user.email || '')}`, `
     <div class="form-group">
       <label class="form-label">Тариф</label>
       <select id="cs-tariff" class="form-input">${tariffOptions}</select>
