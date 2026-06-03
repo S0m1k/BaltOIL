@@ -1,17 +1,28 @@
-"""Заведение предопределённых пользователей (сотрудники + клиенты семьи Волковых).
+"""Заведение предопределённых пользователей (онбординг сотрудников/клиентов).
+
+Учётные данные НЕ хранятся в репозитории. Список пользователей читается из
+JSON-файла (по умолчанию /app/scripts/staff_users.json — он в .gitignore).
+
+Формат файла — массив объектов:
+  [
+    {"full_name": "...", "phone": "8 999 ...", "password": "...",
+     "role": "admin|manager|driver|client", "client_type": "individual|company|null"},
+    ...
+  ]
 
 Запуск внутри контейнера auth_service:
     docker compose exec -T auth_service python /app/scripts/seed_staff.py
+    # или с другим путём к файлу:
+    docker compose exec -T -e STAFF_USERS_FILE=/app/scripts/my.json auth_service python /app/scripts/seed_staff.py
 
 Идемпотентно: пользователь определяется по нормализованному телефону (последние
 10 цифр). Если уже есть — пропускаем. email не задаётся (вход по телефону);
-пароли берутся как есть (в т.ч. короче 8 символов — это осознанное решение
+пароли берутся как есть (в т.ч. короче 8 символов — осознанное решение
 заказчика, валидатор API здесь не применяется).
-
-ВНИМАНИЕ: на APP_ENV=production скрипт не блокируется — это онбординг реальных
-сотрудников. Запускать осознанно.
 """
 import asyncio
+import json
+import os
 import sys
 
 sys.path.insert(0, "/app")
@@ -24,24 +35,31 @@ from app.models.client_profile import ClientProfile, ClientType
 from app.core.security import hash_password
 from app.core.phone import normalize_phone, normalized_phone_column
 
+STAFF_USERS_FILE = os.environ.get("STAFF_USERS_FILE", "/app/scripts/staff_users.json")
 
-# (ФИО, телефон, пароль, роль, тип клиента | None)
-USERS = [
-    ("Волков Александр Сергеевич",      "8 921 947 65 77",     "VAS6577-s", UserRole.ADMIN,   None),
-    ("Волкова Ирина Александровна",     "8 999 529 17 59",     "VIA1759-s", UserRole.ADMIN,   None),
-    ("Волкова Екатерина Ивановна",      "8 921 903 22 77",     "VEI2277-s", UserRole.MANAGER, None),
-    ("Волков Антон Александрович",      "8 921 849 33 37",     "VAA3337-s", UserRole.CLIENT,  ClientType.INDIVIDUAL),
-    ("Волкова Надежда Васильевна",      "+7 (950) 041-09-30",  "VNV0930-s", UserRole.CLIENT,  ClientType.INDIVIDUAL),
-    ("Бурнаев Сергей Викторович",       "+7 (911) 230-06-56",  "BSV0656",   UserRole.DRIVER,  None),
-    ("Семенов Денис Анатольевич",       "+7 (952) 229-17-17",  "SDA1717",   UserRole.DRIVER,  None),
-    ("Афонькин Александр Александрович", "+7 (931) 342-11-45",  "AAA1145",   UserRole.DRIVER,  None),
-]
+
+def _load_users() -> list[dict]:
+    if not os.path.exists(STAFF_USERS_FILE):
+        sys.exit(
+            f"FATAL: файл {STAFF_USERS_FILE} не найден.\n"
+            "Создайте его рядом со скриптом (он в .gitignore) — формат см. в docstring."
+        )
+    with open(STAFF_USERS_FILE, encoding="utf-8") as f:
+        return json.load(f)
 
 
 async def main() -> None:
+    users = _load_users()
     created, skipped = 0, 0
     async with AsyncSessionLocal() as db:
-        for full_name, phone, password, role, client_type in USERS:
+        for u in users:
+            full_name = u["full_name"]
+            phone = u["phone"]
+            password = u["password"]
+            role = UserRole(u["role"])
+            ct = u.get("client_type")
+            client_type = ClientType(ct) if ct else None
+
             norm = normalize_phone(phone)
             existing = await db.execute(
                 select(User).where(normalized_phone_column(User.phone) == norm)
@@ -66,7 +84,7 @@ async def main() -> None:
             created += 1
 
         await db.commit()
-    print(f"[seed_staff] created={created} skipped={skipped} total={len(USERS)}")
+    print(f"[seed_staff] created={created} skipped={skipped} total={len(users)}")
 
 
 if __name__ == "__main__":

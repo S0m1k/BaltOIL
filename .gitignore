@@ -48,3 +48,8 @@ CLAUDE.md
 # Backup cloud credentials — contains secrets
 scripts/backup.env
 .gstack/
+
+# prod cleanup backups
+backups/
+auth_service/scripts/staff_users.json
+*.local.json

@@ -316,6 +316,15 @@ async def update_order(
 
     # driver_id больше не назначается менеджером — водители берут заявки через /claim
 
+    # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
+    # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет
+    # в lazy-load вне async-контекста → MissingGreenlet → 500.
+    await db.flush()
+    result = await db.execute(
+        _with_logs(select(Order).where(Order.id == order_id))
+    )
+    order = result.scalar_one()
+
     await attach_payment_totals_one(db, order)
     return order
 
