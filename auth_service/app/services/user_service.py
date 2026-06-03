@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile, ClientType
 from app.core.security import hash_password, verify_password
+from app.core.phone import normalize_phone, normalized_phone_column
 from app.core.exceptions import ConflictError, NotFoundError, ForbiddenError, AuthError
 from app.schemas.user import (
     RegisterIndividualRequest, RegisterCompanyRequest,
@@ -46,11 +47,22 @@ async def _check_email_unique(db: AsyncSession, email: str | None, exclude_id=No
 async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=None) -> None:
     if not phone:
         return
-    q = select(User).where(User.phone == phone)
+    # Сравниваем по нормализованному номеру (последние 10 цифр), а не по строке —
+    # иначе один номер в разных форматах (+7 921…, 89219…, с пробелами/дефисами)
+    # завёлся бы как разные пользователи, и логин-по-номеру нашёл бы несколько.
+    norm = normalize_phone(phone)
+    if len(norm) == 10:
+        q = select(User).where(
+            User.phone.isnot(None),
+            normalized_phone_column(User.phone) == norm,
+        )
+    else:
+        # Нестандартно короткий номер — fallback на точное сравнение.
+        q = select(User).where(User.phone == phone)
     if exclude_id:
         q = q.where(User.id != exclude_id)
     result = await db.execute(q)
-    if result.scalar_one_or_none():
+    if result.scalars().first():
         raise ConflictError("Пользователь с таким номером телефона уже существует")
 
 
