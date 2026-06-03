@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
+    # Сотрудники (admin/manager/driver) работают в системе подолгу — даём длинный
+    # access-токен, чтобы сессия не «вылетала» в середине рабочего дня. Клиенты
+    # остаются на коротком токене (refresh их продлевает в фоне).
+    staff_access_token_expire_minutes: int = 720  # 12 часов
     refresh_token_expire_days: int = 30
 
     # Redis (for login throttle and rate-limit storage)

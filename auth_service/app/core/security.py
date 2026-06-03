@@ -25,9 +25,18 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # --- Access Token (JWT) ---
 
+# Роли сотрудников получают длинную сессию (см. staff_access_token_expire_minutes).
+_STAFF_ROLES = {"admin", "manager", "driver"}
+
+
 def create_access_token(user_id: str, role: str, name: str = "") -> str:
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=settings.access_token_expire_minutes)
+    minutes = (
+        settings.staff_access_token_expire_minutes
+        if role in _STAFF_ROLES
+        else settings.access_token_expire_minutes
+    )
+    expire = now + timedelta(minutes=minutes)
     payload = {
         "sub": user_id,
         "role": role,

@@ -5,12 +5,13 @@ on the Docker internal network. Auth is done via X-Internal-Secret header
 (HMAC-safe comparison, same secret used by delivery/notification services).
 """
 import hmac
+import re
 import uuid
 from decimal import Decimal
 from typing import Annotated
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -254,6 +255,92 @@ async def get_user_profile(
         passport_issued_by=user.passport_issued_by,
         passport_issued_at=user.passport_issued_at.isoformat() if user.passport_issued_at else None,
     )
+
+
+class ContactResponse(BaseModel):
+    """Лёгкая карточка пользователя для чата: имя, роль, телефон."""
+    id: uuid.UUID
+    full_name: str
+    role: str
+    phone: str | None
+
+
+def _normalize_phone(raw: str) -> str:
+    """Свести телефон к 10 значащим цифрам (рус. формат), отбросив +7/8 и разделители."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        digits = digits[1:]
+    return digits[-10:]
+
+
+@router.get(
+    "/users/by-phone",
+    response_model=ContactResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_by_phone(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    phone: str = Query(..., min_length=4, max_length=32),
+) -> ContactResponse:
+    """Найти активного пользователя по номеру телефона (для «начать чат по номеру»).
+
+    Сравнение по последним 10 цифрам — формат хранения телефона свободный
+    (+7 999…, 8999…, с пробелами). 404 если не найден.
+    """
+    norm = _normalize_phone(phone)
+    if len(norm) < 10:
+        raise HTTPException(status_code=404, detail="User not found")
+    norm_col = func.right(func.regexp_replace(User.phone, r"\D", "", "g"), 10)
+    result = await db.execute(
+        select(User).where(
+            User.phone.isnot(None),
+            norm_col == norm,
+            User.is_active == True,  # noqa: E712
+            User.is_archived == False,  # noqa: E712
+        )
+    )
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return ContactResponse(
+        id=user.id,
+        full_name=user.full_name,
+        role=user.role.value,
+        phone=user.phone,
+    )
+
+
+@router.get(
+    "/users/contacts",
+    response_model=list[ContactResponse],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_contacts(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    ids: str = Query(..., description="comma-separated user UUIDs"),
+) -> list[ContactResponse]:
+    """Батч-резолв id → {full_name, role, phone} для отображения участников чата."""
+    id_list: list[uuid.UUID] = []
+    for raw in ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            id_list.append(uuid.UUID(raw))
+        except ValueError:
+            continue
+    if not id_list:
+        return []
+    result = await db.execute(select(User).where(User.id.in_(id_list)))
+    return [
+        ContactResponse(
+            id=u.id,
+            full_name=u.full_name,
+            role=u.role.value,
+            phone=u.phone,
+        )
+        for u in result.scalars().all()
+    ]
 
 
 @router.get(

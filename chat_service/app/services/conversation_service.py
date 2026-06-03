@@ -25,6 +25,7 @@ from app.models.message import Message
 from app.schemas.message import MessageResponse
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
+from app.services import auth_client
 
 # UUID used as sender_id for system messages
 _SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -40,6 +41,13 @@ MANAGER_ROLES = {"admin", "manager"}
 
 def _check_access(conv: Conversation, actor: TokenUser) -> None:
     """Raise ForbiddenError if the actor cannot access this conversation."""
+    # Прямой чат приватен — проверяем ДО привилегии менеджеров, иначе админ/менеджер
+    # читали бы чужую личную переписку.
+    if conv.kind == ConversationKind.DIRECT:
+        if actor.id in (conv.client_id, conv.driver_id):
+            return
+        raise ForbiddenError("Это приватный чат")
+
     if actor.role in MANAGER_ROLES:
         return  # managers/admins see everything
 
@@ -163,6 +171,45 @@ async def ensure_client_driver_order(
     return conv
 
 
+async def ensure_direct(
+    db: AsyncSession,
+    initiator_id: uuid.UUID,
+    target_id: uuid.UUID,
+) -> Conversation:
+    """Вернуть существующий прямой чат между двумя пользователями или создать новый.
+
+    Членство хранится в client_id (инициатор) и driver_id (собеседник); порядок
+    при поиске не важен. Идемпотентно — повторный вызов вернёт тот же диалог.
+    """
+    if initiator_id == target_id:
+        raise ForbiddenError("Нельзя начать чат с самим собой")
+
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.kind == ConversationKind.DIRECT,
+            Conversation.is_archived == False,  # noqa: E712
+            or_(
+                and_(Conversation.client_id == initiator_id, Conversation.driver_id == target_id),
+                and_(Conversation.client_id == target_id, Conversation.driver_id == initiator_id),
+            ),
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv:
+        return conv
+
+    conv = Conversation(
+        kind=ConversationKind.DIRECT,
+        client_id=initiator_id,
+        driver_id=target_id,
+        created_by_id=initiator_id,
+        created_by_role="user",
+    )
+    db.add(conv)
+    await db.flush()
+    return conv
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Staff group bootstrap (called at app startup)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +270,31 @@ async def get_conversation(
     await _auto_enroll(db, conv_id, actor)
     await db.commit()
     await db.refresh(conv, ["participants"])
+
+    # Обогащаем участников именем и телефоном (задача: телефоны видны в чате).
+    # Для прямого чата дополнительно резолвим собеседника, даже если он ещё не
+    # открывал диалог и потому отсутствует в таблице participants.
+    wanted: set[uuid.UUID] = {p.user_id for p in conv.participants}
+    if conv.kind == ConversationKind.DIRECT:
+        if conv.client_id:
+            wanted.add(conv.client_id)
+        if conv.driver_id:
+            wanted.add(conv.driver_id)
+    contacts = await auth_client.get_contacts(list(wanted)) if wanted else {}
+
+    for p in conv.participants:
+        card = contacts.get(str(p.user_id))
+        p.full_name = card.get("full_name") if card else None
+        p.phone = card.get("phone") if card else None
+
+    conv.peer_name = conv.peer_phone = None
+    if conv.kind == ConversationKind.DIRECT:
+        peer_id = conv.driver_id if conv.client_id == actor.id else conv.client_id
+        card = contacts.get(str(peer_id)) if peer_id else None
+        if card:
+            conv.peer_name = card.get("full_name")
+            conv.peer_phone = card.get("phone")
+
     return conv
 
 
@@ -276,9 +348,15 @@ async def list_conversations(
             ),
         )
 
+    # Прямые чаты видны их двум участникам независимо от роли.
+    direct_vis = and_(
+        Conversation.kind == ConversationKind.DIRECT,
+        or_(Conversation.client_id == actor.id, Conversation.driver_id == actor.id),
+    )
+
     q = (
         select(Conversation)
-        .where(Conversation.is_archived == False, visibility)  # noqa: E712
+        .where(Conversation.is_archived == False, or_(visibility, direct_vis))  # noqa: E712
         .order_by(Conversation.updated_at.desc())
     )
     result = await db.execute(q)
@@ -344,9 +422,25 @@ async def list_conversations(
         m.conversation_id: m for m in last_msgs_result.scalars().all()
     }
 
+    # Для прямых чатов резолвим «собеседника» (имя + телефон), чтобы фронт показал
+    # его в заголовке/списке. Один батч-запрос на все peer-id.
+    peer_ids = [
+        (c.driver_id if c.client_id == actor.id else c.client_id)
+        for c in conversations
+        if c.kind == ConversationKind.DIRECT
+    ]
+    contacts = await auth_client.get_contacts(peer_ids) if peer_ids else {}
+
     output = []
     for conv in conversations:
         last_msg = last_msgs.get(conv.id)
+        peer_name = peer_phone = None
+        if conv.kind == ConversationKind.DIRECT:
+            peer_id = conv.driver_id if conv.client_id == actor.id else conv.client_id
+            card = contacts.get(str(peer_id)) if peer_id else None
+            if card:
+                peer_name = card.get("full_name")
+                peer_phone = card.get("phone")
         output.append({
             "id": conv.id,
             "kind": conv.kind,
@@ -360,6 +454,8 @@ async def list_conversations(
             "unread_count": unread_counts.get(conv.id, 0),
             "last_message": MessageResponse.model_validate(last_msg) if last_msg else None,
             "updated_at": conv.updated_at,
+            "peer_name": peer_name,
+            "peer_phone": peer_phone,
         })
 
     return output

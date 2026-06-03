@@ -2343,8 +2343,10 @@
       <div class="chat-shell">
         <!-- Sidebar: conversation list -->
         <div class="chat-sidebar" id="chat-sidebar">
-          <div class="chat-sidebar-header">
+          <div class="chat-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span class="chat-sidebar-title">Диалоги</span>
+            <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
+              title="Начать чат по номеру телефона">${icon('plus',14)} По номеру</button>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -4947,6 +4949,7 @@ const CONV_KIND_LABELS = {
   client_manager:      'Поддержка',
   client_driver_order: 'Заявка',
   staff_group:         'Группа',
+  direct:              'Личный',
 };
 
 function fmtTime(dt) {
@@ -5043,6 +5046,10 @@ function convTitle(c) {
     if (c.group_code === 'managers') return 'Чат менеджеров';
     return c.group_code || 'Группа';
   }
+  if (c.kind === 'direct') {
+    // Личный чат по номеру — показываем собеседника (имя или телефон).
+    return c.peer_name || c.peer_phone || c.title || 'Личный чат';
+  }
   // Legacy fallback for old conversations (if any remain)
   if (c.title) return c.title;
   return 'Чат';
@@ -5106,13 +5113,21 @@ async function openConversation(convId) {
 
   try {
     const conv = await chatGet(`/conversations/${convId}`);
+    _currentConv = conv;
     _currentConvParticipants = conv.participants || [];
     document.getElementById('chat-conv-title').textContent = convTitle(conv);
     const sub = document.getElementById('chat-conv-sub');
-    sub.innerHTML =
-      `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
-      (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
-      ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+    if (conv.kind === 'direct') {
+      // Личный чат: показываем телефон собеседника прямо в шапке.
+      sub.innerHTML =
+        `${escHtml(CONV_KIND_LABELS.direct)}` +
+        (conv.peer_phone ? ` · ${escHtml(conv.peer_phone)}` : '');
+    } else {
+      sub.innerHTML =
+        `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
+        (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
+        ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+    }
 
     renderMessages(conv.messages);
 
@@ -5337,6 +5352,33 @@ async function sendChatMessage() {
   }
 }
 
+// Начать личный чат с любым пользователем по номеру телефона. Доступно всем ролям.
+function startChatByPhone() {
+  openModal('Чат по номеру телефона',
+    `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+      Введите номер телефона пользователя — откроется личный чат с ним.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Номер телефона</label>
+      <input type="tel" id="sbp-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="off">
+    </div>`,
+    async () => {
+      const phone = (document.getElementById('sbp-phone')?.value || '').trim();
+      if (!phone) { toast('Введите номер телефона', 'error'); return; }
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations/start-by-phone', { phone });
+        toast('Чат открыт');
+        switchTab('chat');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast(e.message || 'Не удалось начать чат', 'error');
+      }
+    }
+  );
+}
+
 function promptNewConv() {
   const role = currentUser?.role;
   const isStaff = role === 'admin' || role === 'manager';
@@ -5491,6 +5533,7 @@ function updateNewConvUI() {
 }
 
 let _allChatUsers = [];
+let _currentConv = null;                 // currently-open conversation (full object)
 let _currentConvParticipants = [];       // participants of the currently-open conversation
 
 const ROLE_LABEL_RU = {
@@ -5527,14 +5570,20 @@ async function showConvParticipants() {
 
   const html = parts.map(p => {
     const u = byId.get(String(p.user_id));
-    const name = (u?.full_name || u?.email || (String(p.user_id).slice(0,8) + '…')).trim();
+    // Имя/телефон приходят с бэка вместе с участником (p.full_name/p.phone);
+    // directory — резервный источник имени.
+    const name = (p.full_name || u?.full_name || u?.email || (String(p.user_id).slice(0,8) + '…')).trim();
+    const phone = p.phone || u?.phone || '';
     const role = u?.role || p.user_role || 'unknown';
     const initials = (name || '?').split(' ').slice(0,2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
     const isMe = currentUser && String(p.user_id) === String(currentUser.id);
     return `
       <div class="participant-row">
         <div class="participant-avatar">${escHtml(initials)}</div>
-        <div class="participant-name">${escHtml(name)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(вы)</span>' : ''}</div>
+        <div class="participant-name">
+          ${escHtml(name)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(вы)</span>' : ''}
+          ${phone ? `<div style="font-size:11px;color:var(--text2)"><a href="tel:${escHtml(phone)}" style="color:var(--accent)">${escHtml(phone)}</a></div>` : ''}
+        </div>
         <span class="participant-role role-${escHtml(role)}">${escHtml(ROLE_LABEL_RU[role] || role)}</span>
       </div>`;
   }).join('');

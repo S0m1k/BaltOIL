@@ -11,6 +11,11 @@ class ConversationKind(str, enum.Enum):
     CLIENT_MANAGER      = "client_manager"       # клиент ↔ все активные менеджеры/админы
     CLIENT_DRIVER_ORDER = "client_driver_order"  # клиент ↔ водитель (на конкретный заказ)
     STAFF_GROUP         = "staff_group"           # групповой чат сотрудников
+    # Прямой чат 1-на-1, начатый по номеру телефона. Приватен: видят только
+    # двое участников (даже менеджер/админ не видят чужие). Членство хранится
+    # в snapshot-полях client_id (инициатор) и driver_id (собеседник) — отдельные
+    # колонки не заводим, чтобы избежать миграции схемы.
+    DIRECT              = "direct"
 
 
 class Conversation(Base):
