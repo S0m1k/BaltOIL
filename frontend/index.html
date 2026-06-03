@@ -2083,7 +2083,7 @@
                 <option value="fuel_oil">М-100</option>
               </select>
             </div>
-            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">${icon('chart-bar',16)} Запросить XLSX</button>
+            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,200h-8V40a8,8,0,0,0-8-8H152a8,8,0,0,0-8,8V80H96a8,8,0,0,0-8,8v40H48a8,8,0,0,0-8,8v64H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16ZM160,48h40V200H160ZM104,96h40V200H104ZM56,144H88v56H56Z"/></svg> Запросить XLSX</button>
           </div>
           <p style="margin-top:10px;font-size:11px;color:var(--text3)">
             Отчёт будет сформирован и придёт в уведомления со ссылкой для скачивания.
@@ -2344,7 +2344,7 @@
           <div class="chat-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span class="chat-sidebar-title">Диалоги</span>
             <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
-              title="Начать чат по номеру телефона">${icon('plus',14)} По номеру</button>
+              title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -2354,10 +2354,10 @@
         <!-- Main: message area -->
         <div class="chat-main" id="chat-main">
           <div class="chat-empty" id="chat-empty">
-            <div style="opacity:.3">${icon('chat-circle',32)}</div>
+            <div style="opacity:.3"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg></div>
             <span>Выберите диалог</span>
             <button class="btn btn-sm btn-warn" id="btn-show-conv-list"
-              onclick="showChatSidebar()" style="margin-top:12px;display:none">${icon('list-bullets',14)} Диалоги</button>
+              onclick="showChatSidebar()" style="margin-top:12px;display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z"/></svg> Диалоги</button>
           </div>
           <div id="chat-window" style="display:none;flex-direction:column;flex:1;overflow:hidden">
             <div class="chat-main-header">
