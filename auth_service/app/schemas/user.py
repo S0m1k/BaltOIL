@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from app.models.user import UserRole
 from app.models.client_profile import ClientType
 from .client_profile import ClientProfileResponse
@@ -10,7 +10,7 @@ from .client_profile import ClientProfileResponse
 
 class UserShortResponse(BaseModel):
     id: uuid.UUID
-    email: str
+    email: str | None
     phone: str | None
     full_name: str
     role: UserRole
@@ -32,7 +32,7 @@ class UserDirectoryEntry(BaseModel):
 
 class UserResponse(BaseModel):
     id: uuid.UUID
-    email: str
+    email: str | None
     phone: str | None
     full_name: str
     role: UserRole
@@ -53,11 +53,14 @@ class UserResponse(BaseModel):
 # --- Registration (public) ---
 
 class RegisterIndividualRequest(BaseModel):
-    """Регистрация физического лица."""
-    email: EmailStr
-    phone: str
+    """Регистрация физического лица: телефон + пароль + ФИО.
+
+    email опционален — клиент заполняет его позже в личном кабинете.
+    """
+    phone: str = Field(..., min_length=4, max_length=32)
     password: str
-    full_name: str
+    full_name: str = Field(..., min_length=1)
+    email: EmailStr | None = None
     delivery_address: str | None = None
     passport_series: str | None = None
     passport_number: str | None = None
@@ -127,8 +130,12 @@ class RegisterCompanyRequest(BaseModel):
 # --- Admin: create any user ---
 
 class CreateUserRequest(BaseModel):
-    """Создание пользователя администратором (менеджер, водитель, клиент)."""
-    email: EmailStr
+    """Создание пользователя администратором (менеджер, водитель, клиент).
+
+    email опционален (сотрудника/клиента можно завести по телефону), но хотя бы
+    одно из email/phone должно быть задано — иначе не по чему входить.
+    """
+    email: EmailStr | None = None
     phone: str | None = None
     password: str
     full_name: str
@@ -136,6 +143,12 @@ class CreateUserRequest(BaseModel):
 
     # If role == CLIENT, client_type is required
     client_type: ClientType | None = None
+
+    @model_validator(mode="after")
+    def _need_login(self):
+        if not (self.email or self.phone):
+            raise ValueError("Укажите телефон или email")
+        return self
 
     @field_validator("password")
     @classmethod

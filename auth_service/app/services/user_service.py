@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile, ClientType
 from app.core.security import hash_password, verify_password
+from app.core.phone import normalize_phone, normalized_phone_column
 from app.core.exceptions import ConflictError, NotFoundError, ForbiddenError, AuthError
 from app.schemas.user import (
     RegisterIndividualRequest, RegisterCompanyRequest,
@@ -28,11 +29,13 @@ FNS_PARTY_FIELDS = (
 FNS_BANK_FIELDS = ("bank_name", "correspondent_account", "swift")
 
 
-def _normalize_email(email: str) -> str:
-    return email.lower().strip()
+def _normalize_email(email: str | None) -> str | None:
+    return email.lower().strip() if email else None
 
 
-async def _check_email_unique(db: AsyncSession, email: str, exclude_id=None) -> None:
+async def _check_email_unique(db: AsyncSession, email: str | None, exclude_id=None) -> None:
+    if not email:
+        return
     q = select(User).where(User.email == email)
     if exclude_id:
         q = q.where(User.id != exclude_id)
@@ -44,11 +47,22 @@ async def _check_email_unique(db: AsyncSession, email: str, exclude_id=None) -> 
 async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=None) -> None:
     if not phone:
         return
-    q = select(User).where(User.phone == phone)
+    # Сравниваем по нормализованному номеру (последние 10 цифр), а не по строке —
+    # иначе один номер в разных форматах (+7 921…, 89219…, с пробелами/дефисами)
+    # завёлся бы как разные пользователи, и логин-по-номеру нашёл бы несколько.
+    norm = normalize_phone(phone)
+    if len(norm) == 10:
+        q = select(User).where(
+            User.phone.isnot(None),
+            normalized_phone_column(User.phone) == norm,
+        )
+    else:
+        # Нестандартно короткий номер — fallback на точное сравнение.
+        q = select(User).where(User.phone == phone)
     if exclude_id:
         q = q.where(User.id != exclude_id)
     result = await db.execute(q)
-    if result.scalar_one_or_none():
+    if result.scalars().first():
         raise ConflictError("Пользователь с таким номером телефона уже существует")
 
 
@@ -64,7 +78,7 @@ async def register_individual(
     await _check_phone_unique(db, data.phone)
 
     user = User(
-        email=data.email,
+        email=data.email,  # может быть None — заполнит позже в ЛК
         phone=data.phone,
         hashed_password=hash_password(data.password),
         full_name=data.full_name,

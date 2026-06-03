@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.core.phone import normalize_phone, normalized_phone_column
 from app.core.security import (
     verify_password,
     create_access_token,
@@ -21,35 +22,56 @@ from app.core.token_revocation import revoke_user_tokens
 async def login(
     db: AsyncSession,
     *,
-    email: str,
+    identifier: str,
     password: str,
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> TokenResponse:
-    email_norm = email.lower().strip()
+    """Вход по email ИЛИ номеру телефона.
 
-    # Per-email backoff check — same generic error whether blocked or wrong creds
-    if await login_throttle.check_blocked(email_norm):
-        raise AuthError("Неверный email или пароль")
+    Если в identifier есть «@» — ищем по email; иначе по телефону (последние 10
+    цифр, формат хранения свободный). Ошибка всегда одинаковая, чтобы нельзя было
+    отличить «нет такого аккаунта» от «неверный пароль» (защита от перебора).
+    """
+    ident = (identifier or "").strip()
+    throttle_key = ident.lower()
+    GENERIC_ERR = "Неверный логин или пароль"
 
-    result = await db.execute(select(User).where(User.email == email_norm))
-    user = result.scalar_one_or_none()
+    # Per-identifier backoff check — same generic error whether blocked or wrong creds
+    if await login_throttle.check_blocked(throttle_key):
+        raise AuthError(GENERIC_ERR)
 
-    # Record failure for non-existent email too — prevents user enumeration via
+    if "@" in ident:
+        result = await db.execute(select(User).where(User.email == ident.lower()))
+        user = result.scalar_one_or_none()
+    else:
+        norm = normalize_phone(ident)
+        if len(norm) == 10:
+            result = await db.execute(
+                select(User).where(
+                    User.phone.isnot(None),
+                    normalized_phone_column(User.phone) == norm,
+                )
+            )
+            user = result.scalars().first()
+        else:
+            user = None
+
+    # Record failure for non-existent identifier too — prevents user enumeration via
     # differential blocking (attacker can't tell "no such account" from "wrong pw")
     if not user or not verify_password(password, user.hashed_password):
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(throttle_key)
+        raise AuthError(GENERIC_ERR)
 
     if user.is_archived:
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(throttle_key)
+        raise AuthError(GENERIC_ERR)
     if not user.is_active:
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(throttle_key)
+        raise AuthError(GENERIC_ERR)
 
     # Successful login — clear throttle state
-    await login_throttle.reset(email_norm)
+    await login_throttle.reset(throttle_key)
 
     access_token = create_access_token(str(user.id), user.role.value, user.full_name)
     raw_refresh = generate_refresh_token()
@@ -68,7 +90,7 @@ async def login(
         actor_id=user.id,
         entity_type="user",
         entity_id=user.id,
-        details={"email": email},
+        details={"identifier": ident},
         ip_address=ip_address,
         user_agent=user_agent,
     )

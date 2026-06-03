@@ -11,6 +11,11 @@ class ConversationKind(str, enum.Enum):
     CLIENT_MANAGER      = "client_manager"       # клиент ↔ все активные менеджеры/админы
     CLIENT_DRIVER_ORDER = "client_driver_order"  # клиент ↔ водитель (на конкретный заказ)
     STAFF_GROUP         = "staff_group"           # групповой чат сотрудников
+    # Прямой чат 1-на-1, начатый по номеру телефона. Приватен: видят только
+    # двое участников (даже менеджер/админ не видят чужие). Членство хранится
+    # в snapshot-полях client_id (инициатор) и driver_id (собеседник) — отдельные
+    # колонки не заводим, чтобы избежать миграции схемы.
+    DIRECT              = "direct"
 
 
 class Conversation(Base):
@@ -27,7 +32,7 @@ class Conversation(Base):
     driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     order_id:  Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
-    # Для staff_group: 'general' | 'drivers' | 'managers'
+    # Для staff_group: 'work' (все сотрудники) | 'accounting' (admin/manager)
     group_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     # Заголовок (опциональный, иначе генерируется на фронте по kind/group_code)

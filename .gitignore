@@ -47,3 +47,4 @@ CLAUDE.md
 
 # Backup cloud credentials — contains secrets
 scripts/backup.env
+.gstack/

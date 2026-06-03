@@ -1488,8 +1488,8 @@
       <!-- Login form -->
       <div id="auth-login">
         <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="login-email" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+          <label class="form-label">Телефон или email</label>
+          <input type="text" id="login-email" class="form-input" placeholder="+7 999 000 00 00 или example@mail.ru" autocomplete="username">
         </div>
         <div class="form-group">
           <label class="form-label">Пароль</label>
@@ -1542,15 +1542,9 @@
     <!-- Register Individual (step 2) -->
     <div id="auth-reg-individual" style="display:none">
       <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Телефон</label>
-          <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00">
-        </div>
+      <div class="form-group">
+        <label class="form-label">Телефон</label>
+        <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="username">
       </div>
       <div class="form-group">
         <label class="form-label">Полное имя</label>
@@ -1560,7 +1554,11 @@
         <label class="form-label">Пароль</label>
         <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
       </div>
-      <div class="section-divider">Необязательно</div>
+      <div class="section-divider">Необязательно (можно заполнить позже в профиле)</div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
+      </div>
       <div class="form-group">
         <label class="form-label">Адрес доставки</label>
         <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
@@ -2085,7 +2083,7 @@
                 <option value="fuel_oil">М-100</option>
               </select>
             </div>
-            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">${icon('chart-bar',16)} Запросить XLSX</button>
+            <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,200h-8V40a8,8,0,0,0-8-8H152a8,8,0,0,0-8,8V80H96a8,8,0,0,0-8,8v40H48a8,8,0,0,0-8,8v64H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16ZM160,48h40V200H160ZM104,96h40V200H104ZM56,144H88v56H56Z"/></svg> Запросить XLSX</button>
           </div>
           <p style="margin-top:10px;font-size:11px;color:var(--text3)">
             Отчёт будет сформирован и придёт в уведомления со ссылкой для скачивания.
@@ -2343,8 +2341,10 @@
       <div class="chat-shell">
         <!-- Sidebar: conversation list -->
         <div class="chat-sidebar" id="chat-sidebar">
-          <div class="chat-sidebar-header">
+          <div class="chat-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span class="chat-sidebar-title">Диалоги</span>
+            <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
+              title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -2354,10 +2354,10 @@
         <!-- Main: message area -->
         <div class="chat-main" id="chat-main">
           <div class="chat-empty" id="chat-empty">
-            <div style="opacity:.3">${icon('chat-circle',32)}</div>
+            <div style="opacity:.3"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></svg></div>
             <span>Выберите диалог</span>
             <button class="btn btn-sm btn-warn" id="btn-show-conv-list"
-              onclick="showChatSidebar()" style="margin-top:12px;display:none">${icon('list-bullets',14)} Диалоги</button>
+              onclick="showChatSidebar()" style="margin-top:12px;display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z"/></svg> Диалоги</button>
           </div>
           <div id="chat-window" style="display:none;flex-direction:column;flex:1;overflow:hidden">
             <div class="chat-main-header">
@@ -2931,12 +2931,12 @@ if (['localhost', '127.0.0.1'].includes(location.hostname)) {
 }
 
 async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
+  const login = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
   errEl.innerHTML = '';
   try {
-    const tokens = await authPost('/auth/login', { email, password });
+    const tokens = await authPost('/auth/login', { login, password });
     localStorage.setItem('access_token',  tokens.access_token);
     localStorage.setItem('refresh_token', tokens.refresh_token);
     await initApp();
@@ -2947,10 +2947,10 @@ async function doLogin() {
 
 async function doRegisterIndividual() {
   const body = {
-    email:           document.getElementById('ri-email').value.trim(),
     phone:           document.getElementById('ri-phone').value.trim(),
     full_name:       document.getElementById('ri-fullname').value.trim(),
     password:        document.getElementById('ri-password').value,
+    email:           document.getElementById('ri-email').value.trim() || undefined,
     delivery_address: document.getElementById('ri-address').value.trim() || undefined,
   };
   const errEl = document.getElementById('ri-error');
@@ -4947,6 +4947,7 @@ const CONV_KIND_LABELS = {
   client_manager:      'Поддержка',
   client_driver_order: 'Заявка',
   staff_group:         'Группа',
+  direct:              'Личный',
 };
 
 function fmtTime(dt) {
@@ -5038,10 +5039,17 @@ function convTitle(c) {
     return label;
   }
   if (c.kind === 'staff_group') {
+    if (c.group_code === 'work')       return 'Работа';
+    if (c.group_code === 'accounting') return 'Бухгалтерия';
+    // legacy-коды (до рефакторинга чатов) — на случай старых архивных групп
     if (c.group_code === 'general')  return 'Общий чат';
     if (c.group_code === 'drivers')  return 'Чат водителей';
     if (c.group_code === 'managers') return 'Чат менеджеров';
     return c.group_code || 'Группа';
+  }
+  if (c.kind === 'direct') {
+    // Личный чат по номеру — показываем собеседника (имя или телефон).
+    return c.peer_name || c.peer_phone || c.title || 'Личный чат';
   }
   // Legacy fallback for old conversations (if any remain)
   if (c.title) return c.title;
@@ -5106,13 +5114,21 @@ async function openConversation(convId) {
 
   try {
     const conv = await chatGet(`/conversations/${convId}`);
+    _currentConv = conv;
     _currentConvParticipants = conv.participants || [];
     document.getElementById('chat-conv-title').textContent = convTitle(conv);
     const sub = document.getElementById('chat-conv-sub');
-    sub.innerHTML =
-      `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
-      (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
-      ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+    if (conv.kind === 'direct') {
+      // Личный чат: показываем телефон собеседника прямо в шапке.
+      sub.innerHTML =
+        `${escHtml(CONV_KIND_LABELS.direct)}` +
+        (conv.peer_phone ? ` · ${escHtml(conv.peer_phone)}` : '');
+    } else {
+      sub.innerHTML =
+        `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
+        (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
+        ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+    }
 
     renderMessages(conv.messages);
 
@@ -5337,6 +5353,33 @@ async function sendChatMessage() {
   }
 }
 
+// Начать личный чат с любым пользователем по номеру телефона. Доступно всем ролям.
+function startChatByPhone() {
+  openModal('Чат по номеру телефона',
+    `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+      Введите номер телефона пользователя — откроется личный чат с ним.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Номер телефона</label>
+      <input type="tel" id="sbp-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="off">
+    </div>`,
+    async () => {
+      const phone = (document.getElementById('sbp-phone')?.value || '').trim();
+      if (!phone) { toast('Введите номер телефона', 'error'); return; }
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations/start-by-phone', { phone });
+        toast('Чат открыт');
+        switchTab('chat');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast(e.message || 'Не удалось начать чат', 'error');
+      }
+    }
+  );
+}
+
 function promptNewConv() {
   const role = currentUser?.role;
   const isStaff = role === 'admin' || role === 'manager';
@@ -5491,6 +5534,7 @@ function updateNewConvUI() {
 }
 
 let _allChatUsers = [];
+let _currentConv = null;                 // currently-open conversation (full object)
 let _currentConvParticipants = [];       // participants of the currently-open conversation
 
 const ROLE_LABEL_RU = {
@@ -5527,14 +5571,20 @@ async function showConvParticipants() {
 
   const html = parts.map(p => {
     const u = byId.get(String(p.user_id));
-    const name = (u?.full_name || u?.email || (String(p.user_id).slice(0,8) + '…')).trim();
+    // Имя/телефон приходят с бэка вместе с участником (p.full_name/p.phone);
+    // directory — резервный источник имени.
+    const name = (p.full_name || u?.full_name || u?.email || (String(p.user_id).slice(0,8) + '…')).trim();
+    const phone = p.phone || u?.phone || '';
     const role = u?.role || p.user_role || 'unknown';
     const initials = (name || '?').split(' ').slice(0,2).map(w => (w[0] || '').toUpperCase()).join('') || '?';
     const isMe = currentUser && String(p.user_id) === String(currentUser.id);
     return `
       <div class="participant-row">
         <div class="participant-avatar">${escHtml(initials)}</div>
-        <div class="participant-name">${escHtml(name)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(вы)</span>' : ''}</div>
+        <div class="participant-name">
+          ${escHtml(name)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(вы)</span>' : ''}
+          ${phone ? `<div style="font-size:11px;color:var(--text2)"><a href="tel:${escHtml(phone)}" style="color:var(--accent)">${escHtml(phone)}</a></div>` : ''}
+        </div>
         <span class="participant-role role-${escHtml(role)}">${escHtml(ROLE_LABEL_RU[role] || role)}</span>
       </div>`;
   }).join('');
