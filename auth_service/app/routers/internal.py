@@ -5,16 +5,16 @@ on the Docker internal network. Auth is done via X-Internal-Secret header
 (HMAC-safe comparison, same secret used by delivery/notification services).
 """
 import hmac
-import re
 import uuid
 from decimal import Decimal
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.core.phone import normalize_phone, normalized_phone_column
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile
@@ -265,14 +265,6 @@ class ContactResponse(BaseModel):
     phone: str | None
 
 
-def _normalize_phone(raw: str) -> str:
-    """Свести телефон к 10 значащим цифрам (рус. формат), отбросив +7/8 и разделители."""
-    digits = re.sub(r"\D", "", raw or "")
-    if len(digits) == 11 and digits[0] in ("7", "8"):
-        digits = digits[1:]
-    return digits[-10:]
-
-
 @router.get(
     "/users/by-phone",
     response_model=ContactResponse,
@@ -287,14 +279,13 @@ async def get_user_by_phone(
     Сравнение по последним 10 цифрам — формат хранения телефона свободный
     (+7 999…, 8999…, с пробелами). 404 если не найден.
     """
-    norm = _normalize_phone(phone)
+    norm = normalize_phone(phone)
     if len(norm) < 10:
         raise HTTPException(status_code=404, detail="User not found")
-    norm_col = func.right(func.regexp_replace(User.phone, r"\D", "", "g"), 10)
     result = await db.execute(
         select(User).where(
             User.phone.isnot(None),
-            norm_col == norm,
+            normalized_phone_column(User.phone) == norm,
             User.is_active == True,  # noqa: E712
             User.is_archived == False,  # noqa: E712
         )

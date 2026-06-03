@@ -38,8 +38,9 @@ async def lifespan(app: FastAPI):
         max_connections=50,
     )
 
-    # Ensure the three staff_group conversations exist on every startup (idempotent).
-    # These are pre-configured groups that must always exist: general, drivers, managers.
+    # Ensure staff_group conversations exist on every startup (idempotent).
+    # Pre-configured groups: work (все сотрудники), accounting (admin/manager).
+    # Устаревшие группы (general/drivers/managers) архивируются автоматически.
     from app.database import AsyncSessionLocal
     from app.services.conversation_service import ensure_staff_groups
     async with AsyncSessionLocal() as db:

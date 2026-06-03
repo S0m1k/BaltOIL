@@ -1488,8 +1488,8 @@
       <!-- Login form -->
       <div id="auth-login">
         <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="login-email" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+          <label class="form-label">Телефон или email</label>
+          <input type="text" id="login-email" class="form-input" placeholder="+7 999 000 00 00 или example@mail.ru" autocomplete="username">
         </div>
         <div class="form-group">
           <label class="form-label">Пароль</label>
@@ -1542,15 +1542,9 @@
     <!-- Register Individual (step 2) -->
     <div id="auth-reg-individual" style="display:none">
       <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Телефон</label>
-          <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00">
-        </div>
+      <div class="form-group">
+        <label class="form-label">Телефон</label>
+        <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="username">
       </div>
       <div class="form-group">
         <label class="form-label">Полное имя</label>
@@ -1560,7 +1554,11 @@
         <label class="form-label">Пароль</label>
         <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
       </div>
-      <div class="section-divider">Необязательно</div>
+      <div class="section-divider">Необязательно (можно заполнить позже в профиле)</div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
+      </div>
       <div class="form-group">
         <label class="form-label">Адрес доставки</label>
         <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
@@ -2933,12 +2931,12 @@ if (['localhost', '127.0.0.1'].includes(location.hostname)) {
 }
 
 async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
+  const login = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
   errEl.innerHTML = '';
   try {
-    const tokens = await authPost('/auth/login', { email, password });
+    const tokens = await authPost('/auth/login', { login, password });
     localStorage.setItem('access_token',  tokens.access_token);
     localStorage.setItem('refresh_token', tokens.refresh_token);
     await initApp();
@@ -2949,10 +2947,10 @@ async function doLogin() {
 
 async function doRegisterIndividual() {
   const body = {
-    email:           document.getElementById('ri-email').value.trim(),
     phone:           document.getElementById('ri-phone').value.trim(),
     full_name:       document.getElementById('ri-fullname').value.trim(),
     password:        document.getElementById('ri-password').value,
+    email:           document.getElementById('ri-email').value.trim() || undefined,
     delivery_address: document.getElementById('ri-address').value.trim() || undefined,
   };
   const errEl = document.getElementById('ri-error');
@@ -5041,6 +5039,9 @@ function convTitle(c) {
     return label;
   }
   if (c.kind === 'staff_group') {
+    if (c.group_code === 'work')       return 'Работа';
+    if (c.group_code === 'accounting') return 'Бухгалтерия';
+    // legacy-коды (до рефакторинга чатов) — на случай старых архивных групп
     if (c.group_code === 'general')  return 'Общий чат';
     if (c.group_code === 'drivers')  return 'Чат водителей';
     if (c.group_code === 'managers') return 'Чат менеджеров';

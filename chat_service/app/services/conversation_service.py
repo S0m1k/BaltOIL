@@ -3,7 +3,7 @@
 Three conversation kinds:
   client_manager      — one per client; managers/admins see all of them.
   client_driver_order — one per active order; client + assigned driver.
-  staff_group         — three pre-created groups: general, drivers, managers.
+  staff_group         — pre-created groups: work (все staff), accounting (admin/manager).
 
 Membership is enforced by snapshot fields in the Conversation row (client_id,
 driver_id, order_id, group_code) — no RPC to auth_service needed for access checks.
@@ -30,7 +30,16 @@ from app.services import auth_client
 # UUID used as sender_id for system messages
 _SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
-STAFF_GROUPS = ("general", "drivers", "managers")
+# Преднастроенные групповые чаты сотрудников:
+#   work       — «Работа»: все водители + менеджеры + админы
+#   accounting — «Бухгалтерия»: только менеджеры + админы
+STAFF_GROUPS = ("work", "accounting")
+STAFF_GROUP_TITLES = {
+    "work": "Работа",
+    "accounting": "Бухгалтерия",
+}
+# Группы, доступные водителю (остальные staff-группы — только admin/manager).
+DRIVER_STAFF_GROUPS = ("work",)
 
 MANAGER_ROLES = {"admin", "manager"}
 
@@ -62,7 +71,7 @@ def _check_access(conv: Conversation, actor: TokenUser) -> None:
         raise ForbiddenError("Вы не участник этого диалога")
 
     if conv.kind == ConversationKind.STAFF_GROUP:
-        if actor.role == "driver" and conv.group_code in ("general", "drivers"):
+        if actor.role == "driver" and conv.group_code in DRIVER_STAFF_GROUPS:
             return
         raise ForbiddenError("У вас нет доступа к этому групповому чату")
 
@@ -215,7 +224,12 @@ async def ensure_direct(
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def ensure_staff_groups(db: AsyncSession) -> None:
-    """Create the three staff_group conversations if they don't exist."""
+    """Привести staff-группы к актуальному набору (work / accounting), идемпотентно.
+
+    - создаёт отсутствующие группы из STAFF_GROUPS;
+    - архивирует устаревшие staff-группы (старые general/drivers/managers),
+      чтобы они исчезли из списков после рефакторинга чатов.
+    """
     for code in STAFF_GROUPS:
         result = await db.execute(
             select(Conversation).where(
@@ -223,21 +237,31 @@ async def ensure_staff_groups(db: AsyncSession) -> None:
                 Conversation.group_code == code,
             )
         )
-        if result.scalar_one_or_none():
+        conv = result.scalar_one_or_none()
+        if conv:
+            # На случай повторного запуска — снимаем архив и чиним заголовок.
+            conv.is_archived = False
+            conv.title = STAFF_GROUP_TITLES.get(code, code)
             continue
 
-        titles = {
-            "general": "Общий чат",
-            "drivers": "Чат водителей",
-            "managers": "Чат менеджеров",
-        }
         db.add(Conversation(
             kind=ConversationKind.STAFF_GROUP,
             group_code=code,
-            title=titles.get(code, code),
+            title=STAFF_GROUP_TITLES.get(code, code),
             created_by_id=_SYSTEM_UUID,
             created_by_role="system",
         ))
+
+    # Архивируем staff-группы, которых больше нет в актуальном наборе.
+    stale = await db.execute(
+        select(Conversation).where(
+            Conversation.kind == ConversationKind.STAFF_GROUP,
+            Conversation.group_code.notin_(STAFF_GROUPS),
+            Conversation.is_archived == False,  # noqa: E712
+        )
+    )
+    for conv in stale.scalars().all():
+        conv.is_archived = True
 
     await db.commit()
 
@@ -327,7 +351,7 @@ async def list_conversations(
         visibility = or_(
             and_(
                 Conversation.kind == ConversationKind.STAFF_GROUP,
-                Conversation.group_code.in_(["general", "drivers"]),
+                Conversation.group_code.in_(list(DRIVER_STAFF_GROUPS)),
             ),
             and_(
                 Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
@@ -339,7 +363,7 @@ async def list_conversations(
         visibility = or_(
             and_(
                 Conversation.kind == ConversationKind.STAFF_GROUP,
-                Conversation.group_code.in_(["general", "managers"]),
+                Conversation.group_code.in_(list(STAFF_GROUPS)),
             ),
             Conversation.kind == ConversationKind.CLIENT_MANAGER,
             and_(

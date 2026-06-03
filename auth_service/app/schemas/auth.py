@@ -1,9 +1,25 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    """Вход по телефону ИЛИ email.
+
+    Новое поле `login` принимает и то и другое. Поле `email` оставлено для
+    обратной совместимости со старым фронтом. Нужно заполнить хотя бы одно.
+    """
+    login: str | None = None
+    email: str | None = None  # legacy alias
     password: str
+
+    @model_validator(mode="after")
+    def _need_identifier(self):
+        if not (self.login or self.email):
+            raise ValueError("Укажите телефон или email")
+        return self
+
+    @property
+    def identifier(self) -> str:
+        return (self.login or self.email or "").strip()
 
 
 class ChangePasswordRequest(BaseModel):

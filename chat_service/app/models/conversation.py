@@ -32,7 +32,7 @@ class Conversation(Base):
     driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     order_id:  Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
-    # Для staff_group: 'general' | 'drivers' | 'managers'
+    # Для staff_group: 'work' (все сотрудники) | 'accounting' (admin/manager)
     group_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     # Заголовок (опциональный, иначе генерируется на фронте по kind/group_code)

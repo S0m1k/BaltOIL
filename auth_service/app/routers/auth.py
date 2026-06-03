@@ -24,8 +24,8 @@ async def register_individual(
 ):
     meta = get_request_meta(request)
     await user_service.register_individual(db, data, **meta)
-    # Автоматически входим после регистрации
-    return await auth_service.login(db, email=data.email, password=data.password, **meta)
+    # Автоматически входим после регистрации — по телефону (email может быть пустым)
+    return await auth_service.login(db, identifier=data.phone, password=data.password, **meta)
 
 
 @router.post("/register/company", response_model=TokenResponse, status_code=201)
@@ -38,7 +38,7 @@ async def register_company(
     meta = get_request_meta(request)
     await user_service.register_company(db, data, **meta)
     # Автоматически входим после регистрации
-    return await auth_service.login(db, email=data.email, password=data.password, **meta)
+    return await auth_service.login(db, identifier=data.email, password=data.password, **meta)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -49,7 +49,7 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     meta = get_request_meta(request)
-    return await auth_service.login(db, email=data.email, password=data.password, **meta)
+    return await auth_service.login(db, identifier=data.identifier, password=data.password, **meta)
 
 
 @router.post("/refresh", response_model=TokenResponse)

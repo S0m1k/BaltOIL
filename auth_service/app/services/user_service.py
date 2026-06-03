@@ -28,11 +28,13 @@ FNS_PARTY_FIELDS = (
 FNS_BANK_FIELDS = ("bank_name", "correspondent_account", "swift")
 
 
-def _normalize_email(email: str) -> str:
-    return email.lower().strip()
+def _normalize_email(email: str | None) -> str | None:
+    return email.lower().strip() if email else None
 
 
-async def _check_email_unique(db: AsyncSession, email: str, exclude_id=None) -> None:
+async def _check_email_unique(db: AsyncSession, email: str | None, exclude_id=None) -> None:
+    if not email:
+        return
     q = select(User).where(User.email == email)
     if exclude_id:
         q = q.where(User.id != exclude_id)
@@ -64,7 +66,7 @@ async def register_individual(
     await _check_phone_unique(db, data.phone)
 
     user = User(
-        email=data.email,
+        email=data.email,  # может быть None — заполнит позже в ЛК
         phone=data.phone,
         hashed_password=hash_password(data.password),
         full_name=data.full_name,
