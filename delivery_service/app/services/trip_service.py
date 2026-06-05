@@ -14,7 +14,7 @@ from app.core.dependencies import TokenUser, ROLE_ADMIN, ROLE_MANAGER, ROLE_DRIV
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.schemas.trip import TripCreateRequest, TripStartRequest, TripCompleteRequest, TripAutoStartRequest
 from app.services import inventory_service
-from app.models.fuel_transaction import FUEL_TYPE_LABELS
+from app.services import fuel_catalog as fuel_catalog_svc
 
 log = logging.getLogger(__name__)
 
@@ -218,8 +218,11 @@ async def create_trip(
                 raise ForbiddenError("Это ТС закреплено за другим водителем")
 
     inv_fuel = data.inv_fuel_type
-    if inv_fuel and inv_fuel not in FUEL_TYPE_LABELS:
-        raise ValidationError(f"Неизвестный вид топлива для учёта: {inv_fuel!r}")
+    if inv_fuel:
+        fuel_codes = await fuel_catalog_svc.get_fuel_codes()
+        if fuel_codes and inv_fuel not in fuel_codes:
+            # Fail-open: если кэш пуст (catalog недоступен), принимаем любой код
+            raise ValidationError(f"Неизвестный вид топлива для учёта: {inv_fuel!r}")
 
     trip = Trip(
         order_id=data.order_id,

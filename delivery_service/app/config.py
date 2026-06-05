@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_port: int = 8003
     allowed_origins: str = "http://localhost:8080"
     notification_service_url: str = "http://notification_service:8005"
+    order_service_url: str = "http://order_service:8002"
     # Required (no default): refuse to boot without an explicit inter-service secret.
     internal_api_secret: str
     public_delivery_url: str = "http://localhost:8003"

@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.tariff import Tariff, TariffFuelPrice, TariffVolumeTier
-from app.models.order import FuelType
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.core.dependencies import TokenUser
 
@@ -22,8 +21,12 @@ _ADMIN = "admin"
 _MANAGER = "manager"
 _STAFF = {_ADMIN, _MANAGER}
 
-# All valid fuel_type values as stored in tariff_fuel_prices
-_VALID_FUEL_TYPES = {ft.value.upper() for ft in FuelType}
+# Known fuel-type codes (uppercase, as stored in tariff_fuel_prices).
+# Kept as a module constant so tariff CRUD can validate coverage without a DB call.
+# When new fuels are added to the catalog they should also be added here.
+_VALID_FUEL_TYPES = {
+    "DIESEL_SUMMER", "DIESEL_WINTER", "PETROL_92", "PETROL_95", "FUEL_OIL"
+}
 
 
 def _check_admin(actor: TokenUser) -> None:

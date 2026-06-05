@@ -2,8 +2,6 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-from app.models.fuel_transaction import FUEL_TYPE_LABELS
-
 
 class FuelStockResponse(BaseModel):
     fuel_type: str
@@ -17,8 +15,9 @@ class FuelStockResponse(BaseModel):
 class ArrivalRequest(BaseModel):
     fuel_type: str = Field(
         ...,
-        pattern="^(diesel_summer|diesel_winter|petrol_92|petrol_95|fuel_oil)$",
-        description="Вид топлива: diesel_summer / diesel_winter / petrol_92 / petrol_95 / fuel_oil",
+        min_length=1,
+        max_length=50,
+        description="Код вида топлива из каталога (напр. diesel_summer, petrol_92)",
     )
     volume: float = Field(..., gt=0, le=10_000_000, description="Объём прихода в литрах (макс. 10 000 000)")
     transaction_date: datetime | None = Field(None, description="Дата операции (по умолчанию — сейчас)")

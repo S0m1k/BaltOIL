@@ -3,15 +3,16 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, case, func as sa_func
 
-from app.models.fuel_transaction import FuelTransaction, TransactionType, FUEL_TYPE_LABELS, FUEL_TYPES
+from app.models.fuel_transaction import FuelTransaction, TransactionType, FUEL_TYPE_LABELS
 from app.models.fuel_stock import FuelStock
 from app.models.trip import Trip
-from app.core.dependencies import TokenUser, ROLE_ADMIN, ROLE_MANAGER
+from app.core.dependencies import TokenUser, ROLE_ADMIN, ROLE_MANAGER, ROLE_DRIVER
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.schemas.inventory import (
     ArrivalRequest, TransactionResponse,
     FuelStockResponse, FuelSummary, InventoryReport,
 )
+from app.services import fuel_catalog
 
 
 # ── Вспомогательные функции ──────────────────────────────────────────────────
@@ -21,12 +22,19 @@ def _require_manager(actor: TokenUser) -> None:
         raise ForbiddenError("Требуется роль менеджера или администратора")
 
 
-def _tx_to_response(tx: FuelTransaction) -> TransactionResponse:
+def _require_view(actor: TokenUser) -> None:
+    """Чтение склада: водитель, менеджер или администратор."""
+    if actor.role not in (ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN):
+        raise ForbiddenError("Требуется роль водителя, менеджера или администратора")
+
+
+def _tx_to_response(tx: FuelTransaction, labels: dict[str, str] | None = None) -> TransactionResponse:
+    _labels = labels if labels is not None else FUEL_TYPE_LABELS
     return TransactionResponse(
         id=tx.id,
         type=tx.type.value,
         fuel_type=tx.fuel_type,
-        fuel_label=FUEL_TYPE_LABELS.get(tx.fuel_type, tx.fuel_type),
+        fuel_label=_labels.get(tx.fuel_type, tx.fuel_type),
         volume=float(tx.volume),
         transaction_date=tx.transaction_date,
         trip_id=tx.trip_id,
@@ -80,22 +88,29 @@ async def _upsert_stock(db: AsyncSession, fuel_type: str, delta: float) -> None:
 
 # ── Публичные функции ────────────────────────────────────────────────────────
 
-async def get_stock(db: AsyncSession, actor: TokenUser) -> list[FuelStockResponse]:
-    """Текущие остатки по всем видам топлива."""
-    _require_manager(actor)
+async def compute_stock(db: AsyncSession) -> list[FuelStockResponse]:
+    """Вернуть текущие остатки без проверки роли — для внутреннего использования."""
+    labels = await fuel_catalog.get_fuel_labels()
+    fuel_codes = await fuel_catalog.get_fuel_codes()
     result = await db.execute(select(FuelStock))
     stocks: dict[str, FuelStock] = {s.fuel_type: s for s in result.scalars().all()}
 
     rows = []
-    for ft in FUEL_TYPES:
+    for ft in fuel_codes:
         s = stocks.get(ft)
         rows.append(FuelStockResponse(
             fuel_type=ft,
-            fuel_label=FUEL_TYPE_LABELS[ft],
+            fuel_label=labels.get(ft, ft),
             current_volume=float(s.current_volume) if s else 0.0,
             last_updated=s.last_updated if s else datetime.now(timezone.utc),
         ))
     return rows
+
+
+async def get_stock(db: AsyncSession, actor: TokenUser) -> list[FuelStockResponse]:
+    """Текущие остатки по всем видам топлива."""
+    _require_view(actor)
+    return await compute_stock(db)
 
 
 async def record_arrival(
@@ -105,7 +120,8 @@ async def record_arrival(
 ) -> TransactionResponse:
     """Записать приход топлива (ввод оператора)."""
     _require_manager(actor)
-    if data.fuel_type not in FUEL_TYPE_LABELS:
+    labels = await fuel_catalog.get_fuel_labels()
+    if data.fuel_type not in labels:
         raise ValidationError(f"Неизвестный вид топлива: {data.fuel_type!r}")
 
     # Дата не должна быть в далёком будущем (макс. +1 день от сейчас)
@@ -298,7 +314,7 @@ async def list_transactions(
     limit: int = 100,
 ) -> list[TransactionResponse]:
     """Список операций с фильтрами."""
-    _require_manager(actor)
+    _require_view(actor)
 
     conditions = []
     if fuel_type:
@@ -319,8 +335,9 @@ async def list_transactions(
     if conditions:
         q = q.where(and_(*conditions))
 
+    labels = await fuel_catalog.get_fuel_labels()
     result = await db.execute(q)
-    return [_tx_to_response(tx) for tx in result.scalars().all()]
+    return [_tx_to_response(tx, labels) for tx in result.scalars().all()]
 
 
 async def generate_report(
@@ -334,7 +351,9 @@ async def generate_report(
     """Сводный отчёт за период: остатки + список операций."""
     _require_manager(actor)
 
-    fuel_types_scope = [fuel_type] if fuel_type else FUEL_TYPES
+    all_codes = await fuel_catalog.get_fuel_codes()
+    fuel_labels = await fuel_catalog.get_fuel_labels()
+    fuel_types_scope = [fuel_type] if fuel_type else all_codes
 
     # Операции за период (для строк отчёта)
     period_txs = await list_transactions(
@@ -407,7 +426,7 @@ async def generate_report(
 
         summaries.append(FuelSummary(
             fuel_type=ft,
-            fuel_label=FUEL_TYPE_LABELS[ft],
+            fuel_label=fuel_labels.get(ft, ft),
             opening_balance=round(opening, 2),
             total_arrivals=round(arrivals, 2),
             total_departures=round(departures, 2),
@@ -454,8 +473,9 @@ async def reconcile_stock(
     rows = (await db.execute(reconcile_q)).all()
     actual: dict[str, float] = {r.fuel_type: float(r.balance) for r in rows}
 
-    # Ensure all known fuel types are represented
-    for ft in FUEL_TYPES:
+    # Ensure all known fuel types are represented (via catalog or fallback)
+    all_codes = await fuel_catalog.get_fuel_codes()
+    for ft in all_codes:
         actual.setdefault(ft, 0.0)
 
     now = datetime.now(timezone.utc)

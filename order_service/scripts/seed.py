@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 sys.path.insert(0, "/app")
 
 from app.config import get_settings
-from app.models import Order, OrderStatus, OrderKind, FuelType, PaymentType, OrderStatusLog, OrderKindCounter
+from app.models import Order, OrderStatus, OrderKind, PaymentType, OrderStatusLog, OrderKindCounter
 from app.models import Payment, PaymentStatus, PaymentMethod, PaymentKind
 from app.models import LegalEntity
 
@@ -49,7 +49,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_1"], order_number="ф1", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_pre"], manager_id=USERS["manager1"],
-        fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("5000"),
+        fuel_type="diesel_summer", volume_requested=Decimal("5000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("95000"),
         status=OrderStatus.NEW, payment_status="unpaid",
@@ -59,7 +59,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_2"], order_number="ф2", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_del"], manager_id=None,
-        fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"),
+        fuel_type="petrol_95", volume_requested=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY,
         status=OrderStatus.NEW, payment_status="unpaid",
@@ -68,7 +68,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_3"], order_number="ю1", order_kind=OrderKind.COMPANY,
         client_id=USERS["client_tc"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
-        fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("10000"),
+        fuel_type="diesel_winter", volume_requested=Decimal("10000"),
         delivery_address="г. Москва, ул. Ленина, 10",
         payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
         status=OrderStatus.ACCEPTED, payment_status="unpaid",
@@ -77,7 +77,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_4"], order_number="ф3", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_mix"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
-        fuel_type=FuelType.PETROL_92, volume_requested=Decimal("3000"),
+        fuel_type="petrol_92", volume_requested=Decimal("3000"),
         delivery_address="г. Москва, Лесная ул., 25",
         payment_type=PaymentType.POSTPAID, expected_amount=Decimal("90000"),
         status=OrderStatus.ACCEPTED, payment_status="partially_paid",
@@ -86,7 +86,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_5"], order_number="ф4", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_pre"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
-        fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("8000"),
+        fuel_type="diesel_summer", volume_requested=Decimal("8000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("120000"),
         status=OrderStatus.ACCEPTED, payment_status="paid",
@@ -95,7 +95,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_6"], order_number="ф5", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_del"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
-        fuel_type=FuelType.PETROL_95, volume_requested=Decimal("2000"), volume_delivered=Decimal("2000"),
+        fuel_type="petrol_95", volume_requested=Decimal("2000"), volume_delivered=Decimal("2000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY, final_amount=Decimal("56000"),
         status=OrderStatus.DELIVERED, payment_status="paid", ttn_number="ТТН-000056",
@@ -104,7 +104,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_7"], order_number="ф6", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_post"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
-        fuel_type=FuelType.DIESEL_WINTER, volume_requested=Decimal("6000"), volume_delivered=Decimal("6000"),
+        fuel_type="diesel_winter", volume_requested=Decimal("6000"), volume_delivered=Decimal("6000"),
         delivery_address="г. Москва, ул. Садовая, 7",
         payment_type=PaymentType.POSTPAID, final_amount=Decimal("126000"),
         status=OrderStatus.DELIVERED, payment_status="unpaid", ttn_number="ТТН-000126",
@@ -113,7 +113,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_8"], order_number="ф7", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_pre"], manager_id=USERS["manager2"], driver_id=USERS["driver2"],
-        fuel_type=FuelType.PETROL_92, volume_requested=Decimal("5000"),
+        fuel_type="petrol_92", volume_requested=Decimal("5000"),
         delivery_address="г. Москва, ул. Тестовая, 1",
         payment_type=PaymentType.PREPAID, expected_amount=Decimal("100000"),
         status=OrderStatus.ACCEPTED, payment_status="paid",
@@ -122,7 +122,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_9"], order_number="ю2", order_kind=OrderKind.COMPANY,
         client_id=USERS["client_tc"], manager_id=USERS["manager1"], driver_id=USERS["driver1"],
-        fuel_type=FuelType.DIESEL_SUMMER, volume_requested=Decimal("15000"), volume_delivered=Decimal("15000"),
+        fuel_type="diesel_summer", volume_requested=Decimal("15000"), volume_delivered=Decimal("15000"),
         delivery_address="г. Москва, ул. Ленина, 10",
         payment_type=PaymentType.TRADE_CREDIT, trade_credit_contract_signed=True,
         expected_amount=Decimal("315000"), final_amount=Decimal("315000"),
@@ -132,7 +132,7 @@ ORDERS = [
     dict(
         id=ORDER_IDS["ord_10"], order_number="ф8", order_kind=OrderKind.INDIVIDUAL,
         client_id=USERS["client_del"], manager_id=USERS["manager2"],
-        fuel_type=FuelType.FUEL_OIL, volume_requested=Decimal("20000"),
+        fuel_type="fuel_oil", volume_requested=Decimal("20000"),
         delivery_address="г. Москва, пр. Мира, 42",
         payment_type=PaymentType.ON_DELIVERY, status=OrderStatus.CANCELLED,
         payment_status="unpaid",

@@ -1837,11 +1837,7 @@
         <div class="form-group">
           <label class="form-label">Вид топлива</label>
           <select id="c-fuel" class="form-input">
-            <option value="diesel_summer">ДТ-Л — Дизельное летнее</option>
-            <option value="diesel_winter">ДТ-З — Дизельное зимнее</option>
-            <option value="petrol_92">АИ-92 — Бензин Регуляр</option>
-            <option value="petrol_95">АИ-95 — Бензин Премиум</option>
-            <option value="fuel_oil">М-100 — Топочный мазут</option>
+            <!-- Заполняется динамически из GET /fuel-types?available_only=true -->
           </select>
         </div>
 
@@ -1976,11 +1972,7 @@
             <label class="form-label">Вид топлива</label>
             <select id="inv-ft-filter" class="filter-select">
               <option value="">Все</option>
-              <option value="diesel_summer">ДТ-Л</option>
-              <option value="diesel_winter">ДТ-З</option>
-              <option value="petrol_92">АИ-92</option>
-              <option value="petrol_95">АИ-95</option>
-              <option value="fuel_oil">М-100</option>
+              <!-- Заполняется динамически из каталога топлива -->
             </select>
           </div>
           <div class="form-group">
@@ -2033,11 +2025,7 @@
             <div class="form-group">
               <label class="form-label">Вид топлива</label>
               <select id="arr-fuel" class="form-input">
-                <option value="diesel_summer">ДТ-Л — Летнее дизельное</option>
-                <option value="diesel_winter">ДТ-З — Зимнее дизельное</option>
-                <option value="petrol_92">АИ-92 — Бензин Регуляр</option>
-                <option value="petrol_95">АИ-95 — Бензин Премиум</option>
-                <option value="fuel_oil">М-100 — Топочный мазут</option>
+                <!-- Заполняется динамически из GET /fuel-types (все активные) -->
               </select>
             </div>
             <div class="form-group">
@@ -2085,11 +2073,7 @@
               <label class="form-label">Вид топлива</label>
               <select id="irpt-fuel" class="filter-select">
                 <option value="">Все виды</option>
-                <option value="diesel_summer">ДТ-Л</option>
-                <option value="diesel_winter">ДТ-З</option>
-                <option value="petrol_92">АИ-92</option>
-                <option value="petrol_95">АИ-95</option>
-                <option value="fuel_oil">М-100</option>
+                <!-- Заполняется динамически из каталога топлива -->
               </select>
             </div>
             <button class="btn btn-primary" style="width:auto;padding:10px 28px" onclick="requestInvReportXlsx()">${icon('chart-bar',16)} Запросить XLSX</button>
@@ -2688,13 +2672,115 @@ function buildBurgerMenu() {
     `<strong>${escHtml(currentUser.full_name)}</strong><br>${escHtml(currentUser.role)}`;
 }
 
-const FUEL_LABELS = {
-  diesel_summer: 'ДТ-Л (Летнее)',
-  diesel_winter: 'ДТ-З (Зимнее)',
+// Каталог топлива — загружается один раз при старте из GET /fuel-types
+// Формат: [{ code, label, is_winter, is_active, sort_order }]
+let _fuelCatalog = [];
+// Фолбэк на случай, если API ещё не загрузился
+const _FUEL_LABELS_FALLBACK = {
+  diesel_summer: 'ДТ-Л К5',
+  diesel_winter: 'ДТ-З К5',
   petrol_92:     'АИ-92',
   petrol_95:     'АИ-95',
-  fuel_oil:      'М-100 (Мазут)',
+  fuel_oil:      'М-100',
 };
+
+function fuelLabel(code) {
+  if (!code) return '—';
+  const entry = _fuelCatalog.find(f => f.code === code);
+  return entry ? entry.label : (_FUEL_LABELS_FALLBACK[code] || code);
+}
+
+async function loadFuelCatalog() {
+  try {
+    _fuelCatalog = await orderGet('/fuel-types');
+  } catch (e) {
+    // Используем фолбэк; не блокируем старт
+    console.warn('loadFuelCatalog failed:', e.message);
+  }
+  _populateFuelSelects();
+}
+
+function _populateFuelSelects() {
+  // Форма создания заявки — только топливо в наличии (available_only=true применяется
+  // при открытии формы через populateOrderFuelSelect)
+
+  // Фильтр в операциях склада
+  const ftFilter = document.getElementById('inv-ft-filter');
+  if (ftFilter) {
+    const keep = ftFilter.querySelector('option[value=""]');
+    ftFilter.innerHTML = '';
+    if (keep) ftFilter.appendChild(keep);
+    _fuelCatalog.forEach(f => {
+      if (!f.is_active) return;
+      const o = document.createElement('option');
+      o.value = f.code;
+      o.textContent = f.label;
+      ftFilter.appendChild(o);
+    });
+  }
+
+  // Фильтр в отчёте склада
+  const irptFuel = document.getElementById('irpt-fuel');
+  if (irptFuel) {
+    const keep = irptFuel.querySelector('option[value=""]');
+    irptFuel.innerHTML = '';
+    if (keep) irptFuel.appendChild(keep);
+    _fuelCatalog.forEach(f => {
+      if (!f.is_active) return;
+      const o = document.createElement('option');
+      o.value = f.code;
+      o.textContent = f.label;
+      irptFuel.appendChild(o);
+    });
+  }
+
+  // Форма прихода — все активные виды
+  const arrFuel = document.getElementById('arr-fuel');
+  if (arrFuel) {
+    arrFuel.innerHTML = '';
+    _fuelCatalog.forEach(f => {
+      if (!f.is_active) return;
+      const o = document.createElement('option');
+      o.value = f.code;
+      o.textContent = f.label;
+      arrFuel.appendChild(o);
+    });
+  }
+}
+
+async function populateOrderFuelSelect() {
+  // Загружает только топливо с остатком > 0 и проставляет сезонный дефолт
+  const sel = document.getElementById('c-fuel');
+  if (!sel) return;
+  try {
+    const fuels = await orderGet('/fuel-types?available_only=true');
+    sel.innerHTML = '';
+    fuels.forEach(f => {
+      const o = document.createElement('option');
+      o.value = f.code;
+      o.textContent = f.label;
+      o.dataset.isWinter = f.is_winter ? '1' : '0';
+      sel.appendChild(o);
+    });
+    // Сезонный дефолт: ноябрь-апрель → первый is_winter, иначе первый не-зимний
+    const month = new Date().getMonth() + 1; // 1-12
+    const isWinterSeason = month >= 11 || month <= 4;
+    const preferred = fuels.find(f => f.is_winter === isWinterSeason)
+                   || fuels.find(f => f.is_winter !== isWinterSeason)
+                   || fuels[0];
+    if (preferred) sel.value = preferred.code;
+  } catch (e) {
+    // Фолбэк: статические опции
+    console.warn('populateOrderFuelSelect failed:', e.message);
+    sel.innerHTML = Object.entries(_FUEL_LABELS_FALLBACK)
+      .map(([code, label]) => `<option value="${code}">${label}</option>`).join('');
+  }
+}
+
+// Обратная совместимость: FUEL_LABELS как прокси через fuelLabel
+const FUEL_LABELS = new Proxy(_FUEL_LABELS_FALLBACK, {
+  get(_, code) { return fuelLabel(code); },
+});
 const STATUS_LABELS = {
   new:       'Новая',
   accepted:  'Принята водителем',
@@ -3246,9 +3332,9 @@ async function initApp() {
   document.getElementById('tab-users-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
-  // Inventory (Склад) — admin + manager only
+  // Inventory (Склад) — admin + manager + driver (driver: read-only)
   document.getElementById('tab-inventory-btn').style.display =
-    (role === 'admin' || role === 'manager') ? '' : 'none';
+    (role === 'admin' || role === 'manager' || role === 'driver') ? '' : 'none';
 
   // Clients — admin + manager only
   document.getElementById('tab-clients-btn').style.display =
@@ -3285,6 +3371,8 @@ async function initApp() {
 
   initNotifications();
   buildBurgerMenu();
+  // Загружаем каталог топлива однократно — заполняет фильтры/селекты складского раздела
+  loadFuelCatalog();
   switchTab('orders');
 }
 
@@ -3313,7 +3401,7 @@ function switchTab(tab) {
     b.classList.toggle('active', b.dataset.tab === tab));
 
   if (tab === 'orders')    loadOrders();
-  if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); }
+  if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); }
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -4035,14 +4123,15 @@ async function doCreateOrder() {
 // ═══════════════════════════════════════════════════════════════
 async function loadFuels() {
   const el = document.getElementById('fuel-grid');
+  if (!el) return;
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
     const fuels = await orderGet('/fuel-types');
     el.innerHTML = fuels.map(f => `
       <div class="fuel-card">
-        <div class="fuel-short">${f.short}</div>
-        <div class="fuel-name">${f.name}</div>
-        <div class="fuel-code">${f.code} · ${f.unit}</div>
+        <div class="fuel-short">${escHtml(f.code)}</div>
+        <div class="fuel-name">${escHtml(f.label)}</div>
+        <div class="fuel-code">${escHtml(f.code)}${f.is_winter ? ' · зимнее' : ''}</div>
       </div>`).join('');
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -4303,13 +4392,10 @@ async function loadTrips() {
   }
 }
 
-const FUEL_LABELS_SHORT = {
-  diesel_summer: 'ДТ-Л',
-  diesel_winter: 'ДТ-З',
-  petrol_92:     'АИ-92',
-  petrol_95:     'АИ-95',
-  fuel_oil:      'М-100',
-};
+// FUEL_LABELS_SHORT — прокси через общий fuelLabel()
+const FUEL_LABELS_SHORT = new Proxy(_FUEL_LABELS_FALLBACK, {
+  get(_, code) { return fuelLabel(code); },
+});
 
 function tripCardHTML(t) {
   const role       = currentUser?.role;
@@ -6545,13 +6631,22 @@ function loadInventoryActive() {
 }
 
 function initInventory() {
-  // Показать/скрыть таб только для manager/admin
-  const isAllowed = currentUser && (currentUser.role === 'manager' || currentUser.role === 'admin');
+  const role = currentUser && currentUser.role;
+  const isAllowed = role === 'manager' || role === 'admin' || role === 'driver';
   document.getElementById('tab-inventory-btn').style.display = isAllowed ? '' : 'none';
   if (!isAllowed) { switchTab('orders'); return; }
+
+  // Водитель видит только остатки — скрываем write-субтабы и кнопки
+  const isDriver = role === 'driver';
+  const arrivalTab = document.querySelector('.inv-subtab[data-inv="arrival"]');
+  const invreportTab = document.querySelector('.inv-subtab[data-inv="invreport"]');
+  if (arrivalTab) arrivalTab.style.display = isDriver ? 'none' : '';
+  if (invreportTab) invreportTab.style.display = isDriver ? 'none' : '';
+
   // Кнопка сверки — только для admin
   const reconcileBtn = document.getElementById('reconcile-btn');
-  if (reconcileBtn) reconcileBtn.style.display = currentUser.role === 'admin' ? '' : 'none';
+  if (reconcileBtn) reconcileBtn.style.display = role === 'admin' ? '' : 'none';
+
   switchInvTab('stock');
 }
 

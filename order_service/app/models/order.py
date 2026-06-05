@@ -11,14 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class FuelType(str, enum.Enum):
-    DIESEL_SUMMER = "diesel_summer"   # Дизельное топливо летнее (ДТ-Л)
-    DIESEL_WINTER = "diesel_winter"   # Дизельное топливо зимнее (ДТ-З)
-    PETROL_92 = "petrol_92"           # Бензин АИ-92
-    PETROL_95 = "petrol_95"           # Бензин АИ-95
-    FUEL_OIL = "fuel_oil"             # Топочный мазут М-100
-
-
 class OrderStatus(str, enum.Enum):
     NEW = "new"           # Новая (создана, ждёт водителя)
     ACCEPTED = "accepted" # Принята водителем
@@ -58,11 +50,8 @@ class Order(Base):
     # Кто создал
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
-    # Топливо
-    fuel_type: Mapped[FuelType] = mapped_column(
-        SAEnum(FuelType, values_callable=lambda x: [e.value for e in x], name="fueltype"),
-        nullable=False,
-    )
+    # Топливо — код из каталога fuel_types (строка, напр. "diesel_summer")
+    fuel_type: Mapped[str] = mapped_column(String(50), nullable=False)
     volume_requested: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)  # литры
     volume_delivered: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)  # факт
 

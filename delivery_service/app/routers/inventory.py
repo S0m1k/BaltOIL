@@ -8,7 +8,7 @@ import httpx
 
 from app.database import get_db
 from app.config import get_settings
-from app.core.dependencies import TokenUser, require_roles, ROLE_MANAGER, ROLE_ADMIN, CurrentUser
+from app.core.dependencies import TokenUser, require_roles, ROLE_MANAGER, ROLE_ADMIN, ROLE_DRIVER, CurrentUser
 from app.schemas.inventory import (
     FuelStockResponse, ArrivalRequest,
     TransactionResponse, InventoryReport,
@@ -21,13 +21,15 @@ _settings = get_settings()
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
-# Dependency: только менеджер или админ
+# Dependency: только менеджер или админ (для write-операций)
 ManagerOrAdmin = Annotated[TokenUser, Depends(require_roles(ROLE_MANAGER, ROLE_ADMIN))]
+# Dependency: чтение — водитель, менеджер или администратор
+ViewAllowed = Annotated[TokenUser, Depends(require_roles(ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN))]
 
 
 @router.get("/stock", response_model=list[FuelStockResponse], summary="Текущие остатки топлива")
 async def get_stock(
-    current_user: ManagerOrAdmin,
+    current_user: ViewAllowed,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Текущий остаток по каждому виду топлива на складе."""
@@ -48,7 +50,7 @@ async def record_arrival(
 @router.get("/transactions", response_model=list[TransactionResponse],
             summary="Список операций прихода/расхода")
 async def list_transactions(
-    current_user: ManagerOrAdmin,
+    current_user: ViewAllowed,
     db: Annotated[AsyncSession, Depends(get_db)],
     fuel_type: str | None = Query(None, description="diesel_summer / diesel_winter / petrol_92 / petrol_95 / fuel_oil"),
     type: str | None = Query(None, description="arrival | departure", pattern="^(arrival|departure)$"),

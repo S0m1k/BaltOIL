@@ -2,12 +2,12 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
-from app.models.order import FuelType, OrderStatus, OrderKind, PaymentType
+from app.models.order import OrderStatus, OrderKind, PaymentType
 from .order_status_log import OrderStatusLogResponse
 
 
 class OrderCreateRequest(BaseModel):
-    fuel_type: FuelType
+    fuel_type: str
     volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 300, максимум 200 000")
     delivery_address: str
     desired_date: datetime | None = None
@@ -40,7 +40,7 @@ class OrderUpdateRequest(BaseModel):
     final_amount: Decimal | None = Field(None, ge=0)
     trade_credit_contract_signed: bool | None = None
     delivery_address: str | None = None
-    fuel_type: FuelType | None = None
+    fuel_type: str | None = None
     volume_requested: float | None = Field(None, gt=0)
     payment_type: PaymentType | None = None
     client_comment: str | None = None
@@ -67,7 +67,7 @@ class OrderResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
-    fuel_type: FuelType
+    fuel_type: str
     volume_requested: float
     volume_delivered: float | None
     delivery_address: str
@@ -103,7 +103,7 @@ class OrderListResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
-    fuel_type: FuelType
+    fuel_type: str
     volume_requested: float
     volume_delivered: float | None
     delivery_address: str

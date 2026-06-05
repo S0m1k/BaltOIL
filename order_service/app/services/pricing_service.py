@@ -14,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.order import FuelType
 from app.models.tariff import Tariff, TariffFuelPrice
 
 log = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
 
 async def compute_expected_amount(
     db: AsyncSession,
-    fuel_type: FuelType,
+    fuel_type: str,
     volume: float,
     tariff_id: uuid.UUID | None,
 ) -> Decimal | None:
@@ -62,8 +61,8 @@ async def compute_expected_amount(
         log.warning("No active tariff found (tariff_id=%s) — skipping expected_amount", tariff_id)
         return None
 
-    # Find price for this fuel type
-    fuel_key = fuel_type.value.upper() if hasattr(fuel_type, "value") else str(fuel_type).upper()
+    # Find price for this fuel type (fuel_type is now a plain str code)
+    fuel_key = str(fuel_type).upper()
     price_row = next(
         (fp for fp in tariff.fuel_prices if fp.fuel_type.upper() == fuel_key),
         None,

@@ -10,6 +10,7 @@ from jose import jwt as jose_jwt
 
 from app.config import get_settings as _get_settings
 from app.models.order import Order, OrderStatus, OrderKind, PaymentType
+from app.services import fuel_type_service
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
@@ -29,8 +30,6 @@ from app.services.pricing_service import compute_expected_amount
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
-
-DELIVERY_SERVICE_URL = "http://delivery_service:8003"
 
 
 def _make_service_token(actor: TokenUser) -> str:
@@ -67,12 +66,13 @@ async def _auto_record_delivery(order: Order, actor: TokenUser) -> None:
     Если delivery_service недоступен — raise StatusTransitionError (fail-closed).
     """
     try:
+        _settings = _get_settings()
         token = _make_service_token(actor)
         volume = float(order.volume_delivered or order.volume_requested)
         payload = {
             "order_id": str(order.id),
             "driver_id": str(order.driver_id),
-            "inv_fuel_type": order.fuel_type.value if order.fuel_type else None,
+            "inv_fuel_type": order.fuel_type if order.fuel_type else None,
             "inv_order_number": order.order_number,
             "inv_client_id": str(order.client_id),
             "volume_planned": volume,
@@ -80,7 +80,7 @@ async def _auto_record_delivery(order: Order, actor: TokenUser) -> None:
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(
-                f"{DELIVERY_SERVICE_URL}/api/v1/trips/auto-start",
+                f"{_settings.delivery_service_url}/api/v1/trips/auto-start",
                 json=payload,
                 headers={"Authorization": f"Bearer {token}"},
             )
@@ -240,6 +240,17 @@ async def create_order(
         desired_utc = data.desired_date if data.desired_date.tzinfo else data.desired_date.replace(tzinfo=timezone.utc)
         if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
+
+    # Валидация вида топлива по каталогу (hard-fail: неизвестный/неактивный код → 422)
+    await fuel_type_service.validate_active(db, data.fuel_type)
+
+    # Дополнительная проверка наличия топлива на складе (fail-open: сетевая ошибка не блокирует)
+    in_stock = await fuel_type_service.fetch_in_stock_codes()
+    if in_stock is not None and data.fuel_type not in in_stock:
+        raise ValidationError(
+            f"Топливо «{data.fuel_type}» временно отсутствует на складе. "
+            "Пожалуйста, выберите другой вид топлива или свяжитесь с менеджером."
+        )
 
     order_number = await generate_order_number(db, order_kind)
 
