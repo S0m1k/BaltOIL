@@ -6,10 +6,10 @@ from alembic import context
 
 # Import all models so Alembic can detect them
 from app.models import (  # noqa: F401
-    Order, OrderStatus, FuelType, PaymentType, DeliveryWindow,
+    Order, OrderStatus, OrderKind, FuelType, PaymentType,
     OrderStatusLog,
     Payment, PaymentStatus, PaymentMethod, PaymentKind,
-    OrderYearCounter,
+    OrderKindCounter,
 )
 from app.database import Base
 from app.config import get_settings

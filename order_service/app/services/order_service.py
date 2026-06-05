@@ -2,19 +2,19 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 
 import httpx
 from jose import jwt as jose_jwt
 
 from app.config import get_settings as _get_settings
-from app.models.order import Order, OrderStatus, PaymentType
+from app.models.order import Order, OrderStatus, OrderKind, PaymentType
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
-from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest
+from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest
 from app.services.order_number import generate_order_number
 from app.services.payment_service import (
     recompute_and_save,
@@ -47,27 +47,35 @@ def _make_service_token(actor: TokenUser) -> str:
     )
 
 
-async def _auto_start_trip(order: Order, actor: TokenUser) -> None:
-    """Создать и запустить рейс в delivery_service при переводе заявки в in_transit.
+async def _notify_driver(order: Order, actor: TokenUser, title: str, body: str) -> None:
+    """Публикует событие уведомления водителю через Redis pub/sub."""
+    await publish_order_event({
+        "event": "order_status",
+        "order_id": str(order.id),
+        "client_id": str(order.client_id),
+        "manager_id": str(order.manager_id) if order.manager_id else None,
+        "driver_id": str(order.driver_id) if order.driver_id else None,
+        "status": order.status.value,
+        "title": title,
+        "body": body,
+    })
 
-    Если топлива недостаточно — delivery_service возвращает 422, и мы
-    пробрасываем ошибку: order_service не меняет статус заявки.
+
+async def _auto_record_delivery(order: Order, actor: TokenUser) -> None:
+    """Создать departure-транзакцию в delivery_service при переводе заявки в DELIVERED.
+
     Если delivery_service недоступен — raise StatusTransitionError (fail-closed).
     """
     try:
         token = _make_service_token(actor)
-        # Повторный рейс (после PARTIALLY_DELIVERED) должен планировать только
-        # остаток, иначе топливо списывается за весь исходный объём повторно.
-        remaining = float(order.volume_requested) - float(order.volume_delivered or 0)
-        if remaining <= 0:
-            remaining = float(order.volume_requested)
+        volume = float(order.volume_delivered or order.volume_requested)
         payload = {
             "order_id": str(order.id),
             "driver_id": str(order.driver_id),
             "inv_fuel_type": order.fuel_type.value if order.fuel_type else None,
             "inv_order_number": order.order_number,
             "inv_client_id": str(order.client_id),
-            "volume_planned": remaining,
+            "volume_planned": volume,
             "delivery_address": order.delivery_address or "",
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -77,15 +85,15 @@ async def _auto_start_trip(order: Order, actor: TokenUser) -> None:
                 headers={"Authorization": f"Bearer {token}"},
             )
         if r.status_code in (200, 201):
-            return  # success
+            return
         detail = r.json().get("detail", f"Ошибка сервиса доставки: {r.status_code}")
         raise StatusTransitionError(detail)
     except StatusTransitionError:
         raise
     except Exception as exc:
-        log.error("_auto_start_trip failed for order %s: %s", order.id, exc)
+        log.error("_auto_record_delivery failed for order %s: %s", order.id, exc)
         raise StatusTransitionError(
-            "Не удалось запустить рейс: сервис доставки недоступен. Попробуйте позже."
+            "Не удалось зафиксировать доставку: сервис доставки недоступен. Попробуйте позже."
         )
 
 
@@ -112,9 +120,16 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     # Клиент видит только свои заявки
     if actor.role == ROLE_CLIENT and order.client_id != actor.id:
         raise ForbiddenError()
-    # Водитель видит только свои заявки (driver_id == actor.id)
-    if actor.role == ROLE_DRIVER and order.driver_id != actor.id:
-        raise ForbiddenError()
+    # Водитель: ТТН-Л видна только назначенному; обычные — свои + пул NEW
+    if actor.role == ROLE_DRIVER:
+        if order.order_kind == OrderKind.TTN_L and order.driver_id != actor.id:
+            raise ForbiddenError()
+        if order.order_kind != OrderKind.TTN_L:
+            # видна если назначена ему или это свободная NEW
+            is_assigned = order.driver_id == actor.id
+            is_free_new = order.status == OrderStatus.NEW and order.driver_id is None
+            if not is_assigned and not is_free_new:
+                raise ForbiddenError()
 
     await attach_payment_totals_one(db, order)
     return order
@@ -135,14 +150,16 @@ async def list_orders(
     if actor.role == ROLE_CLIENT:
         conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
-        # Водитель видит: свои заявки + свободные new (биржа)
-        from sqlalchemy import or_
+        # Водитель видит:
+        # - свои заявки (driver_id == actor.id) всех видов
+        # - свободные NEW не-TTN-L (биржа: driver_id IS NULL, kind != ttn_l)
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
                     Order.status == OrderStatus.NEW,
                     Order.driver_id == None,  # noqa: E711
+                    Order.order_kind != OrderKind.TTN_L,
                 ),
             )
         )
@@ -177,17 +194,34 @@ async def create_order(
     if not is_staff and actor.role != ROLE_CLIENT:
         raise ForbiddenError("Создание заявок доступно клиентам, менеджерам и администраторам")
 
+    # ТТН-Л создаёт только менеджер/админ, водитель обязателен
+    if data.is_ttn_l:
+        if not is_staff:
+            raise ForbiddenError("ТТН-Л может создать только менеджер или администратор")
+        if not data.driver_id:
+            raise ValidationError("Для ТТН-Л необходимо указать водителя")
+
     # Менеджер/Админ может создать заявку от имени клиента
     if is_staff:
         client_id = data.client_id or actor.id
     else:
         if data.client_id:
             raise ForbiddenError("Клиент не может указывать client_id")
+        if data.driver_id:
+            raise ForbiddenError("Клиент не может назначать водителя")
         client_id = actor.id
 
     # Fetch client context (client_type, credit_allowed, tariff_id) from auth_service.
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
     ctx = await get_client_context(client_id)
+
+    # Определить вид заявки
+    if data.is_ttn_l:
+        order_kind = OrderKind.TTN_L
+    elif ctx.client_type == "individual":
+        order_kind = OrderKind.INDIVIDUAL
+    else:
+        order_kind = OrderKind.COMPANY
 
     # Физлица всегда платят по факту (on_delivery) — выбор игнорируется
     if ctx.client_type == "individual":
@@ -207,10 +241,7 @@ async def create_order(
         if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
-    order_number = await generate_order_number(db)
-
-    # Все заявки создаются со статусом NEW — водитель берёт через /claim
-    initial_status = OrderStatus.NEW
+    order_number = await generate_order_number(db, order_kind)
 
     # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
     expected_amount = await compute_expected_amount(
@@ -219,18 +250,19 @@ async def create_order(
 
     order = Order(
         order_number=order_number,
+        order_kind=order_kind,
         client_id=client_id,
         manager_id=actor.id if is_staff else None,
+        driver_id=data.driver_id if is_staff else None,
         fuel_type=data.fuel_type,
         volume_requested=data.volume_requested,
         delivery_address=data.delivery_address,
         desired_date=data.desired_date,
-        delivery_window=data.delivery_window,
         payment_type=data.payment_type,
         expected_amount=expected_amount,
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
-        status=initial_status,
+        status=OrderStatus.NEW,
     )
     db.add(order)
     await db.flush()
@@ -248,16 +280,18 @@ async def create_order(
     await db.flush()
 
     # Auto-document: prepaid → invoice_preliminary at creation time
-    if order.payment_type == PaymentType.PREPAID:
+    # Note: ttn_l orders do NOT generate invoices (Д4 will fully enforce this;
+    # here we gate on kind to avoid generating for ttn_l even in prepaid edge case)
+    if order.payment_type == PaymentType.PREPAID and order.order_kind != OrderKind.TTN_L:
         try:
             await document_service.generate_invoice_preliminary(db, order, actor)
         except Exception as exc:
             log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
 
     # Auto-contract: для клиента-юрлица без активного договора формируем договор
-    # поставки. Не блокируем заявку — любая ошибка (нет реквизитов, сервис лёг)
-    # только логируется. Физлица пропускаются тихо.
-    if ctx.client_type == "company":
+    # поставки. Не блокируем заявку — любая ошибка только логируется.
+    # Физлица и ttn_l пропускаются тихо.
+    if ctx.client_type == "company" and order.order_kind != OrderKind.TTN_L:
         try:
             existing = await contract_service.get_active_contract(db, client_id)
             if existing is None:
@@ -266,7 +300,7 @@ async def create_order(
             log.warning("Auto-contract failed for client %s (order %s): %s",
                         client_id, order.id, exc)
 
-    # Re-fetch with eager-loaded status_logs to avoid lazy-load error during serialization
+    # Re-fetch with eager-loaded status_logs
     result = await db.execute(
         _with_logs(select(Order).where(Order.id == order.id))
     )
@@ -298,23 +332,50 @@ async def update_order(
 
     order = await get_order(db, order_id, actor)
 
-    if data.delivery_window is not None:
-        order.delivery_window = data.delivery_window
+    # Track if we need to set pending_driver_ack
+    was_accepted = order.status == OrderStatus.ACCEPTED
+    changed = False
+
     if data.manager_comment is not None:
         order.manager_comment = data.manager_comment
+        changed = True
     if data.desired_date is not None:
         order.desired_date = data.desired_date
+        changed = True
+    if data.driver_id is not None:
+        order.driver_id = data.driver_id
+        changed = True
     if data.expected_amount is not None:
         order.expected_amount = data.expected_amount
+        changed = True
     if data.trade_credit_contract_signed is not None:
         order.trade_credit_contract_signed = data.trade_credit_contract_signed
+        changed = True
+    if data.delivery_address is not None:
+        order.delivery_address = data.delivery_address
+        changed = True
+    if data.fuel_type is not None:
+        order.fuel_type = data.fuel_type
+        changed = True
+    if data.volume_requested is not None:
+        order.volume_requested = data.volume_requested
+        changed = True
+    if data.payment_type is not None:
+        order.payment_type = data.payment_type
+        changed = True
+    if data.client_comment is not None:
+        order.client_comment = data.client_comment
+        changed = True
 
     # final_amount меняет цель — пересчитываем payment_status
     if data.final_amount is not None:
         order.final_amount = data.final_amount
         await recompute_and_save(db, order)
+        changed = True
 
-    # driver_id больше не назначается менеджером — водители берут заявки через /claim
+    # Если заявка была в ACCEPTED и что-то изменилось — водитель должен подтвердить
+    if was_accepted and changed:
+        order.pending_driver_ack = True
 
     await attach_payment_totals_one(db, order)
     return order
@@ -325,7 +386,7 @@ async def claim_order(
     order_id: uuid.UUID,
     actor: TokenUser,
 ) -> Order:
-    """Водитель берёт свободную заявку из биржи (NEW, driver_id IS NULL).
+    """Водитель берёт свободную заявку из биржи (NEW, driver_id IS NULL, не ТТН-Л).
     Атомарная операция: SELECT FOR UPDATE защищает от гонки двух водителей.
     Переход NEW → ACCEPTED, driver_id устанавливается.
     """
@@ -339,6 +400,7 @@ async def claim_order(
                 Order.is_archived == False,  # noqa: E712
                 Order.status == OrderStatus.NEW,
                 Order.driver_id == None,  # noqa: E711
+                Order.order_kind != OrderKind.TTN_L,
             ).with_for_update()
         )
     )
@@ -364,8 +426,7 @@ async def claim_order(
     await attach_payment_totals_one(db, order)
 
     # Notify chat_service to create the client↔driver conversation for this order.
-    # Fire-and-forget: if chat_service is unavailable, the order is still claimed
-    # and the chat will be created on the next /conversations load.
+    # Fire-and-forget: if chat_service is unavailable, the order is still claimed.
     try:
         _settings = _get_settings()
         async with httpx.AsyncClient(timeout=5.0) as http:
@@ -383,8 +444,6 @@ async def claim_order(
     except Exception as exc:
         log.warning("claim_order: chat ensure_client_driver failed for order %s: %s", order.id, exc)
 
-    # Публикуем order_status, как все прочие переходы — иначе клиент не получает
-    # уведомление о принятии заявки (NEW→ACCEPTED раньше событие не слал).
     await publish_order_event({
         "event": "order_status",
         "order_id": str(order.id),
@@ -399,6 +458,87 @@ async def claim_order(
     return order
 
 
+async def ack_changes(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> Order:
+    """Водитель подтверждает, что увидел изменения в заявке."""
+    if actor.role != ROLE_DRIVER:
+        raise ForbiddenError("Подтвердить изменения может только водитель")
+
+    order = await get_order(db, order_id, actor)
+    order.pending_driver_ack = False
+    await db.flush()
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
+    return order
+
+
+async def reschedule_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    data: RescheduleRequest,
+    actor: TokenUser,
+) -> Order:
+    """Перенос заявки: смена desired_date и/или driver_id.
+
+    Доступно всем ролям (клиент — только свою; staff — любую; водитель — назначенную ему).
+    Перенос принятой заявки (ACCEPTED) → pending_driver_ack=true + уведомление водителю.
+    """
+    order = await get_order(db, order_id, actor)
+
+    if data.desired_date is None and data.driver_id is None:
+        raise ValidationError("Укажите новую дату или нового водителя для переноса")
+
+    was_accepted = order.status == OrderStatus.ACCEPTED
+    changed = False
+
+    if data.desired_date is not None:
+        order.desired_date = data.desired_date
+        changed = True
+
+    if data.driver_id is not None:
+        # Только staff может менять водителя
+        if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
+            raise ForbiddenError("Только менеджер или администратор может переназначить водителя")
+        order.driver_id = data.driver_id
+        changed = True
+
+    if was_accepted and changed:
+        order.pending_driver_ack = True
+
+    db.add(OrderStatusLog(
+        order_id=order.id,
+        from_status=order.status,
+        to_status=order.status,
+        changed_by_id=actor.id,
+        changed_by_role=actor.role,
+        comment="Заявка перенесена",
+    ))
+    await db.flush()
+
+    # Уведомление водителю
+    if order.driver_id:
+        await publish_order_event({
+            "event": "order_rescheduled",
+            "order_id": str(order.id),
+            "client_id": str(order.client_id),
+            "manager_id": str(order.manager_id) if order.manager_id else None,
+            "driver_id": str(order.driver_id),
+            "status": order.status.value,
+            "title": f"Заявка №{order.order_number} перенесена",
+            "body": "Дата или водитель заявки изменены",
+        })
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
+    return order
+
+
 async def transition_status(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -409,81 +549,30 @@ async def transition_status(
 
     validate_transition(order.status, data.to_status, actor.role)
 
-    # Бизнес-проверки при конкретных переходах
+    # ACCEPTED→DELIVERED: водитель обязан указать номер ТТН
+    if data.to_status == OrderStatus.DELIVERED:
+        if actor.role == ROLE_DRIVER:
+            if not order.driver_id or order.driver_id != actor.id:
+                raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
+        ttn = data.ttn_number or ""
+        if not ttn.strip():
+            raise StatusTransitionError("Укажите номер ТТН (ttn_number) для отметки о доставке")
+        order.ttn_number = ttn.strip()
 
-    # Шлагбаум закрытия: заявка не закрывается без оплаты.
-    # Исключения:
-    #   1. Кредитные типы (trade_credit / debt) с подписанным договором.
-    #   2. Клиент имеет credit_limit >= final_amount → автоматически ставим DEBT.
-    if data.to_status == OrderStatus.CLOSED:
-        # Пересчитываем статус оплаты по актуальным данным из БД,
-        # чтобы не полагаться на кешированное поле order.payment_status
-        await recompute_and_save(db, order)
-        is_credit_payment = order.payment_type in (
-            PaymentType.TRADE_CREDIT, PaymentType.DEBT
-        )
-        credit_bypass = is_credit_payment and order.trade_credit_contract_signed
-        # "overpaid" (клиент заплатил больше плана) тоже удовлетворяет шлагбауму —
-        # иначе переплаченную заявку нельзя закрыть и её ошибочно уводят в DEBT.
-        if order.payment_status not in ("paid", "overpaid") and not credit_bypass:
-            # Проверяем credit_limit клиента
-            ctx = await get_client_context(order.client_id)
-            from decimal import Decimal as _Decimal
-            if ctx.credit_limit is not None and ctx.credit_limit >= (order.final_amount or _Decimal("0")):
-                # Автоматически закрываем в долг по лимиту
-                order.payment_type = PaymentType.DEBT
-                order.trade_credit_contract_signed = True
-                data.comment = (data.comment or "") + " [закрыта в долг по кредитному лимиту]"
-            else:
-                raise StatusTransitionError(
-                    f"Нельзя закрыть заявку: статус оплаты «{order.payment_status}». "
-                    "Зафиксируйте оплату или, для товарного кредита / долга, "
-                    "отметьте подписание договора."
-                )
+        # Фиксируем доставленный объём
+        order.volume_delivered = float(order.volume_requested)
 
-    # При переводе в in_transit — автоматически создаём рейс и списываем топливо.
-    # Если delivery_service вернёт ошибку (нет топлива, недоступен) — прерываем переход.
-    if data.to_status == OrderStatus.IN_TRANSIT:
-        await _auto_start_trip(order, actor)
-
-    # При переводе accepted → in_transit водитель должен быть уже в driver_id (через /claim)
-    if data.to_status == OrderStatus.IN_TRANSIT and actor.role == ROLE_DRIVER:
-        if not order.driver_id or order.driver_id != actor.id:
-            from app.core.exceptions import StatusTransitionError
-            raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
-
-    if data.to_status == OrderStatus.REJECTED:
-        if not data.rejection_reason:
-            from app.core.exceptions import StatusTransitionError
-            raise StatusTransitionError("Укажите причину отклонения")
-        order.rejection_reason = data.rejection_reason
-
-    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
-        from app.core.exceptions import StatusTransitionError
-        if data.volume_delivered is None:
-            raise StatusTransitionError("Укажите фактический объём доставки (volume_delivered)")
-        if data.volume_delivered <= 0:
-            raise StatusTransitionError("volume_delivered должен быть > 0")
-        # data.volume_delivered — объём ТЕКУЩЕГО рейса. Накапливаем по всем рейсам
-        # (повторная доставка), иначе volume_delivered и final_amount отражали бы
-        # только последний рейс — недосчёт по multi-trip заявке.
-        prior_delivered = float(order.volume_delivered or 0)
-        new_total = prior_delivered + float(data.volume_delivered)
-        # Кумулятив не должен превышать заказанный объём более чем на 5 %
-        max_allowed = float(order.volume_requested) * 1.05
-        if new_total > max_allowed:
-            raise StatusTransitionError(
-                f"Суммарный доставленный объём ({new_total} л) превышает заказанный "
-                f"({order.volume_requested} л) более чем на 5 %"
-            )
-        order.volume_delivered = new_total
-        # Пересчитываем final_amount по кумулятивному объёму доставки (1.5)
+        # Пересчитываем final_amount
         ctx = await get_client_context(order.client_id)
         recalc = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id
         )
         if recalc is not None:
             order.final_amount = recalc
+
+    if data.to_status == OrderStatus.CANCELLED:
+        if data.rejection_reason:
+            order.rejection_reason = data.rejection_reason
 
     prev_status = order.status
     order.status = data.to_status
@@ -498,45 +587,34 @@ async def transition_status(
     ))
     await db.flush()
 
-    # ── Авто-генерация документов ─────────────────────────────────────────────
-    # Ошибки PDF-рендера не прерывают переход — документ остаётся в статусе DRAFT.
-    #
-    # Матрица триггеров (SPEC 1.5.9):
-    #   IN_TRANSIT   + trade_credit/debt  → TTN предварительная
-    #   DELIVERED/*  + все типы           → invoice_final + UPD + TTN финальная
-    #   (prepaid получает invoice_preliminary при создании, не здесь)
-
-    _credit_types = (PaymentType.TRADE_CREDIT, PaymentType.DEBT)
-
-    # Каждый генератор — в SAVEPOINT (begin_nested): если flush одного документа
-    # упадёт (например IntegrityError на дубле doc_number), откатывается только этот
-    # документ, а не вся транзакция перехода статуса. Иначе одна ошибка PDF/insert
-    # «отравляла» сессию и срывала весь переход (заявка не доходила до DELIVERED).
-    if data.to_status == OrderStatus.IN_TRANSIT:
-        if order.payment_type in _credit_types:
-            try:
-                async with db.begin_nested():
-                    await document_service.generate_ttn(db, order, actor)
-            except Exception as exc:
-                log.warning("Auto-TTN (preliminary) failed for order %s: %s", order.id, exc)
-        # Доверенность (М-2) на получение ТМЦ водителем — на выезд, для всех типов оплаты
-        try:
-            async with db.begin_nested():
-                await document_service.generate_poa(db, order, actor)
-        except Exception as exc:
-            log.warning("Auto-POA failed for order %s: %s", order.id, exc)
-
-    if data.to_status in (OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED):
+    # Авто-генерация документов при доставке
+    # ttn_l заявки не генерят счета (Д4 полностью закроет это; здесь предотвращаем
+    # генерацию invoice_final для внутренних ТТН-Л)
+    if data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
         for gen_fn, label in [
             (document_service.generate_invoice_final, "invoice_final"),
-            (document_service.generate_upd, "UPD"),
-            (document_service.generate_ttn, "TTN"),
         ]:
             try:
                 async with db.begin_nested():
                     await gen_fn(db, order, actor)
             except Exception as exc:
                 log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
+
+        # Departure-транзакция в delivery_service (списание топлива со склада)
+        try:
+            await _auto_record_delivery(order, actor)
+        except StatusTransitionError:
+            raise
+        except Exception as exc:
+            log.error("_auto_record_delivery unexpected error for order %s: %s", order.id, exc)
+    elif data.to_status == OrderStatus.DELIVERED and order.order_kind == OrderKind.TTN_L:
+        # ТТН-Л: только списываем топливо, без счёта
+        try:
+            await _auto_record_delivery(order, actor)
+        except StatusTransitionError:
+            raise
+        except Exception as exc:
+            log.error("_auto_record_delivery (ttn_l) unexpected error for order %s: %s", order.id, exc)
 
     # Re-fetch to include the new log in the response
     result = await db.execute(

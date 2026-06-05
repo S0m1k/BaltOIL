@@ -93,7 +93,7 @@ async def get_summary(
         order_conds.append(Order.created_at <= date_to)
     order_conds.append(Order.is_archived == False)  # noqa: E712
     # Отклонённые заявки не учитываем в финансовых ожиданиях
-    order_conds.append(Order.status != OrderStatus.REJECTED)
+    order_conds.append(Order.status != OrderStatus.CANCELLED)
 
     orders_q = select(Order)
     if order_conds:

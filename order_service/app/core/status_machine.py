@@ -1,13 +1,12 @@
 """
 Статусная машина заявок.
 
-Жизненный цикл:
-  NEW → ACCEPTED (водитель /claim) → IN_TRANSIT (начал рейс) → DELIVERED → CLOSED
-      ↘ REJECTED                                            ↘ PARTIALLY_DELIVERED → CLOSED
-                                                                                  ↘ ACCEPTED (повторный рейс)
-
-IN_PROGRESS и ASSIGNED удалены: водитель сам берёт заявку из NEW и сам начинает рейс.
-Менеджер водителей не назначает и в работу не переводит — только отклоняет/закрывает.
+Жизненный цикл (Д1):
+  NEW → ACCEPTED (водитель /claim или берёт назначенную)
+      → CANCELLED (менеджер/админ)
+  ACCEPTED → DELIVERED (водитель, требуется ttn_number)
+           → CANCELLED (менеджер/админ)
+  DELIVERED и CANCELLED — терминальные.
 """
 from app.models.order import OrderStatus
 from app.core.exceptions import StatusTransitionError, ForbiddenError
@@ -21,31 +20,16 @@ ROLE_CLIENT = "client"
 # allowed_transitions[from_status] = {to_status: {roles_that_can_do_it}}
 ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
     OrderStatus.NEW: {
-        OrderStatus.ACCEPTED: {ROLE_DRIVER},
-        OrderStatus.REJECTED: {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.ACCEPTED:  {ROLE_DRIVER},
+        OrderStatus.CANCELLED: {ROLE_MANAGER, ROLE_ADMIN},
     },
     OrderStatus.ACCEPTED: {
-        OrderStatus.IN_TRANSIT: {ROLE_DRIVER},
-        OrderStatus.REJECTED:   {ROLE_MANAGER, ROLE_ADMIN},
-    },
-    OrderStatus.IN_TRANSIT: {
-        OrderStatus.DELIVERED:           {ROLE_DRIVER},
-        OrderStatus.PARTIALLY_DELIVERED: {ROLE_DRIVER},
-        # Компенсация при отмене рейса в пути: заявка возвращается в ACCEPTED,
-        # её можно переназначить. Иначе заказ навсегда застревал в IN_TRANSIT.
-        OrderStatus.ACCEPTED:            {ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN},
-    },
-    OrderStatus.DELIVERED: {
-        OrderStatus.CLOSED: {ROLE_MANAGER, ROLE_ADMIN},
-    },
-    OrderStatus.PARTIALLY_DELIVERED: {
-        OrderStatus.CLOSED:   {ROLE_MANAGER, ROLE_ADMIN},
-        # Повторный рейс — возвращаем в ACCEPTED, водитель снова едет
-        OrderStatus.ACCEPTED: {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.DELIVERED: {ROLE_DRIVER},
+        OrderStatus.CANCELLED: {ROLE_MANAGER, ROLE_ADMIN},
     },
     # Терминальные — переходов нет
-    OrderStatus.CLOSED:   {},
-    OrderStatus.REJECTED: {},
+    OrderStatus.DELIVERED: {},
+    OrderStatus.CANCELLED: {},
 }
 
 

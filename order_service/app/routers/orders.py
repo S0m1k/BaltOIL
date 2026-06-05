@@ -8,7 +8,7 @@ from app.models.order import OrderStatus
 from app.core.dependencies import CurrentUser
 from app.schemas.order import (
     OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest,
-    OrderResponse, OrderListResponse,
+    RescheduleRequest, OrderResponse, OrderListResponse,
 )
 from app.services import order_service
 
@@ -78,6 +78,27 @@ async def claim_order(
 ):
     """Водитель берёт свободную заявку (NEW, без водителя) → переходит в ACCEPTED."""
     return await order_service.claim_order(db, order_id, current_user)
+
+
+@router.post("/{order_id}/ack-changes", response_model=OrderResponse)
+async def ack_changes(
+    order_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Водитель подтверждает, что увидел изменения в заявке. Снимает флаг pending_driver_ack."""
+    return await order_service.ack_changes(db, order_id, current_user)
+
+
+@router.post("/{order_id}/reschedule", response_model=OrderResponse)
+async def reschedule_order(
+    order_id: uuid.UUID,
+    data: RescheduleRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Перенос заявки: смена desired_date и/или driver_id."""
+    return await order_service.reschedule_order(db, order_id, data, current_user)
 
 
 @router.delete("/{order_id}", status_code=204)

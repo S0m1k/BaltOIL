@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.models import order, order_status_log, order_counter, payment, legal_entity, document, tariff, contract  # noqa: F401 — register all models
+from app.models import order, order_status_log, order_counter, payment, legal_entity, document, tariff, contract  # noqa: F401 — register all models (order_counter now has OrderKindCounter)
 from app.routers import orders, fuel_types, payments, legal_entity as legal_entity_router, documents, finance, tariffs, clients as clients_router, contracts as contracts_router
 
 settings = get_settings()

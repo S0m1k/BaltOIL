@@ -20,13 +20,16 @@ class FuelType(str, enum.Enum):
 
 
 class OrderStatus(str, enum.Enum):
-    NEW = "new"                                   # Новая (создана клиентом, ждёт водителя)
-    ACCEPTED = "accepted"                         # Принята водителем (driver_id выставлен, ещё не выехал)
-    IN_TRANSIT = "in_transit"                     # В рейсе (водитель выехал)
-    DELIVERED = "delivered"                       # Доставлена
-    PARTIALLY_DELIVERED = "partially_delivered"   # Частично доставлена
-    CLOSED = "closed"                             # Закрыта
-    REJECTED = "rejected"                         # Отклонена
+    NEW = "new"           # Новая (создана, ждёт водителя)
+    ACCEPTED = "accepted" # Принята водителем
+    DELIVERED = "delivered" # Доставлена
+    CANCELLED = "cancelled" # Отменена (терминальный)
+
+
+class OrderKind(str, enum.Enum):
+    INDIVIDUAL = "individual"  # Физическое лицо
+    COMPANY = "company"        # Юридическое лицо
+    TTN_L = "ttn_l"            # Внутренняя ТТН-Л (только менеджер)
 
 
 class PaymentType(str, enum.Enum):
@@ -37,21 +40,20 @@ class PaymentType(str, enum.Enum):
     DEBT = "debt"                   # Условно в долг (семантически = trade_credit, разделён для отчётности)
 
 
-class DeliveryWindow(str, enum.Enum):
-    MORNING   = "07-13"
-    AFTERNOON = "13-16"
-    EVENING   = "16-20"
-    NIGHT     = "20-24"
-
-
 class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Human-readable номер: ORD-2026-000001
+    # Human-readable номер: ф1 / ю1 / л1
     order_number: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
+
+    # Вид заявки: individual / company / ttn_l
+    order_kind: Mapped[OrderKind] = mapped_column(
+        SAEnum(OrderKind, values_callable=lambda x: [e.value for e in x], name="orderkind"),
+        nullable=False, default=OrderKind.INDIVIDUAL,
+    )
 
     # Кто создал
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
@@ -67,10 +69,12 @@ class Order(Base):
     # Доставка
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
     desired_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    delivery_window: Mapped[DeliveryWindow] = mapped_column(
-        SAEnum(DeliveryWindow, values_callable=lambda x: [e.value for e in x], name="deliverywindow"),
-        nullable=False,
-    )
+
+    # Номер ТТН — обязателен при переходе ACCEPTED→DELIVERED
+    ttn_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Флаг подтверждения изменений водителем (выставляется при edit/reschedule ACCEPTED-заявки)
+    pending_driver_ack: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(

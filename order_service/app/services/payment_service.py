@@ -226,7 +226,7 @@ async def create_invoice(
 
     # Предоплату нельзя выставить если заказ уже завершён
     if basis == "requested" and order.status in (
-        OrderStatus.DELIVERED, OrderStatus.PARTIALLY_DELIVERED, OrderStatus.CLOSED
+        OrderStatus.DELIVERED, OrderStatus.CANCELLED
     ):
         raise ValidationError("Предоплата не может быть выставлена для завершённой заявки")
 

@@ -133,8 +133,8 @@ async def _existing_document(
 ) -> Document | None:
     """Уже выпущенный (не аннулированный) документ этого типа по заявке — для идемпотентности.
 
-    Повторный рейс (PARTIALLY_DELIVERED → ACCEPTED → IN_TRANSIT → DELIVERED) иначе
-    плодил бы дубли POA/ТТН/УПД/счёта с новыми номерами и собственными суммами.
+    Идемпотентность: если документ уже выпущен (не аннулирован), возвращаем его
+    вместо создания дубля с новым номером.
     """
     result = await db.execute(
         select(Document).where(
@@ -410,7 +410,7 @@ async def generate_ttn(
     actor: TokenUser,
     driver_name: str = "—",
 ) -> Document:
-    """Сформировать ТТН по факту доставки (DELIVERED / PARTIALLY_DELIVERED)."""
+    """Сформировать ТТН по факту доставки (DELIVERED)."""
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)
@@ -473,7 +473,7 @@ async def generate_poa(
 ) -> Document:
     """Сформировать доверенность (М-2) на получение ТМЦ водителем.
 
-    Триггер — переход заявки в IN_TRANSIT. Паспорт водителя тянем из auth_service;
+    Паспорт водителя тянем из auth_service;
     если не заполнен/водитель не назначен — в PDF прочерк, в логе warning.
     """
     volume = float(order.volume_delivered or order.volume_requested)
@@ -649,7 +649,7 @@ async def generate_invoice_final(
     order: Order,
     actor: TokenUser,
 ) -> Document:
-    """Финальный счёт — выпускается при переходе в DELIVERED/PARTIALLY_DELIVERED."""
+    """Финальный счёт — выпускается при переходе в DELIVERED."""
     volume = float(order.volume_delivered or order.volume_requested)
     amount = _order_amount(order, volume)
     seller = await get_seller_snapshot(db)

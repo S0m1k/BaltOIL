@@ -469,6 +469,16 @@
     outline: none; cursor: pointer; border-radius: 2px; letter-spacing: 1px;
   }
   .filter-select:focus { border-color: var(--amber); }
+  .status-tab-btn {
+    padding: 7px 16px; border: none; background: none; cursor: pointer;
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text3); transition: all .2s; border-right: 1px solid var(--border);
+  }
+  .status-tab-btn:last-child { border-right: none; }
+  .status-tab-btn.active { background: var(--amber-dim); color: var(--amber); font-weight: 600; }
+  .status-tab-btn:not(.active):hover { color: var(--text2); background: var(--bg3); }
+
   .status-checkboxes {
     display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center;
   }
@@ -538,13 +548,10 @@
     white-space: nowrap; flex-shrink: 0;
     border: 1px solid;
   }
-  .status-new              { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
-  .status-accepted         { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
-  .status-in_transit       { color: var(--s-transit);   border-color: var(--s-transit);   background: rgba(168,85,247,.1); }
-  .status-delivered        { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
-  .status-partially_delivered { color: var(--s-partial); border-color: var(--s-partial); background: rgba(245,158,11,.1); }
-  .status-closed           { color: var(--s-closed);    border-color: var(--s-closed);    background: rgba(107,114,128,.1); }
-  .status-rejected         { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
+  .status-new       { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
+  .status-accepted  { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
+  .status-delivered { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
+  .status-cancelled { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
 
   .order-body {
     display: none; padding: 0 18px 18px;
@@ -1772,14 +1779,11 @@
     <div class="tab-pane active" id="pane-orders">
       <div class="toolbar">
         <div class="toolbar-title">Заявки</div>
-        <div class="status-checkboxes" id="status-filter-group">
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="new" checked onchange="loadOrders()"> Новые</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="accepted" checked onchange="loadOrders()"> Принята</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="in_transit" checked onchange="loadOrders()"> В рейсе</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="delivered" checked onchange="loadOrders()"> Доставлены</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="partially_delivered" onchange="loadOrders()"> Частично</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="closed" onchange="loadOrders()"> Закрыты</label>
-          <label class="status-cb-label"><input type="checkbox" name="sf" value="rejected" onchange="loadOrders()"> Отклонены</label>
+        <div class="status-checkboxes" id="status-tab-group" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <button class="status-tab-btn active" data-status="new"       onclick="switchOrderTab('new')">Новые</button>
+          <button class="status-tab-btn"        data-status="accepted"  onclick="switchOrderTab('accepted')">Ждут доставки</button>
+          <button class="status-tab-btn"        data-status="delivered" onclick="switchOrderTab('delivered')">Доставленные</button>
+          <button class="status-tab-btn"        data-status="cancelled" onclick="switchOrderTab('cancelled')">Отменённые</button>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
@@ -1789,7 +1793,7 @@
         <span><span class="legend-dot" style="background:#10b981"></span>Оплачено</span>
         <span><span class="legend-dot" style="background:#f59e0b"></span>Частичная оплата</span>
         <span><span class="legend-dot" style="background:rgba(107,114,128,.4)"></span>Не оплачено</span>
-        <span><span class="legend-dot" style="background:#ef4444"></span>Отклонена</span>
+        <span><span class="legend-dot" style="background:#ef4444"></span>Отменена</span>
       </div>
       <div id="orders-list" class="orders-grid">
         <div class="empty-state">
@@ -1815,6 +1819,18 @@
             <label class="form-label">Комментарий менеджера</label>
             <input type="text" id="c-manager-comment" class="form-input" placeholder="...">
           </div>
+          <div class="form-group">
+            <label class="form-label">Назначить водителя</label>
+            <select id="c-driver-id" class="form-input" onchange="onDriverSelectChange()">
+              <option value="">— все водители (пул) —</option>
+            </select>
+          </div>
+          <div class="form-group" id="c-ttn-l-group" style="display:none">
+            <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="c-is-ttn-l" onchange="onTtnLChange()">
+              <span>ТТН-Л (внутренняя заявка)</span>
+            </label>
+          </div>
           <div class="section-divider">Данные заявки</div>
         </div>
 
@@ -1831,22 +1847,13 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Объём (литры, min 1000)</label>
-            <input type="number" id="c-volume" class="form-input" placeholder="5000" min="1000" step="100">
+            <label class="form-label">Объём (литры, min 300)</label>
+            <input type="number" id="c-volume" class="form-input" placeholder="5000" min="300" step="100">
           </div>
           <div class="form-group">
             <label class="form-label">Желаемая дата доставки</label>
             <input type="date" id="c-date" class="form-input">
           </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Окно доставки <span style="color:var(--red)">*</span></label>
-          <select id="c-delivery-window" class="form-input">
-            <option value="07-13">07:00 – 13:00</option>
-            <option value="13-16">13:00 – 16:00</option>
-            <option value="16-20">16:00 – 20:00</option>
-            <option value="20-24">20:00 – 00:00</option>
-          </select>
         </div>
 
         <div class="form-group">
@@ -2689,13 +2696,10 @@ const FUEL_LABELS = {
   fuel_oil:      'М-100 (Мазут)',
 };
 const STATUS_LABELS = {
-  new:                 'Новая',
-  accepted:            'Принята водителем',
-  in_transit:          'В рейсе',
-  delivered:           'Доставлена',
-  partially_delivered: 'Частично доставлена',
-  closed:              'Закрыта',
-  rejected:            'Отклонена',
+  new:       'Новая',
+  accepted:  'Принята водителем',
+  delivered: 'Доставлена',
+  cancelled: 'Отменена',
 };
 
 const PAYMENT_LABELS = {
@@ -3309,7 +3313,7 @@ function switchTab(tab) {
     b.classList.toggle('active', b.dataset.tab === tab));
 
   if (tab === 'orders')    loadOrders();
-  if (tab === 'create')    loadClientSelectForOrder();
+  if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); }
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -3329,17 +3333,21 @@ function switchTab(tab) {
 // ═══════════════════════════════════════════════════════════════
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
+let _activeOrderStatus = 'new';
+
+function switchOrderTab(status) {
+  _activeOrderStatus = status;
+  document.querySelectorAll('.status-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.status === status);
+  });
+  loadOrders();
+}
+
 async function loadOrders() {
-  const statusFilter = [...document.querySelectorAll('input[name="sf"]:checked')].map(cb => cb.value);
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
-  if (statusFilter.length === 0) {
-    el.innerHTML = '<div class="empty-state">Выберите хотя бы один статус</div>';
-    return;
-  }
   try {
-    let orders = await orderGet('/orders?limit=200');
-    orders = orders.filter(o => statusFilter.includes(o.status));
+    const orders = await orderGet(`/orders?limit=200&status=${_activeOrderStatus}`);
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -3364,15 +3372,15 @@ function fmtDate(dt) {
 }
 
 function _orderRowClass(o) {
-  if (o.status === 'rejected') return 'row-rejected';
+  if (o.status === 'cancelled') return 'row-rejected';
   if (o.payment_status === 'paid') return 'row-paid';
   if (o.payment_status === 'partially_paid') return 'row-partial';
   return '';
 }
 
 function _payIcon(o) {
-  if (o.status === 'rejected') {
-    const tip = o.rejection_reason ? escHtml(o.rejection_reason) : 'Отклонена';
+  if (o.status === 'cancelled') {
+    const tip = o.rejection_reason ? escHtml(o.rejection_reason) : 'Отменена';
     return `<span class="pay-icon" style="color:rgba(239,68,68,.8)" title="${tip}">${icon('x-circle',14)}</span>`;
   }
   if (o.payment_status === 'paid')
@@ -3410,7 +3418,7 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
-        <div class="detail-item"><div class="detail-label">Окно доставки</div><div class="detail-value">${o.delivery_window ? o.delivery_window.replace('-','–') : '—'}</div></div>
+        ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
         ${(o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
@@ -3630,17 +3638,22 @@ function actionBarHTML(o) {
   const s = o.status;
   const btns = [];
 
+  // Pending-ack banner for driver
+  let ackBanner = '';
+  if (role === 'driver' && o.pending_driver_ack) {
+    ackBanner = `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid var(--amber);border-radius:6px;display:flex;align-items:center;gap:10px">
+      <span style="color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:4px')} Заявка изменена — подтвердите получение изменений</span>
+      <button class="btn btn-sm btn-warn" style="margin-left:auto" onclick="ackOrderChanges('${o.id}')">Подтвердить</button>
+    </div>`;
+  }
+
   if (role === 'manager' || role === 'admin') {
-    // Менеджер больше не «принимает в работу» — это делает сам водитель из биржи.
-    // Менеджер только отклоняет и закрывает.
     if (s === 'new' || s === 'accepted')
-      btns.push(`<button class="btn btn-sm btn-danger" onclick="promptReject('${o.id}')">✗ Отклонить</button>`);
-    if (s === 'delivered' || s === 'partially_delivered')
-      btns.push(`<button class="btn btn-sm btn-ghost" onclick="transitionOrder('${o.id}','closed',{comment:'Закрыто менеджером'})">✓ Закрыть</button>`);
-    if (s === 'partially_delivered')
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="transitionOrder('${o.id}','accepted',{comment:'Возвращено для повторного рейса'})">↩ Повторный рейс</button>`);
-    // Payment recording: any active order with outstanding debt or not fully paid
-    const payable = s !== 'rejected' && s !== 'cancelled' && o.payment_status !== 'paid';
+      btns.push(`<button class="btn btn-sm btn-danger" onclick="promptCancel('${o.id}')">✗ Отменить</button>`);
+    if (s === 'new' || s === 'accepted')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести</button>`);
+    // Payment recording: any non-cancelled order with outstanding debt
+    const payable = s !== 'cancelled' && o.payment_status !== 'paid';
     if (payable)
       btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
   }
@@ -3649,20 +3662,25 @@ function actionBarHTML(o) {
     // Свободная заявка — водитель может взять (биржа: status=new, driver_id=null)
     if (s === 'new' && !o.driver_id)
       btns.push(`<button class="btn btn-sm btn-success" onclick="claimOrder('${o.id}')">${icon('check',14)} Взять заявку</button>`);
-    // Своя заявка — можно начать рейс
+    // Назначенная заявка NEW — водитель принимает напрямую
+    if (s === 'new' && o.driver_id === currentUser?.id)
+      btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','accepted',{comment:'Принята водителем'})">${icon('check',14)} Принять</button>`);
+    // Своя заявка ACCEPTED — можно отметить доставку (требует номер ТТН)
     if (s === 'accepted' && o.driver_id === currentUser?.id)
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="startOrderTrip('${o.id}')">▶ Начать рейс</button>`);
-    if (s === 'in_transit' && o.driver_id === currentUser?.id)
-      btns.push(`<button class="btn btn-sm btn-ghost" onclick="switchTab('trips')" title="Завершите доставку во вкладке Рейсы">${icon('truck',14)} Перейти к рейсу</button>`);
+      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptDeliver('${o.id}')">✓ Доставлена</button>`);
+    if (s === 'new' || s === 'accepted')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
   }
 
   if (role === 'client') {
-    // Chat with manager — auto-create or navigate to existing conversation
+    if (s === 'new' || s === 'accepted')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
+    // Chat with manager
     btns.push(`<button class="btn btn-sm btn-primary-outline" onclick="openOrderChat('${o.id}','${(o.order_number||'').replace(/'/g,'&#39;')}',${o.manager_id ? `'${o.manager_id}'` : 'null'})">${icon('chat-circle',14)} Написать менеджеру</button>`);
   }
 
-  if (!btns.length) return '';
-  return `<div class="action-bar">${btns.join('')}</div>`;
+  if (!btns.length && !ackBanner) return '';
+  return `${ackBanner}<div class="action-bar">${btns.join('')}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3688,31 +3706,66 @@ async function claimOrder(orderId) {
   }
 }
 
-async function startOrderTrip(orderId) {
-  // Перевести заявку в in_transit — order_service автоматически создаст рейс
-  // и спишет топливо через delivery_service.
-  try {
-    await orderPost(`/orders/${orderId}/transition`, { to_status: 'in_transit', comment: 'Рейс начат' });
-    toast('Рейс начат! Перехожу к активным рейсам…');
-    // Переключаемся на вкладку рейсов чтобы водитель видел активный рейс
-    switchTab('trips');
-  } catch (e) {
-    toast(e.message, 'error');
-    await loadOrders(); // перезагрузить чтобы снять спиннер если был
-  }
-}
+// startOrderTrip removed — Д1 uses direct ACCEPTED→DELIVERED transition with TTN number
 
-function promptReject(orderId) {
-  openModal('Отклонить заявку',
+function promptCancel(orderId) {
+  openModal('Отменить заявку',
     `<div class="form-group">
-      <label class="form-label">Причина отклонения</label>
+      <label class="form-label">Причина отмены</label>
       <input type="text" id="modal-reason" class="form-input" placeholder="Укажите причину..." autofocus>
     </div>`,
     async () => {
       const reason = document.getElementById('modal-reason').value.trim();
       if (!reason) { toast('Укажите причину', 'error'); return; }
       closeModal();
-      await transitionOrder(orderId, 'rejected', { rejection_reason: reason });
+      await transitionOrder(orderId, 'cancelled', { rejection_reason: reason });
+    }
+  );
+}
+
+function promptDeliver(orderId) {
+  openModal('Отметить доставку',
+    `<div class="form-group">
+      <label class="form-label">Номер ТТН <span style="color:var(--red)">*</span></label>
+      <input type="text" id="modal-ttn" class="form-input" placeholder="Введите номер ТТН..." autofocus>
+    </div>`,
+    async () => {
+      const ttn = document.getElementById('modal-ttn').value.trim();
+      if (!ttn) { toast('Введите номер ТТН', 'error'); return; }
+      closeModal();
+      await transitionOrder(orderId, 'delivered', { ttn_number: ttn });
+    }
+  );
+}
+
+async function ackOrderChanges(orderId) {
+  try {
+    await orderPost(`/orders/${orderId}/ack-changes`, {});
+    toast('Изменения подтверждены');
+    await loadOrders();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function promptReschedule(orderId, orderNumber) {
+  openModal(`Перенос заявки ${orderNumber}`,
+    `<div class="form-group">
+      <label class="form-label">Новая желаемая дата</label>
+      <input type="date" id="modal-reschedule-date" class="form-input">
+    </div>`,
+    async () => {
+      const dateVal = document.getElementById('modal-reschedule-date').value;
+      if (!dateVal) { toast('Укажите новую дату', 'error'); return; }
+      const desired_date = new Date(dateVal + 'T00:00:00').toISOString();
+      closeModal();
+      try {
+        await orderPost(`/orders/${orderId}/reschedule`, { desired_date });
+        toast('Заявка перенесена');
+        await loadOrders();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
     }
   );
 }
@@ -3853,6 +3906,35 @@ function promptVolume(orderId, toStatus) {
 // ═══════════════════════════════════════════════════════════════
 // CREATE ORDER
 // ═══════════════════════════════════════════════════════════════
+
+function onDriverSelectChange() {
+  // Show TTN-L checkbox only when a specific driver is chosen
+  const driverSel = document.getElementById('c-driver-id');
+  const ttnGroup = document.getElementById('c-ttn-l-group');
+  if (!driverSel || !ttnGroup) return;
+  ttnGroup.style.display = driverSel.value ? 'block' : 'none';
+  if (!driverSel.value) {
+    const cb = document.getElementById('c-is-ttn-l');
+    if (cb) cb.checked = false;
+  }
+}
+
+function onTtnLChange() {
+  // When TTN-L checked, driver becomes mandatory — no extra UI needed, validated on submit
+}
+
+async function loadDriverSelectForOrder() {
+  const driverSel = document.getElementById('c-driver-id');
+  if (!driverSel) return;
+  try {
+    const drivers = await api(`${AUTH_URL}/users?role=driver&limit=200&include_inactive=false`);
+    driverSel.innerHTML = '<option value="">— все водители (пул) —</option>' +
+      drivers.map(d => `<option value="${d.id}">${escHtml(d.full_name || d.email)}</option>`).join('');
+  } catch {
+    // Silent — driver select remains with default option
+  }
+}
+
 function updatePaymentUI() {
   const val = document.querySelector('input[name="payment"]:checked')?.value;
   document.querySelectorAll('#payment-radio-group .radio-label').forEach(lbl => {
@@ -3897,7 +3979,6 @@ async function doCreateOrder() {
     desired_date:     document.getElementById('c-date').value
                         ? new Date(document.getElementById('c-date').value + 'T00:00:00').toISOString()
                         : undefined,
-    delivery_window:  document.getElementById('c-delivery-window').value,
     payment_type:     document.querySelector('input[name="payment"]:checked').value,
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
   };
@@ -3910,6 +3991,10 @@ async function doCreateOrder() {
     }
     body.client_id        = clientId;
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
+    const driverSel = document.getElementById('c-driver-id');
+    if (driverSel && driverSel.value) body.driver_id = driverSel.value;
+    const isTtnL = document.getElementById('c-is-ttn-l')?.checked;
+    if (isTtnL) body.is_ttn_l = true;
   }
 
   // Stock pre-check: warn if insufficient fuel in stock
@@ -5858,8 +5943,7 @@ async function exportClientsXlsx() {
 async function openClientOrders(clientId, clientName) {
   const STATUS_LABELS = {
     new: 'Новая', accepted: 'Принята водителем',
-    in_transit: 'В рейсе', delivered: 'Доставлена',
-    partially_delivered: 'Частично', rejected: 'Отклонена', closed: 'Закрыта',
+    delivered: 'Доставлена', cancelled: 'Отменена',
   };
   openModal(`Заявки клиента: ${clientName}`,
     `<div id="co-list"><div class="empty-state"><div class="loading"></div></div></div>`,
@@ -5905,9 +5989,8 @@ let _ccClientId = null;
 let _ccUserId = null;   // same as _ccClientId — user_id in auth service
 
 const CC_STATUS_LABELS = {
-  new: 'Новая', accepted: 'Принята водителем', in_transit: 'В рейсе',
-  delivered: 'Доставлена', partially_delivered: 'Частично',
-  rejected: 'Отклонена', closed: 'Закрыта',
+  new: 'Новая', accepted: 'Принята водителем',
+  delivered: 'Доставлена', cancelled: 'Отменена',
 };
 const CC_DOC_TYPE_LABELS = {
   invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)',
@@ -6862,7 +6945,7 @@ async function loadFinancePaymentOrders() {
                 ? `<span style="color:var(--amber)" title="Тариф не настроен">${icon('warning',13,'margin-right:2px')} —</span>`
                 : Number(target).toLocaleString('ru-RU', {minimumFractionDigits:2});
               const rowClick = `event.stopPropagation();switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)`;
-              const payBtn = canRecord && ps !== 'paid' && o.status !== 'rejected' && o.status !== 'cancelled'
+              const payBtn = canRecord && ps !== 'paid' && o.status !== 'cancelled'
                 ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">${icon('wallet',13)} Оплата</button>`
                 : '';
               return `
