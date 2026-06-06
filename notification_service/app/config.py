@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     smtp_force_ipv6: bool = False    # форс AF_INET6, нужно когда провайдер режет egress IPv4 (RU VPS + Yandex SMTP)
     email_enabled: bool = False  # глобальный kill-switch
 
+    # SMSC.ru / SMS
+    smsc_login: str = ""
+    smsc_password: str = ""
+    smsc_sender: str = ""      # имя отправителя (буквенное), опционально
+    sms_enabled: bool = False  # глобальный kill-switch для SMS
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

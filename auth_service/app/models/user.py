@@ -20,7 +20,9 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    # nullable=True: individuals may register without email (Decision 3 — Sprint 2026-08 D6).
+    # UNIQUE constraint is kept; PostgreSQL allows multiple NULLs in a UNIQUE column.
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(

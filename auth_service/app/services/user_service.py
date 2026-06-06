@@ -59,8 +59,9 @@ async def register_individual(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> User:
-    data.email = _normalize_email(data.email)
-    await _check_email_unique(db, data.email)
+    if data.email:
+        data.email = _normalize_email(data.email)
+        await _check_email_unique(db, data.email)
     await _check_phone_unique(db, data.phone)
 
     user = User(
@@ -357,7 +358,17 @@ async def update_user(
         raise ForbiddenError("Изменение активности доступно только администратору")
 
     changed = {}
-    if data.email and data.email != user.email:
+    # email: use model_fields_set to distinguish "not sent" from "explicitly set to null".
+    # Admin can clear email for individuals by sending {"email": null}.
+    if "email" in data.model_fields_set:
+        new_email = _normalize_email(data.email) if data.email else None
+        if new_email != user.email:
+            if new_email:
+                await _check_email_unique(db, new_email, exclude_id=user_id)
+            changed["email"] = {"old": user.email, "new": new_email}
+            user.email = new_email
+    elif data.email and data.email != user.email:
+        # Backwards-compat: if using the old pattern (email present, non-null)
         await _check_email_unique(db, data.email, exclude_id=user_id)
         changed["email"] = {"old": user.email, "new": data.email}
         user.email = data.email

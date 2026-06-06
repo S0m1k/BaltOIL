@@ -54,7 +54,11 @@ class UpdateClientProfileRequest(BaseModel):
     delivery_address: str | None = None
     notes: str | None = None
 
-    # Company
+    # Individual — editable by admin (Decision 4: DaData fields stay read-only)
+    passport_series: str | None = None
+    passport_number: str | None = None
+
+    # Company — editable by admin
     company_name: str | None = None
     inn: str | None = None
     kpp: str | None = None
@@ -65,6 +69,10 @@ class UpdateClientProfileRequest(BaseModel):
     correspondent_account: str | None = None
     contract_number: str | None = None
     billing_email: str | None = None
+
+    # Editable company fields not derived from DaData:
+    director_name: str | None = None  # manual override of DaData director (admin only)
+    swift: str | None = None
 
 
 class UpdateClientTariffRequest(BaseModel):

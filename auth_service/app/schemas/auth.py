@@ -2,8 +2,35 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Unified identifier: email OR phone. Replaces the old email-only field.
+    identifier: str
     password: str
+
+
+class RequestCodeRequest(BaseModel):
+    phone: str
+
+
+class VerifyCodeRequest(BaseModel):
+    phone: str
+    code: str
+
+
+class PasswordResetRequest(BaseModel):
+    phone: str
+    code: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Пароль должен быть не менее 8 символов")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Пароль должен содержать хотя бы одну букву")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):

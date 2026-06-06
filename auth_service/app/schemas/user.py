@@ -10,7 +10,7 @@ from .client_profile import ClientProfileResponse
 
 class UserShortResponse(BaseModel):
     id: uuid.UUID
-    email: str
+    email: str | None
     phone: str | None
     full_name: str
     role: UserRole
@@ -32,7 +32,7 @@ class UserDirectoryEntry(BaseModel):
 
 class UserResponse(BaseModel):
     id: uuid.UUID
-    email: str
+    email: str | None
     phone: str | None
     full_name: str
     role: UserRole
@@ -53,8 +53,12 @@ class UserResponse(BaseModel):
 # --- Registration (public) ---
 
 class RegisterIndividualRequest(BaseModel):
-    """Регистрация физического лица."""
-    email: EmailStr
+    """Регистрация физического лица.
+
+    email необязателен: физик входит по телефону + паролю / SMS-коду.
+    Email можно добавить позже в личном кабинете.
+    """
+    email: EmailStr | None = None
     phone: str
     password: str
     full_name: str

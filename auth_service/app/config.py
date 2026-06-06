@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # DaData (INN lookup). Optional — if not set, lookup endpoint returns found=False.
     dadata_api_key: str | None = None
 
+    # notification_service URL for internal calls (SMS sending).
+    notification_service_url: str = "http://notification_service:8005"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

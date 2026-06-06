@@ -1513,17 +1513,74 @@
 
       <!-- Login form -->
       <div id="auth-login">
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="login-email" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+        <!-- Password login sub-panel -->
+        <div id="auth-login-password">
+          <div class="form-group">
+            <label class="form-label">Email или телефон</label>
+            <input type="text" id="login-identifier" class="form-input" placeholder="example@mail.ru или +79001234567" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Пароль</label>
+            <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password"
+              onkeydown="if(event.key==='Enter') doLogin()">
+          </div>
+          <div id="login-error"></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('sms')">Войти по SMS-коду</button>
+            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('forgot')">Забыли пароль?</button>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Пароль</label>
-          <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password"
-            onkeydown="if(event.key==='Enter') doLogin()">
+
+        <!-- SMS-code login sub-panel -->
+        <div id="auth-login-sms" style="display:none">
+          <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Введите телефон — отправим SMS с кодом входа.</div>
+          <div class="form-group">
+            <label class="form-label">Телефон</label>
+            <input type="tel" id="login-sms-phone" class="form-input" placeholder="+79001234567" autocomplete="tel"
+              onkeydown="if(event.key==='Enter') doRequestLoginCode()">
+          </div>
+          <div id="login-sms-error"></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:4px" id="login-sms-btn" onclick="doRequestLoginCode()">Получить код</button>
+          <!-- Code input — shown after code is sent -->
+          <div id="auth-login-sms-code" style="display:none;margin-top:14px">
+            <div class="form-group">
+              <label class="form-label">Код из SMS</label>
+              <input type="text" id="login-sms-code" class="form-input" placeholder="000000" maxlength="6" inputmode="numeric"
+                onkeydown="if(event.key==='Enter') doVerifyLoginCode()">
+            </div>
+            <div id="login-sms-code-error"></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doVerifyLoginCode()">Подтвердить</button>
+          </div>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 0;margin-top:10px" onclick="switchLoginMode('password')">← Войти по паролю</button>
         </div>
-        <div id="login-error"></div>
-        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
+
+        <!-- Forgot password sub-panel -->
+        <div id="auth-login-forgot" style="display:none">
+          <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Введите телефон — отправим SMS-код для сброса пароля.</div>
+          <div class="form-group">
+            <label class="form-label">Телефон</label>
+            <input type="tel" id="forgot-phone" class="form-input" placeholder="+79001234567" autocomplete="tel"
+              onkeydown="if(event.key==='Enter') doRequestPasswordReset()">
+          </div>
+          <div id="forgot-error"></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:4px" id="forgot-btn" onclick="doRequestPasswordReset()">Отправить код</button>
+          <!-- Code + new password — shown after code is sent -->
+          <div id="auth-forgot-code" style="display:none;margin-top:14px">
+            <div class="form-group">
+              <label class="form-label">Код из SMS</label>
+              <input type="text" id="forgot-code" class="form-input" placeholder="000000" maxlength="6" inputmode="numeric">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Новый пароль</label>
+              <input type="password" id="forgot-newpass" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password"
+                onkeydown="if(event.key==='Enter') doResetPassword()">
+            </div>
+            <div id="forgot-code-error"></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doResetPassword()">Сменить пароль</button>
+          </div>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 0;margin-top:10px" onclick="switchLoginMode('password')">← Войти по паролю</button>
+        </div>
 
         <!-- Тестовые реквизиты (только в dev) -->
         <div id="dev-credentials" style="display:none;margin-top:16px;padding:12px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text2)">
@@ -1568,14 +1625,15 @@
     <!-- Register Individual (step 2) -->
     <div id="auth-reg-individual" style="display:none">
       <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
+      <div class="form-group">
+        <label class="form-label">Телефон <span style="color:var(--red)">*</span></label>
+        <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="tel">
+      </div>
       <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Email</label>
+        <div class="form-group" style="flex:1">
+          <label class="form-label">Email <span style="color:var(--text3);font-weight:400">(необязательно)</span></label>
           <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Телефон</label>
-          <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00">
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">Можно добавить позже в личном кабинете</div>
         </div>
       </div>
       <div class="form-group">
@@ -3077,8 +3135,14 @@ function switchAuthTab(tab) {
 }
 
 function setTestCredentials(email, password) {
-  document.getElementById('login-email').value = email;
+  document.getElementById('login-identifier').value = email;
   document.getElementById('login-password').value = password;
+}
+
+function switchLoginMode(mode) {
+  document.getElementById('auth-login-password').style.display = mode === 'password' ? '' : 'none';
+  document.getElementById('auth-login-sms').style.display      = mode === 'sms'      ? '' : 'none';
+  document.getElementById('auth-login-forgot').style.display   = mode === 'forgot'   ? '' : 'none';
 }
 
 // Показывать тестовые реквизиты только в dev-окружении
@@ -3088,12 +3152,12 @@ if (['localhost', '127.0.0.1'].includes(location.hostname)) {
 }
 
 async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
+  const identifier = document.getElementById('login-identifier').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
   errEl.innerHTML = '';
   try {
-    const tokens = await authPost('/auth/login', { email, password });
+    const tokens = await authPost('/auth/login', { identifier, password });
     localStorage.setItem('access_token',  tokens.access_token);
     localStorage.setItem('refresh_token', tokens.refresh_token);
     await initApp();
@@ -3102,14 +3166,86 @@ async function doLogin() {
   }
 }
 
+async function doRequestLoginCode() {
+  const phone = document.getElementById('login-sms-phone').value.trim();
+  const errEl = document.getElementById('login-sms-error');
+  errEl.innerHTML = '';
+  if (!phone) { errEl.innerHTML = '<div class="inline-error">Введите номер телефона</div>'; return; }
+  const btn = document.getElementById('login-sms-btn');
+  btn.disabled = true;
+  try {
+    await authPost('/auth/login/request-code', { phone });
+    document.getElementById('auth-login-sms-code').style.display = '';
+    toast('Код отправлен в SMS', 'success');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function doVerifyLoginCode() {
+  const phone = document.getElementById('login-sms-phone').value.trim();
+  const code  = document.getElementById('login-sms-code').value.trim();
+  const errEl = document.getElementById('login-sms-code-error');
+  errEl.innerHTML = '';
+  try {
+    const tokens = await authPost('/auth/login/verify-code', { phone, code });
+    localStorage.setItem('access_token',  tokens.access_token);
+    localStorage.setItem('refresh_token', tokens.refresh_token);
+    await initApp();
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function doRequestPasswordReset() {
+  const phone = document.getElementById('forgot-phone').value.trim();
+  const errEl = document.getElementById('forgot-error');
+  errEl.innerHTML = '';
+  if (!phone) { errEl.innerHTML = '<div class="inline-error">Введите номер телефона</div>'; return; }
+  const btn = document.getElementById('forgot-btn');
+  btn.disabled = true;
+  try {
+    await authPost('/auth/password/request-code', { phone });
+    document.getElementById('auth-forgot-code').style.display = '';
+    toast('Код отправлен в SMS', 'success');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function doResetPassword() {
+  const phone        = document.getElementById('forgot-phone').value.trim();
+  const code         = document.getElementById('forgot-code').value.trim();
+  const new_password = document.getElementById('forgot-newpass').value;
+  const errEl = document.getElementById('forgot-code-error');
+  errEl.innerHTML = '';
+  try {
+    await authPost('/auth/password/reset', { phone, code, new_password });
+    toast('Пароль успешно изменён. Войдите с новым паролем.', 'success');
+    switchLoginMode('password');
+    // Clear forgot fields
+    document.getElementById('forgot-phone').value = '';
+    document.getElementById('forgot-code').value = '';
+    document.getElementById('forgot-newpass').value = '';
+    document.getElementById('auth-forgot-code').style.display = 'none';
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
 async function doRegisterIndividual() {
+  const emailVal = document.getElementById('ri-email').value.trim();
   const body = {
-    email:           document.getElementById('ri-email').value.trim(),
     phone:           document.getElementById('ri-phone').value.trim(),
     full_name:       document.getElementById('ri-fullname').value.trim(),
     password:        document.getElementById('ri-password').value,
     delivery_address: document.getElementById('ri-address').value.trim() || undefined,
   };
+  if (emailVal) body.email = emailVal;
   const errEl = document.getElementById('ri-error');
   errEl.innerHTML = '';
   try {
@@ -4550,9 +4686,19 @@ async function loadProfile() {
     const me = await authGet('/auth/me');
     // Render as structured card instead of raw JSON
     const isClient = me.role === 'client';
+    const isIndividual = me.client_profile && me.client_profile.client_type === 'individual';
+
+    const emailDisplay = me.email
+      ? escHtml(me.email)
+      : (isIndividual
+          ? `<span style="color:var(--text3)">Не указан</span>
+             <button class="btn btn-sm btn-ghost" style="margin-left:8px;font-size:11px" onclick="openProfileEmailEdit('${escHtml(me.id)}')">Добавить</button>
+             <div style="font-size:11px;color:var(--amber);margin-top:3px">Заполните email, чтобы получать уведомления</div>`
+          : '<span style="color:var(--text3)">—</span>');
+
     const fields = [
       ...(!isClient ? [['ID пользователя', uuidCell(me.id)]] : []),
-      ['Email', me.email],
+      ['Email', emailDisplay],
       ['Телефон', me.phone || '—'],
       ['Роль', `<span class="role-chip role-${me.role}">${me.role}</span>`],
       ['Статус', me.is_active ? '<span style="color:var(--green)">Активен</span>' : '<span style="color:var(--red)">Неактивен</span>'],
@@ -4573,6 +4719,35 @@ async function loadProfile() {
   } catch (e) {
     el.textContent = `Ошибка: ${escHtml(e.message)}`;
   }
+}
+
+async function openProfileEmailEdit(userId) {
+  openModal(
+    'Добавить email',
+    `<div class="form-group">
+       <label class="form-label">Email</label>
+       <input type="email" id="profile-email-input" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+       <div style="font-size:11px;color:var(--text3);margin-top:4px">Заполните email, чтобы получать уведомления на почту.</div>
+     </div>
+     <div id="profile-email-error"></div>`,
+    async () => {
+      const email = document.getElementById('profile-email-input').value.trim();
+      if (!email) return;
+      try {
+        await api(`${AUTH_URL}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ email }) });
+        toast('Email сохранён', 'success');
+        closeModal();
+        loadProfile();
+      } catch (e) {
+        const errEl = document.getElementById('profile-email-error');
+        if (errEl) errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+      }
+    }
+  );
+  setTimeout(() => {
+    const inp = document.getElementById('profile-email-input');
+    if (inp) inp.focus();
+  }, 60);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6640,6 +6815,10 @@ async function ccLoadProfile() {
 
       ${(isAdmin || isManager) ? `
       <div class="cc-btn-row">
+        ${isAdmin ? `<button class="btn btn-sm btn-ghost" onclick="ccEditClient('${user.id}')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M227.32,73.37,182.63,28.69a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.69,147.31,64l24-24L216,84.69Z"/></svg>
+          Редактировать
+        </button>` : ''}
         ${isAdmin ? `<button class="btn btn-sm btn-ghost" onclick="ccFnsResync('${user.id}')">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></svg>
           Обновить из ФНС
@@ -6661,6 +6840,106 @@ async function ccFnsResync(userId) {
   } catch (e) {
     toast('Ошибка ресинка: ' + e.message, 'error');
   }
+}
+
+function ccEditClient(userId) {
+  const user = _ccCache.profile;
+  if (!user) return;
+  const p = user.client_profile || {};
+  const isIndividual = p.client_type === 'individual';
+  const isCompany    = p.client_type === 'company';
+
+  const inp = (id, label, val, type = 'text', hint = '') =>
+    `<div class="form-group" style="margin-bottom:10px">
+       <label class="form-label" style="font-size:11px">${escHtml(label)}</label>
+       <input type="${type}" id="cce-${id}" class="form-input" value="${escHtml(val || '')}" autocomplete="off">
+       ${hint ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${hint}</div>` : ''}
+     </div>`;
+
+  const body = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      ${inp('fullname',  'ФИО / Контактное лицо', user.full_name)}
+      ${inp('email',     'Email входа',            user.email,  'email', isIndividual ? 'Необязательно для физлиц' : '')}
+      ${inp('phone',     'Телефон',                user.phone,  'tel')}
+    </div>
+    ${isIndividual ? `
+    <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px">Паспорт</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      ${inp('passport_series', 'Серия',  p.passport_series)}
+      ${inp('passport_number', 'Номер',  p.passport_number)}
+    </div>` : ''}
+    ${isCompany ? `
+    <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px">Компания</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      ${inp('company_name',  'Наименование',  p.company_name)}
+      ${inp('inn',           'ИНН',           p.inn)}
+      ${inp('kpp',           'КПП',           p.kpp)}
+      ${inp('legal_address', 'Юр. адрес',     p.legal_address)}
+      ${inp('director_name', 'Директор',      p.director_name, 'text', 'Ручное изменение (без ресинка ФНС)')}
+      ${inp('swift',         'SWIFT',         p.swift)}
+      ${inp('bank_account',  'Р/с',           p.bank_account)}
+      ${inp('bik',           'БИК',           p.bik)}
+      ${inp('bank_name',     'Банк',          p.bank_name)}
+      ${inp('correspondent_account', 'Корр. счёт', p.correspondent_account)}
+      ${inp('contract_number', 'Договор №',   p.contract_number)}
+      ${inp('billing_email', 'Billing email', p.billing_email, 'email')}
+    </div>` : ''}
+    <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px">Доставка</div>
+    <div>${inp('delivery_address', 'Адрес доставки', p.delivery_address)}</div>
+    <div>${inp('notes', 'Примечания', p.notes)}</div>
+    <div id="cce-error"></div>`;
+
+  openModal('Редактировать клиента', body, async () => {
+    const g = id => document.getElementById('cce-' + id)?.value.trim() ?? '';
+    const gOrNull = id => g(id) || undefined;
+
+    // User-level patch
+    const userPatch = {};
+    const newEmail    = g('email');
+    const newPhone    = g('phone');
+    const newFullName = g('fullname');
+    if (newEmail    !== (user.email    || '')) userPatch.email     = newEmail || null;
+    if (newPhone    !== (user.phone    || '')) userPatch.phone     = newPhone;
+    if (newFullName !== (user.full_name|| '')) userPatch.full_name = newFullName;
+
+    // Profile patch
+    const profilePatch = {
+      delivery_address: gOrNull('delivery_address'),
+      notes:            gOrNull('notes'),
+    };
+    if (isIndividual) {
+      profilePatch.passport_series = gOrNull('passport_series');
+      profilePatch.passport_number = gOrNull('passport_number');
+    }
+    if (isCompany) {
+      profilePatch.company_name           = gOrNull('company_name');
+      profilePatch.inn                    = gOrNull('inn');
+      profilePatch.kpp                    = gOrNull('kpp');
+      profilePatch.legal_address          = gOrNull('legal_address');
+      profilePatch.director_name          = gOrNull('director_name');
+      profilePatch.swift                  = gOrNull('swift');
+      profilePatch.bank_account           = gOrNull('bank_account');
+      profilePatch.bik                    = gOrNull('bik');
+      profilePatch.bank_name              = gOrNull('bank_name');
+      profilePatch.correspondent_account  = gOrNull('correspondent_account');
+      profilePatch.contract_number        = gOrNull('contract_number');
+      profilePatch.billing_email          = gOrNull('billing_email');
+    }
+
+    try {
+      if (Object.keys(userPatch).length) {
+        await api(`${AUTH_URL}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(userPatch) });
+      }
+      await api(`${AUTH_URL}/users/${userId}/profile`, { method: 'PATCH', body: JSON.stringify(profilePatch) });
+      toast('Данные клиента сохранены', 'success');
+      closeModal();
+      _ccCache.profile = null;
+      await ccLoadProfile();
+    } catch (e) {
+      const errEl = document.getElementById('cce-error');
+      if (errEl) errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+    }
+  });
 }
 
 // ── Orders tab ────────────────────────────────────────────────

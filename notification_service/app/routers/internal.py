@@ -10,10 +10,11 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.config import settings
 from app.services.email_service import send_email_with_attachment
+from app.services import sms_service
 
 logger = logging.getLogger(__name__)
 
@@ -81,3 +82,27 @@ async def send_email_with_attachment_endpoint(
         mime_type=req.attachment.mime_type,
     )
     return SendWithAttachmentResponse(sent=sent)
+
+
+class SendSmsRequest(BaseModel):
+    phone: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1)
+
+
+class SendSmsResponse(BaseModel):
+    sent: bool
+
+
+@router.post(
+    "/sms/send",
+    response_model=SendSmsResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def send_sms_endpoint(req: SendSmsRequest) -> SendSmsResponse:
+    """Send an SMS via SMSC.ru. Returns {sent: bool}.
+
+    Does not raise on SMSC failure — caller inspects the sent flag.
+    OTP generation/storage is the caller's responsibility (auth_service).
+    """
+    sent = await sms_service.send_sms(phone=req.phone, text=req.text)
+    return SendSmsResponse(sent=sent)

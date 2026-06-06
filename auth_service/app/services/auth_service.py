@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
@@ -21,35 +21,48 @@ from app.core.token_revocation import revoke_user_tokens
 async def login(
     db: AsyncSession,
     *,
-    email: str,
+    identifier: str,
     password: str,
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> TokenResponse:
-    email_norm = email.lower().strip()
+    """Authenticate by email OR phone + password.
 
-    # Per-email backoff check — same generic error whether blocked or wrong creds
-    if await login_throttle.check_blocked(email_norm):
-        raise AuthError("Неверный email или пароль")
+    identifier is matched case-insensitively against User.email and exactly
+    against User.phone (phones are stored normalised by the caller).
+    """
+    identifier_norm = identifier.lower().strip()
 
-    result = await db.execute(select(User).where(User.email == email_norm))
+    # Per-identifier backoff — throttle key uses the normalised identifier
+    # so the block is consistent regardless of email vs phone.
+    if await login_throttle.check_blocked(identifier_norm):
+        raise AuthError("Неверный логин или пароль")
+
+    result = await db.execute(
+        select(User).where(
+            or_(
+                User.email == identifier_norm,
+                User.phone == identifier,   # phone lookup: exact (not lowercased)
+            )
+        )
+    )
     user = result.scalar_one_or_none()
 
-    # Record failure for non-existent email too — prevents user enumeration via
-    # differential blocking (attacker can't tell "no such account" from "wrong pw")
+    # Record failure for unknown identifier too — prevents user enumeration via
+    # differential blocking.
     if not user or not verify_password(password, user.hashed_password):
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(identifier_norm)
+        raise AuthError("Неверный логин или пароль")
 
     if user.is_archived:
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(identifier_norm)
+        raise AuthError("Неверный логин или пароль")
     if not user.is_active:
-        await login_throttle.record_failure(email_norm)
-        raise AuthError("Неверный email или пароль")
+        await login_throttle.record_failure(identifier_norm)
+        raise AuthError("Неверный логин или пароль")
 
     # Successful login — clear throttle state
-    await login_throttle.reset(email_norm)
+    await login_throttle.reset(identifier_norm)
 
     access_token = create_access_token(str(user.id), user.role.value, user.full_name)
     raw_refresh = generate_refresh_token()
@@ -68,7 +81,39 @@ async def login(
         actor_id=user.id,
         entity_type="user",
         entity_id=user.id,
-        details={"email": email},
+        details={"identifier": identifier},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    return TokenResponse(access_token=access_token, refresh_token=raw_refresh)
+
+
+async def _issue_tokens_for_user(
+    db: AsyncSession,
+    user: User,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> TokenResponse:
+    """Issue access+refresh tokens for a pre-authenticated user (SMS-code login)."""
+    access_token = create_access_token(str(user.id), user.role.value, user.full_name)
+    raw_refresh = generate_refresh_token()
+
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_refresh),
+        expires_at=refresh_token_expires_at(),
+        ip_address=ip_address,
+        user_agent=user_agent,
+    ))
+
+    await log_action(
+        db,
+        action="user.login_sms",
+        actor_id=user.id,
+        entity_type="user",
+        entity_id=user.id,
         ip_address=ip_address,
         user_agent=user_agent,
     )
