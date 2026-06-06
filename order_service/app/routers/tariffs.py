@@ -58,6 +58,7 @@ async def create_tariff(
         description=data.description,
         fuel_prices=[fp.model_dump() for fp in data.fuel_prices],
         volume_tiers=[t.model_dump() for t in data.volume_tiers],
+        client_type=data.client_type,
     )
 
 
@@ -68,12 +69,16 @@ async def update_tariff(
     actor: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    # model_fields_set tells us whether client_type was explicitly sent by the caller
+    client_type_set = "client_type" in data.model_fields_set
     return await tariff_service.update_tariff(
         db, tariff_id, actor,
         name=data.name,
         description=data.description,
         fuel_prices=[fp.model_dump() for fp in data.fuel_prices],
         volume_tiers=[t.model_dump() for t in data.volume_tiers],
+        client_type=data.client_type,
+        _client_type_set=client_type_set,
     )
 
 

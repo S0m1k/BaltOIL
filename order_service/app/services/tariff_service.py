@@ -121,6 +121,9 @@ def _validate_tiers(volume_tiers: list[dict]) -> None:
             raise ValidationError("Скидка должна быть от 0 до 100%")
 
 
+_VALID_CLIENT_TYPES = {None, "individual", "company"}
+
+
 async def create_tariff(
     db: AsyncSession,
     actor: TokenUser,
@@ -128,10 +131,13 @@ async def create_tariff(
     fuel_prices: list[dict],
     volume_tiers: list[dict],
     description: str | None = None,
+    client_type: str | None = None,
 ) -> Tariff:
     _check_admin(actor)
     _validate_fuel_prices(fuel_prices)
     _validate_tiers(volume_tiers)
+    if client_type not in _VALID_CLIENT_TYPES:
+        raise ValidationError("client_type должен быть 'individual', 'company' или null")
 
     # Check name uniqueness
     existing = await db.execute(select(Tariff).where(Tariff.name == name))
@@ -143,6 +149,7 @@ async def create_tariff(
         name=name,
         description=description,
         is_default=False,
+        client_type=client_type,
         created_by_id=actor.id,
     )
     db.add(tariff)
@@ -175,6 +182,8 @@ async def update_tariff(
     volume_tiers: list[dict],
     name: str | None = None,
     description: str | None = None,
+    client_type: str | None = None,
+    _client_type_set: bool = False,
 ) -> Tariff:
     tariff = await _load_tariff(db, tariff_id)
 
@@ -199,6 +208,13 @@ async def update_tariff(
 
     if description is not None:
         tariff.description = description
+
+    # client_type: only admin can change it; _client_type_set=True means caller sent the field
+    if _client_type_set:
+        _check_admin(actor)
+        if client_type not in _VALID_CLIENT_TYPES:
+            raise ValidationError("client_type должен быть 'individual', 'company' или null")
+        tariff.client_type = client_type
 
     tariff.updated_at = datetime.now(timezone.utc)
 
@@ -239,13 +255,16 @@ async def set_default_tariff(
     if tariff.is_archived:
         raise ValidationError("Нельзя назначить архивный тариф базовым")
 
-    # Clear current default
+    # Clear current default only for the SAME client_type (one default per client_type)
     result = await db.execute(
-        select(Tariff).where(Tariff.is_default == True)  # noqa: E712
+        select(Tariff).where(
+            Tariff.is_default == True,  # noqa: E712
+            Tariff.client_type == tariff.client_type,
+        )
     )
-    current_default = result.scalar_one_or_none()
-    if current_default and current_default.id != tariff_id:
-        current_default.is_default = False
+    for current_default in result.scalars().all():
+        if current_default.id != tariff_id:
+            current_default.is_default = False
 
     tariff.is_default = True
     tariff.updated_at = datetime.now(timezone.utc)

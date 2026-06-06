@@ -26,6 +26,8 @@ class OrderCreateRequest(BaseModel):
     driver_id: uuid.UUID | None = None
     # Создать как ТТН-Л (только менеджер)
     is_ttn_l: bool = False
+    # Долговая заявка: доставка без оплаты (только менеджер/админ, для клиента игнорируется)
+    allow_delivery_unpaid: bool = False
 
     @field_validator("volume_requested")
     @classmethod
@@ -50,6 +52,8 @@ class OrderUpdateRequest(BaseModel):
     client_comment: str | None = None
     # Стоимость доставки: менеджер может проставить вручную для адресов вне зоны
     delivery_cost: Decimal | None = Field(None, ge=0)
+    # Долговая заявка: менеджер/админ может переключить флаг
+    allow_delivery_unpaid: bool | None = None
 
 
 class OrderStatusTransitionRequest(BaseModel):
@@ -103,6 +107,8 @@ class OrderResponse(BaseModel):
     delivery_zone_name: str | None = None
     delivery_cost: Decimal | None = None
 
+    allow_delivery_unpaid: bool = False
+
     # Денежные показатели — заполняются сервисом (см. payment_service.attach_payment_totals)
     paid_total: float = 0.0
     debt_amount: float = 0.0
@@ -137,6 +143,8 @@ class OrderListResponse(BaseModel):
 
     delivery_zone_name: str | None = None
     delivery_cost: Decimal | None = None
+
+    allow_delivery_unpaid: bool = False
 
     paid_total: float = 0.0
     debt_amount: float = 0.0

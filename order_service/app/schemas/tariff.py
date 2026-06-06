@@ -21,6 +21,8 @@ class TariffCreateRequest(BaseModel):
     description: str | None = None
     fuel_prices: list[FuelPriceIn] = Field(..., min_length=1)
     volume_tiers: list[VolumeTierIn] = Field(default_factory=list)
+    # individual | company | None
+    client_type: str | None = None
 
 
 class TariffUpdateRequest(BaseModel):
@@ -28,6 +30,8 @@ class TariffUpdateRequest(BaseModel):
     description: str | None = None
     fuel_prices: list[FuelPriceIn] = Field(..., min_length=1)
     volume_tiers: list[VolumeTierIn] = Field(default_factory=list)
+    # When present (even if None), admin may update client_type
+    client_type: str | None = Field(default=None)
 
 
 class FuelPriceResponse(BaseModel):
@@ -52,6 +56,7 @@ class TariffResponse(BaseModel):
     is_default: bool
     description: str | None
     is_archived: bool
+    client_type: str | None = None
     fuel_prices: list[FuelPriceResponse]
     volume_tiers: list[VolumeTierResponse]
     created_at: datetime

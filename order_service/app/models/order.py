@@ -106,7 +106,11 @@ class Order(Base):
     # Статус оплаты (отдельно от статуса заявки)
     payment_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="unpaid", index=True
-    )  # unpaid | paid | partially_paid
+    )  # unpaid | paid | partially_paid | overpaid
+
+    # Долговая заявка: если true — водитель доставляет без оплаты,
+    # выставляется только менеджером/админом
+    allow_delivery_unpaid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Мягкое удаление
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

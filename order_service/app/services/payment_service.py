@@ -12,7 +12,7 @@ from sqlalchemy import select, and_, func
 
 log = logging.getLogger(__name__)
 
-from app.models.order import Order, OrderStatus
+from app.models.order import Order, OrderStatus, OrderKind
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -20,6 +20,7 @@ from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 
 ROLE_ADMIN = "admin"
 ROLE_MANAGER = "manager"
+ROLE_DRIVER = "driver"
 
 
 async def get_seller_snapshot(db: AsyncSession) -> dict:
@@ -262,15 +263,21 @@ async def record_payment(
     notes: str | None = None,
 ) -> Payment:
     """Зафиксировать факт оплаты вручную."""
-    if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
-        raise ForbiddenError("Оплату фиксирует менеджер или администратор")
-
     result = await db.execute(select(Order).where(Order.id == order_id))
     order = result.scalar_one_or_none()
     if not order:
         raise NotFoundError("Заявка не найдена")
     if order.is_archived:
         raise ValidationError("Нельзя фиксировать оплату для архивированной заявки")
+
+    # Права: менеджер/админ — всегда; водитель — только у физлиц
+    if actor.role in (ROLE_MANAGER, ROLE_ADMIN):
+        pass  # allowed
+    elif actor.role == ROLE_DRIVER:
+        if order.order_kind != OrderKind.INDIVIDUAL:
+            raise ForbiddenError("Водитель может фиксировать оплату только по заявкам физических лиц")
+    else:
+        raise ForbiddenError("Оплату фиксирует менеджер, администратор или водитель (только для физлиц)")
 
     # Ищем pending-счёт для этого заказа; блокируем строку от параллельной оплаты
     pending = await db.execute(

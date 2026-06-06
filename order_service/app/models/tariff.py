@@ -21,6 +21,8 @@ class Tariff(Base):
     base_delivery_cost: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0")
     )
+    # individual | company | None (None = не привязан к типу клиента)
+    client_type: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

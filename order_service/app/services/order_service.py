@@ -275,7 +275,7 @@ async def create_order(
 
     # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
     expected_amount = await compute_expected_amount(
-        db, data.fuel_type, data.volume_requested, ctx.tariff_id
+        db, data.fuel_type, data.volume_requested, ctx.tariff_id, ctx.client_type
     )
 
     # Зональная стоимость доставки — fail-open (не блокирует создание заявки)
@@ -297,7 +297,7 @@ async def create_order(
                 tariff = (
                     await get_tariff(db, ctx.tariff_id)
                     if ctx.tariff_id
-                    else await get_default_tariff(db)
+                    else await get_default_tariff(db, ctx.client_type)
                 )
                 if tariff is not None and tariff.base_delivery_cost:
                     delivery_cost = (_Decimal(str(tariff.base_delivery_cost)) * _Decimal(str(coef))).quantize(_Decimal("0.01"))
@@ -329,6 +329,8 @@ async def create_order(
         delivery_zone_id=resolved_zone_id,
         delivery_zone_name=resolved_zone_name,
         delivery_cost=delivery_cost,
+        # Only manager/admin may mark an order as debt (allow_delivery_unpaid)
+        allow_delivery_unpaid=data.allow_delivery_unpaid if is_staff else False,
     )
     db.add(order)
     await db.flush()
@@ -440,6 +442,9 @@ async def update_order(
         changed = True
     if data.delivery_cost is not None:
         order.delivery_cost = data.delivery_cost
+        changed = True
+    if data.allow_delivery_unpaid is not None:
+        order.allow_delivery_unpaid = data.allow_delivery_unpaid
         changed = True
 
     # final_amount меняет цель — пересчитываем payment_status
@@ -640,7 +645,7 @@ async def transition_status(
         # Пересчитываем final_amount
         ctx = await get_client_context(order.client_id)
         recalc = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id
+            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type
         )
         if recalc is not None:
             order.final_amount = recalc

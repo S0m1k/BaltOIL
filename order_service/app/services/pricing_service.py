@@ -21,8 +21,15 @@ log = logging.getLogger(__name__)
 _CENT = Decimal("0.01")
 
 
-async def get_default_tariff(db: AsyncSession) -> Tariff | None:
-    result = await db.execute(
+async def get_default_tariff(db: AsyncSession, client_type: str | None = None) -> Tariff | None:
+    """Return the default tariff, preferring one that matches client_type.
+
+    Lookup order:
+    1. is_default & not archived & client_type == given (exact match)
+    2. is_default & not archived & client_type IS NULL (generic default)
+    3. any is_default & not archived (last resort)
+    """
+    base = (
         select(Tariff)
         .options(
             selectinload(Tariff.fuel_prices),
@@ -30,7 +37,22 @@ async def get_default_tariff(db: AsyncSession) -> Tariff | None:
         )
         .where(Tariff.is_default == True, Tariff.is_archived == False)  # noqa: E712
     )
-    return result.scalar_one_or_none()
+
+    if client_type is not None:
+        # 1. Exact match
+        result = await db.execute(base.where(Tariff.client_type == client_type))
+        tariff = result.scalar_one_or_none()
+        if tariff is not None:
+            return tariff
+        # 2. Generic (NULL) default
+        result = await db.execute(base.where(Tariff.client_type.is_(None)))
+        tariff = result.scalar_one_or_none()
+        if tariff is not None:
+            return tariff
+
+    # 3. Any default (original behaviour / fallback)
+    result = await db.execute(base)
+    return result.scalars().first()
 
 
 async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
@@ -50,12 +72,13 @@ async def compute_expected_amount(
     fuel_type: str,
     volume: float,
     tariff_id: uuid.UUID | None,
+    client_type: str | None = None,
 ) -> Decimal | None:
     """Return computed expected_amount or None if tariff is not configured."""
     tariff = (
         await get_tariff(db, tariff_id)
         if tariff_id
-        else await get_default_tariff(db)
+        else await get_default_tariff(db, client_type)
     )
     if tariff is None:
         log.warning("No active tariff found (tariff_id=%s) — skipping expected_amount", tariff_id)

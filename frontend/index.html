@@ -523,7 +523,6 @@
   .order-card.expanded { border-color: var(--amber); }
   /* Цветной реестр (Deploy 4): оплата / отмена */
   .order-card.row-paid    { border-left: 3px solid rgba(16,185,129,.7);  background: rgba(16,185,129,.04); }
-  .order-card.row-partial { border-left: 3px solid rgba(245,158,11,.7);  background: rgba(245,158,11,.05); }
   .order-card.row-rejected { border-left: 3px solid rgba(239,68,68,.7);  background: rgba(239,68,68,.04); }
   .order-card.row-rejected .order-number { opacity: .6; text-decoration: line-through; }
   /* Иконка статуса оплаты в header */
@@ -1812,7 +1811,6 @@
       </div>
       <div id="orders-registry-legend" class="registry-legend" style="display:none;padding-left:2px">
         <span><span class="legend-dot" style="background:#10b981"></span>Оплачено</span>
-        <span><span class="legend-dot" style="background:#f59e0b"></span>Частичная оплата</span>
         <span><span class="legend-dot" style="background:rgba(107,114,128,.4)"></span>Не оплачено</span>
         <span><span class="legend-dot" style="background:#ef4444"></span>Отменена</span>
       </div>
@@ -1850,6 +1848,12 @@
             <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
               <input type="checkbox" id="c-is-ttn-l" onchange="onTtnLChange()">
               <span>ТТН-Л (внутренняя заявка)</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="c-allow-delivery-unpaid">
+              <span>Долговая заявка (доставка без оплаты)</span>
             </label>
           </div>
           <div class="section-divider">Данные заявки</div>
@@ -2131,9 +2135,7 @@
           <span style="font-weight:600;font-size:14px">Статусы оплаты заявок</span>
           <div class="status-checkboxes" id="pay-filter-group" style="display:flex;gap:14px;flex-wrap:wrap" onchange="loadFinancePaymentOrders()">
             <label><input type="checkbox" name="pf" value="unpaid" checked> Не оплачено</label>
-            <label><input type="checkbox" name="pf" value="partially_paid" checked> Частично</label>
             <label><input type="checkbox" name="pf" value="paid"> Оплачено</label>
-            <label><input type="checkbox" name="pf" value="overpaid"> Переплата</label>
           </div>
           <button class="btn btn-sm btn-ghost" onclick="loadFinancePaymentOrders()" style="margin-left:auto">↻ Обновить</button>
         </div>
@@ -2611,6 +2613,7 @@ const ICONS = {
   'envelope-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></svg>',
   'currency-circle-dollar':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm40-68a28,28,0,0,1-28,28h-4v8a8,8,0,0,1-16,0v-8H104a8,8,0,0,1,0-16h36a12,12,0,0,0,0-24H116a28,28,0,0,1,0-56h4V72a8,8,0,0,1,16,0v8h16a8,8,0,0,1,0,16H116a12,12,0,0,0,0,24h24A28,28,0,0,1,168,148Z"/></svg>',
   'microsoft-excel-logo':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M200,24H72A16,16,0,0,0,56,40V64H40A16,16,0,0,0,24,80v96a16,16,0,0,0,16,16H56v24a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V40A16,16,0,0,0,200,24Zm-40,80h40v48H160Zm40-16H160V80a16,16,0,0,0-16-16V40h56ZM72,40h56V64H72ZM40,80H144v79.83c0,.06,0,.11,0,.17s0,.11,0,.17V176H40ZM72,192h56v24H72Zm72,24V192a16,16,0,0,0,16-16v-8h40v48ZM65.85,146.88,81.59,128,65.85,109.12a8,8,0,0,1,12.3-10.24L92,115.5l13.85-16.62a8,8,0,1,1,12.3,10.24L102.41,128l15.74,18.88a8,8,0,0,1-12.3,10.24L92,140.5,78.15,157.12a8,8,0,0,1-12.3-10.24Z"/></svg>',
+  'warning-circle':        '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z"/></svg>',
 };
 
 function icon(name, size = 16, style = '') {
@@ -3738,8 +3741,8 @@ function fmtDate(dt) {
 
 function _orderRowClass(o) {
   if (o.status === 'cancelled') return 'row-rejected';
-  if (o.payment_status === 'paid') return 'row-paid';
-  if (o.payment_status === 'partially_paid') return 'row-partial';
+  const disp = paymentStatusDisplay(o.payment_status || 'unpaid');
+  if (disp === 'paid') return 'row-paid';
   return '';
 }
 
@@ -3748,10 +3751,9 @@ function _payIcon(o) {
     const tip = o.rejection_reason ? escHtml(o.rejection_reason) : 'Отменена';
     return `<span class="pay-icon" style="color:rgba(239,68,68,.8)" title="${tip}">${icon('x-circle',14)}</span>`;
   }
-  if (o.payment_status === 'paid')
+  const disp = paymentStatusDisplay(o.payment_status || 'unpaid');
+  if (disp === 'paid')
     return `<span class="pay-icon" style="color:#10b981" title="Оплачено">${icon('check-circle',14)}</span>`;
-  if (o.payment_status === 'partially_paid')
-    return `<span class="pay-icon" style="color:#f59e0b" title="Частичная оплата">${icon('clock',14)}</span>`;
   return `<span class="pay-icon" style="color:var(--text3)" title="Не оплачено">${icon('circle',14)}</span>`;
 }
 
@@ -3759,9 +3761,14 @@ function orderCardHTML(o) {
   const statusLabel = STATUS_LABELS[o.status] || o.status;
   const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
   const isStaff     = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  // Driver sees no money for company orders (SPEC 5.4)
+  const driverHidesMoney = currentUser?.role === 'driver' && o.order_kind !== 'individual';
   const rowClass    = _orderRowClass(o);
   return `
-  <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}">
+  <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}"
+       data-order-kind="${escHtml(o.order_kind || '')}"
+       data-expected-amount="${o.expected_amount != null ? Number(o.expected_amount) : ''}"
+       data-final-amount="${o.final_amount != null ? Number(o.final_amount) : ''}">    
     <div class="order-header" onclick="toggleCard('${o.id}')">
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
@@ -3786,8 +3793,8 @@ function orderCardHTML(o) {
         ${o.delivery_cost != null ? `<div class="detail-item"><div class="detail-label">Стоимость доставки</div><div class="detail-value">${Number(o.delivery_cost).toLocaleString('ru')} ₽</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
-        ${(o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
+        ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
+        ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
         ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
@@ -4005,16 +4012,36 @@ async function sendDocToChat(orderId, docId, btn) {
 }
 
 function paymentSummaryHTML(o) {
+  const role = currentUser?.role;
   const target = o.final_amount != null ? o.final_amount : o.expected_amount;
   const paid = Number(o.paid_total || 0);
   const debt = Number(o.debt_amount || 0);
-  const ps = o.payment_status || 'unpaid';
-  const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
-  const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
   const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits:2});
+
+  // Driver: hide all money for company orders (DECISION 2 / SPEC 5.4)
+  if (role === 'driver' && o.order_kind !== 'individual') {
+    return '';
+  }
+
+  const ps = o.payment_status || 'unpaid';
+  // Use 2-bucket display (DECISION 1)
+  const dispPs = paymentStatusDisplay(ps);
+  const psLbl = PAYMENT_STATUS_DISPLAY_LABELS[dispPs];
+  const psColor = PAYMENT_STATUS_DISPLAY_COLORS[dispPs];
+
   const warning = o.pricing_warning
     ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(245,158,11,.08);border:1px solid var(--amber);border-radius:6px;color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:6px')} Сумма не определена — назначьте тариф для клиента, чтобы корректно считать долг.</div>`
     : '';
+
+  // Client unpaid alert (SPEC 5.5): show when unpaid, not a debt order, not ttn_l
+  const clientUnpaidAlert = (role === 'client' && dispPs === 'unpaid'
+    && !o.allow_delivery_unpaid && o.order_kind !== 'ttn_l' && o.status !== 'cancelled')
+    ? `<div style="margin-top:8px;padding:10px 12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.4);border-radius:6px;display:flex;align-items:flex-start;gap:8px">
+        <span style="color:var(--red);flex-shrink:0;margin-top:1px">${icon('warning-circle',16)}</span>
+        <span style="color:var(--red);font-size:13px;font-weight:500">Заявку необходимо оплатить. Свяжитесь с менеджером.</span>
+       </div>`
+    : '';
+
   return `
     <div style="margin-top:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
       <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;font-size:12px">
@@ -4023,7 +4050,7 @@ function paymentSummaryHTML(o) {
         <div><span style="color:var(--text3)">Долг:</span> <strong style="color:${debt > 0 ? 'var(--red)' : 'inherit'}">${fmt(debt)} ₽</strong></div>
         <div style="margin-left:auto"><span class="status-badge" style="background:transparent;border:1px solid ${psColor};color:${psColor}">${escHtml(psLbl)}</span></div>
       </div>
-      ${warning}
+      ${warning}${clientUnpaidAlert}
     </div>`;
 }
 
@@ -4046,8 +4073,8 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptCancel('${o.id}')">✗ Отменить</button>`);
     if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести</button>`);
-    // Payment recording: any non-cancelled order with outstanding debt
-    const payable = s !== 'cancelled' && o.payment_status !== 'paid';
+    // Payment recording: any non-cancelled order with outstanding debt (2-bucket check)
+    const payable = s !== 'cancelled' && paymentStatusDisplay(o.payment_status || 'unpaid') !== 'paid';
     if (payable)
       btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
   }
@@ -4064,6 +4091,14 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-warn" onclick="promptDeliver('${o.id}')">✓ Доставлена</button>`);
     if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
+    // Driver delivery readiness note for individual orders (DECISION 2)
+    if (o.order_kind === 'individual') {
+      const dispPs = paymentStatusDisplay(o.payment_status || 'unpaid');
+      const canDeliver = dispPs === 'paid' || o.allow_delivery_unpaid;
+      if (canDeliver && (s === 'new' || s === 'accepted')) {
+        btns.push(`<span style="font-size:12px;color:var(--green);display:inline-flex;align-items:center;gap:4px">${icon('check-circle',13)} Можно доставлять</span>`);
+      }
+    }
   }
 
   if (role === 'client') {
@@ -4118,6 +4153,14 @@ function promptCancel(orderId) {
 }
 
 function promptDeliver(orderId) {
+  // Find the order data from current rendered list (needed to check order_kind + amount)
+  const orderEl = document.getElementById(`card-${orderId}`);
+  // We store order kind + amount as data attributes set at render time
+  const orderKind = orderEl ? orderEl.dataset.orderKind : null;
+  const expectedAmount = orderEl ? parseFloat(orderEl.dataset.expectedAmount || '0') : 0;
+  const finalAmount = orderEl ? parseFloat(orderEl.dataset.finalAmount || '0') : 0;
+  const displayAmount = (finalAmount > 0 ? finalAmount : expectedAmount) || 0;
+
   openModal('Отметить доставку',
     `<div class="form-group">
       <label class="form-label">Номер ТТН <span style="color:var(--red)">*</span></label>
@@ -4128,6 +4171,47 @@ function promptDeliver(orderId) {
       if (!ttn) { toast('Введите номер ТТН', 'error'); return; }
       closeModal();
       await transitionOrder(orderId, 'delivered', { ttn_number: ttn });
+      // After delivery of an individual order, show payment recording popup (SPEC 5.4)
+      if (orderKind === 'individual') {
+        promptDriverRecordPayment(orderId, displayAmount);
+      }
+    }
+  );
+}
+
+// Driver records payment for an individual order after marking it delivered (SPEC 5.4)
+function promptDriverRecordPayment(orderId, amount) {
+  const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2});
+  openModal('Зафиксировать оплату',
+    `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:13px">
+      ${icon('warning-circle',15,'margin-right:6px;color:var(--amber)')}
+      <strong>Сумма к получению: ${fmt(amount)} ₽</strong>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Сумма, ₽ <span style="color:var(--red)">*</span></label>
+      <input type="number" id="drp-amount" class="form-input" step="0.01" min="0.01"
+             value="${amount > 0 ? amount : ''}" placeholder="Введите сумму" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Метод оплаты <span style="color:var(--red)">*</span></label>
+      <select id="drp-method" class="form-input">
+        <option value="cash" selected>Наличные</option>
+        <option value="card">Карта</option>
+        <option value="bank_transfer">Банковский перевод</option>
+      </select>
+    </div>`,
+    async () => {
+      const payAmount = parseFloat(document.getElementById('drp-amount').value);
+      const method = document.getElementById('drp-method').value;
+      if (!payAmount || payAmount <= 0) { toast('Введите сумму', 'error'); return; }
+      try {
+        await orderPost('/payments/record', { order_id: orderId, amount: payAmount, method });
+        closeModal();
+        toast('Оплата зафиксирована');
+        await loadOrders();
+      } catch (e) {
+        toast('Ошибка: ' + e.message, 'error');
+      }
     }
   );
 }
@@ -4395,6 +4479,8 @@ async function doCreateOrder() {
     if (driverSel && driverSel.value) body.driver_id = driverSel.value;
     const isTtnL = document.getElementById('c-is-ttn-l')?.checked;
     if (isTtnL) body.is_ttn_l = true;
+    const allowDebt = document.getElementById('c-allow-delivery-unpaid')?.checked;
+    if (allowDebt) body.allow_delivery_unpaid = true;
   }
 
   // Stock pre-check: warn if insufficient fuel in stock
@@ -4426,6 +4512,8 @@ async function doCreateOrder() {
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';
+      const debtCb = document.getElementById('c-allow-delivery-unpaid');
+      if (debtCb) debtCb.checked = false;
     }
     switchTab('orders');
   } catch (e) {
@@ -7214,6 +7302,15 @@ const PAYMENT_STATUS_COLORS = {
   overpaid:       'var(--amber)',
 };
 
+// DECISION 1: UI collapses 4 DB values → 2 display buckets.
+// {unpaid, partially_paid} → 'unpaid' ("Не оплачено")
+// {paid, overpaid}         → 'paid'   ("Оплачено")
+function paymentStatusDisplay(s) {
+  return (s === 'paid' || s === 'overpaid') ? 'paid' : 'unpaid';
+}
+const PAYMENT_STATUS_DISPLAY_LABELS = { paid: 'Оплачено', unpaid: 'Не оплачено' };
+const PAYMENT_STATUS_DISPLAY_COLORS = { paid: 'var(--green)', unpaid: 'var(--red)' };
+
 function _finDateParams() {
   const from = document.getElementById('fin-from').value;
   const to   = document.getElementById('fin-to').value;
@@ -7316,7 +7413,8 @@ async function loadFinancePaymentOrders() {
   box.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
     let orders = await orderGet('/orders?limit=200');
-    orders = orders.filter(o => payFilter.includes(o.payment_status || 'unpaid'));
+    // Filter uses 2-bucket display mapping (DECISION 1)
+    orders = orders.filter(o => payFilter.includes(paymentStatusDisplay(o.payment_status || 'unpaid')));
     if (!orders.length) {
       box.innerHTML = '<div class="empty-state" style="padding:14px">Нет заявок с выбранными статусами оплаты</div>';
       return;
@@ -7342,8 +7440,10 @@ async function loadFinancePaymentOrders() {
           <tbody>
             ${orders.map(o => {
               const ps = o.payment_status || 'unpaid';
-              const psLbl = PAYMENT_STATUS_LABELS[ps] || ps;
-              const psColor = PAYMENT_STATUS_COLORS[ps] || 'inherit';
+              // Use 2-bucket display (DECISION 1)
+              const dispPs = paymentStatusDisplay(ps);
+              const psLbl = PAYMENT_STATUS_DISPLAY_LABELS[dispPs];
+              const psColor = PAYMENT_STATUS_DISPLAY_COLORS[dispPs];
               const target = o.final_amount != null ? o.final_amount : o.expected_amount;
               const paid = Number(o.paid_total || 0);
               const debt = Number(o.debt_amount || 0);
@@ -7351,7 +7451,7 @@ async function loadFinancePaymentOrders() {
                 ? `<span style="color:var(--amber)" title="Тариф не настроен">${icon('warning',13,'margin-right:2px')} —</span>`
                 : Number(target).toLocaleString('ru-RU', {minimumFractionDigits:2});
               const rowClick = `event.stopPropagation();switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)`;
-              const payBtn = canRecord && ps !== 'paid' && o.status !== 'cancelled'
+              const payBtn = canRecord && dispPs !== 'paid' && o.status !== 'cancelled'
                 ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">${icon('wallet',13)} Оплата</button>`
                 : '';
               return `
