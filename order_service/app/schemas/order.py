@@ -15,6 +15,10 @@ class OrderCreateRequest(BaseModel):
     expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
 
+    # Координаты адреса доставки (из DaData-геокодирования на фронте)
+    delivery_lat: float | None = Field(None, ge=-90, le=90)
+    delivery_lon: float | None = Field(None, ge=-180, le=180)
+
     # Только для менеджера/админа: создать от имени конкретного клиента
     client_id: uuid.UUID | None = None
     manager_comment: str | None = None
@@ -44,6 +48,8 @@ class OrderUpdateRequest(BaseModel):
     volume_requested: float | None = Field(None, gt=0)
     payment_type: PaymentType | None = None
     client_comment: str | None = None
+    # Стоимость доставки: менеджер может проставить вручную для адресов вне зоны
+    delivery_cost: Decimal | None = Field(None, ge=0)
 
 
 class OrderStatusTransitionRequest(BaseModel):
@@ -90,6 +96,13 @@ class OrderResponse(BaseModel):
     updated_at: datetime
     status_logs: list[OrderStatusLogResponse] = []
 
+    # Зона доставки (снимок на момент создания)
+    delivery_lat: Decimal | None = None
+    delivery_lon: Decimal | None = None
+    delivery_zone_id: uuid.UUID | None = None
+    delivery_zone_name: str | None = None
+    delivery_cost: Decimal | None = None
+
     # Денежные показатели — заполняются сервисом (см. payment_service.attach_payment_totals)
     paid_total: float = 0.0
     debt_amount: float = 0.0
@@ -121,6 +134,9 @@ class OrderListResponse(BaseModel):
     final_amount: Decimal | None
     desired_date: datetime | None
     created_at: datetime
+
+    delivery_zone_name: str | None = None
+    delivery_cost: Decimal | None = None
 
     paid_total: float = 0.0
     debt_amount: float = 0.0

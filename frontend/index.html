@@ -9,6 +9,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <!-- LiveKit JS SDK для звонков -->
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.10/dist/livekit-client.umd.min.js" integrity="sha384-2gTbWDkF6pQCt7SJaPwyR5ouo6fvpVtqteT3INKz2sbuHSzU3kBxaOsXWG2YJ7ae" crossorigin="anonymous"></script>
+<!-- Leaflet + leaflet-geoman (самохостинг, vendor/) -->
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/leaflet-geoman.css">
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet-geoman.min.js"></script>
 <style>
   :root {
     --bg:        #eef2fb;
@@ -196,6 +201,21 @@
   select.form-input[size] option:checked { background: var(--amber-dim); color: var(--amber); }
 
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Дропдаун автоподсказок адреса (DaData) */
+  #c-address-suggest {
+    position: absolute; left: 0; right: 0; z-index: 50;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    margin-top: 4px; max-height: 280px; overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  }
+  #c-address-suggest:empty { display: none; }
+  .addr-suggest-row {
+    padding: 9px 14px; font-size: 14px; color: var(--text); cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .addr-suggest-row:last-child { border-bottom: none; }
+  .addr-suggest-row:hover { background: var(--amber-dim); }
 
   .section-divider {
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
@@ -1727,6 +1747,7 @@
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
+      <button class="nav-tab" data-tab="zones" id="tab-zones-btn" onclick="switchTab('zones')" style="display:none">Зоны</button>
       <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат<span class="chat-tab-badge" id="chat-tab-badge" style="display:none"></span></button>
       <!-- Hidden tabs (accessible via JS) -->
       <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')" style="display:none">ТС</button>
@@ -1852,9 +1873,11 @@
           </div>
         </div>
 
-        <div class="form-group">
+        <div class="form-group" style="position:relative">
           <label class="form-label">Адрес доставки</label>
-          <input type="text" id="c-address" class="form-input" placeholder="г. Санкт-Петербург, ул. Примерная, д. 1">
+          <input type="text" id="c-address" class="form-input" placeholder="г. Санкт-Петербург, ул. Примерная, д. 1" autocomplete="off">
+          <div id="c-address-suggest"></div>
+          <div id="c-address-zone" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
         </div>
 
         <div class="form-group">
@@ -2381,6 +2404,46 @@
       </div>
     </div>
 
+    <!-- ZONES TAB (admin only) -->
+    <div class="tab-pane" id="pane-zones">
+      <div class="toolbar">
+        <div class="toolbar-title">Зоны доставки</div>
+        <button class="btn btn-sm btn-ghost" onclick="loadZones()">↻ Обновить</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+        <div>
+          <div id="zones-map" style="height:520px;border-radius:10px;border:1px solid var(--border);overflow:hidden"></div>
+          <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+            Нарисуйте полигон кнопкой рисования на карте. Сохраните через панель справа.
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:600;font-size:14px;margin-bottom:10px">Сохранить новую зону</div>
+          <div id="zones-draw-form" style="display:none">
+            <div class="form-group">
+              <label class="form-label">Название зоны</label>
+              <input type="text" id="zone-name-input" class="form-input" placeholder="Центр СПб">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Коэффициент стоимости</label>
+              <input type="number" id="zone-coef-input" class="form-input" value="1.0" step="0.1" min="0">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" onclick="saveDrawnZone()">Сохранить</button>
+              <button class="btn btn-ghost btn-sm" onclick="cancelDrawnZone()">Отмена</button>
+            </div>
+          </div>
+          <div id="zones-draw-hint" style="color:var(--text3);font-size:13px">
+            Нарисуйте полигон на карте, затем заполните форму.
+          </div>
+          <div style="margin-top:20px;font-weight:600;font-size:14px;margin-bottom:10px">Существующие зоны</div>
+          <div id="zones-list" style="display:flex;flex-direction:column;gap:8px">
+            <div class="empty-state"><div class="loading"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- PROFILE TAB -->
     <div class="tab-pane" id="pane-profile">
       <div class="profile-card">
@@ -2658,6 +2721,7 @@ function buildBurgerMenu() {
     { tab: 'clients',   label: 'Клиенты',              show: role === 'manager' || role === 'admin' },
     { tab: 'users',     label: 'Пользователи',         show: role === 'admin' },
     { tab: 'legal-entity', label: 'Реквизиты',         show: role === 'admin' },
+    { tab: 'zones',     label: 'Зоны',                show: role === 'admin' },
     { tab: 'chat',      label: 'Чат',                 show: true },
   ];
 
@@ -3369,8 +3433,13 @@ async function initApp() {
   document.getElementById('tab-legal-entity-btn').style.display =
     role === 'admin' ? '' : 'none';
 
+  // Zones — admin only
+  document.getElementById('tab-zones-btn').style.display =
+    role === 'admin' ? '' : 'none';
+
   initNotifications();
   buildBurgerMenu();
+  initAddressAutocomplete();
   // Загружаем каталог топлива однократно — заполняет фильтры/селекты складского раздела
   loadFuelCatalog();
   switchTab('orders');
@@ -3414,8 +3483,216 @@ function switchTab(tab) {
   if (tab === 'chat')      loadConversations();
   if (tab === 'users')     loadUsers();
   if (tab === 'legal-entity') loadLegalEntity();
+  if (tab === 'zones')       initZones();
   // Stop chat poll when leaving the chat tab
   if (tab !== 'chat') stopChatPoll();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ЗОНЫ ДОСТАВКИ (Leaflet + geoman)
+// ═══════════════════════════════════════════════════════════════
+// Карту Leaflet нельзя инициализировать дважды в одном контейнере
+// ("Map container is already initialized"), поэтому держим singleton.
+let _zonesMap = null;
+// Слой нарисованного, но ещё не сохранённого полигона (только один за раз).
+let _drawnLayer = null;
+// Группа отрисованных существующих зон — чтобы очищать при перезагрузке,
+// не трогая _drawnLayer.
+let _zoneLayers = null;
+// Палитра для заливки полигонов зон (циклически).
+const ZONE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
+
+function initZones() {
+  if (_zonesMap) { loadZones(); return; }
+  _zonesMap = L.map('zones-map').setView([59.94, 30.31], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(_zonesMap);
+  _zoneLayers = L.layerGroup().addTo(_zonesMap);
+
+  _zonesMap.pm.addControls({
+    position: 'topleft',
+    drawPolygon: true,
+    drawMarker: false,
+    drawPolyline: false,
+    drawCircle: false,
+    drawCircleMarker: false,
+    drawRectangle: false,
+    drawText: false,
+    editMode: true,
+    dragMode: false,
+    cutPolygon: false,
+    removalMode: false,
+    rotateMode: false,
+  });
+
+  _zonesMap.on('pm:create', e => {
+    // Разрешаем только один новый полигон — предыдущий черновик убираем.
+    if (_drawnLayer) _zonesMap.removeLayer(_drawnLayer);
+    _drawnLayer = e.layer;
+    document.getElementById('zones-draw-hint').style.display = 'none';
+    document.getElementById('zones-draw-form').style.display = '';
+  });
+
+  loadZones();
+}
+
+async function loadZones() {
+  const listEl = document.getElementById('zones-list');
+  if (_zoneLayers) _zoneLayers.clearLayers();
+  try {
+    const zones = await deliveryGet('/zones');
+    zones.forEach((z, i) => {
+      const color = ZONE_COLORS[i % ZONE_COLORS.length];
+      L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.15 })
+        .bindTooltip(escHtml(z.name))
+        .addTo(_zoneLayers);
+    });
+    renderZonesList(zones);
+  } catch (e) {
+    listEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderZonesList(zones) {
+  const el = document.getElementById('zones-list');
+  if (!zones.length) {
+    el.innerHTML = '<div class="empty-state">Зоны ещё не созданы</div>';
+    return;
+  }
+  el.innerHTML = zones.map((z, i) => {
+    const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    return `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px">
+      <span style="width:12px;height:12px;border-radius:3px;background:${color};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escHtml(z.name)}</div>
+        <div style="font-size:12px;color:var(--text3)">Коэффициент: ${Number(z.cost_coefficient).toLocaleString('ru')}</div>
+      </div>
+      <button class="btn btn-sm btn-ghost" style="color:var(--red)" title="Удалить"
+        onclick="deleteZone('${z.id}', '${escHtml(z.name).replace(/'/g, '&#39;')}')">${icon('trash', 14)}</button>
+    </div>`;
+  }).join('');
+}
+
+async function saveDrawnZone() {
+  if (!_drawnLayer) { toast('Сначала нарисуйте полигон на карте', 'warn'); return; }
+  const name = document.getElementById('zone-name-input').value.trim();
+  if (!name) { toast('Введите название зоны', 'warn'); return; }
+  const coef = parseFloat(document.getElementById('zone-coef-input').value);
+  if (!(coef >= 0)) { toast('Коэффициент должен быть числом ≥ 0', 'warn'); return; }
+
+  const polygon = _drawnLayer.getLatLngs()[0].map(p => [p.lat, p.lng]);
+  if (polygon.length < 3) { toast('Полигон должен содержать минимум 3 точки', 'warn'); return; }
+
+  try {
+    await deliveryPost('/zones', {
+      name,
+      polygon,
+      cost_coefficient: coef,
+      is_active: true,
+    });
+    toast('Зона сохранена');
+    _zonesMap.removeLayer(_drawnLayer);
+    _drawnLayer = null;
+    resetZoneForm();
+    loadZones();
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  }
+}
+
+function cancelDrawnZone() {
+  if (_drawnLayer) { _zonesMap.removeLayer(_drawnLayer); _drawnLayer = null; }
+  resetZoneForm();
+}
+
+function resetZoneForm() {
+  document.getElementById('zones-draw-form').style.display = 'none';
+  document.getElementById('zones-draw-hint').style.display = '';
+  document.getElementById('zone-name-input').value = '';
+  document.getElementById('zone-coef-input').value = '1.0';
+}
+
+async function deleteZone(id, name) {
+  if (!confirm(`Удалить зону «${name}»?`)) return;
+  try {
+    await deliveryDelete(`/zones/${id}`);
+    toast('Зона удалена');
+    loadZones();
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// АДРЕС ДОСТАВКИ — автоподсказки DaData + предпросмотр зоны
+// ═══════════════════════════════════════════════════════════════
+// Координаты выбранного из подсказки адреса. null, если адрес введён
+// вручную или не содержит геокодинга — тогда координаты не отправляем.
+let _orderGeo = null;
+let _addrDebounce = null;
+
+function initAddressAutocomplete() {
+  const input = document.getElementById('c-address');
+  if (!input || input.dataset.acWired) return;
+  input.dataset.acWired = '1';
+  input.addEventListener('input', () => {
+    // Любая ручная правка адреса сбрасывает ранее выбранные координаты.
+    _orderGeo = null;
+    document.getElementById('c-address-zone').innerHTML = '';
+    const q = input.value.trim();
+    clearTimeout(_addrDebounce);
+    if (q.length < 3) { document.getElementById('c-address-suggest').innerHTML = ''; return; }
+    _addrDebounce = setTimeout(() => fetchAddressSuggestions(q), 300);
+  });
+  input.addEventListener('blur', () => {
+    // Закрываем дропдаун с задержкой, чтобы успел отработать click по строке.
+    setTimeout(() => { document.getElementById('c-address-suggest').innerHTML = ''; }, 150);
+  });
+}
+
+async function fetchAddressSuggestions(q) {
+  const box = document.getElementById('c-address-suggest');
+  try {
+    const items = await deliveryGet(`/zones/suggest-address?q=${encodeURIComponent(q)}`);
+    if (!items.length) { box.innerHTML = ''; return; }
+    box.innerHTML = items.slice(0, 10).map((s, i) =>
+      `<div class="addr-suggest-row" data-idx="${i}">${escHtml(s.value)}</div>`
+    ).join('');
+    // Сохраняем элементы, чтобы по индексу взять lat/lon при клике.
+    box.querySelectorAll('.addr-suggest-row').forEach(row => {
+      row.addEventListener('mousedown', ev => {
+        ev.preventDefault();
+        pickAddressSuggestion(items[+row.dataset.idx]);
+      });
+    });
+  } catch {
+    box.innerHTML = '';
+  }
+}
+
+function pickAddressSuggestion(s) {
+  document.getElementById('c-address').value = s.value;
+  document.getElementById('c-address-suggest').innerHTML = '';
+  _orderGeo = (s.lat != null && s.lon != null) ? { lat: s.lat, lon: s.lon } : null;
+  previewDeliveryZone();
+}
+
+async function previewDeliveryZone() {
+  const out = document.getElementById('c-address-zone');
+  if (!_orderGeo) { out.innerHTML = ''; return; }
+  try {
+    const r = await deliveryPost('/zones/resolve', { lat: _orderGeo.lat, lon: _orderGeo.lon });
+    if (r && r.name) {
+      out.innerHTML = `Зона доставки: ${escHtml(r.name)}`;
+    } else {
+      out.innerHTML = 'Адрес вне зон доставки — стоимость доставки уточнит менеджер.';
+    }
+  } catch {
+    out.innerHTML = '';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3505,6 +3782,8 @@ function orderCardHTML(o) {
         <div class="detail-item"><div class="detail-label">Объём заказан</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
+        ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
+        ${o.delivery_cost != null ? `<div class="detail-item"><div class="detail-label">Стоимость доставки</div><div class="detail-value">${Number(o.delivery_cost).toLocaleString('ru')} ₽</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>
@@ -4071,6 +4350,12 @@ async function doCreateOrder() {
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
   };
 
+  // Координаты прикладываем только если адрес выбран из подсказки с геокодингом.
+  if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
+    body.delivery_lat = _orderGeo.lat;
+    body.delivery_lon = _orderGeo.lon;
+  }
+
   if (isStaff) {
     const clientId = document.getElementById('c-client-id').value;
     if (!clientId) {
@@ -4108,6 +4393,9 @@ async function doCreateOrder() {
     document.getElementById('c-volume').value = '';
     document.getElementById('c-address').value = '';
     document.getElementById('c-comment').value = '';
+    _orderGeo = null;
+    document.getElementById('c-address-zone').innerHTML = '';
+    document.getElementById('c-address-suggest').innerHTML = '';
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';

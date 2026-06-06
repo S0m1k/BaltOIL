@@ -26,7 +26,8 @@ from app.services import document_service
 from app.services import contract_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
-from app.services.pricing_service import compute_expected_amount
+from app.services.pricing_service import compute_expected_amount, get_tariff, get_default_tariff
+from app.services.zone_pricing import resolve_zone
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -259,6 +260,37 @@ async def create_order(
         db, data.fuel_type, data.volume_requested, ctx.tariff_id
     )
 
+    # Зональная стоимость доставки — fail-open (не блокирует создание заявки)
+    resolved_zone_id = None
+    resolved_zone_name = None
+    delivery_cost = None
+    delivery_lat = data.delivery_lat if data.delivery_lat is not None else None
+    delivery_lon = data.delivery_lon if data.delivery_lon is not None else None
+
+    if delivery_lat is not None and delivery_lon is not None:
+        try:
+            zone_info = await resolve_zone(delivery_lat, delivery_lon)
+            if zone_info:
+                resolved_zone_id = uuid.UUID(zone_info["zone_id"])
+                resolved_zone_name = zone_info["name"]
+                coef = zone_info["cost_coefficient"]
+                # Fetch tariff to read base_delivery_cost
+                from decimal import Decimal as _Decimal
+                tariff = (
+                    await get_tariff(db, ctx.tariff_id)
+                    if ctx.tariff_id
+                    else await get_default_tariff(db)
+                )
+                if tariff is not None and tariff.base_delivery_cost:
+                    delivery_cost = (_Decimal(str(tariff.base_delivery_cost)) * _Decimal(str(coef))).quantize(_Decimal("0.01"))
+                    if expected_amount is not None:
+                        expected_amount = expected_amount + delivery_cost
+                    # If expected_amount was None, set it to just the delivery cost
+                    else:
+                        expected_amount = delivery_cost
+        except Exception as exc:
+            log.warning("Zone pricing failed for order (non-fatal): %s", exc)
+
     order = Order(
         order_number=order_number,
         order_kind=order_kind,
@@ -274,6 +306,11 @@ async def create_order(
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
         status=OrderStatus.NEW,
+        delivery_lat=delivery_lat,
+        delivery_lon=delivery_lon,
+        delivery_zone_id=resolved_zone_id,
+        delivery_zone_name=resolved_zone_name,
+        delivery_cost=delivery_cost,
     )
     db.add(order)
     await db.flush()
@@ -376,6 +413,9 @@ async def update_order(
         changed = True
     if data.client_comment is not None:
         order.client_comment = data.client_comment
+        changed = True
+    if data.delivery_cost is not None:
+        order.delivery_cost = data.delivery_cost
         changed = True
 
     # final_amount меняет цель — пересчитываем payment_status

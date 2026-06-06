@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Required (no default): refuse to boot without an explicit inter-service secret.
     internal_api_secret: str
     public_delivery_url: str = "http://localhost:8003"
+    dadata_api_key: str | None = None
 
     @property
     def cors_origins(self) -> list[str]:

@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.database import engine, Base
 from app.routers import vehicles, trips, reports, inventory, downloads
 from app.routers import internal as internal_router
+from app.routers import zones as zones_router
 from app.routers.downloads import _purge_loop
 
 settings = get_settings()
@@ -60,6 +61,7 @@ app.include_router(reports.router,    prefix="/api/v1")
 app.include_router(inventory.router,  prefix="/api/v1")
 app.include_router(downloads.router,     prefix="/api/v1")
 app.include_router(internal_router.router, prefix="/api/v1")
+app.include_router(zones_router.router,   prefix="/api/v1")
 
 
 @app.get("/health")

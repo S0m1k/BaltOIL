@@ -17,6 +17,10 @@ class Tariff(Base):
     # Exactly one active tariff must have is_default=True — enforced in service layer
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Базовая стоимость доставки (умножается на cost_coefficient зоны)
+    base_delivery_cost: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0")
+    )
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

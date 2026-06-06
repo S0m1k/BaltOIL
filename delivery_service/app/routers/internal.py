@@ -1,14 +1,17 @@
 """Внутренние эндпоинты delivery_service — только для межсервисных запросов."""
 import hmac
 import logging
+import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import get_settings
 from app.schemas.inventory import FuelStockResponse
 from app.services.inventory_service import compute_stock
+from app.services import zone_service
 
 log = logging.getLogger(__name__)
 
@@ -51,3 +54,35 @@ async def internal_get_stock(
     Используется order_service для фильтрации «только топливо в наличии».
     """
     return await compute_stock(db)
+
+
+class _InternalResolveRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+
+
+class _InternalResolveResponse(BaseModel):
+    zone_id: uuid.UUID | None = None
+    name: str | None = None
+    cost_coefficient: float | None = None
+
+
+@router.post(
+    "/zones/resolve",
+    response_model=_InternalResolveResponse,
+    summary="Определить зону по координатам (для order_service)",
+)
+async def internal_resolve_zone(
+    body: _InternalResolveRequest,
+    _: InternalDep,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Point-in-polygon: возвращает зону или пустой объект если точка вне зон."""
+    zone = await zone_service.resolve(db, body.lat, body.lon)
+    if zone is None:
+        return _InternalResolveResponse()
+    return _InternalResolveResponse(
+        zone_id=zone.id,
+        name=zone.name,
+        cost_coefficient=float(zone.cost_coefficient),
+    )

@@ -89,6 +89,15 @@ class Order(Base):
     manager_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
+    # Координаты адреса доставки (из DaData-геокодирования на фронте)
+    delivery_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    delivery_lon: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # Снимок зоны на момент создания заявки (без FK на delivery_service)
+    delivery_zone_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    delivery_zone_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Стоимость доставки, заложенная в expected_amount (NULL = уточняется менеджером)
+    delivery_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+
     # Комментарии
     client_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     manager_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
