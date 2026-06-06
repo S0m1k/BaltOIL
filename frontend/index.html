@@ -3847,7 +3847,7 @@ async function loadTimeline(orderId) {
   }
 }
 
-const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)', invoice_final: 'Счёт (финал)', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
+const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Предварительный счёт', invoice_final: 'Финальный счёт', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
 // Редактируемый формат выгрузки по типу документа: Excel (xlsx) для таблиц, Word (docx) для текстовых.
 const DOC_EXPORT_FMT = { invoice: 'Excel', invoice_preliminary: 'Excel', invoice_final: 'Excel', ttn: 'Excel', upd: 'Excel', poa: 'Word' };
 const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
@@ -3856,10 +3856,22 @@ const DOC_STATUS_COLORS = { draft: 'var(--text3)', ready: 'var(--green)', sent: 
 async function loadDocs(orderId) {
   const el = document.getElementById(`docs-${orderId}`);
   if (!el) return;
+  // Ручное выставление счёта (менеджер/админ) — нужно для заявок >= 3000 л,
+  // где автогенерация отключена, и как общий механизм повторного выставления.
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const generateBar = isStaff ? `
+    <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--text3)">Выставить счёт:</span>
+      <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+        onclick="generateInvoice('${orderId}','invoice_preliminary',this)">Предварительный</button>
+      <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+        onclick="generateInvoice('${orderId}','invoice_final',this)">Финальный</button>
+    </div>` : '';
   try {
     const docs = await orderGet(`/orders/${orderId}/documents`);
     if (!docs.length) {
       el.innerHTML = `<div class="timeline-title">Документы</div>
+        ${generateBar}
         <div style="font-size:12px;color:var(--text3)">Документов ещё нет</div>`;
       return;
     }
@@ -3883,10 +3895,25 @@ async function loadDocs(orderId) {
             onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
       </div>`;
     }).join('');
-    el.innerHTML = `<div class="timeline-title">Документы</div>${rows}`;
+    el.innerHTML = `<div class="timeline-title">Документы</div>${generateBar}${rows}`;
   } catch(e) {
     el.innerHTML = `<div class="timeline-title">Документы</div>
       <div style="font-size:12px;color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function generateInvoice(orderId, docType, btn) {
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '…';
+  try {
+    await orderPost(`/orders/${orderId}/documents/generate`, { doc_type: docType });
+    toast('Счёт выставлен');
+    loadDocs(orderId);
+  } catch(e) {
+    toast('Ошибка: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = orig;
   }
 }
 
@@ -6367,8 +6394,8 @@ const CC_STATUS_LABELS = {
   delivered: 'Доставлена', cancelled: 'Отменена',
 };
 const CC_DOC_TYPE_LABELS = {
-  invoice: 'Счёт', invoice_preliminary: 'Счёт (предв.)',
-  invoice_final: 'Счёт (финал)', upd: 'УПД', ttn: 'ТТН', poa: 'Доверенность',
+  invoice: 'Счёт', invoice_preliminary: 'Предварительный счёт',
+  invoice_final: 'Финальный счёт', upd: 'УПД', ttn: 'ТТН', poa: 'Доверенность',
 };
 const CC_DOC_STATUS_LABELS = {
   draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован',
@@ -6649,12 +6676,8 @@ function _ccRenderDocsPanel(docs, typeFilter) {
       <select class="form-input" style="width:auto;font-size:12px;padding:4px 8px"
         onchange="_ccDocsFilter(this.value)">
         <option value="">Все</option>
-        <option value="invoice_preliminary">Счёт (предв.)</option>
-        <option value="invoice_final">Счёт (финал)</option>
-        <option value="invoice">Счёт</option>
-        <option value="upd">УПД</option>
-        <option value="ttn">ТТН</option>
-        <option value="poa">Доверенность</option>
+        <option value="invoice_preliminary">Предварительный счёт</option>
+        <option value="invoice_final">Финальный счёт</option>
       </select>
       <span style="font-size:12px;color:var(--text3);margin-left:auto">${docs.length} документов</span>
     </div>`;

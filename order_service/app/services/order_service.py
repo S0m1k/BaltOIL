@@ -32,6 +32,24 @@ from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
 
+# Порог объёма (л): при >= этого значения счёт не выставляется автоматически —
+# менеджер получает уведомление и выставляет вручную (Д4, решение 2026-06-05).
+LARGE_VOLUME_THRESHOLD_L = 3000
+
+
+async def _notify_large_volume(order: Order) -> None:
+    """Уведомить менеджеров: заявка >= порога, счёт нужно выставить вручную."""
+    await publish_order_event({
+        "event": "order_large_volume",
+        "order_id": str(order.id),
+        "client_id": str(order.client_id),
+        "manager_id": str(order.manager_id) if order.manager_id else None,
+        "driver_id": None,
+        "status": order.status.value,
+        "title": f"Заявка №{order.order_number}: объём ≥ 3000 л",
+        "body": "Счёт не выставлен автоматически — выставьте вручную.",
+    })
+
 
 def _make_service_token(actor: TokenUser) -> str:
     _settings = _get_settings()
@@ -327,14 +345,20 @@ async def create_order(
 
     await db.flush()
 
-    # Auto-document: prepaid → invoice_preliminary at creation time
-    # Note: ttn_l orders do NOT generate invoices (Д4 will fully enforce this;
-    # here we gate on kind to avoid generating for ttn_l even in prepaid edge case)
-    if order.payment_type == PaymentType.PREPAID and order.order_kind != OrderKind.TTN_L:
-        try:
-            await document_service.generate_invoice_preliminary(db, order, actor)
-        except Exception as exc:
-            log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
+    # Auto-document: предварительный счёт при создании любой не-ttn_l заявки.
+    # Порог 3000 л (Д4): крупные заявки не выставляются автоматически — менеджер
+    # получает уведомление и выставляет счёт вручную. ttn_l счетов не имеет.
+    if order.order_kind != OrderKind.TTN_L:
+        if float(order.volume_requested) >= LARGE_VOLUME_THRESHOLD_L:
+            try:
+                await _notify_large_volume(order)
+            except Exception as exc:
+                log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
+        else:
+            try:
+                await document_service.generate_invoice_preliminary(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
 
     # Auto-contract: для клиента-юрлица без активного договора формируем договор
     # поставки. Не блокируем заявку — любая ошибка только логируется.
@@ -642,14 +666,23 @@ async def transition_status(
     # ttn_l заявки не генерят счета (Д4 полностью закроет это; здесь предотвращаем
     # генерацию invoice_final для внутренних ТТН-Л)
     if data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
-        for gen_fn, label in [
-            (document_service.generate_invoice_final, "invoice_final"),
-        ]:
+        # Порог 3000 л (Д4): крупные заявки финальный счёт не выставляют
+        # автоматически — менеджеру уходит уведомление для ручного выставления.
+        delivered_volume = float(order.volume_delivered or order.volume_requested)
+        if delivered_volume >= LARGE_VOLUME_THRESHOLD_L:
             try:
-                async with db.begin_nested():
-                    await gen_fn(db, order, actor)
+                await _notify_large_volume(order)
             except Exception as exc:
-                log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
+                log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
+        else:
+            for gen_fn, label in [
+                (document_service.generate_invoice_final, "invoice_final"),
+            ]:
+                try:
+                    async with db.begin_nested():
+                        await gen_fn(db, order, actor)
+                except Exception as exc:
+                    log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
 
         # Departure-транзакция в delivery_service (списание топлива со склада)
         try:

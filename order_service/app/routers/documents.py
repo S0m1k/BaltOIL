@@ -13,6 +13,7 @@ from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.models.document import DocumentType, DocumentStatus
+from app.models.order import OrderKind
 from app.services import document_service
 from app.services import document_export
 from app.services.order_service import get_order
@@ -25,6 +26,16 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders/{order_id}/documents", tags=["documents"])
 
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/media"))
+
+# Активные типы документов (Д4): только два счёта. Остальные типы (УПД/ТТН/
+# договор/доверенность/legacy invoice) — спящие, не генерятся и не выдаются в UI.
+ACTIVE_DOC_TYPES = (DocumentType.INVOICE_PRELIMINARY, DocumentType.INVOICE_FINAL)
+
+# Какой генератор вызывать для ручного выставления счёта.
+_GENERATORS = {
+    "invoice_preliminary": document_service.generate_invoice_preliminary,
+    "invoice_final": document_service.generate_invoice_final,
+}
 
 
 class DocumentResponse(BaseModel):
@@ -43,15 +54,54 @@ class DocumentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GenerateDocumentRequest(BaseModel):
+    doc_type: str  # только "invoice_preliminary" | "invoice_final"
+
+
 @router.get("", response_model=list[DocumentResponse])
 async def list_documents(
     order_id: uuid.UUID,
     actor: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Список документов по заявке (клиент видит только свои заявки)."""
+    """Список документов по заявке (клиент видит только свои заявки).
+
+    Д4: выдаются только активные типы (предв./финальный счёт), оба видны клиенту.
+    Спящие типы (УПД/ТТН/договор/доверенность/legacy) скрыты для всех ролей.
+    """
     await get_order(db, order_id, actor)  # проверка доступа
-    return await document_service.list_for_order(db, order_id)
+    docs = await document_service.list_for_order(db, order_id)
+    return [d for d in docs if d.doc_type in ACTIVE_DOC_TYPES]
+
+
+@router.post("/generate", response_model=DocumentResponse, status_code=201)
+async def generate_document(
+    order_id: uuid.UUID,
+    body: GenerateDocumentRequest,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Выставить счёт вручную (менеджер/админ).
+
+    Нужно прежде всего для заявок >= 3000 л, где автогенерация отключена, а также
+    как общий механизм повторного выставления. Генераторы идемпотентны — повторный
+    вызов вернёт уже выпущенный документ без создания дубля.
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Выставлять счета может менеджер или администратор")
+
+    gen_fn = _GENERATORS.get(body.doc_type)
+    if gen_fn is None:
+        raise ValidationError("doc_type должен быть invoice_preliminary или invoice_final")
+
+    order = await get_order(db, order_id, actor)  # проверка доступа
+    if order.order_kind == OrderKind.TTN_L:
+        raise ValidationError("Для ТТН-Л счета не выставляются")
+
+    doc = await gen_fn(db, order, actor)
+    await db.commit()
+    await db.refresh(doc)
+    return doc
 
 
 @router.get("/{document_id}/download")

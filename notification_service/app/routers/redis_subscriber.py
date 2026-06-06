@@ -77,6 +77,12 @@ async def _build_order_request(payload: dict) -> PublishRequest | None:
             recipients.append(uuid.UUID(client_id))
         if driver_id:
             recipients.append(uuid.UUID(driver_id))
+    elif event == "order_large_volume":
+        # Крупная заявка (>= порога): счёт не выставлен автоматически.
+        # Уведомляем только менеджеров/админов (клиента НЕ трогаем).
+        # Переиспользуем ORDER_CREATED — отдельный enum не заводим (есть шаблон).
+        notif_type = NotificationType.ORDER_CREATED
+        recipients.extend(await _fetch_staff_ids())
     else:
         return None
 
@@ -165,7 +171,7 @@ async def _build_call_request(payload: dict) -> PublishRequest | None:
 
 async def _handle(payload: dict, r: aioredis.Redis) -> None:
     event = payload.get("event", "")
-    if event in ("order_created", "order_status"):
+    if event in ("order_created", "order_status", "order_large_volume"):
         req = await _build_order_request(payload)
     elif event == "chat_message":
         req = _build_chat_request(payload)

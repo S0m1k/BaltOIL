@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document, DocumentType, DocumentStatus, DocNumberCounter
 from app.models.order import Order
+from app.models.payment import Payment, PaymentStatus
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
 from app.services.legal_entity_service import get_seller_snapshot
@@ -197,26 +198,6 @@ def _order_amount(order: Order, volume: float) -> float:
 DEFAULT_VAT_RATE = 22
 
 
-def _split_fuel_delivery(order: Order, volume: float, total_amount: float) -> tuple[float, float]:
-    """Разделить total_amount на (стоимость топлива, стоимость доставки).
-
-    Берёт долю топлива и доставки из BASE_* как соотношение, потом масштабирует
-    под фактический total_amount (он может отличаться, если менеджер выставил
-    final_amount/expected_amount вручную).
-    """
-    fuel_val = order.fuel_type.value if hasattr(order.fuel_type, "value") else str(order.fuel_type)
-    fuel_price = BASE_FUEL_PRICES.get(fuel_val, 50.0)
-    base_fuel = volume * fuel_price
-    base_delivery = volume * BASE_DELIVERY_PRICE_PER_LITER
-    base_total = base_fuel + base_delivery
-    if base_total <= 0:
-        return total_amount, 0.0
-    fuel_share = base_fuel / base_total
-    fuel_sum = round(total_amount * fuel_share, 2)
-    delivery_sum = round(total_amount - fuel_sum, 2)
-    return fuel_sum, delivery_sum
-
-
 def _build_invoice_ctx(
     *,
     doc_number: str,
@@ -259,18 +240,20 @@ def _build_invoice_ctx(
 def _build_line_items(
     order: Order, volume: float, total_amount: float, vat_rate: int
 ) -> tuple[list[dict], float, float, float]:
-    """Разбить заказ на позиции (топливо + доставка) с разбивкой НДС.
+    """Разбить заказ на позиции (только топливо) с разбивкой НДС.
 
     total_amount — сумма С НДС (то, что клиент платит, как order.expected/final_amount,
     на этой сумме строится учёт долга). В образце счёта строки и «Итого» показаны
     БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС. Поэтому
     раскладываем total_amount обратно на пред-НДС базу и налог.
 
+    Стоимость доставки уже включена в total_amount (Д3) и отдельной строкой не
+    выводится — вся пред-НДС база ложится на единственную строку топлива.
+
     Возвращает (items, subtotal_no_vat, vat_amount, total), где total == total_amount.
     """
     rate = vat_rate or 0
     pre_vat_total = round(total_amount / (1 + rate / 100), 2) if rate else total_amount
-    fuel_pre, delivery_pre = _split_fuel_delivery(order, volume, pre_vat_total)
 
     def _line(name: str, qty: float, unit: str, unit_code: str | None, sum_no_vat: float) -> dict:
         vat = round(sum_no_vat * rate / 100, 2)
@@ -285,9 +268,7 @@ def _build_line_items(
             "sum":        round(sum_no_vat + vat, 2),
         }
 
-    items = [_line(_fuel_name(order), volume, "л", "112", fuel_pre)]
-    if delivery_pre > 0:
-        items.append(_line(f"Доставка по адресу: {order.delivery_address}", 1, "рейс", None, delivery_pre))
+    items = [_line(_fuel_name(order), volume, "л", "112", pre_vat_total)]
 
     subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
     # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
@@ -400,6 +381,35 @@ async def _fetch_driver_profile(driver_id: uuid.UUID | None) -> dict:
     except Exception as exc:
         log.warning("auth_service driver profile failed for %s: %s", driver_id, exc)
         return {}
+
+
+# ── Основание счёта ───────────────────────────────────────────────────────────
+
+async def _invoice_basis(db: AsyncSession, order: Order, doc_type: DocumentType) -> str:
+    """«Основание» счёта: «Договор о поставке Нефтепродуктов от «дд.мм.гггг»».
+
+    Источник даты (решение 2026-06-05):
+      - предварительный счёт → дата создания заявки;
+      - финальный счёт → дата последней проведённой оплаты (fallback — текущий
+        момент, т.е. дата доставки: финальный счёт выпускается при переходе
+        в DELIVERED).
+    """
+    if doc_type == DocumentType.INVOICE_FINAL:
+        result = await db.execute(
+            select(Payment.paid_at)
+            .where(
+                Payment.order_id == order.id,
+                Payment.status == PaymentStatus.PAID,
+                Payment.paid_at.is_not(None),
+            )
+            .order_by(Payment.paid_at.desc())
+            .limit(1)
+        )
+        basis_dt = result.scalar_one_or_none() or datetime.now(timezone.utc)
+    else:
+        basis_dt = order.created_at or datetime.now(timezone.utc)
+    date_str = basis_dt.strftime("%d.%m.%Y")
+    return f"Договор о поставке Нефтепродуктов от «{date_str}»"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -610,11 +620,12 @@ async def generate_invoice_preliminary(
         return existing
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_PRELIMINARY)
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE_PRELIMINARY)
     ctx = _build_invoice_ctx(
         doc_number=doc_number, issued_at=now_str,
         seller=seller, buyer=buyer, order=order,
         volume=volume, total_amount=amount,
-        basis=f"Заявка №{order.order_number}",
+        basis=basis,
     )
 
     try:
@@ -659,11 +670,12 @@ async def generate_invoice_final(
         return existing
     doc_number = await _next_doc_number(db, DocumentType.INVOICE_FINAL)
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE_FINAL)
     ctx = _build_invoice_ctx(
         doc_number=doc_number, issued_at=now_str,
         seller=seller, buyer=buyer, order=order,
         volume=volume, total_amount=amount,
-        basis=f"Заявка №{order.order_number}",
+        basis=basis,
     )
 
     try:
@@ -708,11 +720,12 @@ async def build_export_ctx(db: AsyncSession, doc: Document, order: Order) -> dic
     dtype = doc.doc_type.value if hasattr(doc.doc_type, "value") else str(doc.doc_type)
 
     if dtype in ("invoice", "invoice_preliminary", "invoice_final"):
+        basis = await _invoice_basis(db, order, doc.doc_type)
         return _build_invoice_ctx(
             doc_number=doc.doc_number, issued_at=issued_at,
             seller=seller, buyer=buyer, order=order,
             volume=volume, total_amount=total,
-            basis=f"Заявка №{order.order_number}",
+            basis=basis,
         )
     if dtype == "upd":
         return _build_upd_ctx(
