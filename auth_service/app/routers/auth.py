@@ -1,13 +1,16 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Query
-from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import get_settings
 from app.core.dependencies import CurrentUser, get_request_meta
 from app.core.rate_limit import limiter
+from app.core.phone import normalize_phone, normalized_phone_column
+from app.core.security import hash_password
+from app.core.exceptions import AuthError
+from app.models.user import User
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RequestCodeRequest, VerifyCodeRequest, PasswordResetRequest,
@@ -15,17 +18,11 @@ from app.schemas.auth import (
 from app.schemas.user import (
     RegisterIndividualRequest, RegisterCompanyRequest, UserResponse,
 )
-from app.services import auth_service, user_service
-from app.services import otp_service, sms_client
-from app.models.user import User
-from app.core.security import hash_password
-from app.core.exceptions import AuthError
+from app.services import auth_service, user_service, otp_service, sms_client
 from app.services.auth_service import _issue_tokens_for_user
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-_GENERIC_CODE_MSG = {"detail": "Если номер зарегистрирован, код будет отправлен в SMS"}
 
 
 @router.post("/register/individual", response_model=TokenResponse, status_code=201)
@@ -36,10 +33,9 @@ async def register_individual(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     meta = get_request_meta(request)
-    user = await user_service.register_individual(db, data, **meta)
-    # Login after registration: use phone if email was omitted
-    identifier = data.email or data.phone
-    return await auth_service.login(db, identifier=identifier, password=data.password, **meta)
+    await user_service.register_individual(db, data, **meta)
+    # Автоматически входим после регистрации — по телефону (email может быть пустым)
+    return await auth_service.login(db, identifier=data.phone, password=data.password, **meta)
 
 
 @router.post("/register/company", response_model=TokenResponse, status_code=201)
@@ -51,7 +47,7 @@ async def register_company(
 ):
     meta = get_request_meta(request)
     await user_service.register_company(db, data, **meta)
-    # Companies always have email
+    # Автоматически входим после регистрации
     return await auth_service.login(db, identifier=data.email, password=data.password, **meta)
 
 
@@ -66,7 +62,27 @@ async def login(
     return await auth_service.login(db, identifier=data.identifier, password=data.password, **meta)
 
 
-# ── SMS-code login ─────────────────────────────────────────────
+# ── SMS-code login / password reset ────────────────────────────
+# OTP-коды живут в auth_service (Redis, otp_service). notification_service —
+# тупой отправитель. Телефон нормализуется (последние 10 цифр), чтобы код,
+# запрошенный в одном формате, подтверждался в любом.
+_GENERIC_CODE_MSG = {"detail": "Если номер зарегистрирован, код будет отправлен в SMS"}
+
+
+async def _find_active_user_by_phone(db: AsyncSession, phone: str) -> User | None:
+    norm = normalize_phone(phone)
+    if len(norm) != 10:
+        return None
+    result = await db.execute(
+        select(User).where(
+            User.phone.isnot(None),
+            normalized_phone_column(User.phone) == norm,
+            User.is_active == True,      # noqa: E712
+            User.is_archived == False,   # noqa: E712
+        )
+    )
+    return result.scalars().first()
+
 
 @router.post("/login/request-code", status_code=200)
 @limiter.limit("10/minute")
@@ -75,16 +91,13 @@ async def login_request_code(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Request an SMS login code. Always returns 200 regardless of whether the
-    phone is registered — prevents user enumeration."""
-    result = await db.execute(select(User).where(User.phone == data.phone))
-    user = result.scalar_one_or_none()
-
-    if user and user.is_active and not user.is_archived:
-        code = await otp_service.issue_code("login", data.phone)
+    """Запросить SMS-код для входа. Всегда 200 — защита от энумерации номеров."""
+    user = await _find_active_user_by_phone(db, data.phone)
+    if user:
+        norm = normalize_phone(data.phone)
+        code = await otp_service.issue_code("login", norm)
         if code:
             await sms_client.send_otp(data.phone, code, "login")
-
     return _GENERIC_CODE_MSG
 
 
@@ -95,23 +108,16 @@ async def login_verify_code(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Verify an SMS login code. Issues tokens on success."""
+    """Подтвердить SMS-код входа и выдать токены."""
     meta = get_request_meta(request)
-    ok = await otp_service.verify_code("login", data.phone, data.code)
-    if not ok:
+    norm = normalize_phone(data.phone)
+    if not await otp_service.verify_code("login", norm, data.code):
         raise AuthError("Неверный или просроченный код")
-
-    result = await db.execute(
-        select(User).where(User.phone == data.phone, User.is_active == True, User.is_archived == False)  # noqa: E712
-    )
-    user = result.scalar_one_or_none()
+    user = await _find_active_user_by_phone(db, data.phone)
     if not user:
         raise AuthError("Неверный или просроченный код")
-
     return await _issue_tokens_for_user(db, user, **meta)
 
-
-# ── SMS-code password reset ────────────────────────────────────
 
 @router.post("/password/request-code", status_code=200)
 @limiter.limit("10/minute")
@@ -120,15 +126,13 @@ async def password_request_code(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Request an SMS password-reset code. Always 200 to prevent enumeration."""
-    result = await db.execute(select(User).where(User.phone == data.phone))
-    user = result.scalar_one_or_none()
-
-    if user and user.is_active and not user.is_archived:
-        code = await otp_service.issue_code("reset", data.phone)
+    """Запросить SMS-код для сброса пароля. Всегда 200."""
+    user = await _find_active_user_by_phone(db, data.phone)
+    if user:
+        norm = normalize_phone(data.phone)
+        code = await otp_service.issue_code("reset", norm)
         if code:
             await sms_client.send_otp(data.phone, code, "reset")
-
     return _GENERIC_CODE_MSG
 
 
@@ -139,22 +143,17 @@ async def password_reset(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Verify SMS reset code and set a new password. Revokes all existing sessions."""
+    """Проверить SMS-код сброса, установить новый пароль, отозвать все сессии."""
     meta = get_request_meta(request)
-    ok = await otp_service.verify_code("reset", data.phone, data.code)
-    if not ok:
+    norm = normalize_phone(data.phone)
+    if not await otp_service.verify_code("reset", norm, data.code):
         raise AuthError("Неверный или просроченный код")
-
-    result = await db.execute(
-        select(User).where(User.phone == data.phone, User.is_active == True, User.is_archived == False)  # noqa: E712
-    )
-    user = result.scalar_one_or_none()
+    user = await _find_active_user_by_phone(db, data.phone)
     if not user:
         raise AuthError("Неверный или просроченный код")
 
     user.hashed_password = hash_password(data.new_password)
     await auth_service.logout_all(db, user_id=user.id)
-
     await log_action(
         db,
         action="user.password_reset_sms",
@@ -165,7 +164,6 @@ async def password_reset(
         ip_address=meta.get("ip_address"),
         user_agent=meta.get("user_agent"),
     )
-
     return {"detail": "Пароль успешно изменён"}
 
 

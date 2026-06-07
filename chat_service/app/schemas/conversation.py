@@ -9,6 +9,8 @@ class ParticipantResponse(BaseModel):
     user_role: str
     last_read_at: datetime | None
     joined_at: datetime
+    full_name: str | None = None   # резолвится из auth_service
+    phone: str | None = None       # телефон участника (виден в чате)
 
     model_config = {"from_attributes": True}
 
@@ -30,6 +32,8 @@ class ConversationListResponse(BaseModel):
     unread_count: int = 0
     last_message: MessageResponse | None = None
     updated_at: datetime
+    peer_name: str | None = None    # для kind=direct: имя собеседника
+    peer_phone: str | None = None   # для kind=direct: телефон собеседника
 
     model_config = {"from_attributes": True}
 
@@ -49,5 +53,7 @@ class ConversationResponse(BaseModel):
     is_archived: bool
     created_at: datetime
     updated_at: datetime
+    peer_name: str | None = None    # для kind=direct: имя собеседника
+    peer_phone: str | None = None   # для kind=direct: телефон собеседника
 
     model_config = {"from_attributes": True}

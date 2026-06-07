@@ -1,6 +1,7 @@
 import uuid
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -11,9 +12,50 @@ from app.schemas.conversation import (
     ConversationResponse, ConversationListResponse, EnsureClientManagerRequest,
 )
 from app.schemas.message import MessageResponse, SendMessageRequest
-from app.services import conversation_service, message_service
+from app.services import conversation_service, message_service, auth_client
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+class StartByPhoneRequest(BaseModel):
+    phone: str = Field(..., min_length=4, max_length=32)
+
+
+@router.post("/start-by-phone", response_model=ConversationListResponse)
+async def start_by_phone(
+    body: StartByPhoneRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Начать (или открыть существующий) прямой чат с пользователем по номеру телефона.
+
+    Доступно всем ролям. Возвращает диалог; идемпотентно при повторном вызове.
+    """
+    target = await auth_client.lookup_by_phone(body.phone)
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь с таким номером не найден")
+    target_id = uuid.UUID(target["id"])
+    if target_id == actor.id:
+        raise HTTPException(status_code=400, detail="Нельзя начать чат с самим собой")
+
+    conv = await conversation_service.ensure_direct(db, actor.id, target_id)
+    await db.commit()
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+        peer_name=target.get("full_name"),
+        peer_phone=target.get("phone"),
+    )
 
 
 @router.get("", response_model=list[ConversationListResponse])

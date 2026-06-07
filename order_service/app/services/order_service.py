@@ -457,6 +457,15 @@ async def update_order(
     if was_accepted and changed:
         order.pending_driver_ack = True
 
+    # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
+    # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет
+    # в lazy-load вне async-контекста → MissingGreenlet → 500.
+    await db.flush()
+    result = await db.execute(
+        _with_logs(select(Order).where(Order.id == order_id))
+    )
+    order = result.scalar_one()
+
     await attach_payment_totals_one(db, order)
     return order
 
