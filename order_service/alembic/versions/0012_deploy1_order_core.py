@@ -42,23 +42,21 @@ def upgrade() -> None:
             ALTER COLUMN to_status TYPE TEXT
     """)
 
-    # Мигрируем старые значения статусов
-    op.execute("""
-        UPDATE orders SET status = 'accepted'  WHERE status = 'in_transit';
-        UPDATE orders SET status = 'accepted'  WHERE status = 'partially_delivered';
-        UPDATE orders SET status = 'delivered' WHERE status = 'closed';
-        UPDATE orders SET status = 'cancelled' WHERE status = 'rejected';
-    """)
-    op.execute("""
-        UPDATE order_status_logs SET from_status = 'accepted'  WHERE from_status = 'in_transit';
-        UPDATE order_status_logs SET from_status = 'accepted'  WHERE from_status = 'partially_delivered';
-        UPDATE order_status_logs SET from_status = 'delivered' WHERE from_status = 'closed';
-        UPDATE order_status_logs SET from_status = 'cancelled' WHERE from_status = 'rejected';
-        UPDATE order_status_logs SET to_status   = 'accepted'  WHERE to_status   = 'in_transit';
-        UPDATE order_status_logs SET to_status   = 'accepted'  WHERE to_status   = 'partially_delivered';
-        UPDATE order_status_logs SET to_status   = 'delivered' WHERE to_status   = 'closed';
-        UPDATE order_status_logs SET to_status   = 'cancelled' WHERE to_status   = 'rejected';
-    """)
+    # Мигрируем старые значения статусов.
+    # asyncpg не допускает несколько команд в одном prepared statement —
+    # каждый UPDATE отдельным op.execute.
+    op.execute("UPDATE orders SET status = 'accepted'  WHERE status = 'in_transit'")
+    op.execute("UPDATE orders SET status = 'accepted'  WHERE status = 'partially_delivered'")
+    op.execute("UPDATE orders SET status = 'delivered' WHERE status = 'closed'")
+    op.execute("UPDATE orders SET status = 'cancelled' WHERE status = 'rejected'")
+    op.execute("UPDATE order_status_logs SET from_status = 'accepted'  WHERE from_status = 'in_transit'")
+    op.execute("UPDATE order_status_logs SET from_status = 'accepted'  WHERE from_status = 'partially_delivered'")
+    op.execute("UPDATE order_status_logs SET from_status = 'delivered' WHERE from_status = 'closed'")
+    op.execute("UPDATE order_status_logs SET from_status = 'cancelled' WHERE from_status = 'rejected'")
+    op.execute("UPDATE order_status_logs SET to_status   = 'accepted'  WHERE to_status   = 'in_transit'")
+    op.execute("UPDATE order_status_logs SET to_status   = 'accepted'  WHERE to_status   = 'partially_delivered'")
+    op.execute("UPDATE order_status_logs SET to_status   = 'delivered' WHERE to_status   = 'closed'")
+    op.execute("UPDATE order_status_logs SET to_status   = 'cancelled' WHERE to_status   = 'rejected'")
 
     # ── 2. Пересоздаём enum orderstatus ─────────────────────────────────────
     op.execute("DROP TYPE IF EXISTS orderstatus CASCADE")
