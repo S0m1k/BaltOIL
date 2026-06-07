@@ -3641,13 +3641,23 @@ let _zoneLayers = null;
 // Палитра для заливки полигонов зон (циклически).
 const ZONE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
 
+// Источник тайлов карты. OSM (tile.openstreetmap.org) у части РФ-провайдеров
+// недоступен → серая карта. Используем 2ГИС (РФ, EPSG:3857 — совместим с Leaflet,
+// без ключа для базового растра). Сменить провайдера/ключ — ТОЛЬКО здесь;
+// при смене хоста не забыть обновить img-src в frontend/nginx.conf (CSP).
+const MAP_TILE = {
+  url: 'https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1.5',
+  options: {
+    subdomains: ['0', '1', '2', '3'],
+    maxZoom: 18,
+    attribution: '&copy; 2ГИС',
+  },
+};
+
 function initZones() {
   if (_zonesMap) { loadZones(); return; }
   _zonesMap = L.map('zones-map').setView([59.94, 30.31], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 19,
-  }).addTo(_zonesMap);
+  L.tileLayer(MAP_TILE.url, MAP_TILE.options).addTo(_zonesMap);
   _zoneLayers = L.layerGroup().addTo(_zonesMap);
 
   _zonesMap.pm.addControls({
