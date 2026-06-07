@@ -64,13 +64,18 @@ def upgrade() -> None:
         CREATE TYPE orderstatus AS ENUM ('new', 'accepted', 'delivered', 'cancelled')
     """)
 
-    # Восстанавливаем колонки с новым enum
+    # Восстанавливаем колонки с новым enum.
+    # ВАЖНО: сначала снимаем DEFAULT — Postgres не умеет авто-кастить
+    # существующий TEXT-дефолт ('new') к новому enum при смене типа.
+    op.execute("ALTER TABLE orders ALTER COLUMN status DROP DEFAULT")
     op.execute("""
         ALTER TABLE orders
             ALTER COLUMN status TYPE orderstatus
                 USING status::orderstatus,
             ALTER COLUMN status SET DEFAULT 'new'::orderstatus
     """)
+    op.execute("ALTER TABLE order_status_logs ALTER COLUMN from_status DROP DEFAULT")
+    op.execute("ALTER TABLE order_status_logs ALTER COLUMN to_status DROP DEFAULT")
     op.execute("""
         ALTER TABLE order_status_logs
             ALTER COLUMN from_status TYPE orderstatus
