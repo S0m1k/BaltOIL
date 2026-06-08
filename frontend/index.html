@@ -3691,6 +3691,15 @@ let _zoneLayers = null;
 // Палитра для заливки полигонов зон (циклически).
 const ZONE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
 
+// Самохостинг Leaflet: дефолтные иконки маркера ищутся в vendor/images/ →
+// 404 (битый маркер "Mark"). Прописываем фактические пути в vendor/ явно.
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'vendor/marker-icon-2x.png',
+  iconUrl: 'vendor/marker-icon.png',
+  shadowUrl: 'vendor/marker-shadow.png',
+});
+
 // Источник тайлов карты. OSM (tile.openstreetmap.org) у части РФ-провайдеров
 // недоступен → серая карта. Используем 2ГИС (РФ, EPSG:3857 — совместим с Leaflet,
 // без ключа для базового растра). Сменить провайдера/ключ — ТОЛЬКО здесь;
