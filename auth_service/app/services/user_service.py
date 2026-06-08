@@ -396,15 +396,17 @@ async def update_user(
     if data.role is not None:
         changed["role"] = {"old": user.role.value, "new": data.role.value}
         user.role = data.role
-    # Паспортные данные (водитель) — для доверенности М-2
-    if data.passport_series is not None:
-        user.passport_series = data.passport_series or None
-    if data.passport_number is not None:
-        user.passport_number = data.passport_number or None
-    if data.passport_issued_by is not None:
-        user.passport_issued_by = data.passport_issued_by or None
-    if data.passport_issued_at is not None:
-        user.passport_issued_at = data.passport_issued_at
+    # Паспортные данные (водитель) — для доверенности М-2. Вносит только
+    # менеджер/админ: иначе клиент мог бы подсунуть произвольный паспорт в юр-документ.
+    if actor.role in (UserRole.ADMIN, UserRole.MANAGER):
+        if data.passport_series is not None:
+            user.passport_series = data.passport_series or None
+        if data.passport_number is not None:
+            user.passport_number = data.passport_number or None
+        if data.passport_issued_by is not None:
+            user.passport_issued_by = data.passport_issued_by or None
+        if data.passport_issued_at is not None:
+            user.passport_issued_at = data.passport_issued_at
 
     # Деактивация или смена роли должны немедленно отрезать активные access-токены
     # (прочие сервисы не перечитывают User из БД).

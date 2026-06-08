@@ -35,6 +35,27 @@ router = APIRouter(prefix="/zones", tags=["zones"])
 
 AdminDep = Annotated[TokenUser, Depends(require_roles(ROLE_ADMIN))]
 
+# Per-user rate-limit для suggest-address — защита квоты DaData от спама.
+_SUGGEST_RL_LIMIT = 60     # запросов
+_SUGGEST_RL_WINDOW = 60    # за N секунд
+
+
+async def _suggest_rate_ok(user_id) -> bool:
+    """Fixed-window лимит на пользователя через Redis. Fail-open при ошибке Redis."""
+    import redis.asyncio as aioredis
+    from app.config import get_settings
+    r = aioredis.from_url(get_settings().redis_url, decode_responses=True)
+    try:
+        key = f"rl:suggest:{user_id}"
+        n = await r.incr(key)
+        if n == 1:
+            await r.expire(key, _SUGGEST_RL_WINDOW)
+        return n <= _SUGGEST_RL_LIMIT
+    except Exception:
+        return True
+    finally:
+        await r.aclose()
+
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -151,7 +172,7 @@ async def resolve_zone(
 
 @router.get("/suggest-address", response_model=list[AddressSuggestion])
 async def suggest_address_endpoint(
-    _: CurrentUser,
+    current_user: CurrentUser,
     q: str = Query(..., min_length=1, max_length=200, description="Строка адреса для автодополнения"),
     level: str = Query("full", description="Уровень подсказки: full|city|street|house"),
     parent_fias: str | None = Query(None, description="FIAS родительского объекта (для street/house)"),
@@ -165,6 +186,10 @@ async def suggest_address_endpoint(
     level=house  — дом внутри street parent_fias.
     Возвращает [] если токен не настроен или обязательные параметры отсутствуют.
     """
+    if not await _suggest_rate_ok(current_user.id):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="Слишком много запросов адреса, подождите минуту")
+
     if level == "full":
         suggestions = await suggest_address(q)
         return [
@@ -197,7 +222,9 @@ async def suggest_address_endpoint(
         return result
 
     if level == "street":
-        if not parent_fias or not parent_kind:
+        # parent_kind подставляется ключом в DaData locations → строгий allowlist,
+        # чтобы нельзя было инжектить произвольные ключи (region/postal_code и т.п.).
+        if not parent_fias or parent_kind not in ("city", "settlement"):
             return []
         raw = await suggest_address_bounded(
             q,

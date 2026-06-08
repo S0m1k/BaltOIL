@@ -45,6 +45,7 @@ async def update(
 async def create_or_update(
     data: LegalEntityCreate,
     actor: CurrentUser,
+    _: AdminOnly,
     db: AsyncSession = Depends(get_db),
 ):
     """Создать новую версию реквизитов (текущая архивируется).
@@ -59,6 +60,7 @@ async def create_or_update(
 @router.get("/history", response_model=list[LegalEntityResponse])
 async def get_history(
     actor: CurrentUser,
+    _: AdminOnly,
     db: AsyncSession = Depends(get_db),
 ):
     """История всех версий реквизитов (от новых к старым)."""

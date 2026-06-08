@@ -25,10 +25,15 @@ _OTP_TTL = 300           # code valid for 5 minutes
 _RL_MIN_INTERVAL = 60    # minimum seconds between consecutive sends
 _RL_HOUR_CAP = 5         # max sends per hour per (phone, purpose)
 _RL_HOUR_TTL = 3600      # hour window TTL
+_MAX_VERIFY_ATTEMPTS = 5  # wrong guesses per live code before it's invalidated
 
 
 def _code_key(purpose: str, phone: str) -> str:
     return f"otp:{purpose}:{phone}"
+
+
+def _fail_key(purpose: str, phone: str) -> str:
+    return f"otp:fail:{purpose}:{phone}"
 
 
 def _rl_last_key(purpose: str, phone: str) -> str:
@@ -99,15 +104,32 @@ async def verify_code(purpose: str, phone: str, code: str) -> bool:
     """
     r = await _get_redis()
     try:
-        stored = await r.get(_code_key(purpose, phone))
+        code_key = _code_key(purpose, phone)
+        fail_key = _fail_key(purpose, phone)
+
+        # Anti-brute-force: после _MAX_VERIFY_ATTEMPTS промахов код инвалидируется,
+        # нужен новый запрос (issue ограничен 5/час). 6-значный код подобрать нельзя.
+        fails = await r.get(fail_key)
+        if fails and int(fails) >= _MAX_VERIFY_ATTEMPTS:
+            await r.delete(code_key)
+            log.warning("otp.verify_code: too many attempts purpose=%s phone=%s", purpose, phone)
+            return False
+
+        stored = await r.get(code_key)
         if not stored:
             return False
         # Constant-time compare — both strings are short ASCII digits,
         # encode to bytes as required by hmac.compare_digest.
         if not hmac.compare_digest(stored.encode(), code.strip().encode()):
+            # Считаем промах; TTL счётчика = TTL кода, чтобы не копился вечно.
+            async with r.pipeline(transaction=True) as pipe:
+                pipe.incr(fail_key)
+                pipe.expire(fail_key, _OTP_TTL)
+                await pipe.execute()
             return False
-        # Correct code — delete immediately to prevent replay
-        await r.delete(_code_key(purpose, phone))
+        # Correct code — delete code + fail counter to prevent replay/lockout carryover
+        await r.delete(code_key)
+        await r.delete(fail_key)
         log.info("otp.verify_code: verified purpose=%s phone=%s", purpose, phone)
         return True
 

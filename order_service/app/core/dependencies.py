@@ -59,6 +59,7 @@ def require_roles(*roles: str):
 
 
 def get_request_meta(request: Request) -> dict:
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    ip = forwarded_for.split(",")[0].strip() if forwarded_for else request.client.host
+    # X-Real-IP проставляет nginx ($remote_addr) — клиент не подделает.
+    # X-Forwarded-For не используем: его первый элемент клиент-управляем (спуф IP в аудите).
+    ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else None)
     return {"ip_address": ip, "user_agent": request.headers.get("User-Agent")}

@@ -31,6 +31,24 @@ class ClientContext:
     delivery_coefficient: float = 1.0  # multiplier for delivery cost
 
 
+_COEF_MIN = 0.0
+_COEF_MAX = 10.0
+
+
+def _clamp_coef(raw, label: str, client_id) -> float:
+    """Зажать коэффициент в [0, 10]. Защита от отрицательной/абсурдной цены
+    при порче данных или ошибке админ-правки. Дефолт 1.0."""
+    try:
+        v = float(raw) if raw is not None else 1.0
+    except (TypeError, ValueError):
+        v = 1.0
+    if v < _COEF_MIN or v > _COEF_MAX:
+        log.warning("client %s: %s_coefficient=%s out of [%.1f,%.1f] — clamped",
+                    client_id, label, v, _COEF_MIN, _COEF_MAX)
+        v = min(max(v, _COEF_MIN), _COEF_MAX)
+    return v
+
+
 async def get_client_context(client_id: uuid.UUID) -> ClientContext:
     """Fetch client profile context from auth_service internal endpoint."""
     url = f"{AUTH_SERVICE_URL}/api/v1/internal/clients/{client_id}/context"
@@ -58,8 +76,8 @@ async def get_client_context(client_id: uuid.UUID) -> ClientContext:
             credit_allowed=data["credit_allowed"],
             tariff_id=uuid.UUID(data["tariff_id"]) if data.get("tariff_id") else None,
             credit_limit=Decimal(str(data["credit_limit"])) if data.get("credit_limit") is not None else None,
-            fuel_coefficient=float(data.get("fuel_coefficient") or 1.0),
-            delivery_coefficient=float(data.get("delivery_coefficient") or 1.0),
+            fuel_coefficient=_clamp_coef(data.get("fuel_coefficient"), "fuel", client_id),
+            delivery_coefficient=_clamp_coef(data.get("delivery_coefficient"), "delivery", client_id),
         )
     except HTTPException:
         raise
