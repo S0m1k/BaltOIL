@@ -8282,7 +8282,7 @@ function renderTariffsList(tariffs) {
             onclick="setDefaultTariff('${t.id}')">Сделать базовым</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)"
             onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
-        ${isStaff && !t.is_default ? `
+        ${isStaff && !t.is_archived ? `
           <button class="btn btn-sm btn-ghost" onclick="promptEditTariff('${t.id}')">Редактировать</button>` : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
