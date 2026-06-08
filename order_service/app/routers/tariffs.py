@@ -59,6 +59,7 @@ async def create_tariff(
         fuel_prices=[fp.model_dump() for fp in data.fuel_prices],
         volume_tiers=[t.model_dump() for t in data.volume_tiers],
         client_type=data.client_type,
+        base_delivery_cost=data.base_delivery_cost,
     )
 
 
@@ -79,6 +80,7 @@ async def update_tariff(
         volume_tiers=[t.model_dump() for t in data.volume_tiers],
         client_type=data.client_type,
         _client_type_set=client_type_set,
+        base_delivery_cost=data.base_delivery_cost,
     )
 
 

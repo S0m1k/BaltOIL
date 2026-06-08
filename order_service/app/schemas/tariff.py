@@ -23,6 +23,8 @@ class TariffCreateRequest(BaseModel):
     volume_tiers: list[VolumeTierIn] = Field(default_factory=list)
     # individual | company | None
     client_type: str | None = None
+    # Стоимость доставки за литр, ₽ (умножается на коэффициент зоны и клиента)
+    base_delivery_cost: Decimal = Field(Decimal("0"), ge=0, decimal_places=2)
 
 
 class TariffUpdateRequest(BaseModel):
@@ -32,6 +34,7 @@ class TariffUpdateRequest(BaseModel):
     volume_tiers: list[VolumeTierIn] = Field(default_factory=list)
     # When present (even if None), admin may update client_type
     client_type: str | None = Field(default=None)
+    base_delivery_cost: Decimal | None = Field(None, ge=0, decimal_places=2)
 
 
 class FuelPriceResponse(BaseModel):
@@ -56,6 +59,7 @@ class TariffResponse(BaseModel):
     is_default: bool
     description: str | None
     is_archived: bool
+    base_delivery_cost: Decimal
     client_type: str | None = None
     fuel_prices: list[FuelPriceResponse]
     volume_tiers: list[VolumeTierResponse]

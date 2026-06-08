@@ -132,6 +132,7 @@ async def create_tariff(
     volume_tiers: list[dict],
     description: str | None = None,
     client_type: str | None = None,
+    base_delivery_cost: Decimal = Decimal("0"),
 ) -> Tariff:
     _check_admin(actor)
     _validate_fuel_prices(fuel_prices)
@@ -150,6 +151,7 @@ async def create_tariff(
         description=description,
         is_default=False,
         client_type=client_type,
+        base_delivery_cost=Decimal(str(base_delivery_cost)),
         created_by_id=actor.id,
     )
     db.add(tariff)
@@ -184,6 +186,7 @@ async def update_tariff(
     description: str | None = None,
     client_type: str | None = None,
     _client_type_set: bool = False,
+    base_delivery_cost: Decimal | None = None,
 ) -> Tariff:
     tariff = await _load_tariff(db, tariff_id)
 
@@ -208,6 +211,9 @@ async def update_tariff(
 
     if description is not None:
         tariff.description = description
+
+    if base_delivery_cost is not None:
+        tariff.base_delivery_cost = Decimal(str(base_delivery_cost))
 
     # client_type: only admin can change it; _client_type_set=True means caller sent the field
     if _client_type_set:
