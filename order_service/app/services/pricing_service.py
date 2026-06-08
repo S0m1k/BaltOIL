@@ -67,18 +67,44 @@ async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
     return result.scalar_one_or_none()
 
 
+def compute_delivery_cost(
+    rate_per_liter,
+    volume: float,
+    zone_coef,
+    delivery_coefficient: float = 1.0,
+) -> "Decimal | None":
+    """Compute delivery cost = rate_per_liter × volume × zone_coef × delivery_coefficient.
+
+    Returns None if rate_per_liter is None or 0 (delivery cost not configured).
+    """
+    if rate_per_liter is None:
+        return None
+    rate = Decimal(str(rate_per_liter))
+    if rate == Decimal("0"):
+        return None
+    return (
+        rate
+        * Decimal(str(volume))
+        * Decimal(str(zone_coef))
+        * Decimal(str(delivery_coefficient))
+    ).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
 async def compute_price_breakdown(
     db: AsyncSession,
     fuel_type: str,
     volume: float,
     tariff_id: uuid.UUID | None,
     client_type: str | None = None,
+    fuel_coefficient: float = 1.0,
 ) -> dict:
     """Return a detailed price breakdown dict (no DB writes).
 
     Keys: tariff_found, price_per_liter, discount_pct, effective_price_per_liter,
           fuel_subtotal, base_delivery_cost.
     All money values are Decimal | None; discount_pct is Decimal (0 if none).
+    fuel_coefficient multiplies the effective price (per-client fuel price adjustment).
+    base_delivery_cost is the per-liter delivery rate (₽/л) stored on the tariff.
     """
     tariff = (
         await get_tariff(db, tariff_id)
@@ -112,6 +138,7 @@ async def compute_price_breakdown(
 
     price = Decimal(str(price_row.price_per_liter))
     vol = Decimal(str(volume))
+    fc = Decimal(str(fuel_coefficient))
 
     discount_pct = Decimal("0")
     for tier in sorted(tariff.volume_tiers, key=lambda t: t.min_volume, reverse=True):
@@ -119,7 +146,7 @@ async def compute_price_breakdown(
             discount_pct = Decimal(str(tier.discount_pct))
             break
 
-    effective_price = price * (1 - discount_pct / 100)
+    effective_price = price * (1 - discount_pct / 100) * fc
     fuel_subtotal = (effective_price * vol).quantize(_CENT, rounding=ROUND_HALF_UP)
     base_delivery_cost = Decimal(str(tariff.base_delivery_cost)) if tariff.base_delivery_cost else None
 
@@ -139,8 +166,12 @@ async def compute_expected_amount(
     volume: float,
     tariff_id: uuid.UUID | None,
     client_type: str | None = None,
+    fuel_coefficient: float = 1.0,
 ) -> Decimal | None:
-    """Return computed expected_amount or None if tariff is not configured."""
+    """Return computed expected_amount (fuel only) or None if tariff is not configured.
+
+    fuel_coefficient multiplies the effective price per liter (per-client adjustment).
+    """
     tariff = (
         await get_tariff(db, tariff_id)
         if tariff_id
@@ -165,6 +196,7 @@ async def compute_expected_amount(
 
     price = Decimal(str(price_row.price_per_liter))
     vol = Decimal(str(volume))
+    fc = Decimal(str(fuel_coefficient))
 
     # Pick the best (highest applicable) discount tier
     discount_pct = Decimal("0")
@@ -173,5 +205,5 @@ async def compute_expected_amount(
             discount_pct = Decimal(str(tier.discount_pct))
             break
 
-    effective_price = price * (1 - discount_pct / 100)
+    effective_price = price * (1 - discount_pct / 100) * fc
     return (effective_price * vol).quantize(_CENT, rounding=ROUND_HALF_UP)

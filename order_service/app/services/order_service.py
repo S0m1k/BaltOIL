@@ -26,7 +26,7 @@ from app.services import document_service
 from app.services import contract_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
-from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, get_tariff, get_default_tariff
+from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
 from app.core.events import publish_order_event
 
@@ -218,7 +218,7 @@ async def preview_price(
         client_id = actor.id
 
     ctx = await get_client_context(client_id)
-    bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type)
+    bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
 
@@ -232,10 +232,12 @@ async def preview_price(
             if zone_info:
                 zone_name = zone_info["name"]
                 zone_cost_coefficient = float(zone_info["cost_coefficient"])
-                if bd["base_delivery_cost"] is not None:
-                    delivery_cost = (
-                        bd["base_delivery_cost"] * _Decimal(str(zone_info["cost_coefficient"]))
-                    ).quantize(_Decimal("0.01"))
+                delivery_cost = compute_delivery_cost(
+                    bd["base_delivery_cost"],
+                    data.volume,
+                    zone_info["cost_coefficient"],
+                    ctx.delivery_coefficient,
+                )
     except Exception as exc:
         log.warning("preview_price: zone resolution failed (non-fatal): %s", exc)
 
@@ -334,7 +336,8 @@ async def create_order(
 
     # Compute expected_amount from tariff (None if tariff not configured — non-fatal)
     expected_amount = await compute_expected_amount(
-        db, data.fuel_type, data.volume_requested, ctx.tariff_id, ctx.client_type
+        db, data.fuel_type, data.volume_requested, ctx.tariff_id, ctx.client_type,
+        ctx.fuel_coefficient,
     )
 
     # Зональная стоимость доставки — fail-open (не блокирует создание заявки)
@@ -351,18 +354,22 @@ async def create_order(
                 resolved_zone_id = uuid.UUID(zone_info["zone_id"])
                 resolved_zone_name = zone_info["name"]
                 coef = zone_info["cost_coefficient"]
-                # Fetch tariff to read base_delivery_cost
-                from decimal import Decimal as _Decimal
+                # Fetch tariff to read base_delivery_cost (per-liter rate)
                 tariff = (
                     await get_tariff(db, ctx.tariff_id)
                     if ctx.tariff_id
                     else await get_default_tariff(db, ctx.client_type)
                 )
-                if tariff is not None and tariff.base_delivery_cost:
-                    delivery_cost = (_Decimal(str(tariff.base_delivery_cost)) * _Decimal(str(coef))).quantize(_Decimal("0.01"))
+                if tariff is not None:
+                    delivery_cost = compute_delivery_cost(
+                        tariff.base_delivery_cost,
+                        data.volume_requested,
+                        coef,
+                        ctx.delivery_coefficient,
+                    )
+                if delivery_cost is not None:
                     if expected_amount is not None:
                         expected_amount = expected_amount + delivery_cost
-                    # If expected_amount was None, set it to just the delivery cost
                     else:
                         expected_amount = delivery_cost
         except Exception as exc:
@@ -713,7 +720,8 @@ async def transition_status(
         # Пересчитываем final_amount
         ctx = await get_client_context(order.client_id)
         recalc = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type
+            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
+            ctx.fuel_coefficient,
         )
         if recalc is not None:
             order.final_amount = recalc

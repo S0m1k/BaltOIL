@@ -27,6 +27,8 @@ class ClientContext:
     credit_allowed: bool
     tariff_id: uuid.UUID | None   # None → use default tariff
     credit_limit: Decimal | None  # None → no credit limit configured
+    fuel_coefficient: float = 1.0      # multiplier for fuel price
+    delivery_coefficient: float = 1.0  # multiplier for delivery cost
 
 
 async def get_client_context(client_id: uuid.UUID) -> ClientContext:
@@ -56,6 +58,8 @@ async def get_client_context(client_id: uuid.UUID) -> ClientContext:
             credit_allowed=data["credit_allowed"],
             tariff_id=uuid.UUID(data["tariff_id"]) if data.get("tariff_id") else None,
             credit_limit=Decimal(str(data["credit_limit"])) if data.get("credit_limit") is not None else None,
+            fuel_coefficient=float(data.get("fuel_coefficient") or 1.0),
+            delivery_coefficient=float(data.get("delivery_coefficient") or 1.0),
         )
     except HTTPException:
         raise

@@ -36,6 +36,8 @@ class ClientContextResponse(BaseModel):
     credit_allowed: bool
     tariff_id: uuid.UUID | None  # None → order_service uses default tariff
     credit_limit: Decimal | None  # None → no credit limit configured
+    fuel_coefficient: float     # multiplier for fuel price (default 1.0)
+    delivery_coefficient: float  # multiplier for delivery cost (default 1.0)
 
 
 @router.get(
@@ -61,6 +63,8 @@ async def get_client_context(
         credit_allowed=profile.credit_allowed,
         tariff_id=profile.tariff_id,
         credit_limit=profile.credit_limit,
+        fuel_coefficient=float(profile.fuel_coefficient),
+        delivery_coefficient=float(profile.delivery_coefficient),
     )
 
 

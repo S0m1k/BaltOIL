@@ -3832,8 +3832,29 @@ function initAddressAutocomplete() {
   });
   input.addEventListener('blur', () => {
     // Закрываем дропдаун с задержкой, чтобы успел отработать click по строке.
-    setTimeout(() => { document.getElementById('c-address-suggest').innerHTML = ''; }, 150);
+    setTimeout(() => {
+      document.getElementById('c-address-suggest').innerHTML = '';
+      // Если пользователь не выбрал подсказку — геокодируем введённый текст.
+      if (!_orderGeo && input.value.trim().length >= 5) {
+        geocodeTypedAddress(input.value.trim());
+      }
+    }, 150);
   });
+}
+
+async function geocodeTypedAddress(q) {
+  try {
+    const items = await deliveryGet(`/zones/suggest-address?q=${encodeURIComponent(q)}`);
+    const match = (items || []).find(s => s.lat != null && s.lon != null);
+    if (match) {
+      pickAddressSuggestion(match);
+    } else {
+      document.getElementById('c-address-zone').innerHTML =
+        'Адрес не распознан — стоимость доставки уточнит менеджер.';
+    }
+  } catch {
+    // fail-silent
+  }
 }
 
 async function fetchAddressSuggestions(q) {
@@ -3936,22 +3957,16 @@ function setClientMapMarker() {
   _cZoneMap.setView(latlng, 12);
 }
 
-function renderZonesLegend(baseDeliveryCost) {
+function renderZonesLegend() {
   const el = document.getElementById('c-zones-legend');
   if (!el) return;
   if (!_cZonesCache.length) { el.innerHTML = ''; return; }
   const rows = _cZonesCache.map((z, i) => {
     const color = ZONE_COLORS[i % ZONE_COLORS.length];
-    let costStr;
-    if (baseDeliveryCost != null) {
-      const cost = Number(baseDeliveryCost) * Number(z.cost_coefficient);
-      costStr = cost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
-    } else {
-      costStr = 'коэф. ×' + Number(z.cost_coefficient).toLocaleString('ru-RU');
-    }
+    const coefStr = '×' + Number(z.cost_coefficient).toLocaleString('ru-RU');
     return `<span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
       <span style="width:10px;height:10px;border-radius:2px;background:${color};flex-shrink:0"></span>
-      <span>${escHtml(z.name)} — ${costStr}</span>
+      <span>${escHtml(z.name)} — ${coefStr}</span>
     </span>`;
   }).join('');
   el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 0">${rows}</div>`;
@@ -3970,7 +3985,7 @@ async function _doPricePreview() {
   const volume = parseFloat(document.getElementById('c-volume')?.value);
   if (!fuel || !(volume > 0)) {
     previewEl.innerHTML = '';
-    renderZonesLegend(null);
+    renderZonesLegend();
     return;
   }
 
@@ -3979,7 +3994,7 @@ async function _doPricePreview() {
     const clientId = document.getElementById('c-client-id')?.value;
     if (!clientId) {
       previewEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:4px 0">Выберите клиента для расчёта цены</div>';
-      renderZonesLegend(null);
+      renderZonesLegend();
       return;
     }
   }
@@ -3993,7 +4008,7 @@ async function _doPricePreview() {
 
   try {
     const r = await orderPost('/orders/preview-price', body);
-    renderZonesLegend(r.base_delivery_cost);
+    renderZonesLegend();
 
     if (r.pricing_warning) {
       previewEl.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">Тариф не настроен — стоимость уточнит менеджер.</div>`;
@@ -4003,15 +4018,20 @@ async function _doPricePreview() {
     const fmt = x => x != null ? Number(x).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) : '—';
     const discountLine = (Number(r.discount_pct) > 0)
       ? ` <span style="color:var(--text3)">−${fmt(r.discount_pct)}% → ${fmt(r.effective_price_per_liter)} ₽/л</span>` : '';
-    const zoneLine = r.zone_name
-      ? `${escHtml(r.zone_name)} = ${fmt(r.delivery_cost)} ₽`
-      : `вне зон — уточнит менеджер`;
+    let zoneLine;
+    if (r.zone_name && r.delivery_cost != null) {
+      zoneLine = `Доставка (${escHtml(r.zone_name)}): ${fmt(r.delivery_cost)} ₽`;
+    } else if (r.zone_name) {
+      zoneLine = `Доставка (${escHtml(r.zone_name)}): ставка не задана`;
+    } else {
+      zoneLine = `вне зон — уточнит менеджер`;
+    }
 
     previewEl.innerHTML = `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7">
         <div>Цена топлива: <strong>${fmt(r.price_per_liter)} ₽/л</strong>${discountLine}</div>
         <div>Топливо: ${fmt(r.effective_price_per_liter)} × ${Number(r.volume).toLocaleString('ru-RU')} л = <strong>${fmt(r.fuel_subtotal)} ₽</strong></div>
-        <div>Доставка: ${zoneLine}</div>
+        <div>${zoneLine}</div>
         <div style="margin-top:4px;font-size:14px">Итого ≈ <strong>${fmt(r.total)} ₽</strong></div>
       </div>`;
   } catch (e) {
