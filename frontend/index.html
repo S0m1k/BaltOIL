@@ -3584,11 +3584,11 @@ async function initApp() {
   document.getElementById('tab-finance-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
-  // Tariffs — admin + manager; create button — admin only
+  // Tariffs — полный CRUD у admin + manager
   document.getElementById('tab-tariffs-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
   const btnCreateTariff = document.getElementById('btn-create-tariff');
-  if (btnCreateTariff) btnCreateTariff.style.display = role === 'admin' ? '' : 'none';
+  if (btnCreateTariff) btnCreateTariff.style.display = (role === 'admin' || role === 'manager') ? '' : 'none';
 
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
@@ -8266,7 +8266,7 @@ async function saveDefaultTariffPrices() {
 
 function renderTariffsList(tariffs) {
   const el = document.getElementById('tariffs-list');
-  const isAdmin = currentUser?.role === 'admin';
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   if (!tariffs.length) {
     el.innerHTML = '<div class="empty-state">Нет тарифов</div>';
     return;
@@ -8277,12 +8277,12 @@ function renderTariffsList(tariffs) {
         <span style="font-weight:600">${escHtml(t.name)}</span>
         ${t.is_default ? '<span class="status-badge" style="background:var(--green-bg);color:var(--green)">Базовый</span>' : ''}
         ${t.is_archived ? '<span class="status-badge" style="background:var(--bg3);color:var(--text3)">Архив</span>' : ''}
-        ${isAdmin && !t.is_default && !t.is_archived ? `
+        ${isStaff && !t.is_default && !t.is_archived ? `
           <button class="btn btn-sm btn-ghost" style="margin-left:auto"
             onclick="setDefaultTariff('${t.id}')">Сделать базовым</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)"
             onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
-        ${isAdmin && !t.is_default ? `
+        ${isStaff && !t.is_default ? `
           <button class="btn btn-sm btn-ghost" onclick="promptEditTariff('${t.id}')">Редактировать</button>` : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">

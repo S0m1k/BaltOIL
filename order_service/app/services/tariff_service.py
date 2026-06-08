@@ -1,9 +1,8 @@
 """Tariff CRUD service.
 
 Access rules (enforced here, not in the router):
-- Listing / reading tariffs:  manager, admin
-- Editing default tariff prices+tiers: manager, admin
-- Creating / archiving / set-default / editing non-default: admin only
+- Full CRUD по всем тарифам (создание, правка любых, архив, set-default,
+  переименование, смена client_type): manager, admin.
 """
 import uuid
 from datetime import datetime, timezone
@@ -27,11 +26,6 @@ _STAFF = {_ADMIN, _MANAGER}
 _VALID_FUEL_TYPES = {
     "DIESEL_SUMMER", "DIESEL_WINTER", "PETROL_92", "PETROL_95", "FUEL_OIL"
 }
-
-
-def _check_admin(actor: TokenUser) -> None:
-    if actor.role != _ADMIN:
-        raise ForbiddenError("Только администратор может выполнять это действие")
 
 
 def _check_staff(actor: TokenUser) -> None:
@@ -134,7 +128,7 @@ async def create_tariff(
     client_type: str | None = None,
     base_delivery_cost: Decimal = Decimal("0"),
 ) -> Tariff:
-    _check_admin(actor)
+    _check_staff(actor)
     _validate_fuel_prices(fuel_prices)
     _validate_tiers(volume_tiers)
     if client_type not in _VALID_CLIENT_TYPES:
@@ -193,17 +187,13 @@ async def update_tariff(
     if tariff.is_archived:
         raise ValidationError("Нельзя редактировать архивный тариф")
 
-    # Manager may only edit the default tariff
-    if actor.role == _MANAGER and not tariff.is_default:
-        raise ForbiddenError("Менеджер может редактировать только базовый тариф")
-    if actor.role not in _STAFF:
-        raise ForbiddenError("Доступно только менеджеру или администратору")
+    _check_staff(actor)
 
     _validate_fuel_prices(fuel_prices)
     _validate_tiers(volume_tiers)
 
     if name and name != tariff.name:
-        _check_admin(actor)  # only admin can rename
+        _check_staff(actor)
         existing = await db.execute(select(Tariff).where(Tariff.name == name, Tariff.id != tariff_id))
         if existing.scalar_one_or_none():
             raise ValidationError(f"Тариф с именем «{name}» уже существует")
@@ -215,9 +205,9 @@ async def update_tariff(
     if base_delivery_cost is not None:
         tariff.base_delivery_cost = Decimal(str(base_delivery_cost))
 
-    # client_type: only admin can change it; _client_type_set=True means caller sent the field
+    # client_type: staff may change it; _client_type_set=True means caller sent the field
     if _client_type_set:
-        _check_admin(actor)
+        _check_staff(actor)
         if client_type not in _VALID_CLIENT_TYPES:
             raise ValidationError("client_type должен быть 'individual', 'company' или null")
         tariff.client_type = client_type
@@ -255,7 +245,7 @@ async def set_default_tariff(
     tariff_id: uuid.UUID,
     actor: TokenUser,
 ) -> Tariff:
-    _check_admin(actor)
+    _check_staff(actor)
     tariff = await _load_tariff(db, tariff_id)
 
     if tariff.is_archived:
@@ -283,7 +273,7 @@ async def archive_tariff(
     tariff_id: uuid.UUID,
     actor: TokenUser,
 ) -> Tariff:
-    _check_admin(actor)
+    _check_staff(actor)
     tariff = await _load_tariff(db, tariff_id)
 
     if tariff.is_default:
