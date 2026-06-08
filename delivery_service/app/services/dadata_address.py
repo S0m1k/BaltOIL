@@ -63,3 +63,79 @@ async def suggest_address(query: str) -> list[dict]:
     except Exception as exc:
         log.warning("dadata suggest_address unexpected error: %s", exc)
         return []
+
+
+async def suggest_address_bounded(
+    query: str,
+    from_bound: str,
+    to_bound: str,
+    locations: list[dict],
+    restrict_value: bool = True,
+) -> list[dict]:
+    """Bounded suggest — возвращает подсказки с ограничением уровня и региона.
+
+    Каждый элемент: {value, full_value, lat, lon, city_fias_id,
+                     settlement_fias_id, street_fias_id, fias_id}.
+    lat/lon — float или None. FIAS-поля — str или None.
+    """
+    settings = get_settings()
+    api_key = settings.dadata_api_key
+    if not api_key:
+        return []
+
+    query = query[:_MAX_QUERY_LEN].strip()
+    if not query:
+        return []
+
+    payload: dict = {
+        "query": query,
+        "count": 10,
+        "from_bound": {"value": from_bound},
+        "to_bound": {"value": to_bound},
+        "restrict_value": restrict_value,
+        "locations": locations,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                _DADATA_URL,
+                json=payload,
+                headers={
+                    "Authorization": f"Token {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+        if resp.status_code != 200:
+            log.warning("dadata suggest_address_bounded returned %s", resp.status_code)
+            return []
+
+        suggestions = resp.json().get("suggestions", [])
+        result = []
+        for s in suggestions:
+            value = s.get("value", "")
+            full_value = s.get("unrestricted_value") or value
+            data = s.get("data") or {}
+            lat_str = data.get("geo_lat")
+            lon_str = data.get("geo_lon")
+            lat = float(lat_str) if lat_str else None
+            lon = float(lon_str) if lon_str else None
+            result.append({
+                "value": value,
+                "full_value": full_value,
+                "lat": lat,
+                "lon": lon,
+                "city_fias_id": data.get("city_fias_id"),
+                "settlement_fias_id": data.get("settlement_fias_id"),
+                "street_fias_id": data.get("street_fias_id"),
+                "fias_id": data.get("fias_id"),
+            })
+        return result
+
+    except httpx.HTTPError as exc:
+        log.warning("dadata suggest_address_bounded HTTPError: %s", exc)
+        return []
+    except Exception as exc:
+        log.warning("dadata suggest_address_bounded unexpected error: %s", exc)
+        return []

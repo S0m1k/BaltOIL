@@ -23,9 +23,13 @@ from app.core.dependencies import (
     require_roles,
 )
 from app.services import zone_service
-from app.services.dadata_address import suggest_address
+from app.services.dadata_address import suggest_address, suggest_address_bounded
 
 log = logging.getLogger(__name__)
+
+# Регион FIAS: Санкт-Петербург и Ленинградская область
+SPB_REGION_FIAS = "c2deb16a-0330-4f05-821f-1d09c93331e6"
+LO_REGION_FIAS = "6d1ebb35-70c6-4129-bd55-da3969658f5d"
 
 router = APIRouter(prefix="/zones", tags=["zones"])
 
@@ -73,6 +77,9 @@ class AddressSuggestion(BaseModel):
     value: str
     lat: float | None
     lon: float | None
+    full_value: str | None = None
+    fias: str | None = None
+    kind: str | None = None
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -146,10 +153,91 @@ async def resolve_zone(
 async def suggest_address_endpoint(
     _: CurrentUser,
     q: str = Query(..., min_length=1, max_length=200, description="Строка адреса для автодополнения"),
+    level: str = Query("full", description="Уровень подсказки: full|city|street|house"),
+    parent_fias: str | None = Query(None, description="FIAS родительского объекта (для street/house)"),
+    parent_kind: str | None = Query(None, description="Тип родителя: city|settlement|street (для street)"),
 ):
-    """Автодополнение адреса через DaData. Возвращает [] если токен не настроен."""
-    suggestions = await suggest_address(q)
-    return [
-        AddressSuggestion(value=s["value"], lat=s["lat"], lon=s["lon"])
-        for s in suggestions
-    ]
+    """Автодополнение адреса через DaData.
+
+    level=full (по умолч.) — полный адрес, обратная совместимость.
+    level=city  — город/нас.пункт в СПб + Ленобласти.
+    level=street — улица внутри parent_fias (parent_kind обязателен).
+    level=house  — дом внутри street parent_fias.
+    Возвращает [] если токен не настроен или обязательные параметры отсутствуют.
+    """
+    if level == "full":
+        suggestions = await suggest_address(q)
+        return [
+            AddressSuggestion(value=s["value"], lat=s["lat"], lon=s["lon"])
+            for s in suggestions
+        ]
+
+    if level == "city":
+        raw = await suggest_address_bounded(
+            q,
+            from_bound="city",
+            to_bound="settlement",
+            locations=[
+                {"region_fias_id": SPB_REGION_FIAS},
+                {"region_fias_id": LO_REGION_FIAS},
+            ],
+        )
+        result = []
+        for s in raw:
+            fias = s.get("settlement_fias_id") or s.get("city_fias_id")
+            kind = "settlement" if s.get("settlement_fias_id") else "city"
+            result.append(AddressSuggestion(
+                value=s["value"],
+                full_value=s["full_value"],
+                lat=s["lat"],
+                lon=s["lon"],
+                fias=fias,
+                kind=kind,
+            ))
+        return result
+
+    if level == "street":
+        if not parent_fias or not parent_kind:
+            return []
+        raw = await suggest_address_bounded(
+            q,
+            from_bound="street",
+            to_bound="street",
+            locations=[{f"{parent_kind}_fias_id": parent_fias}],
+        )
+        result = []
+        for s in raw:
+            result.append(AddressSuggestion(
+                value=s["value"],
+                full_value=s["full_value"],
+                lat=s["lat"],
+                lon=s["lon"],
+                fias=s.get("street_fias_id"),
+                kind="street",
+            ))
+        return result
+
+    if level == "house":
+        if not parent_fias:
+            return []
+        raw = await suggest_address_bounded(
+            q,
+            from_bound="house",
+            to_bound="house",
+            locations=[{"street_fias_id": parent_fias}],
+            restrict_value=False,
+        )
+        result = []
+        for s in raw:
+            result.append(AddressSuggestion(
+                value=s["value"],
+                full_value=s["full_value"],
+                lat=s["lat"],
+                lon=s["lon"],
+                fias=s.get("fias_id"),
+                kind="house",
+            ))
+        return result
+
+    # Неизвестный level — деградация
+    return []

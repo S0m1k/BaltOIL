@@ -203,13 +203,13 @@
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   /* Дропдаун автоподсказок адреса (DaData) */
-  #c-address-suggest {
+  .addr-suggest {
     position: absolute; left: 0; right: 0; z-index: 50;
     background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
     margin-top: 4px; max-height: 280px; overflow-y: auto;
     box-shadow: 0 8px 24px rgba(0,0,0,.25);
   }
-  #c-address-suggest:empty { display: none; }
+  .addr-suggest:empty { display: none; }
   .addr-suggest-row {
     padding: 9px 14px; font-size: 14px; color: var(--text); cursor: pointer;
     border-bottom: 1px solid var(--border);
@@ -1932,10 +1932,26 @@
           </div>
         </div>
 
-        <div class="form-group" style="position:relative">
-          <label class="form-label">Адрес доставки</label>
-          <input type="text" id="c-address" class="form-input" placeholder="г. Санкт-Петербург, ул. Примерная, д. 1" autocomplete="off">
-          <div id="c-address-suggest"></div>
+        <div class="form-group">
+          <label class="form-label">Город</label>
+          <div style="position:relative">
+            <input type="text" id="c-addr-city" class="form-input" placeholder="Санкт-Петербург" autocomplete="off">
+            <div id="c-addr-city-suggest" class="addr-suggest"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Улица</label>
+          <div style="position:relative">
+            <input type="text" id="c-addr-street" class="form-input" placeholder="Невский проспект" autocomplete="off" disabled>
+            <div id="c-addr-street-suggest" class="addr-suggest"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Дом</label>
+          <div style="position:relative">
+            <input type="text" id="c-addr-house" class="form-input" placeholder="1" autocomplete="off" disabled>
+            <div id="c-addr-house-suggest" class="addr-suggest"></div>
+          </div>
           <div id="c-address-zone" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
           <div id="c-zone-map" style="height:240px;border-radius:8px;overflow:hidden;margin-top:8px;display:none"></div>
           <div id="c-price-preview" style="margin-top:8px"></div>
@@ -3812,79 +3828,163 @@ async function deleteZone(id, name) {
 // ═══════════════════════════════════════════════════════════════
 // АДРЕС ДОСТАВКИ — автоподсказки DaData + предпросмотр зоны
 // ═══════════════════════════════════════════════════════════════
-// Координаты выбранного из подсказки адреса. null, если адрес введён
-// вручную или не содержит геокодинга — тогда координаты не отправляем.
+// Координаты выбранного дома (из подсказки DaData). null → не отправляем.
 let _orderGeo = null;
-let _addrDebounce = null;
+// Полный адрес строкой (из unrestricted_value дома). '' → собираем из полей.
+let _orderAddress = '';
+// Состояние каскада: выбранный город и улица.
+let _addrCity = null;   // { value, fias, kind }
+let _addrStreet = null; // { value, fias }
+// Таймеры дебаунса для каждого поля.
+let _addrDebounceCity = null;
+let _addrDebounceStreet = null;
+let _addrDebounceHouse = null;
+
+function _renderAddrSuggest(boxId, items, onPick) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  if (!items || !items.length) { box.innerHTML = ''; return; }
+  box.innerHTML = items.slice(0, 10).map((s, i) =>
+    `<div class="addr-suggest-row" data-idx="${i}">${escHtml(s.value)}</div>`
+  ).join('');
+  box.querySelectorAll('.addr-suggest-row').forEach(row => {
+    row.addEventListener('mousedown', ev => {
+      ev.preventDefault();
+      onPick(items[+row.dataset.idx]);
+    });
+  });
+}
+
+function _clearAddrSuggest(boxId) {
+  const box = document.getElementById(boxId);
+  if (box) box.innerHTML = '';
+}
 
 function initAddressAutocomplete() {
-  const input = document.getElementById('c-address');
-  if (!input || input.dataset.acWired) return;
-  input.dataset.acWired = '1';
-  input.addEventListener('input', () => {
-    // Любая ручная правка адреса сбрасывает ранее выбранные координаты.
+  const cityInput   = document.getElementById('c-addr-city');
+  const streetInput = document.getElementById('c-addr-street');
+  const houseInput  = document.getElementById('c-addr-house');
+  if (!cityInput || cityInput.dataset.acWired) return;
+  cityInput.dataset.acWired = '1';
+
+  // ── Город ──────────────────────────────────────────────────────────────────
+  cityInput.addEventListener('input', () => {
+    // Ручная правка города сбрасывает всё ниже.
+    _addrCity = null;
+    _addrStreet = null;
     _orderGeo = null;
+    _orderAddress = '';
+    streetInput.value = '';
+    streetInput.disabled = true;
+    houseInput.value = '';
+    houseInput.disabled = true;
+    _clearAddrSuggest('c-addr-street-suggest');
+    _clearAddrSuggest('c-addr-house-suggest');
     document.getElementById('c-address-zone').innerHTML = '';
-    const q = input.value.trim();
-    clearTimeout(_addrDebounce);
-    if (q.length < 3) { document.getElementById('c-address-suggest').innerHTML = ''; return; }
-    _addrDebounce = setTimeout(() => fetchAddressSuggestions(q), 300);
+    const q = cityInput.value.trim();
+    clearTimeout(_addrDebounceCity);
+    if (q.length < 2) { _clearAddrSuggest('c-addr-city-suggest'); return; }
+    _addrDebounceCity = setTimeout(async () => {
+      try {
+        const items = await deliveryGet(`/zones/suggest-address?q=${encodeURIComponent(q)}&level=city`);
+        _renderAddrSuggest('c-addr-city-suggest', items, item => {
+          cityInput.value = item.value;
+          _clearAddrSuggest('c-addr-city-suggest');
+          _addrCity = { value: item.value, fias: item.fias, kind: item.kind };
+          _addrStreet = null;
+          _orderGeo = null;
+          _orderAddress = '';
+          streetInput.value = '';
+          streetInput.disabled = false;
+          houseInput.value = '';
+          houseInput.disabled = true;
+          _clearAddrSuggest('c-addr-street-suggest');
+          _clearAddrSuggest('c-addr-house-suggest');
+          document.getElementById('c-address-zone').innerHTML = '';
+        });
+      } catch { _clearAddrSuggest('c-addr-city-suggest'); }
+    }, 300);
   });
-  input.addEventListener('blur', () => {
-    // Закрываем дропдаун с задержкой, чтобы успел отработать click по строке.
-    setTimeout(() => {
-      document.getElementById('c-address-suggest').innerHTML = '';
-      // Если пользователь не выбрал подсказку — геокодируем введённый текст.
-      if (!_orderGeo && input.value.trim().length >= 5) {
-        geocodeTypedAddress(input.value.trim());
-      }
-    }, 150);
+  cityInput.addEventListener('blur', () => {
+    setTimeout(() => _clearAddrSuggest('c-addr-city-suggest'), 150);
   });
-}
 
-async function geocodeTypedAddress(q) {
-  try {
-    const items = await deliveryGet(`/zones/suggest-address?q=${encodeURIComponent(q)}`);
-    const match = (items || []).find(s => s.lat != null && s.lon != null);
-    if (match) {
-      pickAddressSuggestion(match);
-    } else {
-      document.getElementById('c-address-zone').innerHTML =
-        'Адрес не распознан — стоимость доставки уточнит менеджер.';
-    }
-  } catch {
-    // fail-silent
-  }
-}
+  // ── Улица ──────────────────────────────────────────────────────────────────
+  streetInput.addEventListener('input', () => {
+    // Ручная правка улицы сбрасывает дом и координаты.
+    _addrStreet = null;
+    _orderGeo = null;
+    _orderAddress = '';
+    houseInput.value = '';
+    houseInput.disabled = true;
+    _clearAddrSuggest('c-addr-house-suggest');
+    document.getElementById('c-address-zone').innerHTML = '';
+    if (!_addrCity) return;
+    const q = streetInput.value.trim();
+    clearTimeout(_addrDebounceStreet);
+    if (q.length < 2) { _clearAddrSuggest('c-addr-street-suggest'); return; }
+    _addrDebounceStreet = setTimeout(async () => {
+      try {
+        const url = `/zones/suggest-address?q=${encodeURIComponent(q)}&level=street`
+          + `&parent_fias=${encodeURIComponent(_addrCity.fias)}`
+          + `&parent_kind=${encodeURIComponent(_addrCity.kind)}`;
+        const items = await deliveryGet(url);
+        _renderAddrSuggest('c-addr-street-suggest', items, item => {
+          streetInput.value = item.value;
+          _clearAddrSuggest('c-addr-street-suggest');
+          _addrStreet = { value: item.value, fias: item.fias };
+          _orderGeo = null;
+          _orderAddress = '';
+          houseInput.value = '';
+          houseInput.disabled = false;
+          _clearAddrSuggest('c-addr-house-suggest');
+          document.getElementById('c-address-zone').innerHTML = '';
+        });
+      } catch { _clearAddrSuggest('c-addr-street-suggest'); }
+    }, 300);
+  });
+  streetInput.addEventListener('blur', () => {
+    setTimeout(() => _clearAddrSuggest('c-addr-street-suggest'), 150);
+  });
 
-async function fetchAddressSuggestions(q) {
-  const box = document.getElementById('c-address-suggest');
-  try {
-    const items = await deliveryGet(`/zones/suggest-address?q=${encodeURIComponent(q)}`);
-    if (!items.length) { box.innerHTML = ''; return; }
-    box.innerHTML = items.slice(0, 10).map((s, i) =>
-      `<div class="addr-suggest-row" data-idx="${i}">${escHtml(s.value)}</div>`
-    ).join('');
-    // Сохраняем элементы, чтобы по индексу взять lat/lon при клике.
-    box.querySelectorAll('.addr-suggest-row').forEach(row => {
-      row.addEventListener('mousedown', ev => {
-        ev.preventDefault();
-        pickAddressSuggestion(items[+row.dataset.idx]);
-      });
-    });
-  } catch {
-    box.innerHTML = '';
-  }
-}
-
-function pickAddressSuggestion(s) {
-  document.getElementById('c-address').value = s.value;
-  document.getElementById('c-address-suggest').innerHTML = '';
-  _orderGeo = (s.lat != null && s.lon != null) ? { lat: s.lat, lon: s.lon } : null;
-  previewDeliveryZone();
-  initClientZoneMap().then(() => {
-    setClientMapMarker();
-    updatePricePreview();
+  // ── Дом ───────────────────────────────────────────────────────────────────
+  houseInput.addEventListener('input', () => {
+    // Ручная правка дома сбрасывает координаты и адрес.
+    _orderGeo = null;
+    _orderAddress = '';
+    document.getElementById('c-address-zone').innerHTML = '';
+    if (!_addrStreet) return;
+    const q = houseInput.value.trim();
+    clearTimeout(_addrDebounceHouse);
+    if (q.length < 1) { _clearAddrSuggest('c-addr-house-suggest'); return; }
+    _addrDebounceHouse = setTimeout(async () => {
+      try {
+        const url = `/zones/suggest-address?q=${encodeURIComponent(q)}&level=house`
+          + `&parent_fias=${encodeURIComponent(_addrStreet.fias)}`;
+        const items = await deliveryGet(url);
+        _renderAddrSuggest('c-addr-house-suggest', items, item => {
+          houseInput.value = item.value;
+          _clearAddrSuggest('c-addr-house-suggest');
+          // Полный адрес — из unrestricted_value, иначе склейка полей.
+          _orderAddress = item.full_value
+            || [
+                document.getElementById('c-addr-city').value.trim(),
+                document.getElementById('c-addr-street').value.trim(),
+                item.value,
+               ].filter(Boolean).join(', ');
+          _orderGeo = (item.lat != null && item.lon != null)
+            ? { lat: item.lat, lon: item.lon } : null;
+          previewDeliveryZone();
+          initClientZoneMap().then(() => {
+            setClientMapMarker();
+            updatePricePreview();
+          });
+        });
+      } catch { _clearAddrSuggest('c-addr-house-suggest'); }
+    }, 300);
+  });
+  houseInput.addEventListener('blur', () => {
+    setTimeout(() => _clearAddrSuggest('c-addr-house-suggest'), 150);
   });
 }
 
@@ -4791,10 +4891,23 @@ async function doCreateOrder() {
   errEl.innerHTML = '';
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
+  // Собираем адрес: приоритет unrestricted_value дома, иначе склейка полей.
+  const _addrFallback = [
+    document.getElementById('c-addr-city')?.value.trim(),
+    document.getElementById('c-addr-street')?.value.trim(),
+    document.getElementById('c-addr-house')?.value.trim(),
+  ].filter(Boolean).join(', ');
+  const resolvedAddress = _orderAddress || _addrFallback;
+
+  if (!resolvedAddress) {
+    errEl.innerHTML = '<div class="inline-error">Укажите адрес доставки (город, улица, дом)</div>';
+    return;
+  }
+
   const body = {
     fuel_type:        document.getElementById('c-fuel').value,
     volume_requested: parseFloat(document.getElementById('c-volume').value),
-    delivery_address: document.getElementById('c-address').value.trim(),
+    delivery_address: resolvedAddress,
     desired_date:     document.getElementById('c-date').value
                         ? new Date(document.getElementById('c-date').value + 'T00:00:00').toISOString()
                         : undefined,
@@ -4802,7 +4915,7 @@ async function doCreateOrder() {
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
   };
 
-  // Координаты прикладываем только если адрес выбран из подсказки с геокодингом.
+  // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
   if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
     body.delivery_lat = _orderGeo.lat;
     body.delivery_lon = _orderGeo.lon;
@@ -4845,11 +4958,20 @@ async function doCreateOrder() {
     toast(`Заявка ${order.order_number} создана!`);
     // Reset form
     document.getElementById('c-volume').value = '';
-    document.getElementById('c-address').value = '';
-    document.getElementById('c-comment').value = '';
+    document.getElementById('c-addr-city').value = '';
+    document.getElementById('c-addr-street').value = '';
+    document.getElementById('c-addr-house').value = '';
+    document.getElementById('c-addr-street').disabled = true;
+    document.getElementById('c-addr-house').disabled = true;
+    _addrCity = null;
+    _addrStreet = null;
     _orderGeo = null;
+    _orderAddress = '';
     document.getElementById('c-address-zone').innerHTML = '';
-    document.getElementById('c-address-suggest').innerHTML = '';
+    document.getElementById('c-addr-city-suggest').innerHTML = '';
+    document.getElementById('c-addr-street-suggest').innerHTML = '';
+    document.getElementById('c-addr-house-suggest').innerHTML = '';
+    document.getElementById('c-comment').value = '';
     document.getElementById('c-price-preview').innerHTML = '';
     document.getElementById('c-zones-legend').innerHTML = '';
     if (_cMarker && _cZoneMap) { _cZoneMap.removeLayer(_cMarker); _cMarker = null; }
