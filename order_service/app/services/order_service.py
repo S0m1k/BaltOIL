@@ -15,7 +15,7 @@ from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
-from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest
+from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest, PricePreviewRequest
 from app.services.order_number import generate_order_number
 from app.services.payment_service import (
     recompute_and_save,
@@ -26,7 +26,7 @@ from app.services import document_service
 from app.services import contract_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
-from app.services.pricing_service import compute_expected_amount, get_tariff, get_default_tariff
+from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
 from app.core.events import publish_order_event
 
@@ -201,6 +201,65 @@ async def list_orders(
     orders = list(result.scalars().all())
     await attach_payment_totals(db, orders)
     return orders
+
+
+async def preview_price(
+    db: AsyncSession,
+    data: PricePreviewRequest,
+    actor: TokenUser,
+) -> dict:
+    """Read-only price breakdown for the order create form. No DB writes."""
+    from decimal import Decimal as _Decimal
+    is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
+
+    if is_staff and data.client_id:
+        client_id = data.client_id
+    else:
+        client_id = actor.id
+
+    ctx = await get_client_context(client_id)
+    bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type)
+
+    pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
+
+    # Zone resolution — fail-open
+    zone_name = None
+    zone_cost_coefficient = None
+    delivery_cost = None
+    try:
+        if data.delivery_lat is not None and data.delivery_lon is not None:
+            zone_info = await resolve_zone(data.delivery_lat, data.delivery_lon)
+            if zone_info:
+                zone_name = zone_info["name"]
+                zone_cost_coefficient = float(zone_info["cost_coefficient"])
+                if bd["base_delivery_cost"] is not None:
+                    delivery_cost = (
+                        bd["base_delivery_cost"] * _Decimal(str(zone_info["cost_coefficient"]))
+                    ).quantize(_Decimal("0.01"))
+    except Exception as exc:
+        log.warning("preview_price: zone resolution failed (non-fatal): %s", exc)
+
+    fuel_subtotal = bd["fuel_subtotal"]
+    if fuel_subtotal is not None:
+        total = fuel_subtotal + (delivery_cost or _Decimal("0"))
+    else:
+        total = None
+        pricing_warning = True
+
+    return {
+        "fuel_type": data.fuel_type,
+        "volume": data.volume,
+        "price_per_liter": bd["price_per_liter"],
+        "discount_pct": bd["discount_pct"],
+        "effective_price_per_liter": bd["effective_price_per_liter"],
+        "fuel_subtotal": fuel_subtotal,
+        "zone_name": zone_name,
+        "zone_cost_coefficient": zone_cost_coefficient,
+        "base_delivery_cost": bd["base_delivery_cost"],
+        "delivery_cost": delivery_cost,
+        "total": total,
+        "pricing_warning": pricing_warning,
+    }
 
 
 async def create_order(

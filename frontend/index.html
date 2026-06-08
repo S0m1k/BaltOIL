@@ -1937,6 +1937,9 @@
           <input type="text" id="c-address" class="form-input" placeholder="г. Санкт-Петербург, ул. Примерная, д. 1" autocomplete="off">
           <div id="c-address-suggest"></div>
           <div id="c-address-zone" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
+          <div id="c-zone-map" style="height:240px;border-radius:8px;overflow:hidden;margin-top:8px;display:none"></div>
+          <div id="c-price-preview" style="margin-top:8px"></div>
+          <div id="c-zones-legend" style="margin-top:8px"></div>
         </div>
 
         <div class="form-group">
@@ -3026,6 +3029,18 @@ function _sessionExpired() {
   if (authS) authS.style.display = 'flex';
 }
 
+function _formatApiError(detail) {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(e => {
+      let msg = typeof e.msg === 'string' ? e.msg.replace(/^Value error,\s*/i, '') : JSON.stringify(e);
+      const loc = Array.isArray(e.loc) ? e.loc.filter(x => typeof x === 'string').pop() : null;
+      return loc ? `${loc}: ${msg}` : msg;
+    }).join('; ');
+  }
+  return JSON.stringify(detail);
+}
+
 async function api(url, opts = {}, _retry = false) {
   const token = localStorage.getItem('access_token');
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -3046,9 +3061,7 @@ async function api(url, opts = {}, _retry = false) {
   const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
 
   if (!res.ok) {
-    const msg = typeof data.detail === 'string'
-      ? data.detail
-      : JSON.stringify(data.detail);
+    const msg = _formatApiError(data.detail);
     throw new Error(msg);
   }
   return data;
@@ -3579,9 +3592,30 @@ async function initApp() {
   initNotifications();
   buildBurgerMenu();
   initAddressAutocomplete();
+  initCreateFormListeners();
   // Загружаем каталог топлива однократно — заполняет фильтры/селекты складского раздела
   loadFuelCatalog();
   switchTab('orders');
+}
+
+function initCreateFormListeners() {
+  const fuelEl = document.getElementById('c-fuel');
+  const volEl  = document.getElementById('c-volume');
+  const cidEl  = document.getElementById('c-client-id');
+  if (fuelEl && !fuelEl.dataset.priceWired) {
+    fuelEl.dataset.priceWired = '1';
+    fuelEl.addEventListener('change', updatePricePreview);
+  }
+  if (volEl && !volEl.dataset.priceWired) {
+    volEl.dataset.priceWired = '1';
+    volEl.addEventListener('input', updatePricePreview);
+  }
+  if (cidEl && !cidEl.dataset.priceWired) {
+    cidEl.dataset.priceWired = '1';
+    // Extend existing onchange: keep renderPaymentRadios, also update price
+    const origOnchange = cidEl.onchange;
+    cidEl.addEventListener('change', updatePricePreview);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3609,7 +3643,7 @@ function switchTab(tab) {
     b.classList.toggle('active', b.dataset.tab === tab));
 
   if (tab === 'orders')    loadOrders();
-  if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); }
+  if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); initClientZoneMap(); }
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -3827,6 +3861,10 @@ function pickAddressSuggestion(s) {
   document.getElementById('c-address-suggest').innerHTML = '';
   _orderGeo = (s.lat != null && s.lon != null) ? { lat: s.lat, lon: s.lon } : null;
   previewDeliveryZone();
+  initClientZoneMap().then(() => {
+    setClientMapMarker();
+    updatePricePreview();
+  });
 }
 
 async function previewDeliveryZone() {
@@ -3841,6 +3879,143 @@ async function previewDeliveryZone() {
     }
   } catch {
     out.innerHTML = '';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CREATE FORM — read-only zone map + price breakdown
+// ═══════════════════════════════════════════════════════════════
+let _cZoneMap = null;
+let _cZoneLayers = null;
+let _cMarker = null;
+let _cZonesCache = [];
+let _pricePreviewDebounce = null;
+
+async function initClientZoneMap() {
+  if (_cZoneMap) return;
+  const el = document.getElementById('c-zone-map');
+  if (!el) return;
+  _cZoneMap = L.map('c-zone-map', { zoomControl: true, attributionControl: false })
+    .setView([59.94, 30.31], 10);
+  L.tileLayer(MAP_TILE.url, MAP_TILE.options).addTo(_cZoneMap);
+  _cZoneLayers = L.layerGroup().addTo(_cZoneMap);
+  await loadClientZones();
+  el.style.display = '';
+  setTimeout(() => _cZoneMap && _cZoneMap.invalidateSize(), 100);
+}
+
+async function loadClientZones() {
+  if (!_cZoneLayers) return;
+  _cZoneLayers.clearLayers();
+  try {
+    const zones = await deliveryGet('/zones');
+    _cZonesCache = zones;
+    zones.forEach((z, i) => {
+      const color = ZONE_COLORS[i % ZONE_COLORS.length];
+      L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.12 })
+        .bindTooltip(escHtml(z.name))
+        .addTo(_cZoneLayers);
+    });
+    if (zones.length) {
+      const group = L.featureGroup(_cZoneLayers.getLayers());
+      _cZoneMap.fitBounds(group.getBounds(), { padding: [20, 20] });
+    }
+  } catch (e) {
+    console.warn('loadClientZones failed:', e.message);
+  }
+}
+
+function setClientMapMarker() {
+  if (!_cZoneMap || !_orderGeo) return;
+  const latlng = [_orderGeo.lat, _orderGeo.lon];
+  if (_cMarker) {
+    _cMarker.setLatLng(latlng);
+  } else {
+    _cMarker = L.marker(latlng).addTo(_cZoneMap);
+  }
+  _cZoneMap.setView(latlng, 12);
+}
+
+function renderZonesLegend(baseDeliveryCost) {
+  const el = document.getElementById('c-zones-legend');
+  if (!el) return;
+  if (!_cZonesCache.length) { el.innerHTML = ''; return; }
+  const rows = _cZonesCache.map((z, i) => {
+    const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    let costStr;
+    if (baseDeliveryCost != null) {
+      const cost = Number(baseDeliveryCost) * Number(z.cost_coefficient);
+      costStr = cost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
+    } else {
+      costStr = 'коэф. ×' + Number(z.cost_coefficient).toLocaleString('ru-RU');
+    }
+    return `<span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+      <span style="width:10px;height:10px;border-radius:2px;background:${color};flex-shrink:0"></span>
+      <span>${escHtml(z.name)} — ${costStr}</span>
+    </span>`;
+  }).join('');
+  el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 0">${rows}</div>`;
+}
+
+function updatePricePreview() {
+  clearTimeout(_pricePreviewDebounce);
+  _pricePreviewDebounce = setTimeout(_doPricePreview, 350);
+}
+
+async function _doPricePreview() {
+  const previewEl = document.getElementById('c-price-preview');
+  if (!previewEl) return;
+
+  const fuel = document.getElementById('c-fuel')?.value;
+  const volume = parseFloat(document.getElementById('c-volume')?.value);
+  if (!fuel || !(volume > 0)) {
+    previewEl.innerHTML = '';
+    renderZonesLegend(null);
+    return;
+  }
+
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  if (isStaff) {
+    const clientId = document.getElementById('c-client-id')?.value;
+    if (!clientId) {
+      previewEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:4px 0">Выберите клиента для расчёта цены</div>';
+      renderZonesLegend(null);
+      return;
+    }
+  }
+
+  const body = { fuel_type: fuel, volume };
+  if (_orderGeo?.lat != null) { body.delivery_lat = _orderGeo.lat; body.delivery_lon = _orderGeo.lon; }
+  if (isStaff) {
+    const cid = document.getElementById('c-client-id')?.value;
+    if (cid) body.client_id = cid;
+  }
+
+  try {
+    const r = await orderPost('/orders/preview-price', body);
+    renderZonesLegend(r.base_delivery_cost);
+
+    if (r.pricing_warning) {
+      previewEl.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">Тариф не настроен — стоимость уточнит менеджер.</div>`;
+      return;
+    }
+
+    const fmt = x => x != null ? Number(x).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) : '—';
+    const discountLine = (Number(r.discount_pct) > 0)
+      ? ` <span style="color:var(--text3)">−${fmt(r.discount_pct)}% → ${fmt(r.effective_price_per_liter)} ₽/л</span>` : '';
+    const zoneLine = r.zone_name
+      ? `${escHtml(r.zone_name)} = ${fmt(r.delivery_cost)} ₽`
+      : `вне зон — уточнит менеджер`;
+
+    previewEl.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7">
+        <div>Цена топлива: <strong>${fmt(r.price_per_liter)} ₽/л</strong>${discountLine}</div>
+        <div>Топливо: ${fmt(r.effective_price_per_liter)} × ${Number(r.volume).toLocaleString('ru-RU')} л = <strong>${fmt(r.fuel_subtotal)} ₽</strong></div>
+        <div>Доставка: ${zoneLine}</div>
+        <div style="margin-top:4px;font-size:14px">Итого ≈ <strong>${fmt(r.total)} ₽</strong></div>
+      </div>`;
+  } catch (e) {
+    previewEl.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">${escHtml(e.message)}</div>`;
   }
 }
 
@@ -4655,6 +4830,9 @@ async function doCreateOrder() {
     _orderGeo = null;
     document.getElementById('c-address-zone').innerHTML = '';
     document.getElementById('c-address-suggest').innerHTML = '';
+    document.getElementById('c-price-preview').innerHTML = '';
+    document.getElementById('c-zones-legend').innerHTML = '';
+    if (_cMarker && _cZoneMap) { _cZoneMap.removeLayer(_cMarker); _cMarker = null; }
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';

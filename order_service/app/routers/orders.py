@@ -9,6 +9,7 @@ from app.core.dependencies import CurrentUser
 from app.schemas.order import (
     OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest,
     RescheduleRequest, OrderResponse, OrderListResponse,
+    PricePreviewRequest, PricePreviewResponse,
 )
 from app.services import order_service
 
@@ -29,6 +30,16 @@ async def list_orders(
         db, current_user, status=status, driver_id=driver_id, client_id=client_id,
         offset=offset, limit=limit
     )
+
+
+@router.post("/preview-price", response_model=PricePreviewResponse)
+async def preview_price(
+    data: PricePreviewRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Read-only price breakdown for the create form. No DB writes."""
+    return await order_service.preview_price(db, data, current_user)
 
 
 @router.post("", response_model=OrderResponse, status_code=201)

@@ -6,6 +6,29 @@ from app.models.order import OrderStatus, OrderKind, PaymentType
 from .order_status_log import OrderStatusLogResponse
 
 
+class PricePreviewRequest(BaseModel):
+    fuel_type: str
+    volume: float = Field(..., gt=0)
+    delivery_lat: float | None = Field(None, ge=-90, le=90)
+    delivery_lon: float | None = Field(None, ge=-180, le=180)
+    client_id: uuid.UUID | None = None
+
+
+class PricePreviewResponse(BaseModel):
+    fuel_type: str
+    volume: float
+    price_per_liter: Decimal | None
+    discount_pct: Decimal
+    effective_price_per_liter: Decimal | None
+    fuel_subtotal: Decimal | None
+    zone_name: str | None
+    zone_cost_coefficient: float | None
+    base_delivery_cost: Decimal | None
+    delivery_cost: Decimal | None
+    total: Decimal | None
+    pricing_warning: bool
+
+
 class OrderCreateRequest(BaseModel):
     fuel_type: str
     volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 300, максимум 200 000")

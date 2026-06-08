@@ -67,6 +67,72 @@ async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
     return result.scalar_one_or_none()
 
 
+async def compute_price_breakdown(
+    db: AsyncSession,
+    fuel_type: str,
+    volume: float,
+    tariff_id: uuid.UUID | None,
+    client_type: str | None = None,
+) -> dict:
+    """Return a detailed price breakdown dict (no DB writes).
+
+    Keys: tariff_found, price_per_liter, discount_pct, effective_price_per_liter,
+          fuel_subtotal, base_delivery_cost.
+    All money values are Decimal | None; discount_pct is Decimal (0 if none).
+    """
+    tariff = (
+        await get_tariff(db, tariff_id)
+        if tariff_id
+        else await get_default_tariff(db, client_type)
+    )
+    if tariff is None:
+        return {
+            "tariff_found": False,
+            "price_per_liter": None,
+            "discount_pct": Decimal("0"),
+            "effective_price_per_liter": None,
+            "fuel_subtotal": None,
+            "base_delivery_cost": None,
+        }
+
+    fuel_key = str(fuel_type).upper()
+    price_row = next(
+        (fp for fp in tariff.fuel_prices if fp.fuel_type.upper() == fuel_key),
+        None,
+    )
+    if price_row is None:
+        return {
+            "tariff_found": False,
+            "price_per_liter": None,
+            "discount_pct": Decimal("0"),
+            "effective_price_per_liter": None,
+            "fuel_subtotal": None,
+            "base_delivery_cost": Decimal(str(tariff.base_delivery_cost)) if tariff.base_delivery_cost else None,
+        }
+
+    price = Decimal(str(price_row.price_per_liter))
+    vol = Decimal(str(volume))
+
+    discount_pct = Decimal("0")
+    for tier in sorted(tariff.volume_tiers, key=lambda t: t.min_volume, reverse=True):
+        if vol >= Decimal(str(tier.min_volume)):
+            discount_pct = Decimal(str(tier.discount_pct))
+            break
+
+    effective_price = price * (1 - discount_pct / 100)
+    fuel_subtotal = (effective_price * vol).quantize(_CENT, rounding=ROUND_HALF_UP)
+    base_delivery_cost = Decimal(str(tariff.base_delivery_cost)) if tariff.base_delivery_cost else None
+
+    return {
+        "tariff_found": True,
+        "price_per_liter": price,
+        "discount_pct": discount_pct,
+        "effective_price_per_liter": effective_price.quantize(_CENT, rounding=ROUND_HALF_UP),
+        "fuel_subtotal": fuel_subtotal,
+        "base_delivery_cost": base_delivery_cost,
+    }
+
+
 async def compute_expected_amount(
     db: AsyncSession,
     fuel_type: str,
