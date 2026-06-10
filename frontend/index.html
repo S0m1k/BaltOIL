@@ -1635,16 +1635,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Пароль</label>
-        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
-      </div>
-      <div class="section-divider">Необязательно (можно заполнить позже в профиле)</div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" id="ri-email" class="form-input" placeholder="user@example.com" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Адрес доставки</label>
-        <input type="text" id="ri-address" class="form-input" placeholder="г. Санкт-Петербург, ул. ...">
+        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 6 символов" autocomplete="new-password">
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
@@ -1864,6 +1855,9 @@
           ↻ Обновить
         </button>
       </div>
+      <button id="orders-new-btn" class="btn btn-primary"
+        style="width:100%;margin:4px 0 14px;font-size:15px;padding:14px;display:none"
+        onclick="switchTab('create')">+ Новая заявка</button>
       <div id="orders-registry-legend" class="registry-legend" style="display:none;padding-left:2px">
         <span><span class="legend-dot" style="background:#10b981"></span>Оплачено</span>
         <span><span class="legend-dot" style="background:rgba(107,114,128,.4)"></span>Не оплачено</span>
@@ -3266,15 +3260,12 @@ async function doResetPassword() {
 }
 
 async function doRegisterIndividual() {
-  const emailVal = document.getElementById('ri-email').value.trim();
+  // Email и адрес доставки вносятся позже при создании заявки — в регистрации не нужны.
   const body = {
-    phone:           document.getElementById('ri-phone').value.trim(),
-    full_name:       document.getElementById('ri-fullname').value.trim(),
-    password:        document.getElementById('ri-password').value,
-    email:           document.getElementById('ri-email').value.trim() || undefined,
-    delivery_address: document.getElementById('ri-address').value.trim() || undefined,
+    phone:     document.getElementById('ri-phone').value.trim(),
+    full_name: document.getElementById('ri-fullname').value.trim(),
+    password:  document.getElementById('ri-password').value,
   };
-  if (emailVal) body.email = emailVal;
   const errEl = document.getElementById('ri-error');
   errEl.innerHTML = '';
   try {
@@ -3544,6 +3535,8 @@ async function initApp() {
   const canCreate = role === 'client' || role === 'manager' || role === 'admin';
   document.getElementById('tab-create-btn').style.display   = canCreate ? '' : 'none';
   document.getElementById('tab-create-caret').style.display = canCreate ? '' : 'none';
+  const ordersNewBtn = document.getElementById('orders-new-btn');
+  if (ordersNewBtn) ordersNewBtn.style.display = canCreate ? '' : 'none';
   // Show manager-only fields in the form
   const isStaff = role === 'manager' || role === 'admin';
   document.getElementById('manager-create-fields').style.display = isStaff ? '' : 'none';
@@ -4067,18 +4060,9 @@ function setClientMapMarker() {
 }
 
 function renderZonesLegend() {
+  // Легенда зон с коэффициентами скрыта по просьбе заказчика.
   const el = document.getElementById('c-zones-legend');
-  if (!el) return;
-  if (!_cZonesCache.length) { el.innerHTML = ''; return; }
-  const rows = _cZonesCache.map((z, i) => {
-    const color = ZONE_COLORS[i % ZONE_COLORS.length];
-    const coefStr = '×' + Number(z.cost_coefficient).toLocaleString('ru-RU');
-    return `<span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
-      <span style="width:10px;height:10px;border-radius:2px;background:${color};flex-shrink:0"></span>
-      <span>${escHtml(z.name)} — ${coefStr}</span>
-    </span>`;
-  }).join('');
-  el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 0">${rows}</div>`;
+  if (el) el.innerHTML = '';
 }
 
 function updatePricePreview() {
@@ -4129,11 +4113,11 @@ async function _doPricePreview() {
       ? ` <span style="color:var(--text3)">−${fmt(r.discount_pct)}% → ${fmt(r.effective_price_per_liter)} ₽/л</span>` : '';
     let zoneLine;
     if (r.zone_name && r.delivery_cost != null) {
-      zoneLine = `Доставка (${escHtml(r.zone_name)}): ${fmt(r.delivery_cost)} ₽`;
+      zoneLine = `Доставка: ${fmt(r.delivery_cost)} ₽`;
     } else if (r.zone_name) {
-      zoneLine = `Доставка (${escHtml(r.zone_name)}): ставка не задана`;
+      zoneLine = `Доставка: ставка не задана`;
     } else {
-      zoneLine = `вне зон — уточнит менеджер`;
+      zoneLine = `Доставка: уточнит менеджер`;
     }
 
     previewEl.innerHTML = `
@@ -4612,15 +4596,13 @@ function promptDeliver(orderId) {
   const displayAmount = (finalAmount > 0 ? finalAmount : expectedAmount) || 0;
 
   openModal('Отметить доставку',
-    `<div class="form-group">
-      <label class="form-label">Номер ТТН <span style="color:var(--red)">*</span></label>
-      <input type="text" id="modal-ttn" class="form-input" placeholder="Введите номер ТТН..." autofocus>
+    `<div style="font-size:14px;color:var(--text2);line-height:1.6">
+      Подтвердите доставку. Номер ТТН будет присвоен автоматически.
     </div>`,
     async () => {
-      const ttn = document.getElementById('modal-ttn').value.trim();
-      if (!ttn) { toast('Введите номер ТТН', 'error'); return; }
       closeModal();
-      await transitionOrder(orderId, 'delivered', { ttn_number: ttn });
+      // ttn_number не передаём — бэкенд присвоит сквозной номер автоматически.
+      await transitionOrder(orderId, 'delivered', {});
       // After delivery of an individual order, show payment recording popup (SPEC 5.4)
       if (orderKind === 'individual') {
         promptDriverRecordPayment(orderId, displayAmount);

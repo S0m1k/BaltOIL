@@ -38,3 +38,25 @@ async def generate_order_number(db: AsyncSession, kind: OrderKind) -> str:
     seq: int = result.scalar_one()
     prefix = _KIND_PREFIX.get(kind_val, kind_val)
     return f"{prefix}{seq}"
+
+
+async def generate_ttn_number(db: AsyncSession) -> str:
+    """Атомарный сквозной номер ТТН с годовым сбросом: ТТН-{год}-{NNNNNN}.
+
+    Переиспользуем OrderKindCounter (key→seq) с ключом ttn-{год} — без миграции.
+    """
+    from datetime import datetime, timezone
+    year = datetime.now(timezone.utc).year
+    key = f"ttn-{year}"
+    stmt = (
+        pg_insert(OrderKindCounter)
+        .values(kind=key, last_seq=1)
+        .on_conflict_do_update(
+            index_elements=["kind"],
+            set_={"last_seq": OrderKindCounter.last_seq + 1},
+        )
+        .returning(OrderKindCounter.last_seq)
+    )
+    result = await db.execute(stmt)
+    seq: int = result.scalar_one()
+    return f"ТТН-{year}-{seq:06d}"

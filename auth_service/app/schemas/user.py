@@ -68,12 +68,9 @@ class RegisterIndividualRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Пароль должен быть не менее 8 символов")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Пароль должен содержать хотя бы одну цифру")
-        if not any(c.isalpha() for c in v):
-            raise ValueError("Пароль должен содержать хотя бы одну букву")
+        # Физлицо: минимальные требования (можно только цифры) — по просьбе заказчика.
+        if len(v) < 6:
+            raise ValueError("Пароль должен быть не менее 6 символов")
         return v
 
 

@@ -16,7 +16,7 @@ from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest, PricePreviewRequest
-from app.services.order_number import generate_order_number
+from app.services.order_number import generate_order_number, generate_ttn_number
 from app.services.payment_service import (
     recompute_and_save,
     attach_payment_totals,
@@ -709,10 +709,12 @@ async def transition_status(
         if actor.role == ROLE_DRIVER:
             if not order.driver_id or order.driver_id != actor.id:
                 raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
-        ttn = data.ttn_number or ""
-        if not ttn.strip():
-            raise StatusTransitionError("Укажите номер ТТН (ttn_number) для отметки о доставке")
-        order.ttn_number = ttn.strip()
+        # Номер ТТН присваивается автоматически (сквозная нумерация ТТН-{год}-{N}).
+        # Ручной ввод сохранён для обратной совместимости (ttn_l / ручная коррекция).
+        ttn = (data.ttn_number or "").strip()
+        if not ttn:
+            ttn = await generate_ttn_number(db)
+        order.ttn_number = ttn
 
         # Фиксируем доставленный объём
         order.volume_delivered = float(order.volume_requested)
