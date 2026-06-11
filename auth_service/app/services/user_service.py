@@ -118,12 +118,14 @@ async def register_company(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> User:
-    data.email = _normalize_email(data.email)
-    await _check_email_unique(db, data.email)
+    # email опционален (правки 2026-06-11) — клиент заполняет позже в профиле
+    if data.email:
+        data.email = _normalize_email(data.email)
+        await _check_email_unique(db, data.email)
     await _check_phone_unique(db, data.phone)
 
     user = User(
-        email=data.email,
+        email=data.email,  # может быть None — заполнит позже в профиле
         phone=data.phone,
         hashed_password=hash_password(data.password),
         full_name=data.full_name,

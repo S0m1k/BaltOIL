@@ -1668,7 +1668,7 @@
       <button class="auth-back" onclick="rcBackFromFullForm()">← назад</button>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Email</label>
+          <label class="form-label">Email <span style="color:var(--text3);font-weight:400">(необязательно)</span></label>
           <input type="email" id="rc-email" class="form-input" placeholder="ceo@company.ru" autocomplete="email">
         </div>
         <div class="form-group">
@@ -1677,7 +1677,7 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Контактное лицо (ФИО)</label>
+        <label class="form-label">ФИО</label>
         <input type="text" id="rc-fullname" class="form-input" placeholder="Петров Пётр Петрович">
       </div>
       <div class="form-group">
@@ -1715,43 +1715,10 @@
         </div>
       </div>
 
-      <div class="section-divider">Банковские реквизиты</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">БИК</label>
-          <input type="text" id="rc-bik" class="form-input" placeholder="044030786" maxlength="9" inputmode="numeric" onblur="rcLookupBik()">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Расчётный счёт</label>
-          <input type="text" id="rc-bank-acc" class="form-input" placeholder="40702810..." maxlength="20" inputmode="numeric">
-        </div>
-      </div>
-      <!-- Превью банка из DaData -->
-      <div id="rc-bank-preview" style="display:none;padding:8px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg2,#f6f7f8);font-size:13px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-          <div id="rc-bank-preview-body" style="flex:1;min-width:0"></div>
-          <button type="button" class="btn btn-sm btn-ghost" onclick="rcToggleManualBank(true)" style="flex-shrink:0">Не то — вручную</button>
-        </div>
-      </div>
-      <div id="rc-manual-bank" style="display:none">
-        <div class="form-group">
-          <label class="form-label">Название банка</label>
-          <input type="text" id="rc-bank-name" class="form-input" placeholder="ПАО Сбербанк">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Корр. счёт</label>
-          <input type="text" id="rc-corr-acc" class="form-input" placeholder="30101810..." maxlength="20" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="section-divider">Дополнительно (необязательно)</div>
-      <div class="form-group">
-        <label class="form-label">Email для документов</label>
-        <input type="email" id="rc-billing-email" class="form-input" placeholder="accounting@company.ru — если отличается от логина">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Адрес доставки</label>
-        <input type="text" id="rc-delivery-addr" class="form-input" placeholder="Если отличается от юридического">
+      <!-- Банковские реквизиты и доп. поля убраны из регистрации (правки 2026-06-11):
+           всё заполняется и редактируется в профиле юрлица. -->
+      <div style="font-size:12px;color:var(--text3);margin:6px 0 10px">
+        Банковские реквизиты и адрес доставки можно будет указать позже в профиле.
       </div>
 
       <div id="rc-error"></div>
@@ -3427,51 +3394,14 @@ async function rcLookupInn() {
   }
 }
 
-async function rcLookupBik() {
-  const bik = (document.getElementById('rc-bik').value || '').trim();
-  const preview = document.getElementById('rc-bank-preview');
-  if (!/^\d{9}$/.test(bik)) {
-    _rcFns.bank = null;
-    preview.style.display = 'none';
-    return;
-  }
-  try {
-    const r = await fetch(`${AUTH_URL}/auth/lookup/bik?bik=${encodeURIComponent(bik)}`).then(r => r.json());
-    if (r && r.found && r.data) {
-      _rcFns.bank = r.data;
-      document.getElementById('rc-bank-preview-body').innerHTML =
-        `<div><strong>${escHtml(r.data.bank_name || '—')}</strong></div>` +
-        (r.data.correspondent_account ? `<div style="color:var(--text3);font-size:12px;margin-top:2px">К/с ${escHtml(r.data.correspondent_account)}</div>` : '') +
-        (r.data.bank_status ? `<div style="color:var(--text3);font-size:12px">Статус: ${escHtml(r.data.bank_status)}</div>` : '');
-      preview.style.display = '';
-      rcToggleManualBank(false);
-    } else {
-      _rcFns.bank = null;
-      preview.style.display = 'none';
-      rcToggleManualBank(true);
-      toast('Банк не найден по БИК — заполните вручную', 'warn');
-    }
-  } catch (e) {
-    _rcFns.bank = null;
-    preview.style.display = 'none';
-    rcToggleManualBank(true);
-  }
-}
-
 function rcToggleManual(show) {
   document.getElementById('rc-manual-party').style.display = show ? '' : 'none';
   if (show) document.getElementById('rc-fns-preview').style.display = 'none';
 }
-function rcToggleManualBank(show) {
-  document.getElementById('rc-manual-bank').style.display = show ? '' : 'none';
-  if (show) document.getElementById('rc-bank-preview').style.display = 'none';
-}
 
 async function doRegisterCompany() {
   const manualPartyVisible = document.getElementById('rc-manual-party').style.display !== 'none';
-  const manualBankVisible  = document.getElementById('rc-manual-bank').style.display !== 'none';
   const party = _rcFns.party || {};
-  const bank  = _rcFns.bank  || {};
 
   // Если форма ручного ввода открыта — берём её значения. Иначе — что показано в превью.
   const company_name  = manualPartyVisible
@@ -3480,15 +3410,11 @@ async function doRegisterCompany() {
   const legal_address = manualPartyVisible
     ? (document.getElementById('rc-legal-addr').value || '').trim()
     : (party.legal_address || '');
-  const bank_name = manualBankVisible
-    ? (document.getElementById('rc-bank-name').value || '').trim()
-    : (bank.bank_name || '');
-  const correspondent_account = manualBankVisible
-    ? (document.getElementById('rc-corr-acc').value || '').trim()
-    : (bank.correspondent_account || '');
 
+  // Банковские реквизиты и доп. поля убраны из регистрации (правки 2026-06-11) —
+  // заполняются в профиле юрлица. Email необязателен.
   const body = {
-    email:        document.getElementById('rc-email').value.trim(),
+    email:        document.getElementById('rc-email').value.trim() || undefined,
     phone:        document.getElementById('rc-phone').value.trim(),
     full_name:    document.getElementById('rc-fullname').value.trim(),
     password:     document.getElementById('rc-password').value,
@@ -3496,12 +3422,6 @@ async function doRegisterCompany() {
     kpp:          document.getElementById('rc-kpp').value.trim() || undefined,
     company_name: company_name || undefined,
     legal_address: legal_address || undefined,
-    bik:          document.getElementById('rc-bik').value.trim() || undefined,
-    bank_account: document.getElementById('rc-bank-acc').value.trim() || undefined,
-    bank_name:    bank_name || undefined,
-    correspondent_account: correspondent_account || undefined,
-    delivery_address: document.getElementById('rc-delivery-addr').value.trim() || undefined,
-    billing_email: document.getElementById('rc-billing-email').value.trim() || undefined,
   };
   const errEl = document.getElementById('rc-error');
   errEl.innerHTML = '';
@@ -5194,15 +5114,16 @@ async function loadProfile() {
     const me = await authGet('/auth/me');
     // Render as structured card instead of raw JSON
     const isClient = me.role === 'client';
-    const isIndividual = me.client_profile && me.client_profile.client_type === 'individual';
+    const isCompany = me.client_profile && me.client_profile.client_type === 'company';
 
-    const emailDisplay = me.email
+    // Email: кнопка добавления/изменения для всех клиентов (правки 2026-06-11)
+    const emailEditBtn = isClient
+      ? `<button class="btn btn-sm btn-ghost" style="margin-left:8px;font-size:11px" onclick="openProfileEmailEdit('${escHtml(me.id)}')">${me.email ? 'Изменить' : 'Добавить'}</button>`
+      : '';
+    const emailDisplay = (me.email
       ? escHtml(me.email)
-      : (isIndividual
-          ? `<span style="color:var(--text3)">Не указан</span>
-             <button class="btn btn-sm btn-ghost" style="margin-left:8px;font-size:11px" onclick="openProfileEmailEdit('${escHtml(me.id)}')">Добавить</button>
-             <div style="font-size:11px;color:var(--amber);margin-top:3px">Заполните email, чтобы получать уведомления</div>`
-          : '<span style="color:var(--text3)">—</span>');
+      : `<span style="color:var(--text3)">Не указан</span>`) + emailEditBtn
+      + (!me.email && isClient ? `<div style="font-size:11px;color:var(--amber);margin-top:3px">Заполните email, чтобы получать уведомления</div>` : '');
 
     const fields = [
       ...(!isClient ? [['ID пользователя', uuidCell(me.id)]] : []),
@@ -5213,20 +5134,95 @@ async function loadProfile() {
     ];
     if (me.client_profile) {
       const p = me.client_profile;
+      const dash = '<span style="color:var(--text3)">—</span>';
       fields.push(['Тип клиента', p.client_type === 'individual' ? 'Физическое лицо' : 'Юридическое лицо']);
-      if (p.company_name) fields.push(['Компания', p.company_name]);
-      if (p.inn)          fields.push(['ИНН', p.inn]);
-      if (p.delivery_address) fields.push(['Адрес доставки', p.delivery_address]);
+      if (isCompany) {
+        // Полные реквизиты юрлица с возможностью редактирования (правки 2026-06-11)
+        fields.push(['Компания', escHtml(p.company_name || '') || dash]);
+        fields.push(['ИНН', escHtml(p.inn || '') || dash]);
+        fields.push(['КПП', escHtml(p.kpp || '') || dash]);
+        if (p.ogrn) fields.push(['ОГРН', escHtml(p.ogrn)]);
+        fields.push(['Юридический адрес', escHtml(p.legal_address || '') || dash]);
+        if (p.director_name) fields.push(['Директор', escHtml(p.director_name)]);
+        fields.push(['БИК', escHtml(p.bik || '') || dash]);
+        fields.push(['Расчётный счёт', escHtml(p.bank_account || '') || dash]);
+        fields.push(['Банк', escHtml(p.bank_name || '') || dash]);
+        fields.push(['Корр. счёт', escHtml(p.correspondent_account || '') || dash]);
+        fields.push(['Email для документов', escHtml(p.billing_email || '') || dash]);
+        fields.push(['Адрес доставки', escHtml(p.delivery_address || '') || dash]);
+      } else {
+        if (p.company_name) fields.push(['Компания', escHtml(p.company_name)]);
+        if (p.inn)          fields.push(['ИНН', escHtml(p.inn)]);
+        if (p.delivery_address) fields.push(['Адрес доставки', escHtml(p.delivery_address)]);
+      }
     }
+    const editReqBtn = (isClient && isCompany)
+      ? `<div style="margin-top:12px"><button class="btn btn-sm btn-primary-outline" onclick="openProfileRequisitesEdit()">${icon('pencil-simple',13)} Редактировать реквизиты</button></div>`
+      : '';
     el.innerHTML = fields.map(([label, value]) =>
       `<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
         <span style="font-size:13px;color:var(--text2)">${value}</span>
        </div>`
-    ).join('');
+    ).join('') + editReqBtn;
   } catch (e) {
     el.textContent = `Ошибка: ${escHtml(e.message)}`;
   }
+}
+
+// Редактирование реквизитов юрлица самим клиентом (правки 2026-06-11)
+async function openProfileRequisitesEdit() {
+  let me;
+  try { me = await authGet('/auth/me'); } catch (e) { toast(e.message, 'error'); return; }
+  const p = me.client_profile || {};
+  const f = (id, label, val, ph = '', maxlen = '') =>
+    `<div class="form-group">
+       <label class="form-label">${label}</label>
+       <input type="text" id="${id}" class="form-input" value="${escHtml(val || '')}" placeholder="${ph}" ${maxlen ? `maxlength="${maxlen}"` : ''}>
+     </div>`;
+  openModal('Реквизиты организации',
+    `<div class="form-row">
+      ${f('pr-company', 'Наименование', p.company_name, 'ООО «Компания»')}
+      ${f('pr-inn', 'ИНН', p.inn, '7701234567', 12)}
+     </div>
+     <div class="form-row">
+      ${f('pr-kpp', 'КПП', p.kpp, '770101001', 9)}
+      ${f('pr-bik', 'БИК', p.bik, '044030786', 9)}
+     </div>
+     ${f('pr-legal-addr', 'Юридический адрес', p.legal_address)}
+     <div class="form-row">
+      ${f('pr-bank-acc', 'Расчётный счёт', p.bank_account, '40702810...', 20)}
+      ${f('pr-corr-acc', 'Корр. счёт', p.correspondent_account, '30101810...', 20)}
+     </div>
+     ${f('pr-bank-name', 'Банк', p.bank_name, 'ПАО Сбербанк')}
+     <div class="form-row">
+      ${f('pr-billing-email', 'Email для документов', p.billing_email, 'accounting@company.ru')}
+      ${f('pr-delivery-addr', 'Адрес доставки', p.delivery_address)}
+     </div>`,
+    async () => {
+      const val = id => document.getElementById(id).value.trim() || null;
+      const body = {
+        company_name: val('pr-company'),
+        inn: val('pr-inn'),
+        kpp: val('pr-kpp'),
+        bik: val('pr-bik'),
+        legal_address: val('pr-legal-addr'),
+        bank_account: val('pr-bank-acc'),
+        correspondent_account: val('pr-corr-acc'),
+        bank_name: val('pr-bank-name'),
+        billing_email: val('pr-billing-email'),
+        delivery_address: val('pr-delivery-addr'),
+      };
+      try {
+        await authPatch(`/users/${me.id}/profile`, body);
+        closeModal();
+        toast('Реквизиты сохранены');
+        loadProfile();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
 }
 
 async function openProfileEmailEdit(userId) {

@@ -77,13 +77,14 @@ class RegisterIndividualRequest(BaseModel):
 class RegisterCompanyRequest(BaseModel):
     """Регистрация юридического лица.
 
-    Минимум, что собираем руками: email/password/phone/full_name (контактное лицо),
-    inn (для лукапа в ЕГРЮЛ), bik+bank_account (для лукапа банка + наш расчётный).
-    Остальное (company_name, kpp, ogrn, legal_address, bank_name, correspondent_account,
-    director_name, okved/okpo/okato) — автозаполняется из DaData при регистрации.
-    Если DaData недоступна, поля можно прислать вручную.
+    Минимум, что собираем руками: password/phone/full_name (ФИО),
+    inn (для лукапа в ЕГРЮЛ). email опционален — заполняется позже в профиле
+    (правки 2026-06-11). Банковские реквизиты убраны из регистрации —
+    редактируются в профиле; поля оставлены опциональными для обратной
+    совместимости API. Остальное (company_name, kpp, ogrn, legal_address,
+    director_name, okved/okpo/okato) — автозаполняется из DaData.
     """
-    email: EmailStr
+    email: EmailStr | None = None
     phone: str
     password: str
     full_name: str           # ФИО контактного лица
