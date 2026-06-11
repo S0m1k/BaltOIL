@@ -48,6 +48,13 @@ class NotificationsRepository {
         .toList();
   }
 
+  /// Число непрочитанных для badge на вкладке (как .notif-count на вебе).
+  Future<int> unreadCount() async {
+    final resp = await _dio.get('$_base/notifications',
+        queryParameters: {'unread_only': true, 'limit': 20});
+    return (resp.data as List).length;
+  }
+
   Future<void> markRead(String id) =>
       _dio.post('$_base/notifications/$id/read');
 

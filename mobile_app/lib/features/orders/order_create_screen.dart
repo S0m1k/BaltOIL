@@ -20,6 +20,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   List<FuelType>? _fuelTypes;
   String? _fuelCode;
   DateTime? _desiredDate;
+  String _paymentType = 'on_delivery'; // как на вебе: «По факту» по умолчанию
   bool _busy = false;
   String? _error;
 
@@ -63,6 +64,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         fuelType: _fuelCode!,
         volume: double.parse(_volume.text.replaceAll(',', '.')),
         address: _address.text.trim(),
+        paymentType: _paymentType,
         desiredDate: _desiredDate,
         comment: _comment.text.trim(),
       );
@@ -78,7 +80,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   Widget build(BuildContext context) {
     final types = _fuelTypes;
     return Scaffold(
-      appBar: AppBar(title: const Text('Новая заявка')),
+      appBar: AppBar(title: const Text('Новая заявка на топливо')),
       body: types == null
           ? Center(
               child: _error == null
@@ -106,7 +108,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                     controller: _volume,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'Объём, литров (от 300)',
+                      labelText: 'Объём (литры, min 300)',
                       border: OutlineInputBorder(),
                     ),
                     validator: (v) {
@@ -131,15 +133,38 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                     onPressed: _pickDate,
                     icon: const Icon(Icons.calendar_today, size: 18),
                     label: Text(_desiredDate == null
-                        ? 'Желаемая дата (необязательно)'
+                        ? 'Желаемая дата доставки'
                         : 'Дата: ${_desiredDate!.day}.${_desiredDate!.month}.${_desiredDate!.year}'),
                   ),
                   const SizedBox(height: 16),
+                  Text('Тип оплаты',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  RadioGroup<String>(
+                    groupValue: _paymentType,
+                    onChanged: (v) =>
+                        setState(() => _paymentType = v ?? 'on_delivery'),
+                    child: const Column(
+                      children: [
+                        RadioListTile<String>(
+                          value: 'on_delivery',
+                          dense: true,
+                          title: Text('По факту (при прибытии)'),
+                        ),
+                        RadioListTile<String>(
+                          value: 'prepaid',
+                          dense: true,
+                          title: Text('Предоплата'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _comment,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                      labelText: 'Комментарий (необязательно)',
+                      labelText: 'Комментарий',
+                      hintText: 'Дополнительные пожелания...',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -155,7 +180,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Создать заявку'),
+                        : const Text('Отправить заявку'),
                   ),
                 ],
               ),

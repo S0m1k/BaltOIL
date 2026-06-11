@@ -22,6 +22,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void initState() {
     super.initState();
     _future = OrdersRepository.instance.list();
+    // Прогреваем кэш подписей топлива, чтобы списки показывали «ДТ-Л К5»,
+    // а не diesel_summer. Ошибка не критична — останутся фолбэк-подписи.
+    OrdersRepository.instance.fuelTypes().catchError((_) => <FuelType>[]);
   }
 
   Future<void> _reload() async {
@@ -85,19 +88,16 @@ class _OrderTile extends StatelessWidget {
 
   final Order order;
 
-  Color _statusColor(BuildContext context) => switch (order.status) {
-        'new' => Colors.blue,
-        'accepted' => Colors.orange,
-        'delivered' => Colors.green,
-        'cancelled' || 'rejected' => Colors.grey,
-        _ => Theme.of(context).colorScheme.primary,
-      };
+  Color _statusColor(BuildContext context) {
+    final hex = orderStatusColors[order.status];
+    return hex != null ? Color(hex) : Theme.of(context).colorScheme.primary;
+  }
 
   @override
   Widget build(BuildContext context) {
     final amount = order.expectedAmount;
     return ListTile(
-      title: Text('№${order.orderNumber} — ${order.fuelType}, '
+      title: Text('№${order.orderNumber} — ${FuelCatalog.label(order.fuelType)}, '
           '${order.volumeRequested.toStringAsFixed(0)} л'),
       subtitle: Text(order.deliveryAddress,
           maxLines: 1, overflow: TextOverflow.ellipsis),

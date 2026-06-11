@@ -18,7 +18,20 @@ class _LoginScreenState extends State<LoginScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('БалтОйл — вход'),
+          // Логотип как на вебе: BALTOIL градиентом голубой→зелёный.
+          title: ShaderMask(
+            shaderCallback: (bounds) => const LinearGradient(
+              colors: [Color(0xFF0EA5E9), Color(0xFF10B981)],
+            ).createShader(bounds),
+            child: const Text(
+              'BALTOIL',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 3,
+              ),
+            ),
+          ),
           bottom: const TabBar(tabs: [
             Tab(text: 'По паролю'),
             Tab(text: 'По SMS-коду'),

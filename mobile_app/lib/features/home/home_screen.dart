@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
+import '../notifications/notifications_repository.dart';
 import '../notifications/notifications_screen.dart';
+import '../orders/driver_orders_screen.dart';
 import '../orders/orders_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -15,11 +17,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   CurrentUser? _user;
+  int _unread = 0;
 
   @override
   void initState() {
     super.initState();
     _loadUser();
+    _refreshUnread();
+  }
+
+  Future<void> _refreshUnread() async {
+    try {
+      final count = await NotificationsRepository.instance.unreadCount();
+      if (mounted) setState(() => _unread = count);
+    } catch (_) {
+      // Badge — некритичная информация, ошибку глотаем.
+    }
   }
 
   Future<void> _loadUser() async {
@@ -42,10 +55,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isClient = _user == null || _user!.role == 'client';
+    final user = _user;
+    final isDriver = user?.role == 'driver';
+    final isClient = user == null || user.role == 'client';
+
+    // Профиль ещё грузится — без него не знаем, какой экран заявок показывать.
+    final Widget ordersBody;
+    if (user == null) {
+      ordersBody = const Center(child: CircularProgressIndicator());
+    } else if (isDriver) {
+      ordersBody = DriverOrdersScreen(driverId: user.id);
+    } else {
+      ordersBody = OrdersScreen(canCreate: isClient);
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tab == 0 ? 'Мои заявки' : 'Уведомления'),
+        title: Text(_tab == 0
+            ? (isDriver ? 'Заявки на доставку' : 'Мои заявки')
+            : 'Уведомления'),
         actions: [
           if (_user != null)
             Padding(
@@ -64,21 +92,28 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _tab,
         children: [
-          OrdersScreen(canCreate: isClient),
+          ordersBody,
           const NotificationsScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(
+        onDestinationSelected: (i) {
+          setState(() => _tab = i);
+          _refreshUnread();
+        },
+        destinations: [
+          const NavigationDestination(
               icon: Icon(Icons.local_shipping_outlined),
               selectedIcon: Icon(Icons.local_shipping),
               label: 'Заявки'),
           NavigationDestination(
-              icon: Icon(Icons.notifications_outlined),
-              selectedIcon: Icon(Icons.notifications),
+              icon: Badge(
+                isLabelVisible: _unread > 0,
+                label: Text('$_unread'),
+                child: const Icon(Icons.notifications_outlined),
+              ),
+              selectedIcon: const Icon(Icons.notifications),
               label: 'Уведомления'),
         ],
       ),

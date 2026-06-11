@@ -110,7 +110,8 @@ async def _auto_record_delivery(order: Order, actor: TokenUser) -> None:
     except StatusTransitionError:
         raise
     except Exception as exc:
-        log.error("_auto_record_delivery failed for order %s: %s", order.id, exc)
+        # repr, не str: у httpx-таймаутов (ReadTimeout и др.) str(exc) пустой.
+        log.error("_auto_record_delivery failed for order %s: %r", order.id, exc)
         raise StatusTransitionError(
             "Не удалось зафиксировать доставку: сервис доставки недоступен. Попробуйте позже."
         )
