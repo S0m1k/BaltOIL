@@ -65,6 +65,7 @@ class _InternalResolveResponse(BaseModel):
     zone_id: uuid.UUID | None = None
     name: str | None = None
     cost_coefficient: float | None = None
+    delivery_price: float | None = None
 
 
 @router.post(
@@ -85,4 +86,5 @@ async def internal_resolve_zone(
         zone_id=zone.id,
         name=zone.name,
         cost_coefficient=float(zone.cost_coefficient),
+        delivery_price=float(zone.delivery_price) if zone.delivery_price is not None else None,
     )

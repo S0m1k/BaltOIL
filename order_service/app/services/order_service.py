@@ -26,7 +26,7 @@ from app.services import document_service
 from app.services import contract_service
 from app.services.client_context import get_client_context
 from app.services.payment_type_rules import validate_payment_type
-from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, get_tariff, get_default_tariff
+from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
 from app.core.events import publish_order_event
 
@@ -233,10 +233,10 @@ async def preview_price(
             if zone_info:
                 zone_name = zone_info["name"]
                 zone_cost_coefficient = float(zone_info["cost_coefficient"])
-                delivery_cost = compute_delivery_cost(
+                delivery_cost = compute_zone_delivery_cost(
+                    zone_info,
                     bd["base_delivery_cost"],
                     data.volume,
-                    zone_info["cost_coefficient"],
                     ctx.delivery_coefficient,
                 )
     except Exception as exc:
@@ -354,20 +354,25 @@ async def create_order(
             if zone_info:
                 resolved_zone_id = uuid.UUID(zone_info["zone_id"])
                 resolved_zone_name = zone_info["name"]
-                coef = zone_info["cost_coefficient"]
-                # Fetch tariff to read base_delivery_cost (per-liter rate)
-                tariff = (
-                    await get_tariff(db, ctx.tariff_id)
-                    if ctx.tariff_id
-                    else await get_default_tariff(db, ctx.client_type)
-                )
-                if tariff is not None:
-                    delivery_cost = compute_delivery_cost(
-                        tariff.base_delivery_cost,
-                        data.volume_requested,
-                        coef,
-                        ctx.delivery_coefficient,
+                if zone_info.get("delivery_price") is not None:
+                    # Фиксированная цена доставки по зоне — тариф не нужен
+                    delivery_cost = compute_zone_delivery_cost(
+                        zone_info, None, data.volume_requested, ctx.delivery_coefficient,
                     )
+                else:
+                    # Legacy: ставка тарифа за литр × коэффициент зоны
+                    tariff = (
+                        await get_tariff(db, ctx.tariff_id)
+                        if ctx.tariff_id
+                        else await get_default_tariff(db, ctx.client_type)
+                    )
+                    if tariff is not None:
+                        delivery_cost = compute_zone_delivery_cost(
+                            zone_info,
+                            tariff.base_delivery_cost,
+                            data.volume_requested,
+                            ctx.delivery_coefficient,
+                        )
                 if delivery_cost is not None:
                     if expected_amount is not None:
                         expected_amount = expected_amount + delivery_cost
@@ -504,21 +509,21 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
         if order.delivery_lat is not None and order.delivery_lon is not None:
             zone_info = await resolve_zone(order.delivery_lat, order.delivery_lon)
             if zone_info:
-                tariff = (
-                    await get_tariff(db, ctx.tariff_id)
-                    if ctx.tariff_id
-                    else await get_default_tariff(db, ctx.client_type)
-                )
-                if tariff is not None:
-                    recalc_delivery = compute_delivery_cost(
-                        tariff.base_delivery_cost,
-                        float(order.volume_requested),
-                        zone_info["cost_coefficient"],
-                        ctx.delivery_coefficient,
+                base_rate = None
+                if zone_info.get("delivery_price") is None:
+                    tariff = (
+                        await get_tariff(db, ctx.tariff_id)
+                        if ctx.tariff_id
+                        else await get_default_tariff(db, ctx.client_type)
                     )
-                    if recalc_delivery is not None:
-                        delivery_cost = recalc_delivery
-                        order.delivery_cost = recalc_delivery
+                    base_rate = tariff.base_delivery_cost if tariff is not None else None
+                recalc_delivery = compute_zone_delivery_cost(
+                    zone_info, base_rate,
+                    float(order.volume_requested), ctx.delivery_coefficient,
+                )
+                if recalc_delivery is not None:
+                    delivery_cost = recalc_delivery
+                    order.delivery_cost = recalc_delivery
         if expected is not None:
             order.expected_amount = expected + (delivery_cost or 0)
     except Exception as exc:

@@ -40,6 +40,10 @@ async def create(db: AsyncSession, data: dict) -> DeliveryZone:
         name=data["name"],
         polygon=data["polygon"],
         cost_coefficient=Decimal(str(data.get("cost_coefficient", "1.0"))),
+        delivery_price=(
+            Decimal(str(data["delivery_price"]))
+            if data.get("delivery_price") is not None else None
+        ),
         is_active=data.get("is_active", True),
     )
     db.add(zone)
@@ -57,6 +61,11 @@ async def update(db: AsyncSession, zone_id: uuid.UUID, data: dict) -> DeliveryZo
         zone.polygon = data["polygon"]
     if "cost_coefficient" in data and data["cost_coefficient"] is not None:
         zone.cost_coefficient = Decimal(str(data["cost_coefficient"]))
+    if "delivery_price" in data:
+        zone.delivery_price = (
+            Decimal(str(data["delivery_price"]))
+            if data["delivery_price"] is not None else None
+        )
     if "is_active" in data and data["is_active"] is not None:
         zone.is_active = data["is_active"]
     await db.flush()

@@ -15,8 +15,10 @@ log = logging.getLogger(__name__)
 async def resolve_zone(lat: float, lon: float) -> dict | None:
     """Вызывает delivery_service /internal/zones/resolve.
 
-    Возвращает {'zone_id': str, 'name': str, 'cost_coefficient': float}
-    или None если зона не найдена или сервис недоступен.
+    Возвращает {'zone_id': str, 'name': str, 'cost_coefficient': Decimal,
+    'delivery_price': Decimal | None} или None если зона не найдена
+    или сервис недоступен. delivery_price — фиксированная стоимость
+    доставки по зоне в ₽ (правки 2026-06-11).
     """
     settings = get_settings()
     try:
@@ -36,6 +38,10 @@ async def resolve_zone(lat: float, lon: float) -> dict | None:
             "zone_id": data["zone_id"],
             "name": data["name"],
             "cost_coefficient": Decimal(str(data["cost_coefficient"])),
+            "delivery_price": (
+                Decimal(str(data["delivery_price"]))
+                if data.get("delivery_price") is not None else None
+            ),
         }
     except httpx.HTTPError as exc:
         log.warning("resolve_zone: HTTPError: %s", exc)

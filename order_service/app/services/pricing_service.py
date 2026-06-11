@@ -67,6 +67,28 @@ async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
     return result.scalar_one_or_none()
 
 
+def compute_zone_delivery_cost(
+    zone_info: dict,
+    rate_per_liter,
+    volume: float,
+    delivery_coefficient: float = 1.0,
+) -> "Decimal | None":
+    """Стоимость доставки для найденной зоны (правки 2026-06-11).
+
+    Если у зоны задана фиксированная цена delivery_price (₽) — используется она
+    (умноженная на клиентский delivery_coefficient). Иначе — legacy-формула
+    rate_per_liter × volume × cost_coefficient × delivery_coefficient.
+    """
+    price = zone_info.get("delivery_price")
+    if price is not None:
+        return (
+            Decimal(str(price)) * Decimal(str(delivery_coefficient))
+        ).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return compute_delivery_cost(
+        rate_per_liter, volume, zone_info["cost_coefficient"], delivery_coefficient
+    )
+
+
 def compute_delivery_cost(
     rate_per_liter,
     volume: float,

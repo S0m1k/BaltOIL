@@ -63,6 +63,8 @@ class ZoneCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     polygon: list[list[float]] = Field(..., min_length=3)
     cost_coefficient: float = Field(1.0, ge=0)
+    # Фиксированная стоимость доставки по зоне, ₽ (правки 2026-06-11)
+    delivery_price: float | None = Field(None, ge=0)
     is_active: bool = True
 
 
@@ -70,6 +72,7 @@ class ZoneUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
     polygon: list[list[float]] | None = Field(None, min_length=3)
     cost_coefficient: float | None = Field(None, ge=0)
+    delivery_price: float | None = Field(None, ge=0)
     is_active: bool | None = None
 
 
@@ -78,6 +81,7 @@ class ZoneResponse(BaseModel):
     name: str
     polygon: list[list[float]]
     cost_coefficient: float
+    delivery_price: float | None = None
     is_active: bool
 
     model_config = {"from_attributes": True}
@@ -92,6 +96,7 @@ class ResolveResponse(BaseModel):
     zone_id: uuid.UUID | None = None
     name: str | None = None
     cost_coefficient: float | None = None
+    delivery_price: float | None = None
 
 
 class AddressSuggestion(BaseModel):
@@ -167,6 +172,7 @@ async def resolve_zone(
         zone_id=zone.id,
         name=zone.name,
         cost_coefficient=float(zone.cost_coefficient),
+        delivery_price=float(zone.delivery_price) if zone.delivery_price is not None else None,
     )
 
 
