@@ -2446,7 +2446,13 @@
                 style="flex-shrink:0;color:var(--text3);display:none"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg></button>
             </div>
             <div class="chat-messages" id="chat-messages"></div>
+            <div id="chat-templates" style="display:none;gap:6px;flex-wrap:wrap;padding:6px 12px 0"></div>
             <div class="chat-input-area">
+              <input type="file" id="chat-attach-input" style="display:none"
+                accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm" onchange="sendChatAttachment(this)">
+              <button class="btn btn-sm btn-ghost" title="Прикрепить фото или видео"
+                onclick="document.getElementById('chat-attach-input').click()"
+                style="height:42px;padding:0 12px" id="chat-attach-btn"></button>
               <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение... (Enter — отправить)"
                 rows="1" onkeydown="chatInputKey(event)"></textarea>
               <button class="btn btn-sm btn-warn" onclick="sendChatMessage()" style="height:42px;padding:0 18px">→</button>
@@ -2650,6 +2656,8 @@ const ICONS = {
   'arrow-right':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>',
   'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'clock':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>',
+  'push-pin':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M232,93.85a16,16,0,0,0-4.69-11.33L173.48,28.69a16,16,0,0,0-22.63,0L104,75.51a16,16,0,0,0-3.32,17.74l-44.3,44.3a16,16,0,0,0,0,22.62l8,8L24,208.57V232H47.43l40.4-40.4,8,8a16,16,0,0,0,22.63,0l44.3-44.3A16,16,0,0,0,180.49,152l46.82-46.82A16,16,0,0,0,232,93.85Zm-124.69,94.4L66.49,147.43,107.31,106.6l41.83,41.83Zm61.17-50.34L126.66,96.09,162.17,40.6l53.85,53.85Z"/></svg>',
+  'paperclip':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>',
   'circle':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"/></svg>',
   'x-circle':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M165.66,101.66,139.31,128l26.35,26.34a8,8,0,0,1-11.32,11.32L128,139.31l-26.34,26.35a8,8,0,0,1-11.32-11.32L116.69,128,90.34,101.66a8,8,0,0,1,11.32-11.32L128,116.69l26.34-26.35a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'dots-three-vertical':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M140,128a12,12,0,1,1-12-12A12,12,0,0,1,140,128ZM128,72a12,12,0,1,0-12-12A12,12,0,0,0,128,72Zm0,112a12,12,0,1,0,12,12A12,12,0,0,0,128,184Z"/></svg>',
@@ -6198,10 +6206,45 @@ let _chatPoll     = null;   // polling interval for new messages
 
 const CONV_KIND_LABELS = {
   client_manager:      'Поддержка',
+  client_accountant:   'Бухгалтерия',
   client_driver_order: 'Заявка',
   staff_group:         'Группа',
   direct:              'Личный',
 };
+
+// Папки диалогов (правки 2026-06-11): рабочие / клиенты / личные
+let _convFolder = 'all';
+const CONV_FOLDERS = [
+  ['all',      'Все'],
+  ['work',     'Рабочие'],
+  ['clients',  'Клиенты'],
+  ['personal', 'Личные'],
+];
+
+function convFolderOf(c) {
+  const role = currentUser?.role;
+  if (c.kind === 'staff_group') return 'work';
+  if (c.kind === 'client_driver_order') return 'work';
+  if (c.kind === 'client_manager' || c.kind === 'client_accountant')
+    return role === 'client' ? 'work' : 'clients';
+  if (c.kind === 'direct') return 'personal';
+  return 'work';
+}
+
+async function toggleConvPin(event, convId, pin) {
+  event.stopPropagation();
+  try {
+    await chatPost(`/conversations/${convId}/pin`, { is_pinned: pin });
+    await loadConversations();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function setConvFolder(folder) {
+  _convFolder = folder;
+  loadConversations();
+}
 
 function fmtTime(dt) {
   if (!dt) return '';
@@ -6265,12 +6308,22 @@ function hideChatSidebar() {
   }
 }
 
+// Один раз за сессию создаём клиенту-юрлицу чат с бухгалтерией (правки 2026-06-11).
+// Для физлиц бэкенд вернёт 400 — молча игнорируем.
+let _accountantEnsured = false;
+async function ensureAccountantChat() {
+  if (_accountantEnsured || currentUser?.role !== 'client') return;
+  _accountantEnsured = true;
+  try { await chatPost('/conversations/ensure-client-accountant', {}); } catch (_) {}
+}
+
 async function loadConversations() {
   const el = document.getElementById('conv-list');
   el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
   // Show "Диалоги" button on mobile when no chat is selected
   const showListBtn = document.getElementById('btn-show-conv-list');
   if (showListBtn) showListBtn.style.display = isMobileChat() ? '' : 'none';
+  await ensureAccountantChat();
   try {
     const convs = await chatGet('/conversations');
     renderConvList(convs);
@@ -6284,6 +6337,10 @@ function convTitle(c) {
   if (c.kind === 'client_manager') {
     if (role === 'client') return 'Менеджер';
     return c.title || 'Клиент';
+  }
+  if (c.kind === 'client_accountant') {
+    if (role === 'client') return 'Бухгалтер';
+    return `Бухгалтерия — клиент ${(c.client_id || '').slice(0, 8)}`;
   }
   if (c.kind === 'client_driver_order') {
     const label = c.title || (c.order_id ? `Заявка ${c.order_id.slice(0,8)}…` : 'Заявка');
@@ -6324,20 +6381,46 @@ function updateChatTabBadge(convs) {
 function renderConvList(convs) {
   updateChatTabBadge(convs);
   const el = document.getElementById('conv-list');
-  if (!convs.length) {
-    el.innerHTML = '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';
+
+  // Чипы папок (правки 2026-06-11)
+  const folderChips = `
+    <div style="display:flex;gap:4px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+      ${CONV_FOLDERS.map(([key, label]) => `
+        <button class="btn btn-sm ${_convFolder === key ? 'btn-warn' : 'btn-ghost'}"
+          style="padding:3px 10px;font-size:11px" onclick="setConvFolder('${key}')">${label}</button>`).join('')}
+    </div>`;
+
+  const visible = _convFolder === 'all'
+    ? convs
+    : convs.filter(c => convFolderOf(c) === _convFolder);
+
+  if (!visible.length) {
+    el.innerHTML = folderChips + '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';
     return;
   }
-  el.innerHTML = convs.map(c => `
+  el.innerHTML = folderChips + visible.map(c => `
     <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
-      <div class="conv-item-title">${escHtml(convTitle(c))}</div>
+      <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
+        ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin', 12)}</span>` : ''}
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(convTitle(c))}</span>
+        <button title="${c.is_pinned ? 'Открепить' : 'Закрепить'}"
+          style="border:none;background:none;cursor:pointer;color:${c.is_pinned ? 'var(--amber)' : 'var(--text3)'};padding:0;opacity:.7"
+          onclick="toggleConvPin(event, '${c.id}', ${c.is_pinned ? 'false' : 'true'})">${icon('push-pin', 13)}</button>
+      </div>
       <div class="conv-item-meta">
         <span class="conv-type-chip conv-type-${c.kind}">${CONV_KIND_LABELS[c.kind] || c.kind}</span>
-        <span class="conv-item-last">${c.last_message ? escHtml(c.last_message.text) : 'Нет сообщений'}</span>
+        <span class="conv-item-last">${c.last_message ? escHtml(_lastMsgPreview(c.last_message)) : 'Нет сообщений'}</span>
         ${c.unread_count > 0 ? `<span class="unread-badge">${c.unread_count}</span>` : ''}
         <span class="conv-item-time">${fmtTime(c.updated_at)}</span>
       </div>
     </div>`).join('');
+}
+
+function _lastMsgPreview(m) {
+  if (m.msg_type === 'photo') return '📷 Фото';
+  if (m.msg_type === 'video') return '🎬 Видео';
+  if (m.msg_type === 'document') return '📄 Документ';
+  return m.text;
 }
 
 async function openConversation(convId) {
@@ -6384,6 +6467,7 @@ async function openConversation(convId) {
     }
 
     renderMessages(conv.messages);
+    renderChatTemplates(conv);
 
     // Show delete button for managers/admins only
     const archiveBtn = document.getElementById('btn-archive-conv');
@@ -6457,6 +6541,24 @@ function msgHTML(m) {
           ⬇ PDF
         </button>
       </div>`;
+  } else if ((m.msg_type === 'photo' || m.msg_type === 'video') && m.metadata && m.metadata.path) {
+    // Фото/видео-вложения (правки 2026-06-11): медиа тянется авторизованным fetch
+    const mediaId = `media-${m.id}`;
+    if (m.msg_type === 'photo') {
+      bodyHtml = `
+        <div class="chat-media-wrap" style="max-width:280px">
+          <img id="${mediaId}" alt="${escHtml(m.metadata.original_name || 'Фото')}"
+               style="max-width:100%;border-radius:8px;cursor:pointer;display:block;min-height:60px;background:var(--bg3)"
+               onclick="window.open(this.src,'_blank')">
+        </div>`;
+    } else {
+      bodyHtml = `
+        <div class="chat-media-wrap" style="max-width:320px">
+          <video id="${mediaId}" controls preload="metadata"
+                 style="max-width:100%;border-radius:8px;display:block;min-height:60px;background:var(--bg3)"></video>
+        </div>`;
+    }
+    setTimeout(() => loadChatMedia(mediaId, m.conversation_id, m.metadata.path), 0);
   } else {
     bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
   }
@@ -6600,9 +6702,197 @@ async function sendChatMessage() {
     }
     // Sending a reply means we've read everything — reset unread counter
     chatPost(`/conversations/${activeConvId}/read`, {}).catch(() => {});
+    maybePromptChatEmail();
   } catch (e) {
     toast(e.message, 'error');
     inp.value = text;
+  }
+}
+
+// ── Кнопки-шаблоны чата с бухгалтерией (правки 2026-06-11) ───────────────────
+function renderChatTemplates(conv) {
+  const box = document.getElementById('chat-templates');
+  const attachBtn = document.getElementById('chat-attach-btn');
+  if (attachBtn && !attachBtn.innerHTML) attachBtn.innerHTML = icon('paperclip', 16);
+  if (!box) return;
+  const role = currentUser?.role;
+  if (conv.kind !== 'client_accountant') {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  if (role === 'client') {
+    box.innerHTML = `
+      <button class="btn btn-sm btn-primary-outline" style="font-size:11px" onclick="promptReconciliationAct()">Запросить акт сверки</button>
+      <button class="btn btn-sm btn-primary-outline" style="font-size:11px" onclick="promptClosingDocs()">Запросить закрывающие документы</button>`;
+  } else {
+    box.innerHTML = `
+      <button class="btn btn-sm btn-primary-outline" style="font-size:11px"
+        onclick="sendTemplateMessage('Направили по ЭДО.')">Направили по ЭДО</button>`;
+  }
+  box.style.display = 'flex';
+}
+
+async function sendTemplateMessage(text) {
+  if (!activeConvId) return;
+  try {
+    const msg = await chatPost(`/conversations/${activeConvId}/messages`, { text });
+    if (!document.getElementById(`msg-${msg.id}`)) appendMessage(msg);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// Акт сверки: период обязателен (правки 2026-06-11)
+function promptReconciliationAct() {
+  openModal('Запросить акт сверки',
+    `<div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Период с <span style="color:var(--red)">*</span></label>
+        <input type="date" id="ra-from" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Период по <span style="color:var(--red)">*</span></label>
+        <input type="date" id="ra-to" class="form-input">
+      </div>
+    </div>`,
+    async () => {
+      const from = document.getElementById('ra-from').value;
+      const to = document.getElementById('ra-to').value;
+      if (!from || !to) { toast('Укажите период (обе даты)', 'error'); return; }
+      if (from > to) { toast('Дата начала позже даты окончания', 'error'); return; }
+      const f = d => new Date(d + 'T00:00:00').toLocaleDateString('ru-RU');
+      closeModal();
+      await sendTemplateMessage(`Прошу предоставить акт сверки за период ${f(from)} — ${f(to)}.`);
+    }
+  );
+}
+
+// Закрывающие документы: крайняя отгрузка или конкретный документ
+function promptClosingDocs() {
+  openModal('Запросить закрывающие документы',
+    `<div class="form-group">
+      <label class="radio-label selected" style="display:flex;margin-bottom:6px">
+        <input type="radio" name="cd-kind" value="last" checked
+          onchange="document.getElementById('cd-doc-wrap').style.display='none'"> По крайней отгрузке
+      </label>
+      <label class="radio-label" style="display:flex">
+        <input type="radio" name="cd-kind" value="specific"
+          onchange="document.getElementById('cd-doc-wrap').style.display=''"> По определённому документу
+      </label>
+    </div>
+    <div class="form-group" id="cd-doc-wrap" style="display:none">
+      <label class="form-label">Какой документ <span style="color:var(--red)">*</span></label>
+      <input type="text" id="cd-doc" class="form-input" placeholder="Например, счёт №123 от 01.06.2026">
+    </div>`,
+    async () => {
+      const kind = document.querySelector('input[name="cd-kind"]:checked')?.value;
+      let text;
+      if (kind === 'specific') {
+        const doc = (document.getElementById('cd-doc')?.value || '').trim();
+        if (!doc) { toast('Укажите документ', 'error'); return; }
+        text = `Прошу предоставить закрывающие документы по документу: ${doc}.`;
+      } else {
+        text = 'Прошу предоставить закрывающие документы по крайней отгрузке.';
+      }
+      closeModal();
+      await sendTemplateMessage(text);
+    }
+  );
+}
+
+// ── Запрос email после первого сообщения клиента (правки 2026-06-11) ─────────
+function maybePromptChatEmail() {
+  if (currentUser?.role !== 'client') return;
+  if (currentUser?.email) return;
+  if (localStorage.getItem('chat_email_prompt_dismissed')) return;
+  openModal('Уведомления об ответе',
+    `<p style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:12px">
+      Для получения уведомления об ответе укажите вашу почту.
+      Она сохранится в профиле — менеджер ответит, а вы не пропустите сообщение.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input type="email" id="chat-email-input" class="form-input" placeholder="example@mail.ru" autocomplete="email">
+    </div>
+    <div id="chat-email-error"></div>
+    <div style="font-size:11px;color:var(--text3)">Можно заполнить позже во вкладке «Профиль».</div>`,
+    async () => {
+      const email = (document.getElementById('chat-email-input')?.value || '').trim();
+      if (!email) { localStorage.setItem('chat_email_prompt_dismissed', '1'); closeModal(); return; }
+      try {
+        await authPatch(`/users/${currentUser.id}`, { email });
+        currentUser.email = email;
+        closeModal();
+        toast('Email сохранён — уведомления будут приходить на почту');
+      } catch (e) {
+        const errEl = document.getElementById('chat-email-error');
+        if (errEl) errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+      }
+    }
+  );
+  // Закрытие без ввода не показываем снова в этой сессии браузера
+  localStorage.setItem('chat_email_prompt_dismissed', '1');
+}
+
+// ── Вложения: фото/видео (правки 2026-06-11) ─────────────────────────────────
+async function sendChatAttachment(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !activeConvId) return;
+  if (file.size > 25 * 1024 * 1024) { toast('Файл больше 25 МБ', 'error'); return; }
+
+  const btn = document.getElementById('chat-attach-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const token = localStorage.getItem('access_token');
+    const r = await fetch(`${CHAT_URL}/conversations/${activeConvId}/attachments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    if (!r.ok) {
+      let detail = 'Ошибка загрузки файла';
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const up = await r.json();
+    const msg = await chatPost(`/conversations/${activeConvId}/messages`, {
+      text: up.msg_type === 'photo' ? '📷 Фото' : '🎬 Видео',
+      msg_type: up.msg_type,
+      metadata: { path: up.path, mime: up.mime, size: up.size, original_name: up.original_name },
+    });
+    if (!document.getElementById(`msg-${msg.id}`)) appendMessage(msg);
+    maybePromptChatEmail();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Авторизованная загрузка медиа: <img>/<video> не умеют слать Authorization —
+// тянем blob через fetch и подставляем object URL.
+const _chatMediaCache = {};
+async function loadChatMedia(elId, convId, path) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const key = `${convId}/${path}`;
+  try {
+    if (!_chatMediaCache[key]) {
+      const token = localStorage.getItem('access_token');
+      const r = await fetch(`${CHAT_URL}/conversations/${convId}/attachments/${encodeURIComponent(path)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      _chatMediaCache[key] = URL.createObjectURL(await r.blob());
+    }
+    el.src = _chatMediaCache[key];
+  } catch (_) {
+    const wrap = el.closest('.chat-media-wrap');
+    if (wrap) wrap.innerHTML = '<span style="font-size:11px;color:var(--red)">Не удалось загрузить вложение</span>';
   }
 }
 
@@ -8659,14 +8949,24 @@ async function promptClientSettings(userId, clientName) {
     <div class="form-group" style="display:flex;align-items:center;gap:10px">
       <input type="checkbox" id="cs-credit" ${profile.credit_allowed ? 'checked' : ''}>
       <label for="cs-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="cs-msg-block" ${profile.messenger_blocked ? 'checked' : ''}>
+      <label for="cs-msg-block" style="font-size:13px;cursor:pointer">ВЫКЛ мессенджер (доступ ограничен)</label>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:-6px;margin-bottom:6px">
+      Клиент не сможет писать в чаты и не будет находиться по номеру телефона.
+      Писать ему смогут только сотрудники. При попытке открыть переписку клиент увидит «Доступ ограничен».
     </div>`,
     async () => {
       const tariffId = document.getElementById('cs-tariff').value || null;
       const creditAllowed = document.getElementById('cs-credit').checked;
+      const messengerBlocked = document.getElementById('cs-msg-block').checked;
       try {
         await authPatch(`/users/${userId}/tariff`, {
           tariff_id: tariffId,
           credit_allowed: creditAllowed,
+          messenger_blocked: messengerBlocked,
         });
         closeModal();
         toast('Настройки клиента сохранены');

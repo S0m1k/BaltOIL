@@ -34,6 +34,7 @@ class ConversationListResponse(BaseModel):
     updated_at: datetime
     peer_name: str | None = None    # для kind=direct: имя собеседника
     peer_phone: str | None = None   # для kind=direct: телефон собеседника
+    is_pinned: bool = False         # закреплён ли чат текущим пользователем
 
     model_config = {"from_attributes": True}
 

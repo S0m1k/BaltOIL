@@ -28,6 +28,7 @@ class ClientProfileResponse(BaseModel):
     correspondent_account: str | None
     contract_number: str | None
     credit_allowed: bool
+    messenger_blocked: bool = False
     credit_limit: Decimal | None
     tariff_id: uuid.UUID | None
     fuel_coefficient: float
@@ -84,3 +85,6 @@ class UpdateClientTariffRequest(BaseModel):
     # Устаревшие коэффициенты — оставлены для совместимости до удаления полей.
     fuel_coefficient: float | None = Field(None, gt=0, le=5.0)
     delivery_coefficient: float | None = Field(None, gt=0, le=5.0)
+    # Блокировка мессенджера клиенту (правки 2026-06-11) — admin-only эндпоинт,
+    # поэтому поле здесь, а не в UpdateClientProfileRequest (его клиент правит сам).
+    messenger_blocked: bool | None = Field(None)

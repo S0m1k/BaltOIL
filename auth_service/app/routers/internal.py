@@ -267,6 +267,10 @@ class ContactResponse(BaseModel):
     full_name: str
     role: str
     phone: str | None
+    # Блокировка мессенджера (правки 2026-06-11): chat_service запрещает
+    # заблокированному клиенту писать и находиться по номеру.
+    messenger_blocked: bool = False
+    client_type: str | None = None  # "individual" | "company" | None (не клиент)
 
 
 @router.get(
@@ -297,11 +301,17 @@ async def get_user_by_phone(
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    profile_res = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == user.id)
+    )
+    profile = profile_res.scalar_one_or_none()
     return ContactResponse(
         id=user.id,
         full_name=user.full_name,
         role=user.role.value,
         phone=user.phone,
+        messenger_blocked=bool(profile.messenger_blocked) if profile else False,
+        client_type=profile.client_type.value if profile else None,
     )
 
 
@@ -327,14 +337,21 @@ async def get_contacts(
     if not id_list:
         return []
     result = await db.execute(select(User).where(User.id.in_(id_list)))
+    users = list(result.scalars().all())
+    profiles_res = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id.in_([u.id for u in users]))
+    )
+    profiles = {p.user_id: p for p in profiles_res.scalars().all()}
     return [
         ContactResponse(
             id=u.id,
             full_name=u.full_name,
             role=u.role.value,
             phone=u.phone,
+            messenger_blocked=bool(profiles[u.id].messenger_blocked) if u.id in profiles else False,
+            client_type=profiles[u.id].client_type.value if u.id in profiles else None,
         )
-        for u in result.scalars().all()
+        for u in users
     ]
 
 

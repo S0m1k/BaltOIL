@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Required (no default): refuse to boot without an explicit inter-service secret.
     internal_api_secret: str
 
+    # Корень файлового хранилища вложений чата (фото/видео, правки 2026-06-11)
+    media_root: str = "/app/media"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

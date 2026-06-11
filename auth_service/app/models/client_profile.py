@@ -49,6 +49,10 @@ class ClientProfile(Base):
     contract_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     credit_allowed: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Блокировка мессенджера (правки 2026-06-11, только admin): клиент не может
+    # писать в чаты, не находится по номеру; писать ему могут только сотрудники.
+    messenger_blocked: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     # Расширенные реквизиты из DaData (ФНС / банковский справочник).
     # Заполняются при регистрации и при ресинке POST /users/{id}/fns-resync.
     okved: Mapped[str | None] = mapped_column(String(20), nullable=True)

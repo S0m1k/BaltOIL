@@ -9,6 +9,7 @@ from app.database import Base
 
 class ConversationKind(str, enum.Enum):
     CLIENT_MANAGER      = "client_manager"       # клиент ↔ все активные менеджеры/админы
+    CLIENT_ACCOUNTANT   = "client_accountant"    # клиент-юрлицо ↔ бухгалтерия (менеджеры/админы)
     CLIENT_DRIVER_ORDER = "client_driver_order"  # клиент ↔ водитель (на конкретный заказ)
     STAFF_GROUP         = "staff_group"           # групповой чат сотрудников
     # Прямой чат 1-на-1, начатый по номеру телефона. Приватен: видят только
@@ -74,6 +75,8 @@ class ConversationParticipant(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     user_role: Mapped[str] = mapped_column(String(20), nullable=False)
     last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Закрепление чата (правки 2026-06-11) — индивидуально для каждого участника
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="participants")

@@ -11,7 +11,7 @@ from app.models.message import Message
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
 from app.services.conversation_service import _check_access
-from app.services import ws_manager
+from app.services import ws_manager, auth_client
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,12 @@ async def send_message(
         raise NotFoundError("Conversation not found")
 
     _check_access(conv, actor)
+
+    # Блокировка мессенджера (правки 2026-06-11): заблокированный админом клиент
+    # не может писать ни в один чат — «доступ ограничен».
+    if actor.role == "client" and await auth_client.is_messenger_blocked(redis, actor.id):
+        raise ForbiddenError("Доступ ограничен")
+
     await _check_message_rate(redis, actor.id, conv_id)
 
     # Staff (manager/admin) bypass the participant check in _check_access but are

@@ -38,6 +38,36 @@ async def lookup_by_phone(phone: str) -> dict | None:
         return None
 
 
+async def get_contact(user_id: uuid.UUID) -> dict | None:
+    """Карточка одного пользователя ({full_name, role, phone, messenger_blocked,
+    client_type}) или None при ошибке/отсутствии."""
+    contacts = await get_contacts([user_id])
+    return contacts.get(str(user_id))
+
+
+async def is_messenger_blocked(redis, user_id: uuid.UUID) -> bool:
+    """Заблокирован ли мессенджер у пользователя (правки 2026-06-11).
+
+    Ответ кэшируется в Redis на 60 с, чтобы не дёргать auth_service на каждое
+    сообщение. Fail-open: при недоступности auth_service не блокируем.
+    """
+    key = f"msgblock:{user_id}"
+    try:
+        cached = await redis.get(key)
+        if cached is not None:
+            val = cached.decode() if isinstance(cached, (bytes, bytearray)) else str(cached)
+            return val == "1"
+    except Exception:
+        pass
+    card = await get_contact(user_id)
+    blocked = bool(card and card.get("messenger_blocked"))
+    try:
+        await redis.set(key, "1" if blocked else "0", ex=60)
+    except Exception:
+        pass
+    return blocked
+
+
 async def get_contacts(ids: list[uuid.UUID]) -> dict[str, dict]:
     """Батч-резолв id → карточка. Возвращает {str(id): {full_name, role, phone}}.
 

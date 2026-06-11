@@ -60,7 +60,7 @@ def _check_access(conv: Conversation, actor: TokenUser) -> None:
     if actor.role in MANAGER_ROLES:
         return  # managers/admins see everything
 
-    if conv.kind == ConversationKind.CLIENT_MANAGER:
+    if conv.kind in (ConversationKind.CLIENT_MANAGER, ConversationKind.CLIENT_ACCOUNTANT):
         if actor.id == conv.client_id:
             return
         raise ForbiddenError("Это ваш диалог с менеджером")
@@ -122,6 +122,38 @@ async def ensure_client_manager(
     conv = Conversation(
         kind=ConversationKind.CLIENT_MANAGER,
         client_id=client_id,
+        created_by_id=_SYSTEM_UUID,
+        created_by_role="system",
+    )
+    db.add(conv)
+    await db.flush()
+    return conv
+
+
+async def ensure_client_accountant(
+    db: AsyncSession,
+    client_id: uuid.UUID,
+) -> Conversation:
+    """Чат клиента-юрлица с бухгалтерией (правки 2026-06-11).
+
+    Один на клиента, как client_manager. Видят клиент + менеджеры/админы.
+    Проверка client_type=company — на вызывающей стороне (роутер).
+    """
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.kind == ConversationKind.CLIENT_ACCOUNTANT,
+            Conversation.client_id == client_id,
+            Conversation.is_archived == False,  # noqa: E712
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if conv:
+        return conv
+
+    conv = Conversation(
+        kind=ConversationKind.CLIENT_ACCOUNTANT,
+        client_id=client_id,
+        title="Бухгалтерия",
         created_by_id=_SYSTEM_UUID,
         created_by_role="system",
     )
@@ -338,7 +370,10 @@ async def list_conversations(
 
         visibility = or_(
             and_(
-                Conversation.kind == ConversationKind.CLIENT_MANAGER,
+                Conversation.kind.in_([
+                    ConversationKind.CLIENT_MANAGER,
+                    ConversationKind.CLIENT_ACCOUNTANT,
+                ]),
                 Conversation.client_id == actor.id,
             ),
             and_(
@@ -365,7 +400,10 @@ async def list_conversations(
                 Conversation.kind == ConversationKind.STAFF_GROUP,
                 Conversation.group_code.in_(list(STAFF_GROUPS)),
             ),
-            Conversation.kind == ConversationKind.CLIENT_MANAGER,
+            Conversation.kind.in_([
+                ConversationKind.CLIENT_MANAGER,
+                ConversationKind.CLIENT_ACCOUNTANT,
+            ]),
             and_(
                 Conversation.kind == ConversationKind.CLIENT_DRIVER_ORDER,
                 Conversation.is_archived == False,  # noqa: E712
@@ -446,6 +484,16 @@ async def list_conversations(
         m.conversation_id: m for m in last_msgs_result.scalars().all()
     }
 
+    # ── Закреплённые чаты текущего пользователя (правки 2026-06-11) ──────────
+    pins_res = await db.execute(
+        select(ConversationParticipant.conversation_id).where(
+            ConversationParticipant.conversation_id.in_(conv_ids),
+            ConversationParticipant.user_id == actor.id,
+            ConversationParticipant.is_pinned == True,  # noqa: E712
+        )
+    )
+    pinned_ids = {row[0] for row in pins_res.all()}
+
     # Для прямых чатов резолвим «собеседника» (имя + телефон), чтобы фронт показал
     # его в заголовке/списке. Один батч-запрос на все peer-id.
     peer_ids = [
@@ -480,9 +528,48 @@ async def list_conversations(
             "updated_at": conv.updated_at,
             "peer_name": peer_name,
             "peer_phone": peer_phone,
+            "is_pinned": conv.id in pinned_ids,
         })
 
+    # Закреплённые — первыми, внутри групп сортировка по updated_at сохраняется
+    output.sort(key=lambda r: (not r["is_pinned"],))
     return output
+
+
+async def set_pinned(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+    is_pinned: bool,
+) -> None:
+    """Закрепить/открепить чат для текущего пользователя (правки 2026-06-11)."""
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conv_id, Conversation.is_archived == False  # noqa: E712
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Диалог не найден")
+    _check_access(conv, actor)
+
+    part_res = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conv_id,
+            ConversationParticipant.user_id == actor.id,
+        )
+    )
+    participant = part_res.scalar_one_or_none()
+    if participant:
+        participant.is_pinned = is_pinned
+    else:
+        db.add(ConversationParticipant(
+            conversation_id=conv_id,
+            user_id=actor.id,
+            user_role=actor.role,
+            is_pinned=is_pinned,
+        ))
+    await db.commit()
 
 
 async def mark_read(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:

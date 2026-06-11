@@ -6,7 +6,8 @@ from typing import Literal
 
 class SendMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
-    msg_type: Literal["text", "document"] = "text"
+    # photo/video — вложения (правки 2026-06-11); metadata: {path, mime, size, original_name}
+    msg_type: Literal["text", "document", "photo", "video"] = "text"
     metadata: dict | None = None
 
 
