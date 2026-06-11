@@ -47,8 +47,11 @@ async def register_company(
 ):
     meta = get_request_meta(request)
     await user_service.register_company(db, data, **meta)
-    # Автоматически входим после регистрации
-    return await auth_service.login(db, identifier=data.email, password=data.password, **meta)
+    # Автоматически входим после регистрации — email теперь необязателен
+    # (правки 2026-06-11), без него входим по телефону.
+    return await auth_service.login(
+        db, identifier=data.email or data.phone, password=data.password, **meta
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
