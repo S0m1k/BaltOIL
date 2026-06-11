@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 LARGE_VOLUME_THRESHOLD_L = 3000
 
 
-async def _notify_large_volume(order: Order) -> None:
+async def _notify_large_volume(order: Order, body: str | None = None) -> None:
     """Уведомить менеджеров: заявка >= порога, счёт нужно выставить вручную."""
     await publish_order_event({
         "event": "order_large_volume",
@@ -47,7 +47,7 @@ async def _notify_large_volume(order: Order) -> None:
         "driver_id": None,
         "status": order.status.value,
         "title": f"Заявка №{order.order_number}: объём ≥ 3000 л",
-        "body": "Счёт не выставлен автоматически — выставьте вручную.",
+        "body": body or "Счёт не выставлен автоматически — выставьте вручную.",
     })
 
 
@@ -443,7 +443,13 @@ async def create_order(
     if order.order_kind != OrderKind.TTN_L:
         if float(order.volume_requested) >= LARGE_VOLUME_THRESHOLD_L:
             try:
-                await _notify_large_volume(order)
+                notify_body = (
+                    "Заявка ожидает согласования — проверьте её, выставьте счёт "
+                    "и нажмите «Согласовать», чтобы передать водителям."
+                    if needs_approval
+                    else "Счёт не выставлен автоматически — выставьте вручную."
+                )
+                await _notify_large_volume(order, notify_body)
             except Exception as exc:
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
@@ -888,6 +894,16 @@ async def transition_status(
 
     prev_status = order.status
     order.status = data.to_status
+
+    # Согласование крупной заявки менеджером (правки 2026-06-11): при одобрении
+    # выставляем предварительный счёт — заказчик подтвердил «выставляется счёт».
+    # Ошибка генерации не блокирует согласование (менеджер выставит вручную).
+    if prev_status == OrderStatus.AWAITING_MANAGER and data.to_status == OrderStatus.NEW:
+        try:
+            async with db.begin_nested():
+                await document_service.generate_invoice_preliminary(db, order, actor)
+        except Exception as exc:
+            log.warning("Auto-invoice on approval failed for order %s: %s", order.id, exc)
 
     db.add(OrderStatusLog(
         order_id=order.id,
