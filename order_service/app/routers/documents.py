@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
+from app.core.media import resolve_media_path
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.models.document import DocumentType, DocumentStatus
 from app.models.order import OrderKind
@@ -120,7 +121,7 @@ async def download_document(
     if doc.status != DocumentStatus.READY or not doc.file_path:
         raise NotFoundError("PDF ещё не готов")
 
-    full_path = MEDIA_ROOT / doc.file_path
+    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
     if not full_path.exists():
         raise NotFoundError("Файл не найден на сервере")
 
@@ -317,7 +318,7 @@ async def send_document_by_email(
     if not doc.file_path:
         raise NotFoundError("document file missing")
 
-    full_path = MEDIA_ROOT / doc.file_path
+    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
     if not full_path.exists():
         raise NotFoundError("document file missing")
 

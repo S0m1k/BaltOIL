@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+import jwt
 from app.config import get_settings
 from app.core.exceptions import AuthError, ForbiddenError
 from app.core.token_revocation import is_token_revoked
@@ -32,8 +32,8 @@ async def get_current_user(
             algorithms=[settings.jwt_algorithm],
         )
         if payload.get("type") != "access":
-            raise JWTError("Wrong token type")
-    except JWTError:
+            raise jwt.InvalidTokenError("Wrong token type")
+    except jwt.PyJWTError:
         raise AuthError("Недействительный или истёкший токен")
 
     user_id = payload.get("sub")

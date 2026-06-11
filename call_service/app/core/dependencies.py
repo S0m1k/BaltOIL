@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from fastapi import Header
-from jose import JWTError, jwt
+import jwt
 from app.config import settings
 from app.core.exceptions import AuthError
 from app.core.token_revocation import is_token_revoked
@@ -23,7 +23,7 @@ def _decode_token(token: str) -> TokenUser:
         if not user_id or not role:
             raise AuthError("Invalid token payload")
         return TokenUser(id=uuid.UUID(user_id), role=role, name=name)
-    except (JWTError, ValueError):
+    except (jwt.PyJWTError, ValueError):
         raise AuthError("Invalid or expired token")
 
 

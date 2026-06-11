@@ -56,9 +56,19 @@ async def _bootstrap_admin() -> None:
         await db.commit()
 
 
-_DEFAULT_JWT_SECRET = "change-me-to-a-very-long-random-secret"
-_DEFAULT_BOOTSTRAP_PW = "change-me-strong-password"
-_DEFAULT_INTERNAL_SECRET = "baltoil-internal-secret-2026"
+# Известные небезопасные значения, которые НЕЛЬЗЯ использовать в production.
+# Сюда входят и плейсхолдеры из шаблонов, и реальные example-значения из .env репозитория —
+# любое из них в проде = публично известный секрет.
+_INSECURE_JWT_SECRETS = frozenset({
+    "change-me-to-a-very-long-random-secret",
+    "baltoil-super-secret-jwt-key-change-in-production-2026",
+})
+_INSECURE_BOOTSTRAP_PWS = frozenset({
+    "change-me-strong-password",
+})
+_INSECURE_INTERNAL_SECRETS = frozenset({
+    "baltoil-internal-secret-2026",
+})
 
 
 def _assert_prod_secrets_safe() -> None:
@@ -67,11 +77,11 @@ def _assert_prod_secrets_safe() -> None:
     if settings.app_env != "production":
         return
     issues = []
-    if settings.jwt_secret_key == _DEFAULT_JWT_SECRET or len(settings.jwt_secret_key) < 32:
-        issues.append("JWT_SECRET_KEY — установить значение длиной 32+ байт (secrets.token_urlsafe(48))")
-    if settings.bootstrap_admin_password == _DEFAULT_BOOTSTRAP_PW:
+    if settings.jwt_secret_key in _INSECURE_JWT_SECRETS or len(settings.jwt_secret_key) < 32:
+        issues.append("JWT_SECRET_KEY — установить случайное значение длиной 32+ байт (secrets.token_urlsafe(48))")
+    if settings.bootstrap_admin_password in _INSECURE_BOOTSTRAP_PWS:
         issues.append("BOOTSTRAP_ADMIN_PASSWORD — сменить дефолт")
-    if settings.internal_api_secret == _DEFAULT_INTERNAL_SECRET:
+    if settings.internal_api_secret in _INSECURE_INTERNAL_SECRETS:
         issues.append("INTERNAL_API_SECRET — сгенерить и засинхронить между всеми сервисами")
     if "*" in settings.cors_origins:
         issues.append("ALLOWED_ORIGINS — wildcard '*' запрещён, перечислить домены явно")

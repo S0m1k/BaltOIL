@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
+from app.core.media import resolve_media_path
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.contract import ContractStatus
 from app.services import contract_service
@@ -120,7 +121,7 @@ async def download_contract(
     if not contract.file_path:
         raise NotFoundError("PDF договора не готов")
 
-    full_path = MEDIA_ROOT / contract.file_path
+    full_path = resolve_media_path(MEDIA_ROOT, contract.file_path)
     if not full_path.exists():
         raise NotFoundError("Файл не найден на сервере")
 

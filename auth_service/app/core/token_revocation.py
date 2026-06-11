@@ -47,13 +47,26 @@ async def is_token_revoked(user_id: str, iat) -> bool:
         val = await _client().get(_key(str(user_id)))
         return bool(val) and int(iat) < int(float(val))
     except Exception:
-        log.warning("token revocation check failed (fail-open)", exc_info=True)
+        # Fail-open — осознанный trade-off (см. docstring модуля). Логируем на ERROR,
+        # т.к. в этот момент система временно НЕ соблюдает logout/деактивацию —
+        # операторам нужен алерт, а не тихий warning.
+        log.error("token revocation check failed (fail-open) — revocation NOT enforced", exc_info=True)
         return False
 
 
 async def revoke_user_tokens(user_id: str) -> None:
-    """Отозвать все access-токены пользователя, выпущенные до текущего момента."""
-    ttl = getattr(_settings, "access_token_expire_minutes", 15) * 60 + 60
+    """Отозвать все access-токены пользователя, выпущенные до текущего момента.
+
+    TTL метки обязан покрывать МАКСИМАЛЬНУЮ жизнь токена. Сотрудники
+    (admin/manager/driver) получают staff_access_token_expire_minutes (12 ч),
+    и если ориентироваться на короткий клиентский TTL (15 мин), метка истекала
+    бы раньше токена — отозванный staff-токен снова стал бы валиден.
+    """
+    max_token_minutes = max(
+        getattr(_settings, "access_token_expire_minutes", 15),
+        getattr(_settings, "staff_access_token_expire_minutes", 720),
+    )
+    ttl = max_token_minutes * 60 + 60
     try:
         await _client().set(_key(str(user_id)), int(time.time()), ex=ttl)
     except Exception:

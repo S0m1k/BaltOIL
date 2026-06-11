@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 import httpx
-from jose import jwt as jose_jwt
+import jwt as jose_jwt
 
 from app.config import settings
 from app.models.trip import Trip, TripStatus

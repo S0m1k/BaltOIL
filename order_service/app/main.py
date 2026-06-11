@@ -10,17 +10,23 @@ from app.routers import internal as internal_router
 
 settings = get_settings()
 
-_DEFAULT_JWT_SECRET = "change-me-to-a-very-long-random-secret"
-_DEFAULT_INTERNAL_SECRET = "baltoil-internal-secret-2026"
+# Известные небезопасные значения (плейсхолдеры + example-значения из .env репозитория).
+_INSECURE_JWT_SECRETS = frozenset({
+    "change-me-to-a-very-long-random-secret",
+    "baltoil-super-secret-jwt-key-change-in-production-2026",
+})
+_INSECURE_INTERNAL_SECRETS = frozenset({
+    "baltoil-internal-secret-2026",
+})
 
 
 def _assert_prod_secrets_safe() -> None:
     if settings.app_env != "production":
         return
     issues = []
-    if settings.jwt_secret_key == _DEFAULT_JWT_SECRET or len(settings.jwt_secret_key) < 32:
+    if settings.jwt_secret_key in _INSECURE_JWT_SECRETS or len(settings.jwt_secret_key) < 32:
         issues.append("JWT_SECRET_KEY")
-    if settings.internal_api_secret == _DEFAULT_INTERNAL_SECRET:
+    if settings.internal_api_secret in _INSECURE_INTERNAL_SECRETS:
         issues.append("INTERNAL_API_SECRET")
     if any("localhost" in o for o in settings.cors_origins) or "*" in settings.cors_origins:
         issues.append("ALLOWED_ORIGINS")

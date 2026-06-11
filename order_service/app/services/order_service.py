@@ -6,7 +6,7 @@ from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 
 import httpx
-from jose import jwt as jose_jwt
+import jwt as jose_jwt
 
 from app.config import get_settings as _get_settings
 from app.models.order import Order, OrderStatus, OrderKind, PaymentType

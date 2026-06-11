@@ -18,7 +18,7 @@ import time
 import uuid
 import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from jose import jwt, JWTError
+import jwt
 
 log = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload

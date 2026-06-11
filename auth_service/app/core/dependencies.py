@@ -1,7 +1,7 @@
 from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -24,7 +24,7 @@ async def get_current_user(
 
     try:
         payload = decode_access_token(credentials.credentials)
-    except JWTError:
+    except jwt.PyJWTError:
         raise AuthError("Недействительный или истёкший токен")
 
     user_id: str = payload.get("sub")
@@ -84,9 +84,18 @@ def trusted_client_ip(request: Request) -> str:
     )
 
 
+def _sanitize_user_agent(ua: str | None) -> str | None:
+    """Защита от log injection: убираем управляющие символы (CR/LF и пр.) и
+    ограничиваем длину — User-Agent целиком контролируется клиентом."""
+    if not ua:
+        return ua
+    cleaned = "".join(ch for ch in ua if ch.isprintable())
+    return cleaned[:512]
+
+
 def get_request_meta(request: Request) -> dict:
     """Extracts IP and user-agent for audit logging."""
     return {
         "ip_address": trusted_client_ip(request),
-        "user_agent": request.headers.get("User-Agent"),
+        "user_agent": _sanitize_user_agent(request.headers.get("User-Agent")),
     }

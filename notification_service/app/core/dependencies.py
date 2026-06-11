@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from fastapi import Depends, Header, Query
-from jose import JWTError, jwt
+import jwt
 from app.config import settings
 from fastapi import HTTPException
 from app.core.token_revocation import is_token_revoked
@@ -22,7 +22,7 @@ def _decode(token: str) -> TokenUser:
             role=payload["role"],
             name=payload.get("name", ""),
         )
-    except (JWTError, KeyError, ValueError):
+    except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
