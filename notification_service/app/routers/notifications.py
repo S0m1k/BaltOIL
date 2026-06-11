@@ -18,6 +18,7 @@ from app.services.notification_service import (
     notif_to_json,
     schedule_emails,
 )
+from app.services.push_service import schedule_pushes
 from app.config import settings
 
 router = APIRouter()
@@ -73,6 +74,7 @@ async def publish(
     # а не полагаться на отложенный commit в get_db (который мог бы упасть).
     await db.commit()
     schedule_emails(notifications)
+    schedule_pushes(notifications)
     r = _redis()
     try:
         for n in notifications:

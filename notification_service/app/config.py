@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     smsc_sender: str = ""      # имя отправителя (буквенное), опционально
     sms_enabled: bool = False  # глобальный kill-switch для SMS
 
+    # FCM / mobile push
+    fcm_credentials_file: str = ""  # путь к JSON сервис-аккаунта Firebase внутри контейнера
+    push_enabled: bool = False      # глобальный kill-switch для пушей
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

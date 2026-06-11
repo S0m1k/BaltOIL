@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, Base
+from app.routers.devices import router as devices_router
 from app.routers.internal import router as internal_router
 from app.routers.notifications import router as notif_router
 from app.routers.redis_subscriber import redis_subscriber_task
@@ -82,6 +83,7 @@ app.add_middleware(
 
 app.include_router(internal_router)
 app.include_router(notif_router, prefix="/api/v1/notifications", tags=["notifications"])
+app.include_router(devices_router, prefix="/api/v1/devices", tags=["devices"])
 
 
 @app.get("/health")
