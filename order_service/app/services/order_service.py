@@ -376,6 +376,16 @@ async def create_order(
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
+    # Согласование крупных заявок (правки 2026-06-11): заявка клиента >= 3000 л
+    # уходит менеджеру на согласование; водители её не видят и не могут взять.
+    # Заявки, созданные менеджером/админом, согласования не требуют.
+    needs_approval = (
+        not is_staff
+        and order_kind != OrderKind.TTN_L
+        and float(data.volume_requested) >= LARGE_VOLUME_THRESHOLD_L
+    )
+    initial_status = OrderStatus.AWAITING_MANAGER if needs_approval else OrderStatus.NEW
+
     order = Order(
         order_number=order_number,
         order_kind=order_kind,
@@ -386,11 +396,13 @@ async def create_order(
         volume_requested=data.volume_requested,
         delivery_address=data.delivery_address,
         desired_date=data.desired_date,
+        contact_person_name=data.contact_person_name,
+        contact_person_phone=data.contact_person_phone,
         payment_type=data.payment_type,
         expected_amount=expected_amount,
         client_comment=data.client_comment,
         manager_comment=data.manager_comment if is_staff else None,
-        status=OrderStatus.NEW,
+        status=initial_status,
         delivery_lat=delivery_lat,
         delivery_lon=delivery_lon,
         delivery_zone_id=resolved_zone_id,
@@ -403,13 +415,19 @@ async def create_order(
     await db.flush()
 
     # Лог: создание
+    if needs_approval:
+        create_comment = "Заявка создана — объём ≥ 3000 л, требуется согласование менеджера"
+    elif is_staff:
+        create_comment = "Заявка создана менеджером"
+    else:
+        create_comment = "Заявка создана"
     db.add(OrderStatusLog(
         order_id=order.id,
         from_status=None,
-        to_status=OrderStatus.NEW,
+        to_status=initial_status,
         changed_by_id=actor.id,
         changed_by_role=actor.role,
-        comment="Заявка создана" if not is_staff else "Заявка создана менеджером",
+        comment=create_comment,
     ))
 
     await db.flush()
@@ -462,67 +480,181 @@ async def create_order(
     return order
 
 
+# Поля, которые клиент может править в своей заявке (карандашики, правки 2026-06-11)
+_CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
+                    "client_comment", "contact_person_name", "contact_person_phone"}
+# Поля, которые водитель может править в назначенной ему заявке
+_DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
+# Статусы, в которых клиент/водитель ещё могут править заявку
+_EDITABLE_STATUSES = {OrderStatus.NEW, OrderStatus.AWAITING_MANAGER, OrderStatus.ACCEPTED}
+
+
+async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
+    """Пересчитать expected_amount и delivery_cost после смены топлива/объёма.
+
+    Fail-open: при недоступности auth/delivery сервисов суммы остаются прежними.
+    """
+    try:
+        ctx = await get_client_context(order.client_id)
+        expected = await compute_expected_amount(
+            db, order.fuel_type, float(order.volume_requested),
+            ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
+        )
+        delivery_cost = order.delivery_cost
+        if order.delivery_lat is not None and order.delivery_lon is not None:
+            zone_info = await resolve_zone(order.delivery_lat, order.delivery_lon)
+            if zone_info:
+                tariff = (
+                    await get_tariff(db, ctx.tariff_id)
+                    if ctx.tariff_id
+                    else await get_default_tariff(db, ctx.client_type)
+                )
+                if tariff is not None:
+                    recalc_delivery = compute_delivery_cost(
+                        tariff.base_delivery_cost,
+                        float(order.volume_requested),
+                        zone_info["cost_coefficient"],
+                        ctx.delivery_coefficient,
+                    )
+                    if recalc_delivery is not None:
+                        delivery_cost = recalc_delivery
+                        order.delivery_cost = recalc_delivery
+        if expected is not None:
+            order.expected_amount = expected + (delivery_cost or 0)
+    except Exception as exc:
+        log.warning("recompute_expected_amount failed for order %s (non-fatal): %s",
+                    order.id, exc)
+
+
 async def update_order(
     db: AsyncSession,
     order_id: uuid.UUID,
     data: OrderUpdateRequest,
     actor: TokenUser,
 ) -> Order:
-    if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
-        raise ForbiddenError("Редактирование заявок доступно менеджеру и администратору")
-
     order = await get_order(db, order_id, actor)
+
+    is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
+    requested_fields = set(data.model_dump(exclude_unset=True, exclude_none=True).keys())
+
+    # Матрица прав: staff — всё; клиент — свои заявки, ограниченные поля;
+    # водитель — назначенные ему, ограниченные поля.
+    if not is_staff:
+        if actor.role == ROLE_CLIENT:
+            if order.client_id != actor.id:
+                raise ForbiddenError()
+            extra = requested_fields - _CLIENT_EDITABLE
+        elif actor.role == ROLE_DRIVER:
+            if order.driver_id != actor.id:
+                raise ForbiddenError("Редактировать можно только назначенную вам заявку")
+            extra = requested_fields - _DRIVER_EDITABLE
+        else:
+            raise ForbiddenError()
+        if extra:
+            raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
+        if order.status not in _EDITABLE_STATUSES:
+            raise ValidationError("Заявку в этом статусе редактировать нельзя")
+
+    if data.volume_requested is not None and data.volume_requested < 300:
+        raise ValidationError("Минимальный объём заказа — 300 литров")
+    if data.fuel_type is not None:
+        await fuel_type_service.validate_active(db, data.fuel_type)
+    if data.desired_date is not None:
+        desired_utc = (data.desired_date if data.desired_date.tzinfo
+                       else data.desired_date.replace(tzinfo=timezone.utc))
+        if desired_utc < datetime.now(timezone.utc):
+            raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     # Track if we need to set pending_driver_ack
     was_accepted = order.status == OrderStatus.ACCEPTED
     changed = False
+    # Ключи изменённых полей для индикации «что поменялось» (правки 2026-06-11)
+    changed_keys: list[str] = []
 
     if data.manager_comment is not None:
         order.manager_comment = data.manager_comment
         changed = True
+        changed_keys.append("comment")
     if data.desired_date is not None:
         order.desired_date = data.desired_date
         changed = True
+        changed_keys.append("desired_date")
     if data.driver_id is not None:
         order.driver_id = data.driver_id
         changed = True
+        changed_keys.append("driver")
     if data.expected_amount is not None:
         order.expected_amount = data.expected_amount
         changed = True
+        changed_keys.append("amount")
     if data.trade_credit_contract_signed is not None:
         order.trade_credit_contract_signed = data.trade_credit_contract_signed
         changed = True
     if data.delivery_address is not None:
         order.delivery_address = data.delivery_address
         changed = True
+        changed_keys.append("address")
     if data.fuel_type is not None:
         order.fuel_type = data.fuel_type
         changed = True
+        changed_keys.append("fuel_type")
     if data.volume_requested is not None:
         order.volume_requested = data.volume_requested
         changed = True
+        changed_keys.append("volume")
     if data.payment_type is not None:
         order.payment_type = data.payment_type
         changed = True
     if data.client_comment is not None:
         order.client_comment = data.client_comment
         changed = True
+        changed_keys.append("comment")
+    if data.contact_person_name is not None:
+        order.contact_person_name = data.contact_person_name
+        changed = True
+    if data.contact_person_phone is not None:
+        order.contact_person_phone = data.contact_person_phone
+        changed = True
     if data.delivery_cost is not None:
         order.delivery_cost = data.delivery_cost
         changed = True
+        changed_keys.append("amount")
     if data.allow_delivery_unpaid is not None:
         order.allow_delivery_unpaid = data.allow_delivery_unpaid
         changed = True
+
+    # Смена топлива/объёма меняет стоимость — пересчитываем, если сумма
+    # не передана явно в этом же запросе (staff может задать вручную).
+    if (("fuel_type" in changed_keys or "volume" in changed_keys)
+            and data.expected_amount is None):
+        await _recompute_expected_amount(db, order)
 
     # final_amount меняет цель — пересчитываем payment_status
     if data.final_amount is not None:
         order.final_amount = data.final_amount
         await recompute_and_save(db, order)
         changed = True
+        changed_keys.append("amount")
 
-    # Если заявка была в ACCEPTED и что-то изменилось — водитель должен подтвердить
-    if was_accepted and changed:
+    # Если заявка была в ACCEPTED и что-то изменил НЕ водитель — водитель должен
+    # подтвердить (свои изменения водитель не подтверждает, правки 2026-06-11).
+    if was_accepted and changed and actor.role != ROLE_DRIVER:
         order.pending_driver_ack = True
+        merged = list(order.pending_changed_fields or [])
+        for k in changed_keys:
+            if k not in merged:
+                merged.append(k)
+        order.pending_changed_fields = merged
+
+    if changed:
+        db.add(OrderStatusLog(
+            order_id=order.id,
+            from_status=order.status,
+            to_status=order.status,
+            changed_by_id=actor.id,
+            changed_by_role=actor.role,
+            comment="Заявка изменена",
+        ))
 
     # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
     # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет
@@ -625,6 +757,7 @@ async def ack_changes(
 
     order = await get_order(db, order_id, actor)
     order.pending_driver_ack = False
+    order.pending_changed_fields = None
     await db.flush()
 
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
@@ -651,10 +784,12 @@ async def reschedule_order(
 
     was_accepted = order.status == OrderStatus.ACCEPTED
     changed = False
+    changed_keys: list[str] = []
 
     if data.desired_date is not None:
         order.desired_date = data.desired_date
         changed = True
+        changed_keys.append("desired_date")
 
     if data.driver_id is not None:
         # Только staff может менять водителя
@@ -662,9 +797,17 @@ async def reschedule_order(
             raise ForbiddenError("Только менеджер или администратор может переназначить водителя")
         order.driver_id = data.driver_id
         changed = True
+        changed_keys.append("driver")
 
-    if was_accepted and changed:
+    # Перенос самим водителем подтверждения не требует (правки 2026-06-11);
+    # изменения клиента/менеджера водитель подтверждает кнопкой.
+    if was_accepted and changed and actor.role != ROLE_DRIVER:
         order.pending_driver_ack = True
+        merged = list(order.pending_changed_fields or [])
+        for k in changed_keys:
+            if k not in merged:
+                merged.append(k)
+        order.pending_changed_fields = merged
 
     db.add(OrderStatusLog(
         order_id=order.id,
@@ -717,17 +860,22 @@ async def transition_status(
             ttn = await generate_ttn_number(db)
         order.ttn_number = ttn
 
-        # Фиксируем доставленный объём
-        order.volume_delivered = float(order.volume_requested)
+        # Фиксируем доставленный объём: фактический из формы водителя
+        # («сколько отгрузил», правки 2026-06-11) или заказанный по умолчанию.
+        order.volume_delivered = (
+            float(data.volume_delivered)
+            if data.volume_delivered is not None
+            else float(order.volume_requested)
+        )
 
-        # Пересчитываем final_amount
+        # Пересчитываем final_amount по фактическому объёму (+ стоимость доставки)
         ctx = await get_client_context(order.client_id)
         recalc = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
             ctx.fuel_coefficient,
         )
         if recalc is not None:
-            order.final_amount = recalc
+            order.final_amount = recalc + (order.delivery_cost or 0)
 
     if data.to_status == OrderStatus.CANCELLED:
         if data.rejection_reason:
@@ -790,6 +938,12 @@ async def transition_status(
     )
     order = result.scalar_one()
 
+    if prev_status == OrderStatus.AWAITING_MANAGER and order.status == OrderStatus.NEW:
+        event_title = f"Заявка №{order.order_number} согласована"
+        event_body = "Менеджер согласовал заявку — она передана водителям."
+    else:
+        event_title = f"Статус заявки №{order.order_number} изменён"
+        event_body = f"Новый статус: {order.status.value}"
     await publish_order_event({
         "event": "order_status",
         "order_id": str(order.id),
@@ -797,8 +951,8 @@ async def transition_status(
         "manager_id": str(order.manager_id) if order.manager_id else None,
         "driver_id": str(order.driver_id) if order.driver_id else None,
         "status": order.status.value,
-        "title": f"Статус заявки №{order.order_number} изменён",
-        "body": f"Новый статус: {order.status.value}",
+        "title": event_title,
+        "body": event_body,
     })
 
     await attach_payment_totals_one(db, order)

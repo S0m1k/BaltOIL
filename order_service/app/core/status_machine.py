@@ -1,7 +1,9 @@
 """
 Статусная машина заявок.
 
-Жизненный цикл (Д1):
+Жизненный цикл (Д1 + согласование крупных заявок, правки 2026-06-11):
+  AWAITING_MANAGER → NEW (менеджер/админ «согласовать», объём >= 3000 л)
+                   → CANCELLED (менеджер/админ)
   NEW → ACCEPTED (водитель /claim или берёт назначенную)
       → CANCELLED (менеджер/админ)
   ACCEPTED → DELIVERED (водитель, требуется ttn_number)
@@ -19,6 +21,10 @@ ROLE_CLIENT = "client"
 
 # allowed_transitions[from_status] = {to_status: {roles_that_can_do_it}}
 ALLOWED_TRANSITIONS: dict[OrderStatus, dict[OrderStatus, set[str]]] = {
+    OrderStatus.AWAITING_MANAGER: {
+        OrderStatus.NEW:       {ROLE_MANAGER, ROLE_ADMIN},
+        OrderStatus.CANCELLED: {ROLE_MANAGER, ROLE_ADMIN},
+    },
     OrderStatus.NEW: {
         OrderStatus.ACCEPTED:  {ROLE_DRIVER},
         OrderStatus.CANCELLED: {ROLE_MANAGER, ROLE_ADMIN},

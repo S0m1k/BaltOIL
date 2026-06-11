@@ -34,6 +34,9 @@ class OrderCreateRequest(BaseModel):
     volume_requested: float = Field(..., gt=0, le=200_000, description="Объём в литрах, минимум 300, максимум 200 000")
     delivery_address: str
     desired_date: datetime | None = None
+    # Контактное лицо для приёмки топлива на объекте
+    contact_person_name: str | None = Field(None, max_length=120)
+    contact_person_phone: str | None = Field(None, max_length=20)
     payment_type: PaymentType = PaymentType.ON_DELIVERY
     expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
@@ -61,7 +64,9 @@ class OrderCreateRequest(BaseModel):
 
 
 class OrderUpdateRequest(BaseModel):
-    """Менеджер/Админ могут обновить любые поля заявки в любом статусе."""
+    """Менеджер/Админ — любые поля в любом статусе.
+    Клиент/водитель — ограниченный набор (топливо/объём/адрес/дата),
+    права проверяются в order_service.update_order."""
     manager_comment: str | None = None
     desired_date: datetime | None = None
     driver_id: uuid.UUID | None = None
@@ -73,6 +78,8 @@ class OrderUpdateRequest(BaseModel):
     volume_requested: float | None = Field(None, gt=0)
     payment_type: PaymentType | None = None
     client_comment: str | None = None
+    contact_person_name: str | None = Field(None, max_length=120)
+    contact_person_phone: str | None = Field(None, max_length=20)
     # Стоимость доставки: менеджер может проставить вручную для адресов вне зоны
     delivery_cost: Decimal | None = Field(None, ge=0)
     # Долговая заявка: менеджер/админ может переключить флаг
@@ -85,6 +92,8 @@ class OrderStatusTransitionRequest(BaseModel):
     comment: str | None = None
     # Для водителя при завершении рейса — обязательно при ACCEPTED→DELIVERED
     ttn_number: str | None = None
+    # Фактически отгруженный объём (л) при ACCEPTED→DELIVERED; NULL = как заказано
+    volume_delivered: float | None = Field(None, gt=0, le=200_000)
     # Для менеджера при отмене
     rejection_reason: str | None = None
 
@@ -105,8 +114,11 @@ class OrderResponse(BaseModel):
     volume_delivered: float | None
     delivery_address: str
     desired_date: datetime | None
+    contact_person_name: str | None = None
+    contact_person_phone: str | None = None
     ttn_number: str | None
     pending_driver_ack: bool
+    pending_changed_fields: list[str] | None = None
     payment_type: PaymentType
     payment_status: str
     expected_amount: Decimal | None
@@ -152,6 +164,9 @@ class OrderListResponse(BaseModel):
     status: OrderStatus
     ttn_number: str | None
     pending_driver_ack: bool
+    pending_changed_fields: list[str] | None = None
+    contact_person_name: str | None = None
+    contact_person_phone: str | None = None
     manager_id: uuid.UUID | None
     driver_id: uuid.UUID | None
     client_comment: str | None

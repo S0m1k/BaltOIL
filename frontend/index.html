@@ -568,6 +568,7 @@
     border: 1px solid;
   }
   .status-new       { color: var(--s-new);       border-color: var(--s-new);       background: rgba(59,130,246,.1); }
+  .status-awaiting_manager { color: var(--amber); border-color: var(--amber); background: rgba(245,158,11,.1); }
   .status-accepted  { color: var(--s-progress);  border-color: var(--s-progress);  background: rgba(234,179,8,.1); }
   .status-delivered { color: var(--s-delivered); border-color: var(--s-delivered); background: rgba(20,184,166,.1); }
   .status-cancelled { color: var(--s-rejected);  border-color: var(--s-rejected);  background: rgba(239,68,68,.1); }
@@ -1847,6 +1848,7 @@
         <div class="toolbar-title">Заявки</div>
         <div class="status-checkboxes" id="status-tab-group" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <button class="status-tab-btn active" data-status="new"       onclick="switchOrderTab('new')">Новые</button>
+          <button class="status-tab-btn"        data-status="awaiting_manager" id="tab-awaiting-btn" onclick="switchOrderTab('awaiting_manager')">На согласовании</button>
           <button class="status-tab-btn"        data-status="accepted"  onclick="switchOrderTab('accepted')">Ждут доставки</button>
           <button class="status-tab-btn"        data-status="delivered" onclick="switchOrderTab('delivered')">Доставленные</button>
           <button class="status-tab-btn"        data-status="cancelled" onclick="switchOrderTab('cancelled')">Отменённые</button>
@@ -1950,6 +1952,17 @@
           <div id="c-zone-map" style="height:240px;border-radius:8px;overflow:hidden;margin-top:8px;display:none"></div>
           <div id="c-price-preview" style="margin-top:8px"></div>
           <div id="c-zones-legend" style="margin-top:8px"></div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Контактное лицо для приёмки топлива</label>
+            <input type="text" id="c-contact-name" class="form-input" placeholder="Имя" maxlength="120">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Телефон контактного лица</label>
+            <input type="tel" id="c-contact-phone" class="form-input" placeholder="+7 900 000 00 00" maxlength="20">
+          </div>
         </div>
 
         <div class="form-group">
@@ -2919,10 +2932,22 @@ const FUEL_LABELS = new Proxy(_FUEL_LABELS_FALLBACK, {
   get(_, code) { return fuelLabel(code); },
 });
 const STATUS_LABELS = {
-  new:       'Новая',
-  accepted:  'Принята водителем',
-  delivered: 'Доставлена',
-  cancelled: 'Отменена',
+  new:              'Новая',
+  awaiting_manager: 'На согласовании',
+  accepted:         'Принята водителем',
+  delivered:        'Доставлена',
+  cancelled:        'Отменена',
+};
+
+// Человекочитаемые ярлыки изменённых полей заявки (pending_changed_fields)
+const CHANGED_FIELD_LABELS = {
+  desired_date: 'дата',
+  volume:       'объём',
+  fuel_type:    'топливо',
+  address:      'адрес',
+  comment:      'комментарий',
+  driver:       'водитель',
+  amount:       'сумма',
 };
 
 const PAYMENT_LABELS = {
@@ -3091,6 +3116,9 @@ function orderPost(path, body) {
 }
 function orderPut(path, body) {
   return api(`${ORDER_URL}${path}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+function orderPatch(path, body) {
+  return api(`${ORDER_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 function authPatch(path, body) {
   return api(`${AUTH_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -3543,6 +3571,10 @@ async function initApp() {
   document.getElementById('create-form-title').textContent = isStaff
     ? 'Создать заявку (от имени клиента)'
     : 'Новая заявка на топливо';
+  // Вкладка «На согласовании» — водители такие заявки не видят
+  const awaitingBtn = document.getElementById('tab-awaiting-btn');
+  if (awaitingBtn) awaitingBtn.style.display = role === 'driver' ? 'none' : '';
+
   // Vehicles — admin/manager see all; driver sees their own
   document.getElementById('tab-vehicles-btn').style.display =
     role === 'client' ? 'none' : '';
@@ -4191,6 +4223,33 @@ function _payIcon(o) {
   return `<span class="pay-icon" style="color:var(--text3)" title="Не оплачено">${icon('circle',14)}</span>`;
 }
 
+// Может ли текущий пользователь редактировать поля заявки «карандашиком»
+function canEditOrderFields(o) {
+  const role = currentUser?.role;
+  if (role === 'manager' || role === 'admin')
+    return ['new', 'awaiting_manager', 'accepted'].includes(o.status);
+  if (role === 'client')
+    return o.client_id === currentUser?.id
+      && ['new', 'awaiting_manager', 'accepted'].includes(o.status);
+  if (role === 'driver')
+    return o.driver_id === currentUser?.id && ['new', 'accepted'].includes(o.status);
+  return false;
+}
+
+function _editPencil(o, field) {
+  if (!canEditOrderFields(o)) return '';
+  return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
+    onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
+}
+
+// «!» — заявка изменена, водитель ещё не подтвердил (правки 2026-06-11)
+function _changedMark(o) {
+  if (!o.pending_driver_ack) return '';
+  const fields = (o.pending_changed_fields || []).map(k => CHANGED_FIELD_LABELS[k] || k).join(', ');
+  const tip = fields ? `Изменено: ${fields}` : 'Заявка изменена';
+  return `<span style="color:var(--red);font-weight:800;font-size:16px;margin-right:6px" title="${escHtml(tip)}">!</span>`;
+}
+
 function orderCardHTML(o) {
   const statusLabel = STATUS_LABELS[o.status] || o.status;
   const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
@@ -4198,12 +4257,18 @@ function orderCardHTML(o) {
   // Driver sees no money for company orders (SPEC 5.4)
   const driverHidesMoney = currentUser?.role === 'driver' && o.order_kind !== 'individual';
   const rowClass    = _orderRowClass(o);
+  // В списке показываем запланированную дату отгрузки, а не дату создания
+  const listDate = o.desired_date
+    ? new Date(o.desired_date).toLocaleDateString('ru-RU')
+    : fmtDate(o.created_at);
   return `
   <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}"
        data-order-kind="${escHtml(o.order_kind || '')}"
        data-expected-amount="${o.expected_amount != null ? Number(o.expected_amount) : ''}"
-       data-final-amount="${o.final_amount != null ? Number(o.final_amount) : ''}">    
+       data-final-amount="${o.final_amount != null ? Number(o.final_amount) : ''}"
+       data-volume-requested="${Number(o.volume_requested)}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
+      ${_changedMark(o)}
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
@@ -4212,20 +4277,21 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
       </div>
       ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">${icon('chat-circle',13,'margin-right:4px')} ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
-      <div class="order-date">${fmtDate(o.created_at)}</div>
+      <div class="order-date" title="${o.desired_date ? 'Запланированная дата отгрузки' : 'Дата создания'}">${listDate}</div>
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
         ${isStaff ? `<div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>` : ''}
         ${isStaff ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Топливо</div><div class="detail-value">${fuelLabel}</div></div>
-        <div class="detail-item"><div class="detail-label">Объём заказан</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
+        <div class="detail-item"><div class="detail-label">Топливо ${_editPencil(o,'fuel_type')}</div><div class="detail-value">${fuelLabel}</div></div>
+        <div class="detail-item"><div class="detail-label">Объём заказан ${_editPencil(o,'volume_requested')}</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Адрес доставки</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
+        <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
         ${o.delivery_cost != null ? `<div class="detail-item"><div class="detail-label">Стоимость доставки</div><div class="detail-value">${Number(o.delivery_cost).toLocaleString('ru')} ₽</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Желаемая дата</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
+        <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
+        ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
         ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
@@ -4493,17 +4559,22 @@ function actionBarHTML(o) {
   const s = o.status;
   const btns = [];
 
-  // Pending-ack banner for driver
+  // Pending-ack banner for driver: что именно изменилось + кнопка подтверждения
   let ackBanner = '';
   if (role === 'driver' && o.pending_driver_ack) {
+    const fields = (o.pending_changed_fields || []).map(k => CHANGED_FIELD_LABELS[k] || k).join(', ');
+    const what = fields ? ` Изменено: <strong>${escHtml(fields)}</strong>.` : '';
     ackBanner = `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid var(--amber);border-radius:6px;display:flex;align-items:center;gap:10px">
-      <span style="color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:4px')} Заявка изменена — подтвердите получение изменений</span>
+      <span style="color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:4px')} Заявка изменена — подтвердите получение изменений.${what}</span>
       <button class="btn btn-sm btn-warn" style="margin-left:auto" onclick="ackOrderChanges('${o.id}')">Подтвердить</button>
     </div>`;
   }
 
   if (role === 'manager' || role === 'admin') {
-    if (s === 'new' || s === 'accepted')
+    // Согласование крупной заявки (>= 3000 л)
+    if (s === 'awaiting_manager')
+      btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','new',{comment:'Заявка согласована менеджером'})">${icon('check',14)} Согласовать</button>`);
+    if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptCancel('${o.id}')">✗ Отменить</button>`);
     if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести</button>`);
@@ -4536,7 +4607,9 @@ function actionBarHTML(o) {
   }
 
   if (role === 'client') {
-    if (s === 'new' || s === 'accepted')
+    if (s === 'awaiting_manager')
+      btns.push(`<span style="font-size:12px;color:var(--amber);display:inline-flex;align-items:center;gap:4px">${icon('clock',13)} Объём ≥ 3000 л — заявка на согласовании у менеджера</span>`);
+    if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
     // Chat with manager
     btns.push(`<button class="btn btn-sm btn-primary-outline" onclick="openOrderChat('${o.id}','${(o.order_number||'').replace(/'/g,'&#39;')}',${o.manager_id ? `'${o.manager_id}'` : 'null'})">${icon('chat-circle',14)} Написать менеджеру</button>`);
@@ -4586,6 +4659,68 @@ function promptCancel(orderId) {
   );
 }
 
+// Инлайн-редактирование поля заявки «карандашиком» (правки 2026-06-11).
+// PATCH /orders/{id}; права (клиент — свои, водитель — назначенные) проверяет бэкенд.
+async function promptEditOrderField(orderId, field) {
+  let order;
+  try {
+    order = await orderGet(`/orders/${orderId}`);
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  let title, inputHtml;
+  if (field === 'fuel_type') {
+    title = 'Изменить вид топлива';
+    let opts = '';
+    try {
+      const fuels = await orderGet('/fuel-types?available_only=true');
+      opts = fuels.map(f => `<option value="${escHtml(f.code)}" ${f.code === order.fuel_type ? 'selected' : ''}>${escHtml(f.label)}</option>`).join('');
+    } catch (_) {
+      opts = Object.entries(_FUEL_LABELS_FALLBACK)
+        .map(([code, label]) => `<option value="${code}" ${code === order.fuel_type ? 'selected' : ''}>${label}</option>`).join('');
+    }
+    inputHtml = `<select id="eof-value" class="form-input">${opts}</select>`;
+  } else if (field === 'volume_requested') {
+    title = 'Изменить объём';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="300" step="100" value="${Number(order.volume_requested)}">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Минимум 300 л. Сумма заявки будет пересчитана.</div>`;
+  } else if (field === 'delivery_address') {
+    title = 'Изменить адрес доставки';
+    inputHtml = `<input type="text" id="eof-value" class="form-input" value="${escHtml(order.delivery_address || '')}">`;
+  } else if (field === 'desired_date') {
+    title = 'Изменить желаемую дату';
+    const cur = order.desired_date ? new Date(order.desired_date).toISOString().slice(0, 10) : '';
+    inputHtml = `<input type="date" id="eof-value" class="form-input" value="${cur}">`;
+  } else { return; }
+
+  openModal(`${title} · ${order.order_number}`,
+    `<div class="form-group">${inputHtml}</div>
+     ${order.status === 'accepted' && currentUser?.role !== 'driver'
+        ? '<div style="font-size:11px;color:var(--amber)">Заявка уже принята водителем — он получит запрос на подтверждение изменений.</div>' : ''}`,
+    async () => {
+      const raw = document.getElementById('eof-value').value;
+      if (!raw) { toast('Укажите значение', 'error'); return; }
+      const body = {};
+      if (field === 'volume_requested') {
+        const v = parseFloat(raw);
+        if (!v || v < 300) { toast('Минимальный объём — 300 л', 'error'); return; }
+        body[field] = v;
+      } else if (field === 'desired_date') {
+        body[field] = new Date(raw + 'T00:00:00').toISOString();
+      } else {
+        body[field] = raw.trim();
+      }
+      try {
+        await orderPatch(`/orders/${orderId}`, body);
+        closeModal();
+        toast('Заявка обновлена');
+        await loadOrders();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
+}
+
 function promptDeliver(orderId) {
   // Find the order data from current rendered list (needed to check order_kind + amount)
   const orderEl = document.getElementById(`card-${orderId}`);
@@ -4594,18 +4729,59 @@ function promptDeliver(orderId) {
   const expectedAmount = orderEl ? parseFloat(orderEl.dataset.expectedAmount || '0') : 0;
   const finalAmount = orderEl ? parseFloat(orderEl.dataset.finalAmount || '0') : 0;
   const displayAmount = (finalAmount > 0 ? finalAmount : expectedAmount) || 0;
+  const requestedVolume = orderEl ? parseFloat(orderEl.dataset.volumeRequested || '0') : 0;
+
+  // Одно окно: фактический объём + (для физлиц) отметка об оплате (правки 2026-06-11)
+  const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2});
+  const paymentBlock = orderKind === 'individual' ? `
+    <div class="form-group" style="margin-top:10px">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="md-paid" onchange="document.getElementById('md-pay-fields').style.display = this.checked ? '' : 'none'">
+        <span>Оплата получена</span>
+      </label>
+    </div>
+    <div id="md-pay-fields" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Сумма, ₽</label>
+        <input type="number" id="md-pay-amount" class="form-input" step="0.01" min="0.01" value="${displayAmount > 0 ? displayAmount : ''}" placeholder="Введите сумму">
+        ${displayAmount > 0 ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">К получению: ${fmt(displayAmount)} ₽</div>` : ''}
+      </div>
+      <div class="form-group">
+        <label class="form-label">Метод оплаты</label>
+        <select id="md-pay-method" class="form-input">
+          <option value="cash" selected>Наличные</option>
+          <option value="card">Карта</option>
+          <option value="bank_transfer">Банковский перевод</option>
+        </select>
+      </div>
+    </div>` : '';
 
   openModal('Отметить доставку',
-    `<div style="font-size:14px;color:var(--text2);line-height:1.6">
-      Подтвердите доставку. Номер ТТН будет присвоен автоматически.
-    </div>`,
+    `<div class="form-group">
+      <label class="form-label">Отгружено, литров <span style="color:var(--red)">*</span></label>
+      <input type="number" id="md-volume" class="form-input" step="0.01" min="0.01" value="${requestedVolume || ''}" placeholder="Фактический объём">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Сумма заявки будет пересчитана по фактическому объёму. Номер ТТН присваивается автоматически.</div>
+    </div>
+    ${paymentBlock}`,
     async () => {
+      const vol = parseFloat(document.getElementById('md-volume').value);
+      if (!vol || vol <= 0) { toast('Укажите отгруженный объём', 'error'); return; }
+      const paid = document.getElementById('md-paid')?.checked;
+      const payAmount = paid ? parseFloat(document.getElementById('md-pay-amount').value) : null;
+      const payMethod = paid ? document.getElementById('md-pay-method').value : null;
+      if (paid && (!payAmount || payAmount <= 0)) { toast('Укажите сумму оплаты', 'error'); return; }
       closeModal();
       // ttn_number не передаём — бэкенд присвоит сквозной номер автоматически.
-      await transitionOrder(orderId, 'delivered', {});
-      // After delivery of an individual order, show payment recording popup (SPEC 5.4)
-      if (orderKind === 'individual') {
-        promptDriverRecordPayment(orderId, displayAmount);
+      await transitionOrder(orderId, 'delivered', { volume_delivered: vol });
+      if (paid) {
+        try {
+          await orderPost('/payments/record', { order_id: orderId, amount: payAmount, method: payMethod });
+          toast('Оплата зафиксирована');
+          await loadOrders();
+        } catch (e) {
+          toast('Доставка отмечена, но оплата не зафиксирована: ' + e.message, 'error');
+          promptDriverRecordPayment(orderId, payAmount || displayAmount);
+        }
       }
     }
   );
@@ -4904,6 +5080,8 @@ async function doCreateOrder() {
                         : undefined,
     payment_type:     document.querySelector('input[name="payment"]:checked').value,
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
+    contact_person_name:  document.getElementById('c-contact-name')?.value.trim() || undefined,
+    contact_person_phone: document.getElementById('c-contact-phone')?.value.trim() || undefined,
   };
 
   // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
@@ -4946,8 +5124,14 @@ async function doCreateOrder() {
 
   try {
     const order = await orderPost('/orders', body);
-    toast(`Заявка ${order.order_number} создана!`);
+    if (order.status === 'awaiting_manager') {
+      toast(`Заявка ${order.order_number} создана и отправлена менеджеру на согласование (объём ≥ 3000 л)`);
+    } else {
+      toast(`Заявка ${order.order_number} создана!`);
+    }
     // Reset form
+    document.getElementById('c-contact-name').value = '';
+    document.getElementById('c-contact-phone').value = '';
     document.getElementById('c-volume').value = '';
     document.getElementById('c-addr-city').value = '';
     document.getElementById('c-addr-street').value = '';

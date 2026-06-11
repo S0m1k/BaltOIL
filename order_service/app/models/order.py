@@ -6,13 +6,14 @@ from sqlalchemy import (
     String, Text, Numeric, DateTime, Enum as SAEnum,
     Integer, Boolean, func
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
 class OrderStatus(str, enum.Enum):
     NEW = "new"           # Новая (создана, ждёт водителя)
+    AWAITING_MANAGER = "awaiting_manager"  # На согласовании с менеджером (объём >= 3000 л)
     ACCEPTED = "accepted" # Принята водителем
     DELIVERED = "delivered" # Доставлена
     CANCELLED = "cancelled" # Отменена (терминальный)
@@ -59,11 +60,18 @@ class Order(Base):
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
     desired_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Контактное лицо для приёмки топлива на объекте
+    contact_person_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    contact_person_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Номер ТТН — обязателен при переходе ACCEPTED→DELIVERED
     ttn_number: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Флаг подтверждения изменений водителем (выставляется при edit/reschedule ACCEPTED-заявки)
     pending_driver_ack: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Какие поля изменены с момента последнего подтверждения водителем
+    # (список ключей: desired_date / volume / fuel_type / address / comment / driver / amount)
+    pending_changed_fields: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Оплата
     payment_type: Mapped[PaymentType] = mapped_column(
