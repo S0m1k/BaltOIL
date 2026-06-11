@@ -66,6 +66,18 @@ async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=No
         raise ConflictError("Пользователь с таким номером телефона уже существует")
 
 
+async def _check_inn_unique(db: AsyncSession, inn: str | None, exclude_user_id=None) -> None:
+    """Один ИНН — одно зарегистрированное юрлицо (правки 2026-06-11)."""
+    if not inn:
+        return
+    q = select(ClientProfile).where(ClientProfile.inn == inn)
+    if exclude_user_id:
+        q = q.where(ClientProfile.user_id != exclude_user_id)
+    result = await db.execute(q)
+    if result.scalars().first():
+        raise ConflictError("Организация с таким ИНН уже зарегистрирована")
+
+
 async def register_individual(
     db: AsyncSession,
     data: RegisterIndividualRequest,
@@ -123,6 +135,7 @@ async def register_company(
         data.email = _normalize_email(data.email)
         await _check_email_unique(db, data.email)
     await _check_phone_unique(db, data.phone)
+    await _check_inn_unique(db, data.inn)
 
     user = User(
         email=data.email,  # может быть None — заполнит позже в профиле
@@ -388,7 +401,10 @@ async def update_user(
         await _check_email_unique(db, data.email, exclude_id=user_id)
         changed["email"] = {"old": user.email, "new": data.email}
         user.email = data.email
-    if data.phone is not None:
+    if data.phone is not None and data.phone != user.phone:
+        # Телефон — логин-идентификатор: дубликат сломал бы вход по номеру
+        await _check_phone_unique(db, data.phone, exclude_id=user_id)
+        changed["phone"] = {"old": user.phone, "new": data.phone}
         user.phone = data.phone
     if data.full_name is not None:
         user.full_name = data.full_name
@@ -517,11 +533,16 @@ async def update_client_profile(
     if not profile:
         raise NotFoundError("Профиль клиента не найден")
 
+    # Смена ИНН не должна создавать дубль уже зарегистрированного юрлица
+    update_fields = data.model_dump(exclude_unset=True)
+    if update_fields.get("inn") and update_fields["inn"] != profile.inn:
+        await _check_inn_unique(db, update_fields["inn"], exclude_user_id=user_id)
+
     changed = {}
     # exclude_unset (а не exclude_none): пропущенные поля не трогаем, но явно
     # переданный null МОЖЕТ сбросить значение (tariff_id=null → default-тариф,
     # credit_limit=null → лимита нет). С exclude_none сброс в NULL был невозможен.
-    for field, value in data.model_dump(exclude_unset=True).items():
+    for field, value in update_fields.items():
         old = getattr(profile, field)
         if old != value:
             changed[field] = {"old": str(old) if old is not None else None, "new": str(value)}

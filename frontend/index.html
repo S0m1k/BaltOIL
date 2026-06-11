@@ -5125,9 +5125,8 @@ async function loadProfile() {
     const isCompany = me.client_profile && me.client_profile.client_type === 'company';
 
     // Email: кнопка добавления/изменения для всех клиентов (правки 2026-06-11)
-    const emailEditBtn = isClient
-      ? `<button class="btn btn-sm btn-ghost" style="margin-left:8px;font-size:11px" onclick="openProfileEmailEdit('${escHtml(me.id)}')">${me.email ? 'Изменить' : 'Добавить'}</button>`
-      : '';
+    const emailEditBtn =
+      `<button class="btn btn-sm btn-ghost" style="margin-left:8px;font-size:11px" onclick="openProfileSelfEdit()">${me.email ? 'Изменить' : 'Добавить'}</button>`;
     const emailDisplay = (me.email
       ? escHtml(me.email)
       : `<span style="color:var(--text3)">Не указан</span>`) + emailEditBtn
@@ -5164,9 +5163,12 @@ async function loadProfile() {
         if (p.delivery_address) fields.push(['Адрес доставки', escHtml(p.delivery_address)]);
       }
     }
-    const editReqBtn = (isClient && isCompany)
-      ? `<div style="margin-top:12px"><button class="btn btn-sm btn-primary-outline" onclick="openProfileRequisitesEdit()">${icon('pencil-simple',13)} Редактировать реквизиты</button></div>`
-      : '';
+    // «Редактировать профиль» (ФИО/email/телефон) — для всех ролей (правки 2026-06-11);
+    // у юрлица дополнительно кнопка реквизитов.
+    const editReqBtn = `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-primary-outline" onclick="openProfileSelfEdit()">${icon('pencil-simple',13)} Редактировать профиль</button>
+        ${(isClient && isCompany) ? `<button class="btn btn-sm btn-primary-outline" onclick="openProfileRequisitesEdit()">${icon('pencil-simple',13)} Редактировать реквизиты</button>` : ''}
+      </div>`;
     el.innerHTML = fields.map(([label, value]) =>
       `<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
@@ -5233,33 +5235,68 @@ async function openProfileRequisitesEdit() {
   );
 }
 
-async function openProfileEmailEdit(userId) {
-  openModal(
-    'Добавить email',
+// Редактирование своих данных — доступно всем ролям (правки 2026-06-11).
+// Уникальность email/телефона проверяет бэкенд (409 при дубликате).
+async function openProfileSelfEdit() {
+  let me;
+  try { me = await authGet('/auth/me'); } catch (e) { toast(e.message, 'error'); return; }
+  const isIndividualClient = me.role === 'client'
+    && me.client_profile && me.client_profile.client_type === 'individual';
+
+  openModal('Мои данные',
     `<div class="form-group">
-       <label class="form-label">Email</label>
-       <input type="email" id="profile-email-input" class="form-input" placeholder="example@mail.ru" autocomplete="email">
-       <div style="font-size:11px;color:var(--text3);margin-top:4px">Заполните email, чтобы получать уведомления на почту.</div>
+       <label class="form-label">ФИО</label>
+       <input type="text" id="pse-fullname" class="form-input" value="${escHtml(me.full_name || '')}">
      </div>
-     <div id="profile-email-error"></div>`,
+     <div class="form-row">
+       <div class="form-group">
+         <label class="form-label">Email</label>
+         <input type="email" id="pse-email" class="form-input" value="${escHtml(me.email || '')}" placeholder="example@mail.ru" autocomplete="email">
+       </div>
+       <div class="form-group">
+         <label class="form-label">Телефон</label>
+         <input type="tel" id="pse-phone" class="form-input" value="${escHtml(me.phone || '')}" placeholder="+7 900 000 00 00">
+       </div>
+     </div>
+     ${isIndividualClient ? `<div class="form-group">
+       <label class="form-label">Адрес доставки</label>
+       <input type="text" id="pse-delivery-addr" class="form-input" value="${escHtml(me.client_profile.delivery_address || '')}">
+     </div>` : ''}
+     <div id="pse-error"></div>
+     <div style="font-size:11px;color:var(--text3)">Email и телефон должны быть уникальными — система не даст указать чужие.</div>`,
     async () => {
-      const email = document.getElementById('profile-email-input').value.trim();
-      if (!email) return;
+      const fullName = document.getElementById('pse-fullname').value.trim();
+      const email = document.getElementById('pse-email').value.trim();
+      const phone = document.getElementById('pse-phone').value.trim();
+      const errEl = document.getElementById('pse-error');
+      if (!fullName) { errEl.innerHTML = '<div class="inline-error">Укажите ФИО</div>'; return; }
+      if (!phone && !email) { errEl.innerHTML = '<div class="inline-error">Укажите телефон или email — без них вход в систему невозможен</div>'; return; }
+      const body = { full_name: fullName };
+      if (email !== (me.email || '')) body.email = email || null;
+      if (phone && phone !== (me.phone || '')) body.phone = phone;
       try {
-        await api(`${AUTH_URL}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ email }) });
-        toast('Email сохранён', 'success');
+        await authPatch(`/users/${me.id}`, body);
+        if (isIndividualClient) {
+          const addr = document.getElementById('pse-delivery-addr').value.trim();
+          if (addr !== (me.client_profile.delivery_address || '')) {
+            await authPatch(`/users/${me.id}/profile`, { delivery_address: addr || null });
+          }
+        }
+        if (currentUser && currentUser.id === me.id) {
+          currentUser.full_name = fullName;
+          currentUser.email = email || null;
+          if (phone) currentUser.phone = phone;
+          const headerName = document.getElementById('header-name');
+          if (headerName) headerName.textContent = fullName;
+        }
+        toast('Данные сохранены', 'success');
         closeModal();
         loadProfile();
       } catch (e) {
-        const errEl = document.getElementById('profile-email-error');
-        if (errEl) errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+        errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
       }
     }
   );
-  setTimeout(() => {
-    const inp = document.getElementById('profile-email-input');
-    if (inp) inp.focus();
-  }, 60);
 }
 
 // ═══════════════════════════════════════════════════════════════
