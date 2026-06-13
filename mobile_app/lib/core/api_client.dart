@@ -70,6 +70,9 @@ class ApiClient {
   /// Назначается на старте приложения — навигация на экран входа.
   VoidCallback? onSessionExpired;
 
+  /// Public wrapper — вызывается ws_client при 4401 (token expired).
+  Future<bool> refreshTokenPublic() => _tryRefresh();
+
   Future<bool> _tryRefresh() async {
     final refresh = await TokenStorage.instance.refreshToken;
     if (refresh == null) return false;

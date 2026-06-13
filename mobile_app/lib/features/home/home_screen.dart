@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
+import '../chat/conversations_screen.dart';
 import '../notifications/notifications_repository.dart';
 import '../notifications/notifications_screen.dart';
 import '../orders/driver_orders_screen.dart';
@@ -69,11 +70,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ordersBody = OrdersScreen(canCreate: isClient);
     }
 
+    String appBarTitle;
+    if (_tab == 0) {
+      appBarTitle = isDriver ? 'Заявки на доставку' : 'Мои заявки';
+    } else if (_tab == 1) {
+      appBarTitle = 'Чаты';
+    } else {
+      appBarTitle = 'Уведомления';
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tab == 0
-            ? (isDriver ? 'Заявки на доставку' : 'Мои заявки')
-            : 'Уведомления'),
+        title: Text(appBarTitle),
         actions: [
           if (_user != null)
             Padding(
@@ -93,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _tab,
         children: [
           ordersBody,
+          const ConversationsScreen(),
           const NotificationsScreen(),
         ],
       ),
@@ -107,6 +116,10 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.local_shipping_outlined),
               selectedIcon: Icon(Icons.local_shipping),
               label: 'Заявки'),
+          const NavigationDestination(
+              icon: Icon(Icons.chat_bubble_outline),
+              selectedIcon: Icon(Icons.chat_bubble),
+              label: 'Чаты'),
           NavigationDestination(
               icon: Badge(
                 isLabelVisible: _unread > 0,

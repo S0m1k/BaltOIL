@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Для отправки фото и видео в чате</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Для съёмки фото и видео в чате</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Для записи видео со звуком в чате</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

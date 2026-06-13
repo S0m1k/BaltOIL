@@ -10,6 +10,7 @@ final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PushRegistrar.instance.navigatorKey = navigatorKey;
   await PushRegistrar.instance.init();
 
   ApiClient.instance.onSessionExpired = () {
