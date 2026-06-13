@@ -12,9 +12,11 @@ class AppConfig {
   );
 
   /// Разрешить самоподписанный сертификат (только для локальной разработки).
+  /// По умолчанию false — пробросить true только если TLS-прокси использует
+  /// самоподписанный сертификат (локальный стенд). На проде всегда false.
   static const bool allowBadCertificates = bool.fromEnvironment(
     'ALLOW_BAD_CERTS',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   static String get authBase => 'https://$apiHost:8001/api/v1';
