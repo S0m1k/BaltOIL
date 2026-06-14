@@ -78,7 +78,10 @@ async def transition_status(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Смена статуса заявки. Допустимые переходы зависят от роли пользователя."""
-    return await order_service.transition_status(db, order_id, data, current_user)
+    return await order_service.transition_status(
+        db, order_id, data, current_user,
+        idempotency_key=str(data.idempotency_key) if data.idempotency_key else None,
+    )
 
 
 @router.post("/{order_id}/claim", response_model=OrderResponse)

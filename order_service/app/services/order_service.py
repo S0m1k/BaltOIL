@@ -854,7 +854,24 @@ async def transition_status(
     order_id: uuid.UUID,
     data: OrderStatusTransitionRequest,
     actor: TokenUser,
+    idempotency_key: str | None = None,
 ) -> Order:
+    # ── Idempotency check (mobile offline-outbox) ──────────────────────────
+    if idempotency_key is not None:
+        from app.models.idempotency_key import IdempotencyKey
+        existing = await db.execute(
+            select(IdempotencyKey).where(
+                IdempotencyKey.key == idempotency_key,
+                IdempotencyKey.operation == "order_transition",
+            )
+        )
+        idem_row = existing.scalar_one_or_none()
+        if idem_row is not None and idem_row.order_id is not None:
+            # Already processed — return the original order (current DB state)
+            cached = await get_order(db, idem_row.order_id, actor)
+            return cached
+    # ── End idempotency check ──────────────────────────────────────────────
+
     order = await get_order(db, order_id, actor)
 
     validate_transition(order.status, data.to_status, actor.role)
@@ -977,6 +994,19 @@ async def transition_status(
     })
 
     await attach_payment_totals_one(db, order)
+
+    # ── Persist idempotency key after successful work ──────────────────────
+    if idempotency_key is not None:
+        from app.models.idempotency_key import IdempotencyKey
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(IdempotencyKey).values(
+            key=idempotency_key,
+            operation="order_transition",
+            order_id=order_id,
+        ).on_conflict_do_nothing(index_elements=["key"])
+        await db.execute(stmt)
+    # ── End idempotency persist ────────────────────────────────────────────
+
     return order
 
 

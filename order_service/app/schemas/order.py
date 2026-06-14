@@ -96,6 +96,9 @@ class OrderStatusTransitionRequest(BaseModel):
     volume_delivered: float | None = Field(None, gt=0, le=200_000)
     # Для менеджера при отмене
     rejection_reason: str | None = None
+    # Mobile offline-outbox: клиентский UUID для идемпотентного повтора.
+    # Веб-клиенты поле не передают; поведение без ключа не меняется.
+    idempotency_key: uuid.UUID | None = None
 
 
 class RescheduleRequest(BaseModel):

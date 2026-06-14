@@ -39,6 +39,9 @@ class RecordPaymentRequest(BaseModel):
     amount: float = Field(..., gt=0)
     method: PaymentMethod
     notes: str | None = None
+    # Mobile offline-outbox: клиентский UUID для идемпотентного повтора.
+    # Веб-клиенты поле не передают; поведение без ключа не меняется.
+    idempotency_key: uuid.UUID | None = None
 
 
 @router.get("", response_model=list[PaymentResponse])
@@ -82,6 +85,7 @@ async def record_payment(
     return await payment_service.record_payment(
         db, data.order_id, data.amount, data.method.value,
         current_user, notes=data.notes,
+        idempotency_key=str(data.idempotency_key) if data.idempotency_key else None,
     )
 
 

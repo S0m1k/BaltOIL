@@ -261,8 +261,30 @@ async def record_payment(
     method: str,
     actor: TokenUser,
     notes: str | None = None,
+    idempotency_key: str | None = None,
 ) -> Payment:
     """Зафиксировать факт оплаты вручную."""
+    # ── Idempotency check (mobile offline-outbox) ──────────────────────────
+    if idempotency_key is not None:
+        from app.models.idempotency_key import IdempotencyKey
+        existing = await db.execute(
+            select(IdempotencyKey).where(
+                IdempotencyKey.key == idempotency_key,
+                IdempotencyKey.operation == "payment_record",
+            )
+        )
+        idem_row = existing.scalar_one_or_none()
+        if idem_row is not None and idem_row.payment_id is not None:
+            # Already processed — return the original payment row
+            pay_result = await db.execute(
+                select(Payment).where(Payment.id == idem_row.payment_id)
+            )
+            cached = pay_result.scalar_one_or_none()
+            if cached is not None:
+                return cached
+            # If the payment row was somehow removed, fall through and re-execute
+    # ── End idempotency check ──────────────────────────────────────────────
+
     result = await db.execute(select(Order).where(Order.id == order_id))
     order = result.scalar_one_or_none()
     if not order:
@@ -317,6 +339,20 @@ async def record_payment(
     await recompute_and_save(db, order)
     await db.flush()
     await db.refresh(payment)
+
+    # ── Persist idempotency key after successful work ──────────────────────
+    if idempotency_key is not None:
+        from app.models.idempotency_key import IdempotencyKey
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(IdempotencyKey).values(
+            key=idempotency_key,
+            operation="payment_record",
+            order_id=order_id,
+            payment_id=payment.id,
+        ).on_conflict_do_nothing(index_elements=["key"])
+        await db.execute(stmt)
+    # ── End idempotency persist ────────────────────────────────────────────
+
     log.info("Payment recorded: order=%s amount=%s method=%s actor=%s", order_id, amount, method, actor.id)
     return payment
 
