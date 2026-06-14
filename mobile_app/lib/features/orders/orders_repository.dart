@@ -1,12 +1,17 @@
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
 import '../../core/app_config.dart';
+import '../../core/outbox_db.dart';
+import '../../core/sync_service.dart';
 import 'order_models.dart';
 
 class OrdersRepository {
   OrdersRepository._();
   static final OrdersRepository instance = OrdersRepository._();
+
+  static const _uuid = Uuid();
 
   Dio get _dio => ApiClient.instance.dio;
   String get _base => AppConfig.orderBase;
@@ -36,34 +41,169 @@ class OrdersRepository {
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }
 
-  /// Водитель: отметить доставку (accepted → delivered). ТТН бэк сгенерирует сам.
+  /// Водитель: отметить доставку (accepted → delivered).
   ///
-  /// Тяжёлый эндпоинт: бэк синхронно создаёт счёт и списывает топливо через
-  /// delivery_service — на холодном старте может идти десятки секунд.
+  /// Действие ставится в офлайн-очередь с уникальным idempotency_key и
+  /// немедленно отправляется, если есть сеть. Возвращает обновлённый Order
+  /// только при успешной немедленной синхронизации; при офлайне возвращает
+  /// оптимистично обновлённую копию (status = delivered).
   Future<Order> markDelivered(String orderId) async {
-    final resp = await _dio.post(
-      '$_base/orders/$orderId/transition',
-      data: {'to_status': 'delivered'},
-      options: Options(receiveTimeout: const Duration(seconds: 60)),
-    );
-    return Order.fromJson(resp.data as Map<String, dynamic>);
+    final key = _uuid.v4();
+    final payload = <String, dynamic>{'to_status': 'delivered'};
+    await OutboxDb.instance.enqueue(OutboxEntry(
+      id: 0, // заполняется базой
+      idempotencyKey: key,
+      operation: 'transition',
+      orderId: orderId,
+      payload: payload,
+      clientTs: DateTime.now(),
+      status: 'pending',
+      createdAt: DateTime.now(),
+    ));
+
+    // Немедленная попытка отправки (если есть сеть — уйдёт синхронно).
+    try {
+      final resp = await _dio.post(
+        '$_base/orders/$orderId/transition',
+        data: {...payload, 'idempotency_key': key},
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      );
+      // Успех — помечаем в outbox synced (flush сделает это через SyncService,
+      // но раз мы сами отправили — удаляем напрямую по idempotency_key).
+      await _markSyncedByKey(key);
+      return Order.fromJson(resp.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status != null && status >= 400 && status < 500) {
+        // 4xx сразу — помечаем conflict, не оставляем в pending.
+        await _markConflictByKey(key,
+            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        rethrow; // пробрасываем — _run() покажет snackbar
+      }
+      // Сеть недоступна / 5xx — оставляем pending, sync_service подберёт.
+      // Возвращаем оптимистичную копию.
+      SyncService.instance.flushNow(); // фоновая попытка
+      return _optimisticDelivered(orderId);
+    } catch (_) {
+      SyncService.instance.flushNow();
+      return _optimisticDelivered(orderId);
+    }
   }
 
   /// Водитель: подтвердить изменения менеджера (pending_driver_ack → false).
-  Future<void> ackChanges(String orderId) =>
-      _dio.post('$_base/orders/$orderId/ack-changes', data: {});
+  Future<void> ackChanges(String orderId) async {
+    final key = _uuid.v4();
+    final payload = <String, dynamic>{};
+    await OutboxDb.instance.enqueue(OutboxEntry(
+      id: 0,
+      idempotencyKey: key,
+      operation: 'ack_changes',
+      orderId: orderId,
+      payload: payload,
+      clientTs: DateTime.now(),
+      status: 'pending',
+      createdAt: DateTime.now(),
+    ));
+
+    try {
+      await _dio.post('$_base/orders/$orderId/ack-changes',
+          data: {...payload, 'idempotency_key': key});
+      await _markSyncedByKey(key);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status != null && status >= 400 && status < 500) {
+        await _markConflictByKey(key,
+            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        rethrow;
+      }
+      SyncService.instance.flushNow();
+      // ack — нет возвращаемого значения, молча проглатываем для UX офлайна.
+    } catch (_) {
+      SyncService.instance.flushNow();
+    }
+  }
 
   /// Водитель: зафиксировать оплату (только заявки физлиц — гарантирует бэк).
   Future<void> recordPayment({
     required String orderId,
     required double amount,
     required String method, // cash | card
-  }) =>
-      _dio.post('$_base/payments/record', data: {
-        'order_id': orderId,
-        'amount': amount,
-        'method': method,
-      });
+    String? notes,
+  }) async {
+    final key = _uuid.v4();
+    final payload = <String, dynamic>{
+      'order_id': orderId,
+      'amount': amount,
+      'method': method,
+      if (notes != null) 'notes': notes,
+    };
+    await OutboxDb.instance.enqueue(OutboxEntry(
+      id: 0,
+      idempotencyKey: key,
+      operation: 'payment_record',
+      orderId: orderId,
+      payload: payload,
+      clientTs: DateTime.now(),
+      status: 'pending',
+      createdAt: DateTime.now(),
+    ));
+
+    try {
+      await _dio.post('$_base/payments/record',
+          data: {...payload, 'idempotency_key': key});
+      await _markSyncedByKey(key);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status != null && status >= 400 && status < 500) {
+        await _markConflictByKey(key,
+            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        rethrow;
+      }
+      SyncService.instance.flushNow();
+    } catch (_) {
+      SyncService.instance.flushNow();
+    }
+  }
+
+  // --- вспомогательные ---
+
+  Future<void> _markSyncedByKey(String key) async {
+    final db = OutboxDb.instance;
+    final rows = await db.listPending();
+    for (final e in rows) {
+      if (e.idempotencyKey == key) {
+        await db.markSynced(e.id);
+        await db.deleteSynced();
+        break;
+      }
+    }
+  }
+
+  Future<void> _markConflictByKey(String key, String error) async {
+    final db = OutboxDb.instance;
+    final rows = await db.listPending();
+    for (final e in rows) {
+      if (e.idempotencyKey == key) {
+        await db.markConflict(e.id, error);
+        break;
+      }
+    }
+  }
+
+  /// Оптимистичная заглушка при офлайн-доставке: возвращает минимальный Order
+  /// со статусом delivered. orderKind = '' → isIndividual=false, чтобы НЕ
+  /// показывать диалог оплаты немедленно (водитель добавит оплату онлайн).
+  Order _optimisticDelivered(String orderId) => Order(
+        id: orderId,
+        orderNumber: '—',
+        orderKind: '', // не individual — диалог оплаты не появится офлайн
+        fuelType: '',
+        volumeRequested: 0,
+        deliveryAddress: '',
+        status: 'delivered',
+        paymentStatus: 'unpaid',
+        pendingDriverAck: false,
+      );
 
   Future<Order> create({
     required String fuelType,

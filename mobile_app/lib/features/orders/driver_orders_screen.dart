@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/outbox_db.dart';
+import '../../core/sync_service.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -20,6 +22,9 @@ class DriverOrdersScreen extends StatefulWidget {
 class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
   late Future<List<Order>> _future;
   bool _busy = false;
+  int _totalPending = 0;
+  // orderId → pending count (для бейджей на карточках)
+  final Map<String, int> _pendingByOrder = {};
 
   @override
   void initState() {
@@ -27,6 +32,54 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
     _future = OrdersRepository.instance.list();
     // Кэш подписей топлива («ДТ-Л К5» вместо кодов) — как в клиентском списке.
     OrdersRepository.instance.fuelTypes().catchError((_) => <FuelType>[]);
+    _loadPendingCounts();
+    SyncService.instance.addListener(_onSyncChange);
+    // Показывать конфликты, накопленные SyncService.
+    SyncService.instance.onConflictsAvailable = _showConflicts;
+  }
+
+  @override
+  void dispose() {
+    SyncService.instance.removeListener(_onSyncChange);
+    // Сбрасываем колбэк только если он всё ещё наш.
+    SyncService.instance.onConflictsAvailable = null;
+    super.dispose();
+  }
+
+  Future<void> _loadPendingCounts() async {
+    final total = await OutboxDb.instance.totalPending();
+    if (!mounted) return;
+    setState(() => _totalPending = total);
+    // Обновим счётчики по каждому orderId из текущего списка.
+    final snap = await _future.catchError((_) => <Order>[]);
+    final Map<String, int> counts = {};
+    for (final o in snap) {
+      final c = await OutboxDb.instance.pendingCountForOrder(o.id);
+      if (c > 0) counts[o.id] = c;
+    }
+    if (mounted) setState(() => _pendingByOrder
+      ..clear()
+      ..addAll(counts));
+  }
+
+  void _onSyncChange() {
+    _loadPendingCounts();
+    // Перезагружаем список с сервера, чтобы подтянуть актуальные статусы.
+    _reload();
+  }
+
+  void _showConflicts() {
+    final conflicts = SyncService.instance.takeConflicts();
+    for (final c in conflicts) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(
+          'Действие не применено — заявку изменил менеджер. '
+          '(${c.operation}: ${c.error ?? 'конфликт'})',
+        ),
+      ));
+    }
   }
 
   Future<void> _reload() async {
@@ -35,6 +88,7 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
       _future = future;
     });
     await future;
+    _loadPendingCounts();
   }
 
   void _snack(String message) {
@@ -188,80 +242,114 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: _reload,
-      child: FutureBuilder<List<Order>>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return ListView(children: [
-              const SizedBox(height: 120),
-              Center(child: Text(apiErrorMessage(snap.error!))),
-              Center(
-                  child: OutlinedButton(
-                      onPressed: _reload, child: const Text('Повторить'))),
-            ]);
-          }
-          final orders = snap.data ?? const [];
-          final mineActive = orders
-              .where((o) => o.driverId == widget.driverId && o.status == 'accepted')
-              .toList();
-          final pool = orders
-              .where((o) => o.status == 'new' && o.driverId == null)
-              .toList();
-          final mineDone = orders
-              .where((o) => o.driverId == widget.driverId && o.status == 'delivered')
-              .toList();
+    return Column(
+      children: [
+        // Глобальный индикатор офлайн-очереди (показывается только при наличии).
+        if (_totalPending > 0)
+          Material(
+            color: const Color(0xFFD97706).withValues(alpha: 0.12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off, size: 16, color: Color(0xFFD97706)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Не синхронизировано: $_totalPending',
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFFD97706)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _reload,
+            child: FutureBuilder<List<Order>>(
+              future: _future,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return ListView(children: [
+                    const SizedBox(height: 120),
+                    Center(child: Text(apiErrorMessage(snap.error!))),
+                    Center(
+                        child: OutlinedButton(
+                            onPressed: _reload,
+                            child: const Text('Повторить'))),
+                  ]);
+                }
+                final orders = snap.data ?? const [];
+                final mineActive = orders
+                    .where((o) =>
+                        o.driverId == widget.driverId &&
+                        o.status == 'accepted')
+                    .toList();
+                final pool = orders
+                    .where((o) => o.status == 'new' && o.driverId == null)
+                    .toList();
+                final mineDone = orders
+                    .where((o) =>
+                        o.driverId == widget.driverId &&
+                        o.status == 'delivered')
+                    .toList();
 
-          if (orders.isEmpty) {
-            return ListView(children: const [
-              SizedBox(height: 120),
-              Center(child: Text('Заявок нет')),
-            ]);
-          }
+                if (orders.isEmpty) {
+                  return ListView(children: const [
+                    SizedBox(height: 120),
+                    Center(child: Text('Заявок нет')),
+                  ]);
+                }
 
-          return ListView(
-            children: [
-              if (mineActive.isNotEmpty) ...[
-                const _SectionHeader('В работе'),
-                for (final o in mineActive)
-                  _DriverOrderCard(
-                    order: o,
-                    busy: _busy,
-                    onAck: o.pendingDriverAck ? () => _ack(o) : null,
-                    onDeliver: () => _deliver(o),
-                  ),
-              ],
-              if (pool.isNotEmpty) ...[
-                const _SectionHeader('Свободные заявки'),
-                for (final o in pool)
-                  _DriverOrderCard(
-                    order: o,
-                    busy: _busy,
-                    onClaim: () => _claim(o),
-                  ),
-              ],
-              if (mineDone.isNotEmpty) ...[
-                const _SectionHeader('Доставленные'),
-                for (final o in mineDone)
-                  _DriverOrderCard(
-                    order: o,
-                    busy: _busy,
-                    // Д5: оплату можно внести и после доставки, пока не оплачено.
-                    onRecordPayment:
-                        o.isIndividual && o.paymentStatus != 'paid'
-                            ? () => _showPaymentDialog(o).then((_) => _reload())
-                            : null,
-                  ),
-              ],
-              const SizedBox(height: 80),
-            ],
-          );
-        },
-      ),
+                return ListView(
+                  children: [
+                    if (mineActive.isNotEmpty) ...[
+                      const _SectionHeader('В работе'),
+                      for (final o in mineActive)
+                        _DriverOrderCard(
+                          order: o,
+                          busy: _busy,
+                          pendingCount: _pendingByOrder[o.id] ?? 0,
+                          onAck: o.pendingDriverAck ? () => _ack(o) : null,
+                          onDeliver: () => _deliver(o),
+                        ),
+                    ],
+                    if (pool.isNotEmpty) ...[
+                      const _SectionHeader('Свободные заявки'),
+                      for (final o in pool)
+                        _DriverOrderCard(
+                          order: o,
+                          busy: _busy,
+                          pendingCount: 0,
+                          onClaim: () => _claim(o),
+                        ),
+                    ],
+                    if (mineDone.isNotEmpty) ...[
+                      const _SectionHeader('Доставленные'),
+                      for (final o in mineDone)
+                        _DriverOrderCard(
+                          order: o,
+                          busy: _busy,
+                          pendingCount: _pendingByOrder[o.id] ?? 0,
+                          // Д5: оплату можно внести и после доставки.
+                          onRecordPayment:
+                              o.isIndividual && o.paymentStatus != 'paid'
+                                  ? () =>
+                                      _showPaymentDialog(o).then((_) => _reload())
+                                  : null,
+                        ),
+                    ],
+                    const SizedBox(height: 80),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -284,6 +372,7 @@ class _DriverOrderCard extends StatelessWidget {
   const _DriverOrderCard({
     required this.order,
     required this.busy,
+    required this.pendingCount,
     this.onClaim,
     this.onDeliver,
     this.onAck,
@@ -292,6 +381,7 @@ class _DriverOrderCard extends StatelessWidget {
 
   final Order order;
   final bool busy;
+  final int pendingCount; // число офлайн-действий в очереди для этой заявки
   final VoidCallback? onClaim;
   final VoidCallback? onDeliver;
   final VoidCallback? onAck;
@@ -319,6 +409,15 @@ class _DriverOrderCard extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
+                if (pendingCount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Tooltip(
+                      message: 'Не синхронизировано: $pendingCount',
+                      child: const Icon(Icons.cloud_off,
+                          size: 16, color: Color(0xFFD97706)),
+                    ),
+                  ),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

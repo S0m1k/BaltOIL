@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
+import 'core/sync_service.dart';
 import 'core/token_storage.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
@@ -12,6 +13,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   PushRegistrar.instance.navigatorKey = navigatorKey;
   await PushRegistrar.instance.init();
+  // Офлайн-очередь водителя: fire-and-forget до runApp (flush идёт фоново).
+  // ignore: unawaited_futures
+  SyncService.instance.init();
 
   ApiClient.instance.onSessionExpired = () {
     navigatorKey.currentState?.pushAndRemoveUntil(
