@@ -856,21 +856,27 @@ async def transition_status(
     actor: TokenUser,
     idempotency_key: str | None = None,
 ) -> Order:
-    # ── Idempotency check (mobile offline-outbox) ──────────────────────────
+    # ── Idempotency gate (mobile offline-outbox) ───────────────────────────
+    # Insert-first: атомарно «занимаем» ключ. Параллельный дубликат блокируется
+    # на unique-индексе до нашего commit/rollback, затем видит строку и
+    # возвращает текущее состояние заказа — без повторного перехода статуса,
+    # повторного списания топлива и повторной публикации события.
+    owns_idem_slot = False
     if idempotency_key is not None:
         from app.models.idempotency_key import IdempotencyKey
-        existing = await db.execute(
-            select(IdempotencyKey).where(
-                IdempotencyKey.key == idempotency_key,
-                IdempotencyKey.operation == "order_transition",
-            )
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        claim = await db.execute(
+            pg_insert(IdempotencyKey)
+            .values(key=idempotency_key, operation="order_transition", order_id=order_id)
+            .on_conflict_do_nothing(index_elements=["key"])
+            .returning(IdempotencyKey.key)
         )
-        idem_row = existing.scalar_one_or_none()
-        if idem_row is not None and idem_row.order_id is not None:
-            # Already processed — return the original order (current DB state)
-            cached = await get_order(db, idem_row.order_id, actor)
+        owns_idem_slot = claim.scalar_one_or_none() is not None
+        if not owns_idem_slot:
+            # Ключ уже обработан — возвращаем текущее состояние заказа
+            cached = await get_order(db, order_id, actor)
             return cached
-    # ── End idempotency check ──────────────────────────────────────────────
+    # ── End idempotency gate ───────────────────────────────────────────────
 
     order = await get_order(db, order_id, actor)
 
@@ -995,18 +1001,8 @@ async def transition_status(
 
     await attach_payment_totals_one(db, order)
 
-    # ── Persist idempotency key after successful work ──────────────────────
-    if idempotency_key is not None:
-        from app.models.idempotency_key import IdempotencyKey
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        stmt = pg_insert(IdempotencyKey).values(
-            key=idempotency_key,
-            operation="order_transition",
-            order_id=order_id,
-        ).on_conflict_do_nothing(index_elements=["key"])
-        await db.execute(stmt)
-    # ── End idempotency persist ────────────────────────────────────────────
-
+    # Строка идемпотентности с order_id уже записана gate'ом в начале функции —
+    # повторная вставка не нужна.
     return order
 
 
