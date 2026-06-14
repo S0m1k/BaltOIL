@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
 import 'core/sync_service.dart';
+import 'core/theme.dart';
+import 'core/theme_controller.dart';
 import 'core/token_storage.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_screen.dart';
@@ -24,6 +26,7 @@ Future<void> main() async {
     );
   };
 
+  await ThemeController.instance.load();
   final hasSession = await TokenStorage.instance.hasSession;
   runApp(BaltOilApp(startLoggedIn: hasSession));
 }
@@ -35,32 +38,19 @@ class BaltOilApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Палитра веба (frontend/index.html :root): primary #0ea5e9, accent #10b981,
-    // фон #eef2fb, текст #0f172a.
-    const primary = Color(0xFF0EA5E9);
-    const background = Color(0xFFEEF2FB);
-    return MaterialApp(
-      title: 'BALTOIL',
-      navigatorKey: navigatorKey,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primary,
-          primary: primary,
-          secondary: const Color(0xFF10B981),
-          surface: Colors.white,
-        ),
-        scaffoldBackgroundColor: background,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: background,
-          surfaceTintColor: Colors.transparent,
-        ),
-        cardTheme: const CardThemeData(
-          color: Colors.white,
-          surfaceTintColor: Colors.transparent,
-        ),
-      ),
-      home: startLoggedIn ? const HomeScreen() : const LoginScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.instance.mode,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          title: 'BALTOIL',
+          navigatorKey: navigatorKey,
+          debugShowCheckedModeBanner: false,
+          theme: buildLightTheme(),
+          darkTheme: buildDarkTheme(),
+          themeMode: mode,
+          home: startLoggedIn ? const HomeScreen() : const LoginScreen(),
+        );
+      },
     );
   }
 }

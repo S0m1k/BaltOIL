@@ -24,6 +24,71 @@ class OrdersRepository {
         .toList();
   }
 
+  /// Полная карточка заявки (OrderResponse — включает status_logs).
+  Future<OrderDetail> getDetail(String orderId) async {
+    final resp = await _dio.get('$_base/orders/$orderId');
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Список документов по заявке (staff: manager/admin; client тоже видит).
+  Future<List<OrderDocument>> listDocuments(String orderId) async {
+    final resp =
+        await _dio.get('$_base/orders/$orderId/documents');
+    return (resp.data as List)
+        .map((e) => OrderDocument.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Перенос заявки: передать хотя бы одно из [desiredDate] / [driverId].
+  Future<OrderDetail> reschedule(
+    String orderId, {
+    DateTime? desiredDate,
+    String? driverId,
+  }) async {
+    final resp = await _dio.post('$_base/orders/$orderId/reschedule', data: {
+      if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
+      if (driverId != null) 'driver_id': driverId,
+    });
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Менеджер/admin: перевести заявку в другой статус.
+  Future<OrderDetail> transition(
+    String orderId,
+    String toStatus, {
+    String? comment,
+  }) async {
+    final resp = await _dio.post('$_base/orders/$orderId/transition', data: {
+      'to_status': toStatus,
+      if (comment != null) 'comment': comment,
+    });
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Водитель: принять назначенную заявку (new → accepted).
+  Future<OrderDetail> accept(String orderId) async {
+    final resp = await _dio.post(
+      '$_base/orders/$orderId/transition',
+      data: {'to_status': 'accepted', 'comment': 'Принята водителем'},
+    );
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Менеджер/admin: зафиксировать оплату.
+  Future<void> recordPaymentManager({
+    required String orderId,
+    required double amount,
+    required String method,
+    String? notes,
+  }) async {
+    await _dio.post('$_base/payments/record', data: {
+      'order_id': orderId,
+      'amount': amount,
+      'method': method,
+      if (notes != null) 'notes': notes,
+    });
+  }
+
   /// Клиенту бэк отдаёт только топливо в наличии (Д2).
   /// Попутно обновляет кэш подписей FuelCatalog (code → label).
   Future<List<FuelType>> fuelTypes() async {
@@ -165,6 +230,22 @@ class OrdersRepository {
     }
   }
 
+  /// Staff: сгенерировать счёт по заявке (invoice_preliminary | invoice_final).
+  Future<void> generateInvoice(String orderId, String docType) async {
+    await _dio.post(
+      '$_base/orders/$orderId/documents/generate',
+      data: {'doc_type': docType},
+    );
+  }
+
+  /// Staff: отправить готовый документ в чат по заявке.
+  Future<void> sendDocToChat(String orderId, String docId) async {
+    await _dio.post(
+      '$_base/orders/$orderId/documents/$docId/send',
+      data: <String, dynamic>{},
+    );
+  }
+
   // --- вспомогательные ---
 
   Future<void> _markSyncedByKey(String key) async {
@@ -212,6 +293,14 @@ class OrdersRepository {
     String paymentType = 'on_delivery',
     DateTime? desiredDate,
     String? comment,
+    String? contactName,
+    String? contactPhone,
+    // Поля менеджера/админа (для клиента игнорируются на бэке).
+    String? clientId,
+    String? managerComment,
+    String? driverId,
+    bool isTtnL = false,
+    bool allowDeliveryUnpaid = false,
   }) async {
     final resp = await _dio.post('$_base/orders', data: {
       'fuel_type': fuelType,
@@ -220,6 +309,16 @@ class OrdersRepository {
       'payment_type': paymentType,
       if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
       if (comment != null && comment.isNotEmpty) 'client_comment': comment,
+      if (contactName != null && contactName.isNotEmpty)
+        'contact_person_name': contactName,
+      if (contactPhone != null && contactPhone.isNotEmpty)
+        'contact_person_phone': contactPhone,
+      if (clientId != null) 'client_id': clientId,
+      if (managerComment != null && managerComment.isNotEmpty)
+        'manager_comment': managerComment,
+      if (driverId != null) 'driver_id': driverId,
+      if (isTtnL) 'is_ttn_l': true,
+      if (allowDeliveryUnpaid) 'allow_delivery_unpaid': true,
     });
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }

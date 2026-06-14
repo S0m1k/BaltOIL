@@ -24,4 +24,5 @@ class AppConfig {
   static String get chatBase => 'https://$apiHost:8004/api/v1';
   static String get wsBase => 'wss://$apiHost:8004';
   static String get notificationBase => 'https://$apiHost:8005/api/v1';
+  static String get deliveryBase => 'https://$apiHost:8003/api/v1';
 }
