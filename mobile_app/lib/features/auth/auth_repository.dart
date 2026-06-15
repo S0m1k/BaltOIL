@@ -97,6 +97,44 @@ class AuthRepository {
     return CurrentUser.fromJson(resp.data as Map<String, dynamic>);
   }
 
+  /// Полный профиль текущего пользователя (включает client_profile).
+  Future<Map<String, dynamic>> meFullProfile() async {
+    final resp = await _dio.get('$_base/auth/me');
+    return resp.data as Map<String, dynamic>;
+  }
+
+  /// Обновить собственные данные (full_name, email, phone).
+  /// Все поля опциональны — передаём только изменённые.
+  Future<Map<String, dynamic>> updateMe(
+    String userId,
+    Map<String, dynamic> fields,
+  ) async {
+    final resp = await _dio.patch('$_base/users/$userId', data: fields);
+    return resp.data as Map<String, dynamic>;
+  }
+
+  /// Обновить client_profile (адрес доставки, реквизиты юрлица и т.д.).
+  Future<void> updateClientProfile(
+    String userId,
+    Map<String, dynamic> fields,
+  ) async {
+    await _dio.patch('$_base/users/$userId/profile', data: fields);
+  }
+
+  /// Смена пароля (все роли). Требует текущий пароль.
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    await _dio.post(
+      '$_base/users/me/change-password',
+      data: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      },
+    );
+  }
+
   Future<void> logout() async {
     await PushRegistrar.instance.unregisterCurrentToken();
     final refresh = await TokenStorage.instance.refreshToken;

@@ -15,8 +15,11 @@ import '../orders/driver_orders_screen.dart';
 import '../orders/order_create_screen.dart';
 import '../orders/orders_screen.dart';
 import '../profile/profile_screen.dart';
+import '../report/report_screen.dart';
 import '../tariffs/tariffs_screen.dart';
+import '../trips/trips_screen.dart';
 import '../users/users_screen.dart';
+import '../zones/zones_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Destination enum — mirrors web sidebar order.
@@ -188,15 +191,15 @@ class _HomeScreenState extends State<HomeScreen> {
               user: user,
             ),
       _Dest.createOrder => const Center(child: CircularProgressIndicator()),
-      _Dest.trips => const PlaceholderScreen(title: 'Рейсы'),
+      _Dest.trips => TripsScreen(user: user),
       _Dest.finance => FinanceScreen(user: user),
       _Dest.inventory => InventoryScreen(user: user),
       _Dest.tariffs => TariffsScreen(user: user),
-      _Dest.report => const PlaceholderScreen(title: 'Отчёт'),
+      _Dest.report => ReportScreen(user: user),
       _Dest.clients => ClientsScreen(user: user),
       _Dest.users => UsersScreen(user: user),
       _Dest.requisites => const PlaceholderScreen(title: 'Реквизиты'),
-      _Dest.zones => const PlaceholderScreen(title: 'Зоны'),
+      _Dest.zones => ZonesScreen(user: user),
       _Dest.chat => const ConversationsScreen(),
       _Dest.notifications => const NotificationsScreen(),
       _Dest.profile => ProfileScreen(user: user),
