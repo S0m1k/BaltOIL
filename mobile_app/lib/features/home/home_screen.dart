@@ -326,20 +326,25 @@ class _AppDrawer extends StatelessWidget {
               ],
             ),
           ),
-          // Nav items
+          // Nav items. overscroll: false убирает stretch-эффект Android 12+,
+          // из-за которого выбранный пункт «протекал» к шапке при скролле.
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: _Dest.values
-                  .where((d) => _allowed(role, d))
-                  .map((d) => _DrawerTile(
-                        dest: d,
-                        isSelected: d == selected,
-                        unread: d == _Dest.notifications ? unread : 0,
-                        onTap: () => onSelect(d),
-                        colors: colors,
-                      ))
-                  .toList(),
+            child: ScrollConfiguration(
+              behavior:
+                  ScrollConfiguration.of(context).copyWith(overscroll: false),
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: _Dest.values
+                    .where((d) => _allowed(role, d))
+                    .map((d) => _DrawerTile(
+                          dest: d,
+                          isSelected: d == selected,
+                          unread: d == _Dest.notifications ? unread : 0,
+                          onTap: () => onSelect(d),
+                          colors: colors,
+                        ))
+                    .toList(),
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -376,7 +381,11 @@ class _DrawerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconColor = isSelected ? colors.primary : colors.text2;
     final textColor = isSelected ? colors.primary : colors.text;
-    final bgColor = isSelected ? colors.primaryDim : Colors.transparent;
+    // Непрозрачная подсветка: примешиваем primaryDim к фону drawer, чтобы
+    // выбранный пункт не «просвечивал» при overscroll-растяжении списка.
+    final bgColor = isSelected
+        ? Color.alphaBlend(colors.primaryDim, colors.bg2)
+        : Colors.transparent;
 
     Widget icon = Icon(_destIcon(dest), color: iconColor);
     if (dest == _Dest.notifications && unread > 0) {
