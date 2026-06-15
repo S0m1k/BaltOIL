@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import 'order_create_screen.dart';
 import 'order_detail_screen.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
+
+// Web sub-tab order: Все / Новые / На согласовании / Ждут доставки /
+// Доставленные / Отменённые.
+// null = «Все», non-null = status key.
+const _kFilterTabs = <({String? status, String label})>[
+  (status: null, label: 'Все'),
+  (status: 'new', label: 'Новые'),
+  (status: 'awaiting_manager', label: 'На согласовании'),
+  (status: 'accepted', label: 'Ждут доставки'),
+  (status: 'delivered', label: 'Доставленные'),
+  (status: 'cancelled', label: 'Отменённые'),
+];
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key, this.canCreate = true, this.user});
@@ -24,6 +37,9 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   late Future<List<Order>> _future;
   CurrentUser? _user;
+
+  /// null = «Все».
+  String? _selectedStatus;
 
   @override
   void initState() {
@@ -58,8 +74,32 @@ class _OrdersScreenState extends State<OrdersScreen> {
     if (created == true) _reload();
   }
 
+  bool _isDriverRole() => _user?.role == 'driver' || widget.user?.role == 'driver';
+
+  List<({String? status, String label})> _visibleTabs() {
+    if (!_isDriverRole()) return _kFilterTabs;
+    return _kFilterTabs
+        .where((t) => t.status != 'awaiting_manager')
+        .toList();
+  }
+
+  List<Order> _applyFilter(List<Order> orders) {
+    if (_selectedStatus == null) return orders;
+    return orders.where((o) => o.status == _selectedStatus).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final tabs = _visibleTabs();
+
+    // Guard: if the selected status was hidden (driver role set after load),
+    // reset to «Все».
+    if (_selectedStatus != null &&
+        !tabs.any((t) => t.status == _selectedStatus)) {
+      _selectedStatus = null;
+    }
+
     return Scaffold(
       floatingActionButton: widget.canCreate
           ? FloatingActionButton.extended(
@@ -68,37 +108,123 @@ class _OrdersScreenState extends State<OrdersScreen> {
               label: const Text('Заявка'),
             )
           : null,
-      body: RefreshIndicator(
-        onRefresh: _reload,
-        child: FutureBuilder<List<Order>>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              return _ErrorRetry(
-                  message: apiErrorMessage(snap.error!), onRetry: _reload);
-            }
-            final orders = snap.data ?? const [];
-            if (orders.isEmpty) {
-              return ListView(children: const [
-                SizedBox(height: 120),
-                Center(child: Text('Заявок пока нет')),
-              ]);
-            }
-            return ListView.separated(
-              itemCount: orders.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, i) =>
-                  _OrderTile(order: orders[i], user: _user),
-            );
-          },
-        ),
+      body: Column(
+        children: [
+          // ── Status filter row ──────────────────────────────────────────
+          _StatusFilterRow(
+            tabs: tabs,
+            selectedStatus: _selectedStatus,
+            colors: colors,
+            onSelected: (status) => setState(() => _selectedStatus = status),
+          ),
+          // ── Orders list ───────────────────────────────────────────────
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _reload,
+              child: FutureBuilder<List<Order>>(
+                future: _future,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snap.hasError) {
+                    return _ErrorRetry(
+                        message: apiErrorMessage(snap.error!),
+                        onRetry: _reload);
+                  }
+                  final allOrders = snap.data ?? const [];
+                  final orders = _applyFilter(allOrders);
+
+                  if (orders.isEmpty) {
+                    final isEmpty = allOrders.isEmpty;
+                    return ListView(children: [
+                      const SizedBox(height: 120),
+                      Center(
+                        child: Text(
+                          isEmpty
+                              ? 'Заявок пока нет'
+                              : 'Нет заявок с таким статусом',
+                          style: TextStyle(color: colors.text2),
+                        ),
+                      ),
+                    ]);
+                  }
+                  return ListView.separated(
+                    itemCount: orders.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, i) =>
+                        _OrderTile(order: orders[i], user: _user),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
+// ── Status filter row widget ──────────────────────────────────────────────────
+
+class _StatusFilterRow extends StatelessWidget {
+  const _StatusFilterRow({
+    required this.tabs,
+    required this.selectedStatus,
+    required this.colors,
+    required this.onSelected,
+  });
+
+  final List<({String? status, String label})> tabs;
+  final String? selectedStatus;
+  final AppColors colors;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: colors.bg2,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: tabs.map((tab) {
+                final isActive = selectedStatus == tab.status;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(tab.label),
+                    selected: isActive,
+                    onSelected: (_) => onSelected(tab.status),
+                    selectedColor: colors.primary,
+                    backgroundColor: colors.bg,
+                    side: BorderSide(
+                      color: isActive ? colors.primary : colors.border,
+                    ),
+                    labelStyle: TextStyle(
+                      color: isActive ? Colors.white : colors.text2,
+                      fontWeight:
+                          isActive ? FontWeight.w600 : FontWeight.normal,
+                      fontSize: 13,
+                    ),
+                    showCheckmark: false,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          Divider(height: 1, color: colors.border),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Order tile ────────────────────────────────────────────────────────────────
 
 class _OrderTile extends StatelessWidget {
   const _OrderTile({required this.order, this.user});
@@ -154,6 +280,8 @@ class _OrderTile extends StatelessWidget {
     );
   }
 }
+
+// ── Error / retry ─────────────────────────────────────────────────────────────
 
 class _ErrorRetry extends StatelessWidget {
   const _ErrorRetry({required this.message, required this.onRetry});

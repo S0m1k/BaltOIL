@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
+import '../common/copyable_phone.dart';
 import 'users_repository.dart';
 
 const Map<String, String> _kRoleLabels = {
@@ -336,8 +337,8 @@ class _UserRow extends StatelessWidget {
                   ] else if (user.phone != null &&
                       user.phone!.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(
-                      user.phone!,
+                    CopyablePhone(
+                      user.phone,
                       style: TextStyle(fontSize: 12, color: colors.text2),
                     ),
                   ],

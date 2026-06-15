@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
+import '../common/copyable_phone.dart';
 import 'clients_repository.dart';
 
 class ClientsScreen extends StatefulWidget {
@@ -220,8 +221,8 @@ class _ClientCard extends StatelessWidget {
                     ],
                     if (client.phone != null && client.phone!.isNotEmpty) ...[
                       const SizedBox(height: 2),
-                      Text(
-                        client.phone!,
+                      CopyablePhone(
+                        client.phone,
                         style: TextStyle(color: colors.text3, fontSize: 12),
                       ),
                     ],
@@ -403,8 +404,11 @@ class _ClientDetailBody extends StatelessWidget {
                   const SizedBox(height: 4),
                   _InfoRow(
                     icon: Icons.phone_outlined,
-                    value: detail.phone!,
                     colors: colors,
+                    child: CopyablePhone(
+                      detail.phone,
+                      style: TextStyle(fontSize: 13, color: colors.text2),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -523,15 +527,19 @@ class _ClientDetailBody extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.icon,
-    required this.value,
     required this.colors,
+    this.value,
     this.valueColor,
-  });
+    this.child,
+  }) : assert(value != null || child != null, 'Provide value or child');
 
   final IconData icon;
-  final String value;
+  final String? value;
   final AppColors colors;
   final Color? valueColor;
+
+  /// Optional widget rendered instead of [value] text.
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
@@ -540,13 +548,14 @@ class _InfoRow extends StatelessWidget {
         Icon(icon, size: 16, color: colors.text3),
         const SizedBox(width: 6),
         Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              color: valueColor ?? colors.text2,
-            ),
-          ),
+          child: child ??
+              Text(
+                value!,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: valueColor ?? colors.text2,
+                ),
+              ),
         ),
       ],
     );

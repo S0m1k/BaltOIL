@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
+import '../common/copyable_phone.dart';
 
 /// Экран «Мой профиль».
 ///
@@ -179,10 +180,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               _InfoRow(
                 label: 'Телефон',
-                value: (profile['phone'] as String?)?.isNotEmpty == true
-                    ? profile['phone'] as String
-                    : '—',
                 colors: colors,
+                child: (profile['phone'] as String?)?.isNotEmpty == true
+                    ? CopyablePhone(
+                        profile['phone'] as String,
+                        style: TextStyle(fontSize: 13, color: colors.text2),
+                      )
+                    : Text(
+                        '—',
+                        style: TextStyle(fontSize: 13, color: colors.text2),
+                      ),
               ),
               _InfoRow(
                 label: 'Статус',
@@ -446,15 +453,19 @@ class _SectionCard extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.label,
-    required this.value,
     required this.colors,
+    this.value,
     this.valueColor,
-  });
+    this.child,
+  }) : assert(value != null || child != null, 'Provide value or child');
 
   final String label;
-  final String value;
+  final String? value;
   final AppColors colors;
   final Color? valueColor;
+
+  /// Optional widget rendered in place of [value] text.
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
@@ -478,13 +489,14 @@ class _InfoRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                color: valueColor ?? colors.text2,
-                fontSize: 13,
-              ),
-            ),
+            child: child ??
+                Text(
+                  value!,
+                  style: TextStyle(
+                    color: valueColor ?? colors.text2,
+                    fontSize: 13,
+                  ),
+                ),
           ),
         ],
       ),

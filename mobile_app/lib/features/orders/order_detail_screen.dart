@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
+import '../common/copyable_phone.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -1371,24 +1372,18 @@ class _ContactCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 4,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         if (name != null && name!.isNotEmpty)
           Text(name!, style: const TextStyle(fontSize: 13)),
         if (phone != null && phone!.isNotEmpty)
-          GestureDetector(
-            onTap: () {
-              Clipboard.setData(ClipboardData(text: phone!));
-              onSnack('Номер скопирован: $phone');
-            },
-            child: Text(
-              phone!,
-              style: TextStyle(
-                fontSize: 13,
-                color: accentColor,
-                decoration: TextDecoration.underline,
-              ),
+          CopyablePhone(
+            phone,
+            style: TextStyle(
+              fontSize: 13,
+              color: accentColor,
             ),
           ),
       ],

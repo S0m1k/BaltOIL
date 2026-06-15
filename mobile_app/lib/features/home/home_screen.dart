@@ -6,7 +6,6 @@ import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
 import '../chat/conversations_screen.dart';
 import '../clients/clients_screen.dart';
-import '../common/placeholder_screen.dart';
 import '../finance/finance_screen.dart';
 import '../inventory/inventory_screen.dart';
 import '../notifications/notifications_repository.dart';
@@ -16,6 +15,7 @@ import '../orders/order_create_screen.dart';
 import '../orders/orders_screen.dart';
 import '../profile/profile_screen.dart';
 import '../report/report_screen.dart';
+import '../requisites/requisites_screen.dart';
 import '../tariffs/tariffs_screen.dart';
 import '../trips/trips_screen.dart';
 import '../users/users_screen.dart';
@@ -198,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _Dest.report => ReportScreen(user: user),
       _Dest.clients => ClientsScreen(user: user),
       _Dest.users => UsersScreen(user: user),
-      _Dest.requisites => const PlaceholderScreen(title: 'Реквизиты'),
+      _Dest.requisites => RequisitesScreen(user: user),
       _Dest.zones => ZonesScreen(user: user),
       _Dest.chat => const ConversationsScreen(),
       _Dest.notifications => const NotificationsScreen(),

@@ -1,9 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import 'zones_repository.dart';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Default centre for the map when no zones are available (St. Petersburg).
+const LatLng _kDefaultCenter = LatLng(59.94, 30.31);
+const double _kDefaultZoom = 10.0;
+const double _kMapHeight = 260.0;
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -21,12 +32,21 @@ class ZonesScreen extends StatefulWidget {
 class _ZonesScreenState extends State<ZonesScreen> {
   late Future<List<DeliveryZone>> _future;
 
+  /// Controller for moving the map camera when a zone card is tapped.
+  final MapController _mapController = MapController();
+
   bool get _isAdmin => widget.user.role == 'admin';
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
 
   void _load() {
@@ -108,6 +128,19 @@ class _ZonesScreenState extends State<ZonesScreen> {
     }
   }
 
+  /// Move the map camera to the centroid of [zone]'s polygon.
+  /// Silently skips if polygon has fewer than 3 points.
+  void _flyToZone(DeliveryZone zone) {
+    if (zone.polygon.length < 3) return;
+    final lats = zone.polygon.map((p) => p[0]);
+    final lngs = zone.polygon.map((p) => p[1]);
+    final centerLat =
+        (lats.reduce((a, b) => a + b)) / zone.polygon.length;
+    final centerLng =
+        (lngs.reduce((a, b) => a + b)) / zone.polygon.length;
+    _mapController.move(LatLng(centerLat, centerLng), 13.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -144,7 +177,7 @@ class _ZonesScreenState extends State<ZonesScreen> {
           ),
         ),
         Divider(height: 1, color: colors.border),
-        // List
+        // Map + List
         Expanded(
           child: RefreshIndicator(
             onRefresh: _reload,
@@ -161,35 +194,157 @@ class _ZonesScreenState extends State<ZonesScreen> {
                   );
                 }
                 final zones = snap.data ?? const [];
-                if (zones.isEmpty) {
-                  return ListView(
-                    children: const [
-                      SizedBox(height: 120),
-                      Center(
-                        child: Text(
-                          'Зон доставки пока нет',
-                          textAlign: TextAlign.center,
+                return CustomScrollView(
+                  slivers: [
+                    // Map panel
+                    SliverToBoxAdapter(
+                      child: _ZonesMap(
+                        zones: zones,
+                        mapController: _mapController,
+                      ),
+                    ),
+                    // Zone cards or empty state
+                    if (zones.isEmpty)
+                      const SliverFillRemaining(
+                        child: Center(
+                          child: Text(
+                            'Зон доставки пока нет',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.all(12),
+                        sliver: SliverList.separated(
+                          itemCount: zones.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, i) => _ZoneCard(
+                            zone: zones[i],
+                            isAdmin: _isAdmin,
+                            onTap: () => _flyToZone(zones[i]),
+                            onEditPrice: () => _editPrice(zones[i]),
+                            onDelete: () => _delete(zones[i]),
+                          ),
                         ),
                       ),
-                    ],
-                  );
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: zones.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) => _ZoneCard(
-                    zone: zones[i],
-                    isAdmin: _isAdmin,
-                    onEditPrice: () => _editPrice(zones[i]),
-                    onDelete: () => _delete(zones[i]),
-                  ),
+                  ],
                 );
               },
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Map widget
+// ---------------------------------------------------------------------------
+
+class _ZonesMap extends StatelessWidget {
+  const _ZonesMap({
+    required this.zones,
+    required this.mapController,
+  });
+
+  final List<DeliveryZone> zones;
+  final MapController mapController;
+
+  /// Build the list of [Polygon] objects to render. Zones with <3 points
+  /// are skipped gracefully.
+  List<Polygon> _buildPolygons(BuildContext context) {
+    final colors = context.colors;
+    // Cycle through a few colour variants so adjacent zones are distinct.
+    final fillColors = [
+      colors.primary.withValues(alpha: 0.2),
+      colors.accent.withValues(alpha: 0.2),
+      colors.statusNew.withValues(alpha: 0.2),
+      colors.statusProgress.withValues(alpha: 0.2),
+    ];
+    final borderColors = [
+      colors.primary.withValues(alpha: 0.85),
+      colors.accent.withValues(alpha: 0.85),
+      colors.statusNew.withValues(alpha: 0.85),
+      colors.statusProgress.withValues(alpha: 0.85),
+    ];
+
+    final polygons = <Polygon>[];
+    for (var i = 0; i < zones.length; i++) {
+      final zone = zones[i];
+      if (zone.polygon.length < 3) continue;
+      final points = zone.polygon
+          .map((p) => LatLng(p[0], p[1]))
+          .toList(growable: false);
+      final colorIdx = i % fillColors.length;
+      polygons.add(
+        Polygon(
+          points: points,
+          color: fillColors[colorIdx],
+          borderColor: borderColors[colorIdx],
+          borderStrokeWidth: 2.0,
+          label: zone.name,
+          labelStyle: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: borderColors[colorIdx],
+          ),
+        ),
+      );
+    }
+    return polygons;
+  }
+
+  /// Compute the initial map centre from all zone polygons.
+  /// Falls back to St. Petersburg if there are no drawable polygons.
+  LatLng _computeCenter() {
+    final points = zones
+        .where((z) => z.polygon.length >= 3)
+        .expand((z) => z.polygon)
+        .toList();
+    if (points.isEmpty) return _kDefaultCenter;
+    final sumLat = points.fold<double>(0, (acc, p) => acc + p[0]);
+    final sumLng = points.fold<double>(0, (acc, p) => acc + p[1]);
+    return LatLng(sumLat / points.length, sumLng / points.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final polygons = _buildPolygons(context);
+    final center = _computeCenter();
+
+    return SizedBox(
+      height: _kMapHeight,
+      child: ClipRect(
+        child: FlutterMap(
+          mapController: mapController,
+          options: MapOptions(
+            initialCenter: center,
+            initialZoom: _kDefaultZoom,
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.all,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate:
+                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'ru.baltoil.baltoil_mobile',
+              maxZoom: 19,
+            ),
+            if (polygons.isNotEmpty)
+              PolygonLayer(polygons: polygons),
+            // Attribution overlay required by OSM usage policy.
+            RichAttributionWidget(
+              attributions: [
+                TextSourceAttribution('OpenStreetMap contributors'),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -202,12 +357,14 @@ class _ZoneCard extends StatelessWidget {
   const _ZoneCard({
     required this.zone,
     required this.isAdmin,
+    required this.onTap,
     required this.onEditPrice,
     required this.onDelete,
   });
 
   final DeliveryZone zone;
   final bool isAdmin;
+  final VoidCallback onTap;
   final VoidCallback onEditPrice;
   final VoidCallback onDelete;
 
@@ -220,84 +377,93 @@ class _ZoneCard extends StatelessWidget {
         : 'по коэффициенту ×${zone.costCoefficient.toStringAsFixed(2)}';
     final pointCount = zone.polygon.length;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.bg2,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header: name + active badge
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  zone.name,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    color: colors.text,
-                  ),
-                ),
-              ),
-              if (!zone.isActive)
-                _Badge(
-                  label: 'Неактивна',
-                  bg: colors.bg3,
-                  fg: colors.text3,
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Delivery price row
-          Row(
-            children: [
-              Icon(Icons.local_shipping_outlined,
-                  size: 14, color: colors.text3),
-              const SizedBox(width: 6),
-              Text(
-                'Доставка: $priceLabel',
-                style: TextStyle(fontSize: 13, color: colors.text2),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          // Polygon point count
-          Row(
-            children: [
-              Icon(Icons.place_outlined, size: 14, color: colors.text3),
-              const SizedBox(width: 6),
-              Text(
-                pointCount > 0
-                    ? 'Полигон: $pointCount точек'
-                    : 'Полигон не задан',
-                style: TextStyle(fontSize: 12, color: colors.text3),
-              ),
-            ],
-          ),
-          // Admin actions
-          if (isAdmin) ...[
-            const SizedBox(height: 12),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.bg2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.border),
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header: name + active badge
             Row(
               children: [
-                _ActionButton(
-                  label: 'Изменить цену',
-                  onTap: onEditPrice,
-                  color: colors.primary,
+                Expanded(
+                  child: Text(
+                    zone.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: colors.text,
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                _ActionButton(
-                  label: 'Удалить',
-                  onTap: onDelete,
-                  color: colors.red,
+                if (!zone.isActive)
+                  _Badge(
+                    label: 'Неактивна',
+                    bg: colors.bg3,
+                    fg: colors.text3,
+                  ),
+                if (zone.polygon.length >= 3) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.map_outlined, size: 14, color: colors.primary),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Delivery price row
+            Row(
+              children: [
+                Icon(Icons.local_shipping_outlined,
+                    size: 14, color: colors.text3),
+                const SizedBox(width: 6),
+                Text(
+                  'Доставка: $priceLabel',
+                  style: TextStyle(fontSize: 13, color: colors.text2),
                 ),
               ],
             ),
+            const SizedBox(height: 4),
+            // Polygon point count
+            Row(
+              children: [
+                Icon(Icons.place_outlined, size: 14, color: colors.text3),
+                const SizedBox(width: 6),
+                Text(
+                  pointCount >= 3
+                      ? 'Полигон: $pointCount точек'
+                      : pointCount > 0
+                          ? 'Полигон неполный ($pointCount т.)'
+                          : 'Полигон не задан',
+                  style: TextStyle(fontSize: 12, color: colors.text3),
+                ),
+              ],
+            ),
+            // Admin actions
+            if (isAdmin) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _ActionButton(
+                    label: 'Изменить цену',
+                    onTap: onEditPrice,
+                    color: colors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  _ActionButton(
+                    label: 'Удалить',
+                    onTap: onDelete,
+                    color: colors.red,
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
