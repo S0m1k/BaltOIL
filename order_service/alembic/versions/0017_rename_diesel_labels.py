@@ -21,14 +21,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("""
-        UPDATE fuel_types SET label = 'ДТ – Л – К5' WHERE code = 'diesel_summer';
-        UPDATE fuel_types SET label = 'ДТ – З – К5' WHERE code = 'diesel_winter';
-    """)
+    op.execute("UPDATE fuel_types SET label = 'ДТ – Л – К5' WHERE code = 'diesel_summer'")
+    op.execute("UPDATE fuel_types SET label = 'ДТ – З – К5' WHERE code = 'diesel_winter'")
 
 
 def downgrade() -> None:
-    op.execute("""
-        UPDATE fuel_types SET label = 'ДТ-Л К5' WHERE code = 'diesel_summer';
-        UPDATE fuel_types SET label = 'ДТ-З К5' WHERE code = 'diesel_winter';
-    """)
+    op.execute("UPDATE fuel_types SET label = 'ДТ-Л К5' WHERE code = 'diesel_summer'")
+    op.execute("UPDATE fuel_types SET label = 'ДТ-З К5' WHERE code = 'diesel_winter'")
