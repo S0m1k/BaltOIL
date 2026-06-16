@@ -284,8 +284,8 @@ class FuelCatalog {
   FuelCatalog._();
 
   static final Map<String, String> _labels = {
-    'diesel_summer': 'ДТ-Л К5',
-    'diesel_winter': 'ДТ-З К5',
+    'diesel_summer': 'ДТ – Л – К5',
+    'diesel_winter': 'ДТ – З – К5',
     'petrol_92': 'АИ-92',
     'petrol_95': 'АИ-95',
     'fuel_oil': 'М-100',
