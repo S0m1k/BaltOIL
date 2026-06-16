@@ -9032,17 +9032,17 @@ async function renderPaymentRadios(clientId) {
   if (!container) return;
   try {
     const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
-    // Физлица всегда платят по факту — скрываем выбор типа оплаты
+    // Физ и юр лица — выбор типа оплаты скрыт; первый доступный тип выбирается автоматически
     const wrapper = container.closest('.form-group');
-    if (opts.client_type === 'individual') {
+    const types = opts.available_payment_types || ['on_delivery'];
+    const defaultType = types[0] || 'on_delivery';
+    if (opts.client_type === 'individual' || opts.client_type === 'company') {
       if (wrapper) wrapper.style.display = 'none';
-      // Ensure on_delivery is selected in the hidden group
-      container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()"> По факту (при прибытии)</label>`;
+      container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="${defaultType}" checked onchange="updatePaymentUI()"></label>`;
       return;
     }
     if (wrapper) wrapper.style.display = '';
-    const types = opts.available_payment_types || [];
-    const current = container.querySelector('input[name="payment"]:checked')?.value || types[0];
+    const current = container.querySelector('input[name="payment"]:checked')?.value || defaultType;
     container.innerHTML = types.map((pt, i) => `
       <label class="radio-label${pt === current || (i === 0 && !current) ? ' selected' : ''}" id="pay-${pt}-label">
         <input type="radio" name="payment" value="${pt}"
