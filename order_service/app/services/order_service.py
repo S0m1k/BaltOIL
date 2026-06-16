@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 
 import httpx
@@ -35,6 +35,10 @@ log = logging.getLogger(__name__)
 # Порог объёма (л): при >= этого значения счёт не выставляется автоматически —
 # менеджер получает уведомление и выставляет вручную (Д4, решение 2026-06-05).
 LARGE_VOLUME_THRESHOLD_L = 3000
+
+# Минимальный объём заявки (л) для клиента. Менеджер/админ может оформить
+# заявку на любой объём (правка заказчика 2026-06-16).
+MIN_VOLUME_L = 300
 
 
 async def _notify_large_volume(order: Order, body: str | None = None) -> None:
@@ -155,16 +159,8 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     return order
 
 
-async def list_orders(
-    db: AsyncSession,
-    actor: TokenUser,
-    *,
-    status: OrderStatus | None = None,
-    driver_id: uuid.UUID | None = None,
-    client_id: uuid.UUID | None = None,
-    offset: int = 0,
-    limit: int = 50,
-) -> list[Order]:
+def _visibility_conditions(actor: TokenUser) -> list:
+    """Условия видимости заявок по роли — общие для списка и счётчиков."""
     conditions = [Order.is_archived == False]  # noqa: E712
 
     if actor.role == ROLE_CLIENT:
@@ -184,6 +180,35 @@ async def list_orders(
             )
         )
     # Manager/admin видят все
+    return conditions
+
+
+async def count_orders_by_status(
+    db: AsyncSession,
+    actor: TokenUser,
+) -> dict[str, int]:
+    """Количество заявок по каждому статусу в пределах видимости роли.
+    Используется для бейджей на вкладках реестра (правка заказчика 2026-06-16)."""
+    conditions = _visibility_conditions(actor)
+    result = await db.execute(
+        select(Order.status, func.count())
+        .where(and_(*conditions))
+        .group_by(Order.status)
+    )
+    return {status.value: count for status, count in result.all()}
+
+
+async def list_orders(
+    db: AsyncSession,
+    actor: TokenUser,
+    *,
+    status: OrderStatus | None = None,
+    driver_id: uuid.UUID | None = None,
+    client_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[Order]:
+    conditions = _visibility_conditions(actor)
 
     if status:
         conditions.append(Order.status == status)
@@ -274,6 +299,10 @@ async def create_order(
 
     if not is_staff and actor.role != ROLE_CLIENT:
         raise ForbiddenError("Создание заявок доступно клиентам, менеджерам и администраторам")
+
+    # Минимальный объём — только для клиентов; менеджер/админ не ограничен
+    if not is_staff and float(data.volume_requested) < MIN_VOLUME_L:
+        raise ValidationError(f"Минимальный объём заказа — {MIN_VOLUME_L} литров")
 
     # ТТН-Л создаёт только менеджер/админ, водитель обязателен
     if data.is_ttn_l:
@@ -381,13 +410,14 @@ async def create_order(
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
-    # Согласование крупных заявок (правки 2026-06-11): заявка клиента >= 3000 л
-    # уходит менеджеру на согласование; водители её не видят и не могут взять.
+    # Согласование крупных заявок (правки 2026-06-16): заявка клиента строго > 3000 л
+    # уходит менеджеру на согласование; ровно 3000 л везём одной машиной без согласования.
+    # Водители заявку на согласовании не видят и не могут взять.
     # Заявки, созданные менеджером/админом, согласования не требуют.
     needs_approval = (
         not is_staff
         and order_kind != OrderKind.TTN_L
-        and float(data.volume_requested) >= LARGE_VOLUME_THRESHOLD_L
+        and float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
     )
     initial_status = OrderStatus.AWAITING_MANAGER if needs_approval else OrderStatus.NEW
 
@@ -421,7 +451,7 @@ async def create_order(
 
     # Лог: создание
     if needs_approval:
-        create_comment = "Заявка создана — объём ≥ 3000 л, требуется согласование менеджера"
+        create_comment = "Заявка создана — объём > 3000 л, требуется согласование менеджера"
     elif is_staff:
         create_comment = "Заявка создана менеджером"
     else:

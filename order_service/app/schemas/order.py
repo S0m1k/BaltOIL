@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from app.models.order import OrderStatus, OrderKind, PaymentType
 from .order_status_log import OrderStatusLogResponse
 
@@ -55,12 +55,8 @@ class OrderCreateRequest(BaseModel):
     # Долговая заявка: доставка без оплаты (только менеджер/админ, для клиента игнорируется)
     allow_delivery_unpaid: bool = False
 
-    @field_validator("volume_requested")
-    @classmethod
-    def min_volume(cls, v: float) -> float:
-        if v < 300:
-            raise ValueError("Минимальный объём заказа — 300 литров")
-        return v
+    # Минимальный объём (300 л) проверяется в order_service.create_order,
+    # т.к. менеджер/админ может оформить заявку на любой объём (правка 2026-06-16).
 
 
 class OrderUpdateRequest(BaseModel):

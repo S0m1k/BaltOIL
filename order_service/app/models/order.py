@@ -13,7 +13,7 @@ from app.database import Base
 
 class OrderStatus(str, enum.Enum):
     NEW = "new"           # Новая (создана, ждёт водителя)
-    AWAITING_MANAGER = "awaiting_manager"  # На согласовании с менеджером (объём >= 3000 л)
+    AWAITING_MANAGER = "awaiting_manager"  # На согласовании с менеджером (объём > 3000 л)
     ACCEPTED = "accepted" # Принята водителем
     DELIVERED = "delivered" # Доставлена
     CANCELLED = "cancelled" # Отменена (терминальный)
