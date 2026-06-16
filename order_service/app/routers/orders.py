@@ -32,6 +32,15 @@ async def list_orders(
     )
 
 
+@router.get("/counts", response_model=dict[str, int])
+async def count_orders(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Счётчики заявок по статусам (в пределах видимости роли) — для бейджей вкладок."""
+    return await order_service.count_orders_by_status(db, current_user)
+
+
 @router.post("/preview-price", response_model=PricePreviewResponse)
 async def preview_price(
     data: PricePreviewRequest,

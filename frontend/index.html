@@ -202,6 +202,15 @@
 
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+  /* Кнопка показать/скрыть пароль */
+  .pwd-toggle {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; color: var(--text3);
+    padding: 6px; display: flex; align-items: center; border-radius: 6px;
+    transition: color .15s;
+  }
+  .pwd-toggle:hover { color: var(--text); }
+
   /* Дропдаун автоподсказок адреса (DaData) */
   .addr-suggest {
     position: absolute; left: 0; right: 0; z-index: 1200;
@@ -498,6 +507,15 @@
   .status-tab-btn:last-child { border-right: none; }
   .status-tab-btn.active { background: var(--amber-dim); color: var(--amber); font-weight: 600; }
   .status-tab-btn:not(.active):hover { color: var(--text2); background: var(--bg3); }
+  /* Бейдж-счётчик на вкладке (скрыт, пока counts не загружены) */
+  .tab-badge {
+    display: none; margin-left: 6px; padding: 1px 7px; border-radius: 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0; line-height: 1.5;
+    background: var(--bg3); color: var(--text2); vertical-align: middle;
+  }
+  .tab-badge.has-count { display: inline-block; }
+  /* «Новые» — акцентная окраска, чтобы сразу было видно изменения */
+  .status-tab-btn[data-status="new"] .tab-badge.has-count { background: var(--amber); color: #fff; }
 
   .status-checkboxes {
     display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center;
@@ -1522,8 +1540,11 @@
           </div>
           <div class="form-group">
             <label class="form-label">Пароль</label>
-            <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password"
-              onkeydown="if(event.key==='Enter') doLogin()">
+            <div style="position:relative">
+              <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password" style="padding-right:42px"
+                onkeydown="if(event.key==='Enter') doLogin()">
+              <button type="button" class="pwd-toggle" tabindex="-1" aria-label="Показать пароль" onclick="togglePwd('login-password',this)"></button>
+            </div>
           </div>
           <div id="login-error"></div>
           <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
@@ -1574,8 +1595,11 @@
             </div>
             <div class="form-group">
               <label class="form-label">Новый пароль</label>
-              <input type="password" id="forgot-newpass" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password"
-                onkeydown="if(event.key==='Enter') doResetPassword()">
+              <div style="position:relative">
+                <input type="password" id="forgot-newpass" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password" style="padding-right:42px"
+                  onkeydown="if(event.key==='Enter') doResetPassword()">
+                <button type="button" class="pwd-toggle" tabindex="-1" aria-label="Показать пароль" onclick="togglePwd('forgot-newpass',this)"></button>
+              </div>
             </div>
             <div id="forgot-code-error"></div>
             <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doResetPassword()">Сменить пароль</button>
@@ -1636,7 +1660,10 @@
       </div>
       <div class="form-group">
         <label class="form-label">Пароль</label>
-        <input type="password" id="ri-password" class="form-input" placeholder="Минимум 6 символов" autocomplete="new-password">
+        <div style="position:relative">
+          <input type="password" id="ri-password" class="form-input" placeholder="Минимум 6 символов" autocomplete="new-password" style="padding-right:42px">
+          <button type="button" class="pwd-toggle" tabindex="-1" aria-label="Показать пароль" onclick="togglePwd('ri-password',this)"></button>
+        </div>
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
@@ -1682,7 +1709,10 @@
       </div>
       <div class="form-group">
         <label class="form-label">Пароль</label>
-        <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password">
+        <div style="position:relative">
+          <input type="password" id="rc-password" class="form-input" placeholder="Минимум 8 символов" autocomplete="new-password" style="padding-right:42px">
+          <button type="button" class="pwd-toggle" tabindex="-1" aria-label="Показать пароль" onclick="togglePwd('rc-password',this)"></button>
+        </div>
       </div>
       <div class="section-divider">Реквизиты из ФНС</div>
       <!-- Превью данных, подтянутых из DaData. Видно если есть rc-inn и был сделан lookup. -->
@@ -1814,11 +1844,11 @@
       <div class="toolbar">
         <div class="toolbar-title">Заявки</div>
         <div class="status-checkboxes" id="status-tab-group" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <button class="status-tab-btn active" data-status="new"       onclick="switchOrderTab('new')">Новые</button>
-          <button class="status-tab-btn"        data-status="awaiting_manager" id="tab-awaiting-btn" onclick="switchOrderTab('awaiting_manager')">На согласовании</button>
-          <button class="status-tab-btn"        data-status="accepted"  onclick="switchOrderTab('accepted')">Ждут доставки</button>
-          <button class="status-tab-btn"        data-status="delivered" onclick="switchOrderTab('delivered')">Доставленные</button>
-          <button class="status-tab-btn"        data-status="cancelled" onclick="switchOrderTab('cancelled')">Отменённые</button>
+          <button class="status-tab-btn active" data-status="new"       onclick="switchOrderTab('new')">Новые<span class="tab-badge" data-badge="new"></span></button>
+          <button class="status-tab-btn"        data-status="awaiting_manager" id="tab-awaiting-btn" onclick="switchOrderTab('awaiting_manager')">На согласовании<span class="tab-badge" data-badge="awaiting_manager"></span></button>
+          <button class="status-tab-btn"        data-status="accepted"  onclick="switchOrderTab('accepted')">Ждут доставки<span class="tab-badge" data-badge="accepted"></span></button>
+          <button class="status-tab-btn"        data-status="delivered" onclick="switchOrderTab('delivered')">Доставленные<span class="tab-badge" data-badge="delivered"></span></button>
+          <button class="status-tab-btn"        data-status="cancelled" onclick="switchOrderTab('cancelled')">Отменённые<span class="tab-badge" data-badge="cancelled"></span></button>
         </div>
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
@@ -1923,7 +1953,12 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Контактное лицо для приёмки топлива</label>
+            <div class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <span>Контактное лицо для приёмки топлива</span>
+              <label style="display:inline-flex;align-items:center;gap:5px;font-weight:500;font-size:13px;color:var(--text2);cursor:pointer;text-transform:none;letter-spacing:0">
+                <input type="checkbox" id="c-contact-self" onchange="toggleSelfContact(this)" style="cursor:pointer"> Я
+              </label>
+            </div>
             <input type="text" id="c-contact-name" class="form-input" placeholder="Имя" maxlength="120">
           </div>
           <div class="form-group">
@@ -2652,6 +2687,7 @@ const ICONS = {
   'pencil-simple':     '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>',
   'trash':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>',
   'eye':               '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></svg>',
+  'eye-slash':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M53.92,34.62A8,8,0,1,0,42.08,45.38L61.32,66.55C25,88.84,9.38,123.2,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208a127.11,127.11,0,0,0,52.07-10.83l22,24.21a8,8,0,1,0,11.84-10.76Zm47.33,75.84,41.67,45.85a32,32,0,0,1-41.67-45.85ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.16,133.16,0,0,1,25,128c4.69-8.79,19.66-33.39,47.35-49.38l18,19.75a48,48,0,0,0,63.66,70l14.73,16.2A112,112,0,0,1,128,192Zm6-95.43a8,8,0,0,1,3-15.72,48.16,48.16,0,0,1,38.77,42.64,8,8,0,0,1-7.22,8.71,6.39,6.39,0,0,1-.75,0,8,8,0,0,1-8-7.26A32.09,32.09,0,0,0,134,96.57Zm113.28,34.69c-.42.94-10.55,23.37-33.36,43.8a8,8,0,1,1-10.67-11.92A132.77,132.77,0,0,0,231.05,128a133.15,133.15,0,0,0-23.12-30.77C185.67,75.19,158.78,64,128,64a118.37,118.37,0,0,0-19.36,1.57A8,8,0,1,1,106,49.79,134,134,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41A8,8,0,0,1,247.31,131.26Z"/></svg>',
   'download':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16H72a8,8,0,0,1,0,16H32v64H224V136H184a8,8,0,0,1,0-16h40A16,16,0,0,1,240,136Zm-117.66-2.34a8,8,0,0,0,11.32,0l48-48a8,8,0,0,0-11.32-11.32L136,108.69V24a8,8,0,0,0-16,0v84.69L85.66,74.34A8,8,0,0,0,74.34,85.66ZM200,168a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>',
   'arrow-right':       '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>',
   'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
@@ -2707,6 +2743,20 @@ function toggleTheme() {
 
 // Sync icon on load
 document.addEventListener('DOMContentLoaded', _syncThemeIcon);
+
+// ─── Показать/скрыть пароль (правка заказчика 2026-06-16) ───
+function togglePwd(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.innerHTML = icon(show ? 'eye-slash' : 'eye', 18);
+  btn.setAttribute('aria-label', show ? 'Скрыть пароль' : 'Показать пароль');
+}
+// Заполнить иконку «глаз» во всех toggle-кнопках при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.pwd-toggle').forEach(b => { b.innerHTML = icon('eye', 18); });
+});
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
@@ -3580,6 +3630,11 @@ function initCreateFormListeners() {
     volEl.dataset.priceWired = '1';
     volEl.addEventListener('input', updatePricePreview);
   }
+  // Минимальный объём 300 л — только для клиента; менеджер/админ без ограничения
+  if (volEl) {
+    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    volEl.min = isStaff ? '1' : '300';
+  }
   if (cidEl && !cidEl.dataset.priceWired) {
     cidEl.dataset.priceWired = '1';
     // Extend existing onchange: keep renderPaymentRadios, also update price
@@ -4117,6 +4172,19 @@ async function loadOrders() {
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
+  refreshOrderTabCounts();
+}
+
+// Обновить счётчики-бейджи на вкладках реестра (правка заказчика 2026-06-16)
+async function refreshOrderTabCounts() {
+  try {
+    const counts = await orderGet('/orders/counts');
+    document.querySelectorAll('.tab-badge').forEach(b => {
+      const n = counts[b.dataset.badge] || 0;
+      b.textContent = n;
+      b.classList.toggle('has-count', n > 0);
+    });
+  } catch { /* счётчики не критичны — тихо игнорируем */ }
 }
 
 function renderOrders(orders) {
@@ -4502,7 +4570,7 @@ function actionBarHTML(o) {
   }
 
   if (role === 'manager' || role === 'admin') {
-    // Согласование крупной заявки (>= 3000 л)
+    // Согласование крупной заявки (> 3000 л)
     if (s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','new',{comment:'Заявка согласована менеджером'})">${icon('check',14)} Согласовать</button>`);
     if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
@@ -4539,7 +4607,7 @@ function actionBarHTML(o) {
 
   if (role === 'client') {
     if (s === 'awaiting_manager')
-      btns.push(`<span style="font-size:12px;color:var(--amber);display:inline-flex;align-items:center;gap:4px">${icon('clock',13)} Объём ≥ 3000 л — заявка на согласовании у менеджера</span>`);
+      btns.push(`<span style="font-size:12px;color:var(--amber);display:inline-flex;align-items:center;gap:4px">${icon('clock',13)} Объём > 3000 л — заявка на согласовании у менеджера</span>`);
     if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
     // Chat with manager
@@ -4612,8 +4680,9 @@ async function promptEditOrderField(orderId, field) {
     inputHtml = `<select id="eof-value" class="form-input">${opts}</select>`;
   } else if (field === 'volume_requested') {
     title = 'Изменить объём';
-    inputHtml = `<input type="number" id="eof-value" class="form-input" min="300" step="100" value="${Number(order.volume_requested)}">
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Минимум 300 л. Сумма заявки будет пересчитана.</div>`;
+    const _staff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="${_staff ? 1 : 300}" step="100" value="${Number(order.volume_requested)}">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${_staff ? 'Сумма заявки будет пересчитана.' : 'Минимум 300 л. Сумма заявки будет пересчитана.'}</div>`;
   } else if (field === 'delivery_address') {
     title = 'Изменить адрес доставки';
     inputHtml = `<input type="text" id="eof-value" class="form-input" value="${escHtml(order.delivery_address || '')}">`;
@@ -4633,7 +4702,9 @@ async function promptEditOrderField(orderId, field) {
       const body = {};
       if (field === 'volume_requested') {
         const v = parseFloat(raw);
-        if (!v || v < 300) { toast('Минимальный объём — 300 л', 'error'); return; }
+        const _staff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+        if (!v || v <= 0) { toast('Укажите объём', 'error'); return; }
+        if (!_staff && v < 300) { toast('Минимальный объём — 300 л', 'error'); return; }
         body[field] = v;
       } else if (field === 'desired_date') {
         body[field] = new Date(raw + 'T00:00:00').toISOString();
@@ -4984,6 +5055,19 @@ async function loadClientSelectForOrder() {
   } catch { /* тихо, не блокируем форму */ }
 }
 
+// Чекбокс «Я» — подставить имя и телефон текущего пользователя как контактное лицо
+function toggleSelfContact(cb) {
+  const nameEl  = document.getElementById('c-contact-name');
+  const phoneEl = document.getElementById('c-contact-phone');
+  if (cb.checked) {
+    nameEl.value  = currentUser?.full_name || '';
+    phoneEl.value = currentUser?.phone || '';
+  } else {
+    nameEl.value  = '';
+    phoneEl.value = '';
+  }
+}
+
 async function doCreateOrder() {
   const errEl = document.getElementById('create-error');
   errEl.innerHTML = '';
@@ -5056,13 +5140,15 @@ async function doCreateOrder() {
   try {
     const order = await orderPost('/orders', body);
     if (order.status === 'awaiting_manager') {
-      toast(`Заявка ${order.order_number} создана и отправлена менеджеру на согласование (объём ≥ 3000 л)`);
+      toast(`Заявка ${order.order_number} создана и отправлена менеджеру на согласование (объём > 3000 л)`);
     } else {
       toast(`Заявка ${order.order_number} создана!`);
     }
     // Reset form
     document.getElementById('c-contact-name').value = '';
     document.getElementById('c-contact-phone').value = '';
+    const selfCb = document.getElementById('c-contact-self');
+    if (selfCb) selfCb.checked = false;
     document.getElementById('c-volume').value = '';
     document.getElementById('c-addr-city').value = '';
     document.getElementById('c-addr-street').value = '';
