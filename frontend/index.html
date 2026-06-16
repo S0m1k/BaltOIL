@@ -4256,10 +4256,21 @@ function orderCardHTML(o) {
   // Driver sees no money for company orders (SPEC 5.4)
   const driverHidesMoney = currentUser?.role === 'driver' && o.order_kind !== 'individual';
   const rowClass    = _orderRowClass(o);
-  // В списке показываем запланированную дату отгрузки, а не дату создания
-  const listDate = o.desired_date
-    ? new Date(o.desired_date).toLocaleDateString('ru-RU')
-    : fmtDate(o.created_at);
+  // Дата: желаемая — крупно (красная если просрочена), дата создания — мелко под ней
+  const _today = new Date(); _today.setHours(0,0,0,0);
+  const dateHtml = (() => {
+    const createdSmall = `<div style="font-size:10px;color:var(--text3);margin-top:1px">${fmtDate(o.created_at)}</div>`;
+    if (o.desired_date) {
+      const d = new Date(o.desired_date); d.setHours(0,0,0,0);
+      const overdue = d < _today;
+      const dateStr = d.toLocaleDateString('ru-RU');
+      return `<div style="text-align:right">`
+        + `<div style="font-weight:700;font-size:13px;color:${overdue ? 'var(--red)' : 'var(--accent)'}" title="Запланированная дата доставки${overdue ? ' (просрочена)' : ''}">${dateStr}</div>`
+        + createdSmall
+        + `</div>`;
+    }
+    return `<div style="text-align:right">${createdSmall}</div>`;
+  })();
   return `
   <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}"
        data-order-kind="${escHtml(o.order_kind || '')}"
@@ -4276,7 +4287,7 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
       </div>
       ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">${icon('chat-circle',13,'margin-right:4px')} ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
-      <div class="order-date" title="${o.desired_date ? 'Запланированная дата отгрузки' : 'Дата создания'}">${listDate}</div>
+      ${dateHtml}
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
@@ -4305,7 +4316,7 @@ function orderCardHTML(o) {
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
-      ${isStaff ? `<div class="timeline-section" id="docs-${o.id}">
+      ${isStaff && o.order_kind !== 'individual' ? `<div class="timeline-section" id="docs-${o.id}">
         <div class="timeline-title">Документы</div>
         <div class="loading"></div>
       </div>` : ''}
@@ -4322,7 +4333,7 @@ async function toggleCard(orderId) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
     const role = currentUser?.role;
-    if (role === 'manager' || role === 'admin') loadDocs(orderId);
+    if ((role === 'manager' || role === 'admin') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
   }
 }
 

@@ -410,14 +410,18 @@ async def create_order(
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
-    # Согласование крупных заявок (правки 2026-06-16): заявка клиента строго > 3000 л
-    # уходит менеджеру на согласование; ровно 3000 л везём одной машиной без согласования.
+    # Согласование заявок (правки 2026-06-16):
+    # - Физ лица: ВСЕ заявки клиента уходят на согласование менеджера.
+    # - Юр лица: только строго > 3000 л.
     # Водители заявку на согласовании не видят и не могут взять.
     # Заявки, созданные менеджером/админом, согласования не требуют.
     needs_approval = (
         not is_staff
         and order_kind != OrderKind.TTN_L
-        and float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
+        and (
+            ctx.client_type == "individual"
+            or float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
+        )
     )
     initial_status = OrderStatus.AWAITING_MANAGER if needs_approval else OrderStatus.NEW
 
@@ -451,7 +455,10 @@ async def create_order(
 
     # Лог: создание
     if needs_approval:
-        create_comment = "Заявка создана — объём > 3000 л, требуется согласование менеджера"
+        if ctx.client_type == "individual":
+            create_comment = "Заявка создана — ожидайте звонка менеджера"
+        else:
+            create_comment = "Заявка создана — объём > 3000 л, требуется согласование менеджера"
     elif is_staff:
         create_comment = "Заявка создана менеджером"
     else:
