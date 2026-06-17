@@ -113,12 +113,23 @@ Order
   alembic 0010_organizations.py; internal context/buyer-snapshot/legal-profile
   принимают organization_id; link_pending_invites в регистрации.
   ⏳ Интеграционная проверка (alembic upgrade 0010 + старт сервиса) — нужен Docker.
-- **Фаза 2 (order)** — Order.organization_id, создание с организацией, context по
-  org, документы/snapshot из организации; backfill orders.organization_id. Деплой order.
-- **Фаза 3 (frontend)** — регистрация, «Мои организации», селектор в заявке,
-  реквизиты/документы по организации.
-- **Фаза 4 (chat + чистка)** — правило показа чата бухгалтерии; удаление
-  устаревших company-полей с ClientProfile после ≥1 недели стабильной работы.
+- **Фаза 2 (order)** ✅ КОД ГОТОВ + ПРОВЕРЕН на Docker — Order.organization_id
+  (миграция 0018, без backfill, NULL=физлицо/legacy), создание с organization_id
+  (членство через auth context, 400 если не участник), client_context по org,
+  документы/buyer-snapshot из организации, договор per-organization
+  (Contract.organization_id), видимость member = все заявки организации
+  (auth /internal/users/{id}/organization-ids). Деплой order + auth.
+- **Фаза 3 (frontend)** ✅ КОД ГОТОВ — селектор «Оформить от имени» в создании
+  заявки (organization_id в create+preview), вкладка «Мои организации» (список,
+  создание по ИНН, состав сотрудников), регистрация только как физлицо
+  (юрлица добавляются после входа). JS syntax-clean, прокси проверен;
+  полный браузерный клик-через не гонялся.
+- **Фаза 4 (chat)** ✅ КОД ГОТОВ — чат «Бухгалтерия» доступен клиенту с ≥1
+  организацией (вместо client_type=company): chat_service ensure-client-accountant
+  гейтит по auth /internal/users/{id}/organization-ids (auth_client.get_organization_ids).
+  Фильтры видимости не трогаем — они лишь включают существующие чаты.
+- **Чистка (отложено)** — удаление устаревших company-полей с ClientProfile и
+  мёртвого register/company ПОСЛЕ ≥1 недели стабильной работы на проде.
 
 Каждая фаза самостоятельно деплоится и обратносовместима: пока фронт не обновлён,
 `organization_id` везде nullable и поведение = «как физлицо/как раньше».

@@ -139,10 +139,11 @@ async def ensure_client_accountant(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    """Чат клиента-юрлица с бухгалтерией (правки 2026-06-11).
+    """Чат клиента с бухгалтерией.
 
-    Клиент-юрлицо создаёт/открывает свой; менеджер/админ — для любого клиента.
-    Для физлиц — 400.
+    Доступен клиенту, у которого есть хотя бы одна организация (единая модель).
+    Клиент открывает свой; менеджер/админ — для любого клиента.
+    Клиенту без организаций — 400.
     """
     if actor.role in ("manager", "admin"):
         if not body.client_id:
@@ -153,11 +154,13 @@ async def ensure_client_accountant(
     else:
         raise ForbiddenError("Недоступно для этой роли")
 
-    card = await auth_client.get_contact(client_id)
-    if not card or card.get("client_type") != "company":
+    # Чат с бухгалтерией доступен клиенту, у которого есть хотя бы одна
+    # организация (единая модель: «юрлицо» = наличие организаций, а не client_type).
+    org_ids = await auth_client.get_organization_ids(client_id)
+    if not org_ids:
         raise HTTPException(
             status_code=400,
-            detail="Чат с бухгалтером доступен только клиентам-юридическим лицам",
+            detail="Чат с бухгалтером доступен клиентам, у которых есть организация",
         )
 
     conv = await conversation_service.ensure_client_accountant(db, client_id)

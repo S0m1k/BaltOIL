@@ -45,6 +45,25 @@ async def get_contact(user_id: uuid.UUID) -> dict | None:
     return contacts.get(str(user_id))
 
 
+async def get_organization_ids(user_id: uuid.UUID) -> list[str]:
+    """ID организаций, в которых пользователь — активный участник.
+
+    Используется для правила показа чата «Бухгалтерия» (доступен клиенту,
+    у которого есть хотя бы одна организация). Fail-open: при ошибке — [].
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_BASE}/internal/users/{user_id}/organization-ids",
+                headers=_HEADERS,
+            )
+        resp.raise_for_status()
+        return [str(x) for x in resp.json()]
+    except Exception:
+        logger.exception("auth get_organization_ids failed")
+        return []
+
+
 async def is_messenger_blocked(redis, user_id: uuid.UUID) -> bool:
     """Заблокирован ли мессенджер у пользователя (правки 2026-06-11).
 
