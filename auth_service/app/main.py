@@ -11,7 +11,7 @@ from app.core.rate_limit import limiter
 from app.database import engine, AsyncSessionLocal, Base
 from app.models.user import User, UserRole
 from app.core.security import hash_password
-from app.routers import auth, users, internal
+from app.routers import auth, users, internal, organizations
 
 settings = get_settings()
 
@@ -123,6 +123,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(organizations.router, prefix="/api/v1")
 app.include_router(internal.router, prefix="/api/v1")
 
 
