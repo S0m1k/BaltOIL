@@ -1647,9 +1647,9 @@
       </div>
     </div>
 
-    <!-- Register Individual (step 2) -->
+    <!-- Register (физлицо/человек). Организации добавляются после входа. -->
     <div id="auth-reg-individual" style="display:none">
-      <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
+      <button class="auth-back" onclick="switchAuthMode('login')">← ко входу</button>
       <div class="form-group">
         <label class="form-label">Телефон <span style="color:var(--red)">*</span></label>
         <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="tel">
@@ -1667,6 +1667,9 @@
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">
+        Работаете от юрлица? Зарегистрируйтесь, затем добавьте организацию в разделе «Мои организации».
+      </p>
     </div>
 
     <!-- Register Company (step 1): INN lookup -->
@@ -3200,9 +3203,10 @@ function switchAuthMode(mode) {
     btn.classList.toggle('active', (i === 0) === (mode === 'login'));
   });
   document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
-  document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
-  // Hide form panels when switching top mode
-  document.getElementById('auth-reg-individual').style.display     = 'none';
+  // Регистрация = только физлицо (человек). Организации (юрлица) добавляются
+  // после входа в разделе «Мои организации». Шаг выбора типа больше не нужен.
+  document.getElementById('auth-reg-picker').style.display = 'none';
+  document.getElementById('auth-reg-individual').style.display     = mode === 'register' ? '' : 'none';
   document.getElementById('auth-reg-company-inn').style.display    = 'none';
   document.getElementById('auth-reg-company-confirm').style.display = 'none';
   document.getElementById('auth-reg-company').style.display        = 'none';
