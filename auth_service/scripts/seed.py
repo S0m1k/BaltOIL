@@ -83,19 +83,29 @@ async def main():
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with Session() as session:
-        # Wipe existing seed data (by known UUIDs) to make this idempotent
+        # Wipe existing seed data idempotently. Чистим не только по фиксированным
+        # UUID, но и по email/ФИО — захардкоженные сотрудники могли уже
+        # существовать в БД под другими UUID (иначе INSERT упадёт на unique email
+        # или создаст дубли).
         known_ids = list(USERS.values())
+        emails = [r["email"] for r in USER_RECORDS if r.get("email")]
+        names = [r["full_name"] for r in USER_RECORDS if r.get("full_name")]
+        rows = (await session.execute(
+            text("SELECT id FROM users WHERE id = ANY(:ids) OR email = ANY(:emails) OR full_name = ANY(:names)"),
+            {"ids": known_ids, "emails": emails, "names": names},
+        )).all()
+        wipe_ids = list({*known_ids, *(row[0] for row in rows)})
         await session.execute(
             text("DELETE FROM client_profiles WHERE user_id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.execute(
             text("DELETE FROM refresh_tokens WHERE user_id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.execute(
             text("DELETE FROM users WHERE id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.commit()
 
