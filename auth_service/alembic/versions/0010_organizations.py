@@ -88,6 +88,15 @@ def upgrade() -> None:
             new_org_id uuid;
         BEGIN
             FOR r IN SELECT * FROM client_profiles WHERE client_type = 'company' LOOP
+                -- Идемпотентность: пропускаем, если у пользователя уже есть
+                -- организация, где он владелец (защита от повторного прогона).
+                IF EXISTS (
+                    SELECT 1 FROM organization_members
+                    WHERE user_id = r.user_id AND member_role = 'owner'
+                ) THEN
+                    CONTINUE;
+                END IF;
+
                 INSERT INTO organizations (
                     id, org_number, company_name, inn, kpp, ogrn, legal_address, delivery_address,
                     bank_name, bik, bank_account, correspondent_account, swift,

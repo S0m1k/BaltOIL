@@ -516,12 +516,12 @@ async def create_order(
     # Физлица и ttn_l пропускаются тихо.
     if ctx.client_type == "company" and order.order_kind != OrderKind.TTN_L:
         try:
-            existing = await contract_service.get_active_contract(db, client_id)
+            existing = await contract_service.get_active_contract(db, client_id, organization_id)
             if existing is None:
-                await contract_service.create_contract(db, client_id, actor)
+                await contract_service.create_contract(db, client_id, actor, organization_id)
         except Exception as exc:
-            log.warning("Auto-contract failed for client %s (order %s): %s",
-                        client_id, order.id, exc)
+            log.warning("Auto-contract failed for client %s org %s (order %s): %s",
+                        client_id, organization_id, order.id, exc)
 
     # Re-fetch with eager-loaded status_logs
     result = await db.execute(
