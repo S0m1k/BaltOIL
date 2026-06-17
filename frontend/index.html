@@ -5317,31 +5317,107 @@ async function archiveOrg(orgId) {
     });
 }
 
+// Черновик создаваемой организации (переносится между шагами модалки)
+let _orgDraft = {};
+
+function _setModalConfirmText(t) {
+  const b = document.getElementById('modal-confirm');
+  if (b) b.textContent = t;
+}
+
+// Шаг 1 — ИНН (+ БИК): тянем реквизиты из ФНС/банка по DaData
 function openCreateOrgModal() {
-  openModal('Новая организация', `
+  _orgDraft = {};
+  openModal('Новая организация — шаг 1', `
     <div class="form-group"><label class="form-label">ИНН <span style="color:var(--red)">*</span></label>
-      <input id="org-inn" class="form-input" placeholder="10 или 12 цифр" maxlength="12"></div>
+      <input id="org-inn" class="form-input" placeholder="10 или 12 цифр" maxlength="12" inputmode="numeric"></div>
     <div class="form-group"><label class="form-label">БИК банка</label>
-      <input id="org-bik" class="form-input" placeholder="9 цифр (необязательно)" maxlength="9"></div>
-    <div class="form-group"><label class="form-label">Название (если не найдётся по ИНН)</label>
-      <input id="org-name" class="form-input" placeholder="ООО «…»"></div>
+      <input id="org-bik" class="form-input" placeholder="9 цифр (необязательно)" maxlength="9" inputmode="numeric"></div>
+    <p style="font-size:11px;color:var(--text3)">Введите ИНН — реквизиты подтянутся из ФНС. На следующем шаге сможете проверить и дозаполнить.</p>
+    <div id="org-lookup-msg" style="font-size:12px;margin-top:6px"></div>
+  `, orgLookupAndContinue);
+  _setModalConfirmText('Найти →');
+}
+
+async function orgLookupAndContinue() {
+  const inn = document.getElementById('org-inn').value.trim();
+  const bik = document.getElementById('org-bik').value.trim();
+  if (!/^(\d{10}|\d{12})$/.test(inn)) { toast('Введите корректный ИНН (10 или 12 цифр)', 'error'); return; }
+  if (bik && !/^\d{9}$/.test(bik)) { toast('БИК — 9 цифр', 'error'); return; }
+
+  const msg = document.getElementById('org-lookup-msg');
+  if (msg) msg.innerHTML = '<span style="color:var(--text3)">Ищем в ФНС…</span>';
+
+  let party = null, bank = null;
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(x => x.json());
+    if (r && r.found) party = r.data;
+  } catch (_) {}
+  if (bik) {
+    try {
+      const rb = await fetch(`${AUTH_URL}/auth/lookup/bik?bik=${encodeURIComponent(bik)}`).then(x => x.json());
+      if (rb && rb.found) bank = rb.data;
+    } catch (_) {}
+  }
+
+  _orgDraft = { inn, bik, party: party || {}, bank: bank || {}, found: !!party };
+  openCreateOrgStep2();
+}
+
+// Шаг 2 — проверка/дозаполнение реквизитов
+function openCreateOrgStep2() {
+  const p = _orgDraft.party || {}, b = _orgDraft.bank || {};
+  const note = _orgDraft.found
+    ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Данные найдены в ФНС — проверьте и дополните</div>`
+    : `<div style="font-size:12px;color:var(--orange,#c80);margin-bottom:8px">По ИНН ничего не найдено — заполните реквизиты вручную</div>`;
+  openModal('Новая организация — реквизиты', `
+    ${note}
+    <div class="form-group"><label class="form-label">ИНН</label>
+      <input class="form-input" value="${escHtml(_orgDraft.inn)}" disabled></div>
+    <div class="form-group"><label class="form-label">Название <span style="color:var(--red)">*</span></label>
+      <input id="co-name" class="form-input" value="${escHtml(p.company_name || '')}" placeholder="ООО «…»"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="co-kpp" class="form-input" value="${escHtml(p.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">ОГРН</label>
+      <input id="co-ogrn" class="form-input" value="${escHtml(p.ogrn || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="co-legal" class="form-input" value="${escHtml(p.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Адрес доставки</label>
+      <input id="co-delivery" class="form-input" placeholder="если отличается от юридического"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="co-bank" class="form-input" value="${escHtml(b.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="co-bik" class="form-input" value="${escHtml(_orgDraft.bik || '')}" maxlength="9"></div>
     <div class="form-group"><label class="form-label">Расчётный счёт</label>
-      <input id="org-acc" class="form-input" placeholder="необязательно"></div>
+      <input id="co-acc" class="form-input" placeholder="20 цифр"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="co-corr" class="form-input" value="${escHtml(b.correspondent_account || '')}"></div>
     <div class="form-group"><label class="form-label">Email для документов</label>
-      <input id="org-email" class="form-input" placeholder="необязательно"></div>
-    <p style="font-size:11px;color:var(--text3)">Реквизиты подтянутся из ФНС по ИНН. Недостающее можно ввести вручную.</p>
+      <input id="co-email" class="form-input" placeholder="необязательно"></div>
   `, submitCreateOrg);
+  _setModalConfirmText('Создать');
+  // Кнопка «назад» к шагу 1
+  const body = document.getElementById('modal-body');
+  if (body) body.insertAdjacentHTML('afterbegin',
+    `<button class="btn btn-sm btn-ghost" style="margin-bottom:8px" onclick="openCreateOrgModal();document.getElementById('org-inn').value='${escHtml(_orgDraft.inn)}'">← назад к ИНН</button>`);
 }
 
 async function submitCreateOrg() {
-  const inn = document.getElementById('org-inn').value.trim();
-  if (!/^(\d{10}|\d{12})$/.test(inn)) { toast('Введите корректный ИНН (10 или 12 цифр)', 'error'); return; }
+  const name = document.getElementById('co-name').value.trim();
+  if (!name) { toast('Укажите название организации', 'error'); return; }
+  const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
   const body = {
-    inn,
-    bik:          document.getElementById('org-bik').value.trim() || undefined,
-    company_name: document.getElementById('org-name').value.trim() || undefined,
-    bank_account: document.getElementById('org-acc').value.trim() || undefined,
-    billing_email:document.getElementById('org-email').value.trim() || undefined,
+    inn:                   _orgDraft.inn,
+    company_name:          name,
+    kpp:                   v('co-kpp'),
+    ogrn:                  v('co-ogrn'),
+    legal_address:         v('co-legal'),
+    delivery_address:      v('co-delivery'),
+    bank_name:             v('co-bank'),
+    bik:                   v('co-bik'),
+    bank_account:          v('co-acc'),
+    correspondent_account: v('co-corr'),
+    billing_email:         v('co-email'),
   };
   try {
     await authPost('/organizations', body);
@@ -5744,7 +5820,10 @@ function openModal(title, bodyHTML, onConfirm) {
   document.getElementById('modal-body').innerHTML = bodyHTML;
   modalCallback = onConfirm;
   const confirmBtn = document.getElementById('modal-confirm');
-  if (confirmBtn) confirmBtn.style.display = onConfirm ? '' : 'none';
+  if (confirmBtn) {
+    confirmBtn.style.display = onConfirm ? '' : 'none';
+    confirmBtn.textContent = 'Подтвердить';  // сброс (некоторые модалки переопределяют)
+  }
   document.getElementById('modal-overlay').classList.add('open');
   // Focus first input
   setTimeout(() => {
