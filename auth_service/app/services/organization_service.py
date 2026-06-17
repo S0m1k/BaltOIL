@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -143,6 +143,29 @@ async def list_user_organizations(db: AsyncSession, user_id: uuid.UUID) -> list[
         .order_by(Organization.created_at.desc())
     )
     return list(res.scalars().all())
+
+
+async def list_all_organizations(
+    db: AsyncSession,
+    search: str | None = None,
+    include_archived: bool = False,
+    offset: int = 0,
+    limit: int = 200,
+) -> list[Organization]:
+    """Все организации (для admin/manager) — список + поиск по названию/ИНН."""
+    conds = []
+    if not include_archived:
+        conds.append(Organization.is_archived == False)  # noqa: E712
+    if search:
+        like = f"%{search.strip()}%"
+        conds.append(or_(Organization.company_name.ilike(like), Organization.inn.ilike(like)))
+    stmt = (
+        select(Organization)
+        .where(*conds)
+        .order_by(Organization.created_at.desc())
+        .offset(offset).limit(limit)
+    )
+    return list((await db.execute(stmt)).scalars().all())
 
 
 async def update_organization(

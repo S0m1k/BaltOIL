@@ -24,12 +24,18 @@ async def list_organizations(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     user_id: uuid.UUID | None = Query(None, description="Чьи организации (только staff)"),
+    search: str | None = Query(None, description="Поиск по названию/ИНН (только staff, все организации)"),
 ):
-    """Организации текущего пользователя. Staff может указать user_id."""
-    target = current_user.id
-    if user_id and current_user.role in _STAFF:
-        target = user_id
-    return await svc.list_user_organizations(db, target)
+    """Организации текущего пользователя.
+
+    Staff: с user_id — организации этого пользователя; без user_id — все
+    организации (с поиском по названию/ИНН), аналог раздела «Клиенты».
+    """
+    if current_user.role in _STAFF:
+        if user_id:
+            return await svc.list_user_organizations(db, user_id)
+        return await svc.list_all_organizations(db, search)
+    return await svc.list_user_organizations(db, current_user.id)
 
 
 @router.post("", response_model=OrganizationResponse, status_code=201)

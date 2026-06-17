@@ -1791,6 +1791,7 @@
       <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
+      <button class="nav-tab" data-tab="orgs" id="tab-orgs-btn" onclick="switchTab('orgs')" style="display:none">Организации</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
       <button class="nav-tab" data-tab="zones" id="tab-zones-btn" onclick="switchTab('zones')" style="display:none">Зоны</button>
@@ -2018,8 +2019,9 @@
     <!-- MY ORGANIZATIONS TAB -->
     <div class="tab-pane" id="pane-orgs">
       <div class="toolbar">
-        <div class="toolbar-title">Мои организации</div>
-        <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
+        <div class="toolbar-title" id="orgs-title">Организации</div>
+        <input id="orgs-search" class="form-input" placeholder="Поиск по названию или ИНН" style="display:none;max-width:280px;margin-left:auto" oninput="onOrgSearchInput()">
+        <button class="btn btn-sm btn-primary" id="orgs-add-btn" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
       </div>
       <div id="orgs-list" style="display:flex;flex-direction:column;gap:10px">
         <div class="empty-state"><div class="loading"></div></div>
@@ -2845,7 +2847,7 @@ function buildBurgerMenu() {
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
     { tab: 'create',    label: 'Создать заявку',       show: role !== 'driver' },
-    { tab: 'orgs',      label: 'Мои организации',      show: role === 'client' },
+    { tab: 'orgs',      label: role === 'client' ? 'Мои организации' : 'Организации', show: role !== 'driver' },
     { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
     { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
     { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
@@ -3599,6 +3601,13 @@ async function initApp() {
   // Clients — admin + manager only
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
+
+  // Организации — клиент видит свои («Мои организации»), staff — все («Организации»)
+  const orgsBtn = document.getElementById('tab-orgs-btn');
+  if (orgsBtn) {
+    orgsBtn.style.display = role !== 'driver' ? '' : 'none';
+    orgsBtn.textContent = role === 'client' ? 'Мои организации' : 'Организации';
+  }
 
   // Export button in clients tab — admin + manager only; init icon
   const exportBtn = document.getElementById('btn-export-clients');
@@ -5125,15 +5134,37 @@ async function loadOrganizationSelectForOrder(userId) {
 // MY ORGANIZATIONS (клиент)
 // ═══════════════════════════════════════════════════════════════
 let _myOrgs = [];
+let _orgSearchTimer = null;
+
+function _isOrgStaff() {
+  return currentUser?.role === 'manager' || currentUser?.role === 'admin';
+}
 
 async function loadMyOrganizations() {
   const el = document.getElementById('orgs-list');
   if (!el) return;
+  const staff = _isOrgStaff();
+
+  // Тулбар: staff видит поиск (все организации), клиент — кнопку добавления (свои)
+  const titleEl  = document.getElementById('orgs-title');
+  const searchEl = document.getElementById('orgs-search');
+  const addBtn   = document.getElementById('orgs-add-btn');
+  if (titleEl)  titleEl.textContent = staff ? 'Организации' : 'Мои организации';
+  if (searchEl) searchEl.style.display = staff ? '' : 'none';
+  if (addBtn)   addBtn.style.display = staff ? 'none' : '';
+
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
-    _myOrgs = await authGet('/organizations');
+    let path = '/organizations';
+    if (staff) {
+      const q = (searchEl?.value || '').trim();
+      if (q) path += `?search=${encodeURIComponent(q)}`;
+    }
+    _myOrgs = await authGet(path);
     if (!_myOrgs.length) {
-      el.innerHTML = `<div class="empty-state">У вас пока нет организаций. Добавьте юрлицо по ИНН, чтобы оформлять заявки от его имени.</div>`;
+      el.innerHTML = staff
+        ? `<div class="empty-state">Организаций не найдено.</div>`
+        : `<div class="empty-state">У вас пока нет организаций. Добавьте юрлицо по ИНН, чтобы оформлять заявки от его имени.</div>`;
       return;
     }
     el.innerHTML = _myOrgs.map(orgCardHTML).join('');
@@ -5142,11 +5173,32 @@ async function loadMyOrganizations() {
   }
 }
 
+function onOrgSearchInput() {
+  clearTimeout(_orgSearchTimer);
+  _orgSearchTimer = setTimeout(loadMyOrganizations, 350);
+}
+
 function orgCardHTML(o) {
+  const staff = _isOrgStaff();
   const req = [
     o.inn ? `ИНН ${escHtml(o.inn)}` : null,
     o.kpp ? `КПП ${escHtml(o.kpp)}` : null,
   ].filter(Boolean).join(' · ');
+
+  // Коммерческая строка (тариф/кредит) — только для staff
+  const commercial = staff ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">
+      ${o.credit_allowed ? '✓ кредит разрешён' : 'без кредита'}${o.credit_limit != null ? ` · лимит ${Number(o.credit_limit).toLocaleString('ru')} ₽` : ''}
+    </div>` : '';
+
+  // Кнопки действий
+  const btns = [`<button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>`];
+  if (staff) {
+    btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
+    if (currentUser?.role === 'admin')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);
+    btns.push(`<button class="btn btn-sm btn-danger" onclick="archiveOrg('${o.id}')">Архивировать</button>`);
+  }
+
   return `
   <div class="surface-card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -5154,13 +5206,115 @@ function orgCardHTML(o) {
         <div style="font-weight:600">${escHtml(o.company_name)}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:2px">${req || '—'}</div>
         ${o.legal_address ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${escHtml(o.legal_address)}</div>` : ''}
+        ${commercial}
       </div>
       <span style="font-size:11px;color:var(--text3);white-space:nowrap">O-${String(o.org_number).padStart(5,'0')}</span>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      <button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>
+      ${btns.join('')}
     </div>
   </div>`;
+}
+
+// ── Staff: правка реквизитов организации ────────────────────────────────────
+function openEditOrgModal(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  openModal(`Реквизиты — ${escHtml(o.company_name)}`, `
+    <div class="form-group"><label class="form-label">Название</label>
+      <input id="eo-name" class="form-input" value="${escHtml(o.company_name || '')}"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="eo-kpp" class="form-input" value="${escHtml(o.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="eo-legal" class="form-input" value="${escHtml(o.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Адрес доставки</label>
+      <input id="eo-delivery" class="form-input" value="${escHtml(o.delivery_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="eo-bank" class="form-input" value="${escHtml(o.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="eo-bik" class="form-input" value="${escHtml(o.bik || '')}" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="eo-acc" class="form-input" value="${escHtml(o.bank_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="eo-corr" class="form-input" value="${escHtml(o.correspondent_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Номер договора</label>
+      <input id="eo-contract" class="form-input" value="${escHtml(o.contract_number || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для документов</label>
+      <input id="eo-email" class="form-input" value="${escHtml(o.billing_email || '')}"></div>
+  `, () => submitEditOrg(orgId));
+}
+
+async function submitEditOrg(orgId) {
+  const body = {
+    company_name:          document.getElementById('eo-name').value.trim() || null,
+    kpp:                   document.getElementById('eo-kpp').value.trim() || null,
+    legal_address:         document.getElementById('eo-legal').value.trim() || null,
+    delivery_address:      document.getElementById('eo-delivery').value.trim() || null,
+    bank_name:             document.getElementById('eo-bank').value.trim() || null,
+    bik:                   document.getElementById('eo-bik').value.trim() || null,
+    bank_account:          document.getElementById('eo-acc').value.trim() || null,
+    correspondent_account: document.getElementById('eo-corr').value.trim() || null,
+    contract_number:       document.getElementById('eo-contract').value.trim() || null,
+    billing_email:         document.getElementById('eo-email').value.trim() || null,
+  };
+  try {
+    await authPatch(`/organizations/${orgId}`, body);
+    closeModal();
+    toast('Реквизиты сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Admin: тариф / кредит организации ───────────────────────────────────────
+async function openOrgCommercial(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  let tariffOptions = '<option value="">— базовый —</option>';
+  try {
+    const tariffs = await orderGet('/tariffs');
+    tariffOptions += tariffs.filter(t => !t.is_archived).map(t =>
+      `<option value="${t.id}"${o.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
+    ).join('');
+  } catch (_) {}
+  openModal(`Тариф / кредит — ${escHtml(o.company_name)}`, `
+    <div class="form-group"><label class="form-label">Тариф</label>
+      <select id="oc-tariff" class="form-input">${tariffOptions}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="oc-credit" ${o.credit_allowed ? 'checked' : ''}>
+      <label for="oc-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label></div>
+    <div class="form-group"><label class="form-label">Кредитный лимит, ₽</label>
+      <input id="oc-limit" class="form-input" type="number" min="0" value="${o.credit_limit != null ? o.credit_limit : ''}" placeholder="пусто = без лимита"></div>
+  `, () => submitOrgCommercial(orgId));
+}
+
+async function submitOrgCommercial(orgId) {
+  const lim = document.getElementById('oc-limit').value.trim();
+  const body = {
+    tariff_id:      document.getElementById('oc-tariff').value || null,
+    credit_allowed: document.getElementById('oc-credit').checked,
+    credit_limit:   lim === '' ? null : Number(lim),
+  };
+  try {
+    await authPatch(`/organizations/${orgId}/commercial`, body);
+    closeModal();
+    toast('Коммерческие условия сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function archiveOrg(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  openModal('Архивировать организацию?',
+    `<p style="color:var(--text2);font-size:13px">Организация «${escHtml(o?.company_name || '')}» будет скрыта. Исторические заявки и документы сохранятся.</p>`,
+    async () => {
+      try {
+        await api(`${AUTH_URL}/organizations/${orgId}`, { method: 'DELETE' });
+        closeModal();
+        toast('Организация архивирована');
+        loadMyOrganizations();
+      } catch (e) { toast(e.message, 'error'); }
+    });
 }
 
 function openCreateOrgModal() {
