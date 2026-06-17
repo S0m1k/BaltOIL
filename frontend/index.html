@@ -1907,6 +1907,14 @@
           <div class="section-divider">Данные заявки</div>
         </div>
 
+        <!-- Селектор организации: показывается, если у клиента есть организации -->
+        <div class="form-group" id="c-org-group" style="display:none">
+          <label class="form-label">Оформить от имени</label>
+          <select id="c-organization" class="form-input" onchange="updatePricePreview()">
+            <option value="">Физлицо (на себя)</option>
+          </select>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Вид топлива</label>
           <select id="c-fuel" class="form-input">
@@ -2000,6 +2008,17 @@
         <button class="btn btn-sm btn-ghost" onclick="loadVehicles()">↻ Обновить</button>
       </div>
       <div id="vehicles-list" class="vehicles-grid">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
+    <!-- MY ORGANIZATIONS TAB -->
+    <div class="tab-pane" id="pane-orgs">
+      <div class="toolbar">
+        <div class="toolbar-title">Мои организации</div>
+        <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
+      </div>
+      <div id="orgs-list" style="display:flex;flex-direction:column;gap:10px">
         <div class="empty-state"><div class="loading"></div></div>
       </div>
     </div>
@@ -2823,6 +2842,7 @@ function buildBurgerMenu() {
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
     { tab: 'create',    label: 'Создать заявку',       show: role !== 'driver' },
+    { tab: 'orgs',      label: 'Мои организации',      show: role === 'client' },
     { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
     { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
     { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
@@ -3669,6 +3689,7 @@ function switchTab(tab) {
 
   if (tab === 'orders')    loadOrders();
   if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); initClientZoneMap(); }
+  if (tab === 'orgs')      loadMyOrganizations();
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -4117,6 +4138,8 @@ async function _doPricePreview() {
     const cid = document.getElementById('c-client-id')?.value;
     if (cid) body.client_id = cid;
   }
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   try {
     const r = await orderPost('/orders/preview-price', body);
@@ -5048,6 +5071,8 @@ async function loadClientSelectForOrder() {
   if (!isStaff) {
     // For client role: render payment radios based on own profile
     if (currentUser?.id) renderPaymentRadios(currentUser.id);
+    // Подгружаем свои организации в селектор «Оформить от имени»
+    loadOrganizationSelectForOrder(currentUser?.id);
     return;
   }
   const sel = document.getElementById('c-client-id');
@@ -5057,13 +5082,166 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
-    // Reload payment options when manager picks a different client
+    // Reload payment + organization options when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
       if (cid) renderPaymentRadios(cid);
+      loadOrganizationSelectForOrder(cid || null);
     };
-    if (current) renderPaymentRadios(current);
+    if (current) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
   } catch { /* тихо, не блокируем форму */ }
+}
+
+// Загрузить организации пользователя в селектор «Оформить от имени».
+// Клиент — свои; staff — организации выбранного клиента. Скрываем, если их нет.
+async function loadOrganizationSelectForOrder(userId) {
+  const group = document.getElementById('c-org-group');
+  const sel   = document.getElementById('c-organization');
+  if (!group || !sel) return;
+  sel.innerHTML = '<option value="">Физлицо (на себя)</option>';
+  if (!userId) { group.style.display = 'none'; return; }
+  try {
+    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    const path = isStaff ? `/organizations?user_id=${userId}` : '/organizations';
+    const orgs = await authGet(path);
+    if (Array.isArray(orgs) && orgs.length) {
+      sel.innerHTML += orgs.map(o =>
+        `<option value="${o.id}">${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`
+      ).join('');
+      group.style.display = '';
+    } else {
+      group.style.display = 'none';
+    }
+  } catch {
+    group.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MY ORGANIZATIONS (клиент)
+// ═══════════════════════════════════════════════════════════════
+let _myOrgs = [];
+
+async function loadMyOrganizations() {
+  const el = document.getElementById('orgs-list');
+  if (!el) return;
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    _myOrgs = await authGet('/organizations');
+    if (!_myOrgs.length) {
+      el.innerHTML = `<div class="empty-state">У вас пока нет организаций. Добавьте юрлицо по ИНН, чтобы оформлять заявки от его имени.</div>`;
+      return;
+    }
+    el.innerHTML = _myOrgs.map(orgCardHTML).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function orgCardHTML(o) {
+  const req = [
+    o.inn ? `ИНН ${escHtml(o.inn)}` : null,
+    o.kpp ? `КПП ${escHtml(o.kpp)}` : null,
+  ].filter(Boolean).join(' · ');
+  return `
+  <div class="surface-card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:600">${escHtml(o.company_name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${req || '—'}</div>
+        ${o.legal_address ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${escHtml(o.legal_address)}</div>` : ''}
+      </div>
+      <span style="font-size:11px;color:var(--text3);white-space:nowrap">O-${String(o.org_number).padStart(5,'0')}</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>
+    </div>
+  </div>`;
+}
+
+function openCreateOrgModal() {
+  openModal('Новая организация', `
+    <div class="form-group"><label class="form-label">ИНН <span style="color:var(--red)">*</span></label>
+      <input id="org-inn" class="form-input" placeholder="10 или 12 цифр" maxlength="12"></div>
+    <div class="form-group"><label class="form-label">БИК банка</label>
+      <input id="org-bik" class="form-input" placeholder="9 цифр (необязательно)" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Название (если не найдётся по ИНН)</label>
+      <input id="org-name" class="form-input" placeholder="ООО «…»"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="org-acc" class="form-input" placeholder="необязательно"></div>
+    <div class="form-group"><label class="form-label">Email для документов</label>
+      <input id="org-email" class="form-input" placeholder="необязательно"></div>
+    <p style="font-size:11px;color:var(--text3)">Реквизиты подтянутся из ФНС по ИНН. Недостающее можно ввести вручную.</p>
+  `, submitCreateOrg);
+}
+
+async function submitCreateOrg() {
+  const inn = document.getElementById('org-inn').value.trim();
+  if (!/^(\d{10}|\d{12})$/.test(inn)) { toast('Введите корректный ИНН (10 или 12 цифр)', 'error'); return; }
+  const body = {
+    inn,
+    bik:          document.getElementById('org-bik').value.trim() || undefined,
+    company_name: document.getElementById('org-name').value.trim() || undefined,
+    bank_account: document.getElementById('org-acc').value.trim() || undefined,
+    billing_email:document.getElementById('org-email').value.trim() || undefined,
+  };
+  try {
+    await authPost('/organizations', body);
+    closeModal();
+    toast('Организация добавлена');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openOrgMembers(orgId) {
+  const org = _myOrgs.find(o => o.id === orgId);
+  openModal(org ? `Сотрудники — ${org.company_name}` : 'Сотрудники',
+    '<div id="org-members-body"><div class="loading"></div></div>', null);
+  await renderOrgMembers(orgId);
+}
+
+async function renderOrgMembers(orgId) {
+  const box = document.getElementById('org-members-body');
+  if (!box) return;
+  try {
+    const members = await authGet(`/organizations/${orgId}/members`);
+    const rows = members.map(m => {
+      const role = m.member_role === 'owner' ? 'Владелец' : 'Сотрудник';
+      const st   = m.status === 'pending' ? ' · приглашение' : '';
+      const name = m.full_name || m.phone || '—';
+      const rm = m.member_role === 'owner' ? '' :
+        `<button class="btn btn-sm btn-danger" onclick="removeOrgMember('${orgId}','${m.id}')">✕</button>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-weight:500">${escHtml(name)}</div>
+        <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>${rm}</div>`;
+    }).join('');
+    box.innerHTML = `${rows || '<div style="color:var(--text3)">Нет сотрудников</div>'}
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <input id="org-add-phone" class="form-input" placeholder="+7 999 …" style="flex:1">
+        <button class="btn btn-sm btn-primary" onclick="addOrgMember('${orgId}')">Добавить</button>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:6px">Если у номера ещё нет аккаунта — отправим приглашение, оно активируется при регистрации.</p>`;
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function addOrgMember(orgId) {
+  const phone = document.getElementById('org-add-phone').value.trim();
+  if (!phone) { toast('Введите номер телефона', 'error'); return; }
+  try {
+    await authPost(`/organizations/${orgId}/members`, { phone });
+    toast('Сотрудник добавлен / приглашён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeOrgMember(orgId, memberId) {
+  try {
+    await api(`${AUTH_URL}/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
+    toast('Сотрудник удалён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // Чекбокс «Я» — подставить имя и телефон текущего пользователя как контактное лицо
@@ -5109,6 +5287,10 @@ async function doCreateOrder() {
     contact_person_name:  document.getElementById('c-contact-name')?.value.trim() || undefined,
     contact_person_phone: document.getElementById('c-contact-phone')?.value.trim() || undefined,
   };
+
+  // Организация (юрлицо), от имени которой создаётся заявка. Пусто = физлицо.
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
   if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
