@@ -49,17 +49,47 @@ def _clamp_coef(raw, label: str, client_id) -> float:
     return v
 
 
-async def get_client_context(client_id: uuid.UUID) -> ClientContext:
-    """Fetch client profile context from auth_service internal endpoint."""
+async def get_user_organization_ids(user_id: uuid.UUID) -> list[uuid.UUID]:
+    """ID организаций, где пользователь — активный участник (для видимости заявок).
+
+    Fail-open: при недоступности auth возвращаем [] — клиент видит хотя бы свои
+    заявки по client_id, а не падает весь список.
+    """
+    url = f"{AUTH_SERVICE_URL}/api/v1/internal/users/{user_id}/organization-ids"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers={"X-Internal-Secret": INTERNAL_SECRET})
+        if resp.status_code == 200:
+            return [uuid.UUID(x) for x in resp.json()]
+        log.warning("organization-ids returned %s for %s", resp.status_code, user_id)
+    except Exception as exc:
+        log.warning("Failed to fetch organization-ids for %s: %s", user_id, exc)
+    return []
+
+
+async def get_client_context(
+    client_id: uuid.UUID, organization_id: uuid.UUID | None = None
+) -> ClientContext:
+    """Fetch client/organization context from auth_service internal endpoint.
+
+    Если передан organization_id — возвращается коммерческий контекст организации
+    (auth проверяет членство клиента; 404 → клиент не участник). Иначе — профиль.
+    """
     url = f"{AUTH_SERVICE_URL}/api/v1/internal/clients/{client_id}/context"
+    params = {"organization_id": str(organization_id)} if organization_id else None
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 url,
+                params=params,
                 headers={"X-Internal-Secret": INTERNAL_SECRET},
             )
         if resp.status_code == 404:
-            raise HTTPException(status_code=400, detail="Профиль клиента не найден")
+            detail = (
+                "Организация не найдена или вы не её участник"
+                if organization_id else "Профиль клиента не найден"
+            )
+            raise HTTPException(status_code=400, detail=detail)
         if resp.status_code != 200:
             log.error(
                 "auth_service returned %s for client context %s: %s",

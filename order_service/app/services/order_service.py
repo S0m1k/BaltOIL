@@ -24,7 +24,7 @@ from app.services.payment_service import (
 )
 from app.services import document_service
 from app.services import contract_service
-from app.services.client_context import get_client_context
+from app.services.client_context import get_client_context, get_user_organization_ids
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
@@ -159,12 +159,21 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
     return order
 
 
-def _visibility_conditions(actor: TokenUser) -> list:
-    """Условия видимости заявок по роли — общие для списка и счётчиков."""
+def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> list:
+    """Условия видимости заявок по роли — общие для списка и счётчиков.
+
+    Для клиента: свои заявки (client_id) + все заявки его организаций
+    (organization_id ∈ org_ids) — member видит весь учёт по юрлицу.
+    """
     conditions = [Order.is_archived == False]  # noqa: E712
 
     if actor.role == ROLE_CLIENT:
-        conditions.append(Order.client_id == actor.id)
+        if org_ids:
+            conditions.append(
+                or_(Order.client_id == actor.id, Order.organization_id.in_(org_ids))
+            )
+        else:
+            conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
         # Водитель видит:
         # - свои заявки (driver_id == actor.id) всех видов
@@ -189,7 +198,8 @@ async def count_orders_by_status(
 ) -> dict[str, int]:
     """Количество заявок по каждому статусу в пределах видимости роли.
     Используется для бейджей на вкладках реестра (правка заказчика 2026-06-16)."""
-    conditions = _visibility_conditions(actor)
+    org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
+    conditions = _visibility_conditions(actor, org_ids)
     result = await db.execute(
         select(Order.status, func.count())
         .where(and_(*conditions))
@@ -208,7 +218,8 @@ async def list_orders(
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
-    conditions = _visibility_conditions(actor)
+    org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
+    conditions = _visibility_conditions(actor, org_ids)
 
     if status:
         conditions.append(Order.status == status)
@@ -243,7 +254,7 @@ async def preview_price(
     else:
         client_id = actor.id
 
-    ctx = await get_client_context(client_id)
+    ctx = await get_client_context(client_id, data.organization_id)
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
@@ -321,9 +332,13 @@ async def create_order(
             raise ForbiddenError("Клиент не может назначать водителя")
         client_id = actor.id
 
-    # Fetch client context (client_type, credit_allowed, tariff_id) from auth_service.
+    # Организация (юрлицо), от имени которой создаётся заявка. NULL = «как физлицо».
+    organization_id = data.organization_id
+
+    # Fetch client/organization context (client_type, credit_allowed, tariff_id) from auth_service.
+    # При organization_id auth проверяет членство клиента (400 если не участник).
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
-    ctx = await get_client_context(client_id)
+    ctx = await get_client_context(client_id, organization_id)
 
     # Определить вид заявки
     if data.is_ttn_l:
@@ -429,6 +444,7 @@ async def create_order(
         order_number=order_number,
         order_kind=order_kind,
         client_id=client_id,
+        organization_id=organization_id,
         manager_id=actor.id if is_staff else None,
         driver_id=data.driver_id if is_staff else None,
         fuel_type=data.fuel_type,
@@ -543,7 +559,7 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
     Fail-open: при недоступности auth/delivery сервисов суммы остаются прежними.
     """
     try:
-        ctx = await get_client_context(order.client_id)
+        ctx = await get_client_context(order.client_id, order.organization_id)
         expected = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_requested),
             ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
@@ -917,7 +933,7 @@ async def transition_status(
         )
 
         # Пересчитываем final_amount по фактическому объёму (+ стоимость доставки)
-        ctx = await get_client_context(order.client_id)
+        ctx = await get_client_context(order.client_id, order.organization_id)
         recalc = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
             ctx.fuel_coefficient,

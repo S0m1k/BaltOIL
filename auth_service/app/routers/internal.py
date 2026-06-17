@@ -105,6 +105,32 @@ async def get_client_context(
     )
 
 
+@router.get(
+    "/users/{user_id}/organization-ids",
+    response_model=list[uuid.UUID],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_organization_ids(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[uuid.UUID]:
+    """ID организаций, в которых пользователь — активный участник.
+
+    Используется order_service для видимости: member видит все заявки своих
+    организаций. Архивные организации исключаем.
+    """
+    res = await db.execute(
+        select(OrganizationMember.organization_id)
+        .join(Organization, Organization.id == OrganizationMember.organization_id)
+        .where(
+            OrganizationMember.user_id == user_id,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+            Organization.is_archived == False,  # noqa: E712
+        )
+    )
+    return [row[0] for row in res.all()]
+
+
 class BuyerSnapshotResponse(BaseModel):
     """Снимок реквизитов клиента для подстановки в счёт/ТТН/УПД."""
     name: str             # юр. название или ФИО
