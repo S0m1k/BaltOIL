@@ -2024,7 +2024,7 @@
     <!-- REPORT TAB -->
     <div class="tab-pane" id="pane-report">
       <div class="report-card">
-        <div class="form-card-title">Отчёт по рейсам водителя</div>
+        <div class="form-card-title">Отчёт водителя — доставленные заявки</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
           <div class="form-group" style="margin:0;flex:1;min-width:220px">
             <label class="form-label">Водитель</label>
@@ -5836,27 +5836,21 @@ async function requestInvReportXlsx() {
 }
 
 function reportHTML(r) {
-  const distStr = r.total_distance_km != null
-    ? `${Number(r.total_distance_km).toFixed(1)} км`
-    : '—';
-  const tripRows = r.trips.map(t => {
-    const sl = TRIP_STATUS_LABELS[t.status] || t.status;
-    const sb = t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed';
-    const vol = t.volume_actual != null
-      ? `факт ${Number(t.volume_actual).toLocaleString('ru')} л / план ${Number(t.volume_planned).toLocaleString('ru')} л`
-      : `план ${Number(t.volume_planned).toLocaleString('ru')} л`;
-    const addr = t.delivery_address ? escHtml(t.delivery_address) : '—';
-    const orderRef = t.inv_order_number ? escHtml(t.inv_order_number) : t.order_id.slice(0,8)+'…';
-    const fuel = t.inv_fuel_type ? (FUEL_LABELS_SHORT[t.inv_fuel_type] || t.inv_fuel_type) : '';
+  const orderRows = (r.orders || []).map(o => {
+    const vol = o.volume_delivered != null
+      ? `${Number(o.volume_delivered).toLocaleString('ru')} л`
+      : '—';
+    const addr = o.delivery_address ? escHtml(o.delivery_address) : '—';
+    const orderRef = escHtml(o.order_number);
+    const fuel = o.fuel_type ? fuelLabel(o.fuel_type) : '';
     return `
-    <div class="trip-card status-${t.status}" style="margin-top:6px">
+    <div class="trip-card status-completed" style="margin-top:6px">
       <div class="trip-card-head">
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="status-badge status-${sb}">${sl}</span>
           <span class="trip-order-ref">${orderRef}</span>
-          ${fuel ? `<span class="trip-fuel-badge">${fuel}</span>` : ''}
+          ${fuel ? `<span class="trip-fuel-badge">${escHtml(fuel)}</span>` : ''}
         </div>
-        <span style="font-size:11px;color:var(--text3)">${fmtDate(t.created_at)}</span>
+        <span style="font-size:11px;color:var(--text3)">${fmtDate(o.delivered_at)}</span>
       </div>
       <div class="trip-card-body">
         <div class="trip-vol-line">${vol}</div>
@@ -5868,34 +5862,17 @@ function reportHTML(r) {
   return `
     <div class="report-stats">
       <div class="stat-box">
-        <div class="stat-label">Всего рейсов</div>
-        <div class="stat-value">${r.total_trips}</div>
+        <div class="stat-label">Доставлено заявок</div>
+        <div class="stat-value">${r.total_orders}</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Завершено</div>
-        <div class="stat-value" style="color:var(--green)">${r.completed_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Отменено</div>
-        <div class="stat-value" style="color:var(--red)">${r.cancelled_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём план</div>
-        <div class="stat-value">${Number(r.total_volume_planned).toLocaleString('ru')}</div>
+        <div class="stat-label">Объём доставлено</div>
+        <div class="stat-value" style="color:var(--green)">${Number(r.total_volume_delivered).toLocaleString('ru')}</div>
         <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём факт</div>
-        <div class="stat-value">${Number(r.total_volume_actual).toLocaleString('ru')}</div>
-        <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Пробег</div>
-        <div class="stat-value" style="font-size:20px">${distStr}</div>
       </div>
     </div>
-    <div class="section-header">Рейсы за период</div>
-    ${tripRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Рейсов не найдено</div>'}
+    <div class="section-header">Заявки за период</div>
+    ${orderRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Доставленных заявок не найдено</div>'}
   `;
 }
 

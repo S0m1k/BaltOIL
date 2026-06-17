@@ -61,15 +61,7 @@ def _cell(ws, row: int, col: int, value, fill=None, bold=False, fmt=None, align=
     return cell
 
 
-# ── Отчёт водителя ───────────────────────────────────────────────────────────
-
-TRIP_STATUS_RU = {
-    "planned":    "Запланирован",
-    "in_transit": "В пути",
-    "completed":  "Завершён",
-    "cancelled":  "Отменён",
-}
-
+# ── Отчёт водителя (доставленные заявки) ───────────────────────────────────────
 
 def driver_report_xlsx(report: dict) -> bytes:
     wb = Workbook()
@@ -78,13 +70,13 @@ def driver_report_xlsx(report: dict) -> bytes:
     ws.sheet_view.showGridLines = False
 
     # Title
-    ws.merge_cells("A1:G1")
+    ws.merge_cells("A1:E1")
     title_cell = ws["A1"]
-    title_cell.value = f"Отчёт по рейсам водителя"
+    title_cell.value = "Отчёт водителя — доставленные заявки"
     title_cell.font  = _TITLE_FONT
     title_cell.alignment = _CENTER
 
-    ws.merge_cells("A2:G2")
+    ws.merge_cells("A2:E2")
     period = ws["A2"]
     period.value = (
         f"Период: {_fmt(report['period_from'])} — {_fmt(report['period_to'])}"
@@ -98,14 +90,10 @@ def driver_report_xlsx(report: dict) -> bytes:
     # Summary KPIs
     kpi_row = 4
     kpis = [
-        ("Всего рейсов",  report["total_trips"]),
-        ("Завершено",     report["completed_trips"]),
-        ("Отменено",      report["cancelled_trips"]),
-        ("Объём план, л", report["total_volume_planned"]),
-        ("Объём факт, л", report["total_volume_actual"]),
-        ("Пробег, км",    report.get("total_distance_km", "—")),
+        ("Доставлено заявок", report["total_orders"]),
+        ("Объём, л",          report["total_volume_delivered"]),
     ]
-    ws.merge_cells(f"A{kpi_row}:G{kpi_row}")
+    ws.merge_cells(f"A{kpi_row}:E{kpi_row}")
     hdr = ws[f"A{kpi_row}"]
     hdr.value     = "Итоги"
     hdr.font      = _LABEL_FONT
@@ -116,43 +104,35 @@ def driver_report_xlsx(report: dict) -> bytes:
     for i, (label, value) in enumerate(kpis):
         r = kpi_row + 1 + i
         _cell(ws, r, 1, label, fill=_SUMMARY_FILL, bold=True)
-        ws.merge_cells(f"B{r}:G{r}")
+        ws.merge_cells(f"B{r}:E{r}")
         val_cell = _cell(ws, r, 2, value)
         val_cell.alignment = _LEFT
 
-    # Trips table
+    # Orders table
+    orders = report.get("orders", [])
     tbl_start = kpi_row + 1 + len(kpis) + 2
-    ws.merge_cells(f"A{tbl_start}:G{tbl_start}")
+    ws.merge_cells(f"A{tbl_start}:E{tbl_start}")
     hdr2 = ws[f"A{tbl_start}"]
-    hdr2.value     = f"Рейсы за период ({len(report['trips'])})"
+    hdr2.value     = f"Заявки за период ({len(orders)})"
     hdr2.font      = _LABEL_FONT
     hdr2.fill      = _SUMMARY_FILL
     hdr2.alignment = _LEFT
     hdr2.border    = _THIN_B
 
     col_hdr = tbl_start + 1
-    _header_row(ws, ["Статус", "Адрес", "Объём план", "Объём факт",
-                      "Пробег", "Отправление", "Прибытие"], row=col_hdr)
+    _header_row(ws, ["Дата доставки", "Заявка №", "Топливо", "Объём (л)", "Адрес"],
+                row=col_hdr)
 
-    for i, t in enumerate(report.get("trips", []), 1):
+    for i, o in enumerate(orders, 1):
         r = col_hdr + i
-        dist = "—"
-        if t.get("odometer_start") is not None and t.get("odometer_end") is not None:
-            dist = round(float(t["odometer_end"]) - float(t["odometer_start"]), 1)
+        _cell(ws, r, 1, _fmt(o.get("delivered_at")), fill=_ARRIVAL_FILL)
+        _cell(ws, r, 2, o.get("order_number", ""), fill=_ARRIVAL_FILL)
+        _cell(ws, r, 3, o.get("fuel_label") or o.get("fuel_type", ""), fill=_ARRIVAL_FILL)
+        _cell(ws, r, 4, float(o["volume_delivered"]) if o.get("volume_delivered") else "—",
+              fill=_ARRIVAL_FILL, fmt="#,##0.00")
+        _cell(ws, r, 5, o.get("delivery_address", ""), fill=_ARRIVAL_FILL)
 
-        fill = _DEPART_FILL if t["status"] == "cancelled" else (
-            _ARRIVAL_FILL if t["status"] == "completed" else None
-        )
-        _cell(ws, r, 1, TRIP_STATUS_RU.get(t["status"], t["status"]), fill=fill)
-        _cell(ws, r, 2, t.get("delivery_address", ""), fill=fill)
-        _cell(ws, r, 3, float(t.get("volume_planned", 0)), fill=fill, fmt="#,##0.00")
-        _cell(ws, r, 4, float(t["volume_actual"]) if t.get("volume_actual") else "—",
-              fill=fill, fmt="#,##0.00")
-        _cell(ws, r, 5, dist, fill=fill)
-        _cell(ws, r, 6, _fmt(t.get("departed_at")), fill=fill)
-        _cell(ws, r, 7, _fmt(t.get("arrived_at")), fill=fill)
-
-    _set_col_widths(ws, [14, 40, 14, 14, 10, 18, 18])
+    _set_col_widths(ws, [18, 16, 18, 14, 44])
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel
-from .trip import TripResponse
+
+
+class DriverOrderItem(BaseModel):
+    """Доставленная заявка в отчёте водителя."""
+
+    order_id: uuid.UUID
+    order_number: str
+    fuel_type: str
+    volume_delivered: float | None
+    delivery_address: str
+    client_id: uuid.UUID
+    delivered_at: datetime
 
 
 class DriverReportResponse(BaseModel):
@@ -9,13 +20,7 @@ class DriverReportResponse(BaseModel):
     period_from: datetime
     period_to: datetime
 
-    total_trips: int
-    completed_trips: int
-    cancelled_trips: int
+    total_orders: int
+    total_volume_delivered: float
 
-    total_volume_planned: float
-    total_volume_actual: float
-
-    total_distance_km: float | None  # сумма (odometer_end - odometer_start)
-
-    trips: list[TripResponse]
+    orders: list[DriverOrderItem]

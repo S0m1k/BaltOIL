@@ -1,16 +1,25 @@
+"""Отчёт водителя — учёт заявок, которые он доставил за период.
+
+Данные берутся из order_service (internal API): заявки со статусом
+«Доставлена», подтверждённые этим водителем. Здесь — только список и литраж,
+без привязки к рейсам.
+"""
+import logging
 import uuid
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.trip import Trip, TripStatus
+import httpx
+
+from app.config import get_settings
 from app.core.dependencies import TokenUser, ROLE_DRIVER, ROLE_ADMIN, ROLE_MANAGER
 from app.core.exceptions import ForbiddenError
-from app.schemas.report import DriverReportResponse
-from app.services.trip_service import list_trips
+from app.schemas.report import DriverReportResponse, DriverOrderItem
+
+log = logging.getLogger(__name__)
 
 
 async def driver_report(
-    db: AsyncSession,
+    db,  # сохранён в сигнатуре для совместимости с роутером; БД не используется
     actor: TokenUser,
     *,
     driver_id: uuid.UUID,
@@ -23,33 +32,40 @@ async def driver_report(
     if actor.role not in (ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN):
         raise ForbiddenError()
 
-    trips = await list_trips(
-        db, actor,
-        driver_id=driver_id,
-        date_from=date_from,
-        date_to=date_to,
-        limit=1000,
-    )
+    raw = await _fetch_delivered_orders(driver_id, date_from, date_to)
 
-    completed = [t for t in trips if t.status == TripStatus.COMPLETED]
-    cancelled = [t for t in trips if t.status == TripStatus.CANCELLED]
-
-    # План считаем без отменённых рейсов — иначе план/факт искажается (отменённые
-    # имеют volume_planned, но никогда не дают факт).
-    total_volume_planned = sum(
-        float(t.volume_planned) for t in trips if t.status != TripStatus.CANCELLED
+    orders = [DriverOrderItem(**item) for item in raw]
+    total_volume_delivered = sum(
+        o.volume_delivered for o in orders if o.volume_delivered is not None
     )
-    total_volume_actual  = sum(float(t.volume_actual) for t in completed if t.volume_actual)
 
     return DriverReportResponse(
         driver_id=driver_id,
         period_from=date_from,
         period_to=date_to,
-        total_trips=len(trips),
-        completed_trips=len(completed),
-        cancelled_trips=len(cancelled),
-        total_volume_planned=total_volume_planned,
-        total_volume_actual=total_volume_actual,
-        total_distance_km=None,
-        trips=trips,
+        total_orders=len(orders),
+        total_volume_delivered=total_volume_delivered,
+        orders=orders,
     )
+
+
+async def _fetch_delivered_orders(
+    driver_id: uuid.UUID,
+    date_from: datetime,
+    date_to: datetime,
+) -> list[dict]:
+    """Получить доставленные заявки водителя из order_service internal API."""
+    _settings = get_settings()
+    params = {
+        "driver_id": str(driver_id),
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{_settings.order_service_url}/api/v1/internal/driver-orders",
+            params=params,
+            headers={"X-Internal-Secret": _settings.internal_api_secret},
+        )
+    r.raise_for_status()
+    return r.json()
