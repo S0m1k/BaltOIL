@@ -19,8 +19,10 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE SEQUENCE IF NOT EXISTS org_number_seq START 1")
 
-    member_role = postgresql.ENUM("owner", "member", name="memberrole")
-    member_status = postgresql.ENUM("active", "pending", name="memberstatus")
+    # create_type=False: тип создаём явно ниже, иначе create_table эмитит
+    # повторный CREATE TYPE и падает с DuplicateObject.
+    member_role = postgresql.ENUM("owner", "member", name="memberrole", create_type=False)
+    member_status = postgresql.ENUM("active", "pending", name="memberstatus", create_type=False)
     member_role.create(op.get_bind(), checkfirst=True)
     member_status.create(op.get_bind(), checkfirst=True)
 
