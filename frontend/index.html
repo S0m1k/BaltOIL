@@ -3042,6 +3042,44 @@ function copyUUID(uuid, btn) {
     .catch(() => toast('Не удалось скопировать', 'error'));
 }
 
+// Копирование произвольного текста с восстановлением исходной подписи кнопки.
+function copyTextBtn(text, btn) {
+  const orig = btn.textContent;
+  const doCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok ? Promise.resolve() : Promise.reject(); }
+    catch (e) { document.body.removeChild(ta); return Promise.reject(e); }
+  };
+  doCopy()
+    .then(() => { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.textContent = orig; }, 1500); })
+    .catch(() => toast('Не удалось скопировать', 'error'));
+}
+
+// «ФИО, паспорт <серия> <номер>, выдан <кем> <дата>» — одной строкой для копирования.
+function formatPassportLine(u) {
+  if (!u) return '';
+  const fmtDate = d => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || '');
+  };
+  const parts = [];
+  if (u.passport_series || u.passport_number)
+    parts.push(`паспорт ${[u.passport_series, u.passport_number].filter(Boolean).join(' ')}`);
+  if (u.passport_issued_by) {
+    let s = `выдан ${u.passport_issued_by}`;
+    if (u.passport_issued_at) s += ` ${fmtDate(u.passport_issued_at)}`;
+    parts.push(s);
+  } else if (u.passport_issued_at) {
+    parts.push(`выдан ${fmtDate(u.passport_issued_at)}`);
+  }
+  const tail = parts.join(', ');
+  return [u.full_name, tail].filter(Boolean).join(', ');
+}
+
 function uuidCell(uuid) {
   if (!uuid) return '—';
   const short = uuid.slice(0, 8) + '…';
@@ -5450,9 +5488,9 @@ async function renderOrgMembers(orgId) {
         <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>${rm}</div>`;
     }).join('');
     box.innerHTML = `${rows || '<div style="color:var(--text3)">Нет сотрудников</div>'}
-      <div style="display:flex;gap:6px;margin-top:12px">
-        <input id="org-add-phone" class="form-input" placeholder="+7 999 …" style="flex:1">
-        <button class="btn btn-sm btn-primary" onclick="addOrgMember('${orgId}')">Добавить</button>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <input id="org-add-phone" class="form-input" placeholder="+7 999 …" style="flex:1 1 auto;min-width:0;margin:0">
+        <button class="btn btn-sm btn-primary" onclick="addOrgMember('${orgId}')" style="flex:0 0 auto;width:auto;white-space:nowrap;padding:8px 18px">Добавить</button>
       </div>
       <p style="font-size:11px;color:var(--text3);margin-top:6px">Если у номера ещё нет аккаунта — отправим приглашение, оно активируется при регистрации.</p>`;
   } catch (e) {
@@ -5676,6 +5714,23 @@ async function loadProfile() {
         if (p.delivery_address) fields.push(['Адрес доставки', escHtml(p.delivery_address)]);
       }
     }
+
+    // Паспортные данные — для всех ролей
+    const _dash = '<span style="color:var(--text3)">—</span>';
+    const passSerNum = [me.passport_series, me.passport_number].filter(Boolean).join(' ');
+    fields.push(['Паспорт (серия номер)', passSerNum ? escHtml(passSerNum) : _dash]);
+    fields.push(['Кем выдан', me.passport_issued_by ? escHtml(me.passport_issued_by) : _dash]);
+    const passDate = (() => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(me.passport_issued_at || ''); return m ? `${m[3]}.${m[2]}.${m[1]}` : null; })();
+    fields.push(['Дата выдачи', passDate ? passDate : _dash]);
+
+    // Копируемая строка «ФИО, паспорт … , выдан …»
+    const passLine = formatPassportLine(me);
+    const passportCopy = passSerNum || me.passport_issued_by ? `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">${escHtml(passLine)}</span>
+        <button class="btn btn-sm btn-ghost" data-copy="${escHtml(passLine)}" onclick="copyTextBtn(this.dataset.copy, this)" style="white-space:nowrap">${icon('copy',13)} Копировать</button>
+      </div>` : '';
+
     // «Редактировать профиль» (ФИО/email/телефон) — для всех ролей (правки 2026-06-11);
     // у юрлица дополнительно кнопка реквизитов.
     const editReqBtn = `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
@@ -5687,7 +5742,7 @@ async function loadProfile() {
         <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
         <span style="font-size:13px;color:var(--text2)">${value}</span>
        </div>`
-    ).join('') + editReqBtn;
+    ).join('') + passportCopy + editReqBtn;
   } catch (e) {
     el.textContent = `Ошибка: ${escHtml(e.message)}`;
   }
@@ -6438,10 +6493,7 @@ function renderUsersTable(users) {
     const roleChip = `<span class="role-chip role-${u.role}" style="font-size:10px">${ROLE_LABELS[u.role] || u.role}</span>`;
     const actions = isAdmin ? `
       <div style="display:flex;gap:6px">
-        ${u.role === 'driver'
-          ? `<button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные для доверенности">Паспорт</button>`
-          : ''
-        }
+        <button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные">Паспорт</button>
         ${u.is_active
           ? `<button class="btn btn-sm btn-danger" onclick="setUserActive('${u.id}',false)">Деактив.</button>`
           : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>`
@@ -6524,8 +6576,8 @@ async function promptDriverPassport(userId) {
   let u;
   try { u = await authGet(`/users/${userId}`); }
   catch (e) { toast(e.message, 'error'); return; }
-  openModal('Паспортные данные водителя', `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)} — используются в доверенности (М-2).</div>
+  openModal('Паспортные данные', `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)}${u.role === 'driver' ? ' — используются в доверенности (М-2)' : ''}.</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Серия</label>
