@@ -25,7 +25,10 @@ _WS_KEY_TTL = 300  # must match ws_manager._KEY_TTL
 
 # Notification types for which we must check WS presence before emailing.
 # For these types, skip email if recipient is currently online.
-_ONLINE_GATED_TYPES = {NotificationType.CHAT_MESSAGE, NotificationType.CHAT_NEW, NotificationType.CALL_MISSED}
+# CALL_MISSED исключён намеренно: событие теперь публикуется только из end_call,
+# когда звонок реально пропущен (никто не ответил) → email шлём всегда,
+# независимо от текущего присутствия получателя.
+_ONLINE_GATED_TYPES = {NotificationType.CHAT_MESSAGE, NotificationType.CHAT_NEW}
 
 
 def _get_redis() -> aioredis.Redis:

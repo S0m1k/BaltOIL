@@ -55,17 +55,6 @@ async def get_seller_snapshot(db: AsyncSession) -> dict:
         "director_title": entity.director_title or "Директор",
     }
 
-# Базовые цены топлива (₽/л) — тестовые, из прайса сайта
-BASE_FUEL_PRICES = {
-    "diesel_summer": 49.0,
-    "diesel_winter": 57.0,
-    "petrol_92":     59.0,
-    "petrol_95":     61.0,
-    "fuel_oil":      24.0,   # мазут — за литр (условно)
-}
-BASE_DELIVERY_PRICE_PER_LITER = 3.0  # ₽/л (тестовое)
-
-
 # ── Payment status computation ────────────────────────────────────────────────
 
 def compute_payment_status(
@@ -193,15 +182,6 @@ async def _generate_invoice_number(db: AsyncSession) -> str:
     return f"INV-{year}-{seq:06d}"
 
 
-def _calc_amount(order: Order, basis: str, fuel_coeff: float, delivery_coeff: float) -> float:
-    """Рассчитать сумму счёта на основе тарифов клиента."""
-    volume = float(order.volume_requested) if basis == "requested" else float(order.volume_delivered or order.volume_requested)
-    fuel_price = BASE_FUEL_PRICES.get(order.fuel_type.value if hasattr(order.fuel_type, 'value') else order.fuel_type, 50.0)
-    fuel_total = volume * fuel_price * fuel_coeff
-    delivery_total = volume * BASE_DELIVERY_PRICE_PER_LITER * delivery_coeff
-    return round(fuel_total + delivery_total, 2)
-
-
 _VALID_BASIS = {"requested", "delivered"}
 
 
@@ -210,10 +190,13 @@ async def create_invoice(
     order_id: uuid.UUID,
     basis: str,  # "requested" | "delivered"
     actor: TokenUser,
-    fuel_coeff: float = 1.0,
-    delivery_coeff: float = 1.0,
 ) -> Payment:
-    """Создать счёт на оплату. basis='requested' — предоплата, 'delivered' — по факту."""
+    """Создать счёт на оплату. basis='requested' — предоплата, 'delivered' — по факту.
+
+    Сумма берётся из тарифных полей заявки (expected_amount для предоплаты,
+    final_amount по факту доставки). Эти суммы рассчитываются по тарифу клиента
+    при создании/доставке. Если тариф не настроен и сумма не рассчитана — счёт
+    не выставляется (fail loud), чтобы не выпустить документ с неверной ценой."""
     if basis not in _VALID_BASIS:
         raise ValidationError(f"basis должен быть одним из: {', '.join(_VALID_BASIS)}")
 
@@ -234,7 +217,13 @@ async def create_invoice(
     if basis == "delivered" and order.volume_delivered is None:
         raise ValidationError("Фактический объём ещё не зафиксирован — доставка не завершена")
 
-    amount = _calc_amount(order, basis, fuel_coeff, delivery_coeff)
+    amount = order.final_amount if basis == "delivered" else order.expected_amount
+    if amount is None:
+        raise ValidationError(
+            "Сумма счёта не рассчитана — не настроен тариф для этого вида топлива "
+            "или клиента. Проверьте тарифы перед выставлением счёта."
+        )
+
     invoice_number = await _generate_invoice_number(db)
 
     kind = PaymentKind.PREPAYMENT if basis == "requested" else PaymentKind.ACTUAL
@@ -263,7 +252,12 @@ async def record_payment(
     notes: str | None = None,
 ) -> Payment:
     """Зафиксировать факт оплаты вручную."""
-    result = await db.execute(select(Order).where(Order.id == order_id))
+    # FOR UPDATE: сериализует параллельные record_payment по одной заявке —
+    # иначе два запроса при отсутствии pending-счёта оба вставят PAID-строку
+    # и гонка в recompute_and_save даст неверный payment_status.
+    result = await db.execute(
+        select(Order).where(Order.id == order_id).with_for_update()
+    )
     order = result.scalar_one_or_none()
     if not order:
         raise NotFoundError("Заявка не найдена")
@@ -276,6 +270,10 @@ async def record_payment(
     elif actor.role == ROLE_DRIVER:
         if order.order_kind != OrderKind.INDIVIDUAL:
             raise ForbiddenError("Водитель может фиксировать оплату только по заявкам физических лиц")
+        if order.driver_id != actor.id:
+            raise ForbiddenError("Водитель может фиксировать оплату только по своим заявкам")
+        if order.status != OrderStatus.DELIVERED:
+            raise ForbiddenError("Оплату можно зафиксировать только после доставки заявки")
     else:
         raise ForbiddenError("Оплату фиксирует менеджер, администратор или водитель (только для физлиц)")
 

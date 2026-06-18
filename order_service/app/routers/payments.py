@@ -87,8 +87,6 @@ async def record_payment(
 
 class InvoiceRequest(BaseModel):
     basis: str = "requested"  # "requested" — предоплата, "delivered" — по факту
-    fuel_coeff: float = Field(1.0, ge=0.1, le=10.0)
-    delivery_coeff: float = Field(1.0, ge=0.1, le=10.0)
 
 
 @router.post("/orders/{order_id}/invoice", response_model=PaymentResponse)
@@ -101,7 +99,6 @@ async def create_invoice(
     """Сформировать счёт для заявки."""
     return await payment_service.create_invoice(
         db, order_id, data.basis, current_user,
-        fuel_coeff=data.fuel_coeff, delivery_coeff=data.delivery_coeff,
     )
 
 

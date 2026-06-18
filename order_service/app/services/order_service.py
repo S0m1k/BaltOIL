@@ -131,12 +131,18 @@ def _with_logs(query):
     return query.options(selectinload(Order.status_logs))
 
 
-async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> Order:
-    result = await db.execute(
-        _with_logs(
-            select(Order).where(Order.id == order_id, Order.is_archived == False)  # noqa: E712
-        )
+async def get_order(
+    db: AsyncSession, order_id: uuid.UUID, actor: TokenUser, *, lock: bool = False
+) -> Order:
+    query = _with_logs(
+        select(Order).where(Order.id == order_id, Order.is_archived == False)  # noqa: E712
     )
+    if lock:
+        # FOR UPDATE OF orders: сериализует параллельные переходы статуса,
+        # чтобы два запроса не прошли validate_transition по одному состоянию.
+        # selectinload(status_logs) грузится отдельным запросом — блокировки не требует.
+        query = query.with_for_update(of=Order)
+    result = await db.execute(query)
     order = result.scalar_one_or_none()
     if not order:
         raise NotFoundError("Заявка не найдена")
@@ -664,6 +670,13 @@ async def update_order(
         order.contact_person_phone = data.contact_person_phone
         changed = True
     if data.delivery_cost is not None:
+        # Перекладываем долю доставки в expected_amount: топливная часть
+        # (expected_amount − старый delivery_cost) сохраняется, доставка заменяется.
+        # Пропускаем, если staff задал expected_amount явно (имеет приоритет) или
+        # сумма ещё не рассчитана (нет тарифа — заполнит менеджер вручную).
+        if data.expected_amount is None and order.expected_amount is not None:
+            fuel_part = order.expected_amount - (order.delivery_cost or 0)
+            order.expected_amount = fuel_part + data.delivery_cost
         order.delivery_cost = data.delivery_cost
         changed = True
         changed_keys.append("amount")
@@ -892,7 +905,7 @@ async def transition_status(
     data: OrderStatusTransitionRequest,
     actor: TokenUser,
 ) -> Order:
-    order = await get_order(db, order_id, actor)
+    order = await get_order(db, order_id, actor, lock=True)
 
     validate_transition(order.status, data.to_status, actor.role)
 

@@ -71,9 +71,6 @@ FUEL_LABELS = {
     "fuel_oil":      "Топочный мазут М-100",
 }
 
-# Базовые цены (₽/л) — берутся из payment_service; дублируем для документов
-from app.services.payment_service import BASE_FUEL_PRICES, BASE_DELIVERY_PRICE_PER_LITER
-
 
 # ── Jinja2 env ────────────────────────────────────────────────────────────────
 
@@ -177,18 +174,20 @@ def _fuel_name(order: Order) -> str:
     return FUEL_LABELS.get(fuel_val, fuel_val)
 
 
-def _calc_unit_price(order: Order, volume: float) -> float:
-    fuel_val = order.fuel_type.value if hasattr(order.fuel_type, "value") else str(order.fuel_type)
-    fuel_price = BASE_FUEL_PRICES.get(fuel_val, 50.0)
-    return round(fuel_price + BASE_DELIVERY_PRICE_PER_LITER, 2)
+def _order_amount(order: Order) -> float:
+    """Сумма заявки для документа — из тарифных полей (final/expected_amount).
 
-
-def _order_amount(order: Order, volume: float) -> float:
+    Эти суммы рассчитываются по тарифу клиента при создании/доставке. Если тариф
+    не настроен и сумма не рассчитана — документ не формируется (fail loud),
+    чтобы не выпустить документ с неверной ценой."""
     if order.final_amount is not None:
         return float(order.final_amount)
     if order.expected_amount is not None:
         return float(order.expected_amount)
-    return round(volume * _calc_unit_price(order, volume), 2)
+    raise ValidationError(
+        "Сумма заявки не рассчитана — не настроен тариф для этого вида топлива "
+        "или клиента. Документ не может быть сформирован с неверной суммой."
+    )
 
 
 # ── Invoice context (по образцу заказчика) ────────────────────────────────────
@@ -422,7 +421,7 @@ async def generate_ttn(
 ) -> Document:
     """Сформировать ТТН по факту доставки (DELIVERED)."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.TTN)
@@ -487,7 +486,7 @@ async def generate_poa(
     если не заполнен/водитель не назначен — в PDF прочерк, в логе warning.
     """
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     driver = await _fetch_driver_profile(order.driver_id)
@@ -564,7 +563,7 @@ async def generate_upd(
 ) -> Document:
     """Сформировать УПД при закрытии заявки."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.UPD)
@@ -612,7 +611,7 @@ async def generate_invoice_preliminary(
 ) -> Document:
     """Предварительный счёт — выпускается при создании prepaid-заявки."""
     volume = float(order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.INVOICE_PRELIMINARY)
@@ -662,7 +661,7 @@ async def generate_invoice_final(
 ) -> Document:
     """Финальный счёт — выпускается при переходе в DELIVERED."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.INVOICE_FINAL)
