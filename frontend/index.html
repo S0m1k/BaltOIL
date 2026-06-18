@@ -1925,6 +1925,19 @@
           </div>
         </div>
 
+        <div class="form-group" id="c-saved-object-group" style="display:none">
+          <label class="form-label">Сохранённые объекты</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="c-saved-object" class="form-input" style="flex:1" onchange="applySavedObject()">
+              <option value="">— сохранённые объекты —</option>
+            </select>
+            <button type="button" id="c-saved-object-del" onclick="deleteSavedObject()" title="Удалить объект"
+              style="display:none;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer;color:var(--text2);line-height:0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>
+            </button>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Город</label>
           <div style="position:relative">
@@ -1949,6 +1962,16 @@
           <div id="c-zone-map" style="height:240px;border-radius:8px;overflow:hidden;margin-top:8px;display:none"></div>
           <div id="c-price-preview" style="margin-top:8px"></div>
           <div id="c-zones-legend" style="margin-top:8px"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="c-save-object" onchange="toggleSaveObjectName(this)" style="cursor:pointer">
+            <span>Сохранить адрес как объект</span>
+          </label>
+          <input type="text" id="c-save-object-name" class="form-input" maxlength="120"
+            placeholder="Название объекта (необязательно)"
+            style="display:none;margin-top:8px">
         </div>
 
         <div class="form-row">
@@ -3161,6 +3184,9 @@ function deliveryPatch(path, body) {
 function deliveryDelete(path) {
   return api(`${DELIVERY_URL}${path}`, { method: 'DELETE' });
 }
+function orderDelete(path) {
+  return api(`${ORDER_URL}${path}`, { method: 'DELETE' });
+}
 function chatGet(path) {
   return api(`${CHAT_URL}${path}`);
 }
@@ -3895,6 +3921,11 @@ function initAddressAutocomplete() {
     _addrStreet = null;
     _orderGeo = null;
     _orderAddress = '';
+    // Сброс выбранного сохранённого объекта — UI должен быть согласован
+    const _soSel = document.getElementById('c-saved-object');
+    if (_soSel) _soSel.value = '';
+    const _soDel = document.getElementById('c-saved-object-del');
+    if (_soDel) _soDel.style.display = 'none';
     streetInput.value = '';
     streetInput.disabled = true;
     houseInput.value = '';
@@ -5048,6 +5079,7 @@ async function loadClientSelectForOrder() {
   if (!isStaff) {
     // For client role: render payment radios based on own profile
     if (currentUser?.id) renderPaymentRadios(currentUser.id);
+    loadSavedObjects();
     return;
   }
   const sel = document.getElementById('c-client-id');
@@ -5057,13 +5089,127 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
-    // Reload payment options when manager picks a different client
+    // Reload payment options and saved objects when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
       if (cid) renderPaymentRadios(cid);
+      loadSavedObjects();
     };
     if (current) renderPaymentRadios(current);
+    loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAVED OBJECTS (сохранённые объекты доставки)
+// ═══════════════════════════════════════════════════════════════
+let _savedObjects = [];
+
+function toggleSaveObjectName(cb) {
+  const nameEl = document.getElementById('c-save-object-name');
+  if (nameEl) nameEl.style.display = cb.checked ? '' : 'none';
+}
+
+async function loadSavedObjects() {
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const group = document.getElementById('c-saved-object-group');
+  const sel = document.getElementById('c-saved-object');
+  if (!sel) return;
+
+  let clientId = null;
+  if (isStaff) {
+    const clientSel = document.getElementById('c-client-id');
+    clientId = clientSel?.value || null;
+    if (!clientId) {
+      // No client selected yet — hide the selector
+      _savedObjects = [];
+      sel.innerHTML = '<option value="">— сохранённые объекты —</option>';
+      if (group) group.style.display = 'none';
+      return;
+    }
+  }
+
+  try {
+    const url = '/client-objects' + (clientId ? `?client_id=${clientId}` : '');
+    const objs = await orderGet(url);
+    _savedObjects = objs;
+    sel.innerHTML = '<option value="">— сохранённые объекты —</option>' +
+      objs.map(o => {
+        const label = o.name ? `${escHtml(o.name)} — ${escHtml(o.delivery_address)}` : escHtml(o.delivery_address);
+        return `<option value="${escHtml(o.id)}">${label}</option>`;
+      }).join('');
+    if (group) group.style.display = objs.length > 0 ? '' : 'none';
+  } catch (_) {
+    // Never block the form
+    if (group) group.style.display = 'none';
+  }
+}
+
+function applySavedObject() {
+  const sel = document.getElementById('c-saved-object');
+  const delBtn = document.getElementById('c-saved-object-del');
+  if (!sel) return;
+
+  const id = sel.value;
+  if (!id) {
+    if (delBtn) delBtn.style.display = 'none';
+    return;
+  }
+
+  const obj = _savedObjects.find(o => o.id === id);
+  if (!obj) return;
+
+  // Set the resolved address globals
+  _orderAddress = obj.delivery_address;
+  _orderGeo = (obj.delivery_lat != null && obj.delivery_lon != null)
+    ? { lat: Number(obj.delivery_lat), lon: Number(obj.delivery_lon) }
+    : null;
+
+  // Show address in city field, disable cascade fields
+  const cityInput   = document.getElementById('c-addr-city');
+  const streetInput = document.getElementById('c-addr-street');
+  const houseInput  = document.getElementById('c-addr-house');
+  if (cityInput)   cityInput.value = obj.delivery_address;
+  if (streetInput) { streetInput.value = ''; streetInput.disabled = true; }
+  if (houseInput)  { houseInput.value = ''; houseInput.disabled = true; }
+  // Reset cascade state so manual entry works correctly after deselect
+  _addrCity   = null;
+  _addrStreet = null;
+
+  if (delBtn) delBtn.style.display = '';
+
+  // Trigger zone preview + map + price (same chain as house-select)
+  previewDeliveryZone();
+  if (_orderGeo) {
+    initClientZoneMap().then(() => {
+      setClientMapMarker();
+      updatePricePreview();
+    });
+  }
+}
+
+async function deleteSavedObject() {
+  const sel = document.getElementById('c-saved-object');
+  if (!sel) return;
+  const id = sel.value;
+  if (!id) return;
+  if (!confirm('Удалить сохранённый объект?')) return;
+
+  const wasApplied = _orderAddress === (_savedObjects.find(o => o.id === id)?.delivery_address);
+  try {
+    await orderDelete('/client-objects/' + id);
+    toast('Объект удалён');
+    if (wasApplied) {
+      _orderAddress = '';
+      _orderGeo = null;
+    }
+    sel.value = '';
+    const delBtn = document.getElementById('c-saved-object-del');
+    if (delBtn) delBtn.style.display = 'none';
+    await loadSavedObjects();
+  } catch (e) {
+    toast('Ошибка при удалении: ' + e.message);
+  }
 }
 
 // Чекбокс «Я» — подставить имя и телефон текущего пользователя как контактное лицо
@@ -5155,6 +5301,18 @@ async function doCreateOrder() {
     } else {
       toast(`Заявка ${order.order_number} создана!`);
     }
+
+    // Save address as object if checkbox checked
+    if (document.getElementById('c-save-object')?.checked && resolvedAddress) {
+      try {
+        const payload = { delivery_address: resolvedAddress, name: document.getElementById('c-save-object-name')?.value.trim() || undefined };
+        if (body.delivery_lat != null) { payload.delivery_lat = body.delivery_lat; payload.delivery_lon = body.delivery_lon; }
+        if (isStaff) payload.client_id = body.client_id;
+        await orderPost('/client-objects', payload);
+        toast('Адрес сохранён в объекты');
+      } catch (_) { /* non-fatal: order already created */ }
+    }
+
     // Reset form
     document.getElementById('c-contact-name').value = '';
     document.getElementById('c-contact-phone').value = '';
@@ -5178,6 +5336,16 @@ async function doCreateOrder() {
     document.getElementById('c-price-preview').innerHTML = '';
     document.getElementById('c-zones-legend').innerHTML = '';
     if (_cMarker && _cZoneMap) { _cZoneMap.removeLayer(_cMarker); _cMarker = null; }
+    // Reset saved-object controls
+    const saveObjCb = document.getElementById('c-save-object');
+    if (saveObjCb) saveObjCb.checked = false;
+    const saveObjName = document.getElementById('c-save-object-name');
+    if (saveObjName) { saveObjName.value = ''; saveObjName.style.display = 'none'; }
+    const savedObjSel = document.getElementById('c-saved-object');
+    if (savedObjSel) savedObjSel.value = '';
+    const savedObjDel = document.getElementById('c-saved-object-del');
+    if (savedObjDel) savedObjDel.style.display = 'none';
+    _savedObjects = [];
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';
