@@ -1647,9 +1647,9 @@
       </div>
     </div>
 
-    <!-- Register Individual (step 2) -->
+    <!-- Register (физлицо/человек). Организации добавляются после входа. -->
     <div id="auth-reg-individual" style="display:none">
-      <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
+      <button class="auth-back" onclick="switchAuthMode('login')">← ко входу</button>
       <div class="form-group">
         <label class="form-label">Телефон <span style="color:var(--red)">*</span></label>
         <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="tel">
@@ -1667,6 +1667,9 @@
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">
+        Работаете от юрлица? Зарегистрируйтесь, затем добавьте организацию в разделе «Мои организации».
+      </p>
     </div>
 
     <!-- Register Company (step 1): INN lookup -->
@@ -1788,6 +1791,7 @@
       <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
+      <button class="nav-tab" data-tab="orgs" id="tab-orgs-btn" onclick="switchTab('orgs')" style="display:none">Организации</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
       <button class="nav-tab" data-tab="zones" id="tab-zones-btn" onclick="switchTab('zones')" style="display:none">Зоны</button>
@@ -1905,6 +1909,14 @@
             </label>
           </div>
           <div class="section-divider">Данные заявки</div>
+        </div>
+
+        <!-- Селектор организации: показывается, если у клиента есть организации -->
+        <div class="form-group" id="c-org-group" style="display:none">
+          <label class="form-label">Оформить от имени</label>
+          <select id="c-organization" class="form-input" onchange="updatePricePreview()">
+            <option value="">Физлицо (на себя)</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -2027,6 +2039,18 @@
       </div>
     </div>
 
+    <!-- MY ORGANIZATIONS TAB -->
+    <div class="tab-pane" id="pane-orgs">
+      <div class="toolbar">
+        <div class="toolbar-title" id="orgs-title">Организации</div>
+        <input id="orgs-search" class="form-input" placeholder="Поиск по названию или ИНН" style="display:none;max-width:280px;margin-left:auto" oninput="onOrgSearchInput()">
+        <button class="btn btn-sm btn-primary" id="orgs-add-btn" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
+      </div>
+      <div id="orgs-list" style="display:flex;flex-direction:column;gap:10px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
     <!-- TRIPS TAB -->
     <div class="tab-pane" id="pane-trips">
       <div class="toolbar">
@@ -2047,7 +2071,7 @@
     <!-- REPORT TAB -->
     <div class="tab-pane" id="pane-report">
       <div class="report-card">
-        <div class="form-card-title">Отчёт по рейсам водителя</div>
+        <div class="form-card-title">Отчёт водителя — доставленные заявки</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
           <div class="form-group" style="margin:0;flex:1;min-width:220px">
             <label class="form-label">Водитель</label>
@@ -2846,6 +2870,7 @@ function buildBurgerMenu() {
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
     { tab: 'create',    label: 'Создать заявку',       show: role !== 'driver' },
+    { tab: 'orgs',      label: role === 'client' ? 'Мои организации' : 'Организации', show: role !== 'driver' },
     { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
     { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
     { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
@@ -3040,6 +3065,44 @@ function copyUUID(uuid, btn) {
     .catch(() => toast('Не удалось скопировать', 'error'));
 }
 
+// Копирование произвольного текста с восстановлением исходной подписи кнопки.
+function copyTextBtn(text, btn) {
+  const orig = btn.textContent;
+  const doCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok ? Promise.resolve() : Promise.reject(); }
+    catch (e) { document.body.removeChild(ta); return Promise.reject(e); }
+  };
+  doCopy()
+    .then(() => { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.textContent = orig; }, 1500); })
+    .catch(() => toast('Не удалось скопировать', 'error'));
+}
+
+// «ФИО, паспорт <серия> <номер>, выдан <кем> <дата>» — одной строкой для копирования.
+function formatPassportLine(u) {
+  if (!u) return '';
+  const fmtDate = d => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || '');
+  };
+  const parts = [];
+  if (u.passport_series || u.passport_number)
+    parts.push(`паспорт ${[u.passport_series, u.passport_number].filter(Boolean).join(' ')}`);
+  if (u.passport_issued_by) {
+    let s = `выдан ${u.passport_issued_by}`;
+    if (u.passport_issued_at) s += ` ${fmtDate(u.passport_issued_at)}`;
+    parts.push(s);
+  } else if (u.passport_issued_at) {
+    parts.push(`выдан ${fmtDate(u.passport_issued_at)}`);
+  }
+  const tail = parts.join(', ');
+  return [u.full_name, tail].filter(Boolean).join(', ');
+}
+
 function uuidCell(uuid) {
   if (!uuid) return '—';
   const short = uuid.slice(0, 8) + '…';
@@ -3206,9 +3269,10 @@ function switchAuthMode(mode) {
     btn.classList.toggle('active', (i === 0) === (mode === 'login'));
   });
   document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
-  document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
-  // Hide form panels when switching top mode
-  document.getElementById('auth-reg-individual').style.display     = 'none';
+  // Регистрация = только физлицо (человек). Организации (юрлица) добавляются
+  // после входа в разделе «Мои организации». Шаг выбора типа больше не нужен.
+  document.getElementById('auth-reg-picker').style.display = 'none';
+  document.getElementById('auth-reg-individual').style.display     = mode === 'register' ? '' : 'none';
   document.getElementById('auth-reg-company-inn').style.display    = 'none';
   document.getElementById('auth-reg-company-confirm').style.display = 'none';
   document.getElementById('auth-reg-company').style.display        = 'none';
@@ -3602,6 +3666,13 @@ async function initApp() {
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Организации — клиент видит свои («Мои организации»), staff — все («Организации»)
+  const orgsBtn = document.getElementById('tab-orgs-btn');
+  if (orgsBtn) {
+    orgsBtn.style.display = role !== 'driver' ? '' : 'none';
+    orgsBtn.textContent = role === 'client' ? 'Мои организации' : 'Организации';
+  }
+
   // Export button in clients tab — admin + manager only; init icon
   const exportBtn = document.getElementById('btn-export-clients');
   if (exportBtn) {
@@ -3695,6 +3766,7 @@ function switchTab(tab) {
 
   if (tab === 'orders')    loadOrders();
   if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); initClientZoneMap(); }
+  if (tab === 'orgs')      loadMyOrganizations();
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -4148,6 +4220,8 @@ async function _doPricePreview() {
     const cid = document.getElementById('c-client-id')?.value;
     if (cid) body.client_id = cid;
   }
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   try {
     const r = await orderPost('/orders/preview-price', body);
@@ -5080,6 +5154,8 @@ async function loadClientSelectForOrder() {
     // For client role: render payment radios based on own profile
     if (currentUser?.id) renderPaymentRadios(currentUser.id);
     loadSavedObjects();
+    // Подгружаем свои организации в селектор «Оформить от имени»
+    loadOrganizationSelectForOrder(currentUser?.id);
     return;
   }
   const sel = document.getElementById('c-client-id');
@@ -5089,13 +5165,14 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
-    // Reload payment options and saved objects when manager picks a different client
+    // Reload payment radios, saved objects + organizations when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
       if (cid) renderPaymentRadios(cid);
       loadSavedObjects();
+      loadOrganizationSelectForOrder(cid || null);
     };
-    if (current) renderPaymentRadios(current);
+    if (current) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
     loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
 }
@@ -5212,6 +5289,379 @@ async function deleteSavedObject() {
   }
 }
 
+// Загрузить организации пользователя в селектор «Оформить от имени».
+// Клиент — свои; staff — организации выбранного клиента. Скрываем, если их нет.
+async function loadOrganizationSelectForOrder(userId) {
+  const group = document.getElementById('c-org-group');
+  const sel   = document.getElementById('c-organization');
+  if (!group || !sel) return;
+  sel.innerHTML = '<option value="">Физлицо (на себя)</option>';
+  if (!userId) { group.style.display = 'none'; return; }
+  try {
+    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    const path = isStaff ? `/organizations?user_id=${userId}` : '/organizations';
+    const orgs = await authGet(path);
+    if (Array.isArray(orgs) && orgs.length) {
+      sel.innerHTML += orgs.map(o =>
+        `<option value="${o.id}">${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`
+      ).join('');
+      group.style.display = '';
+    } else {
+      group.style.display = 'none';
+    }
+  } catch {
+    group.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MY ORGANIZATIONS (клиент)
+// ═══════════════════════════════════════════════════════════════
+let _myOrgs = [];
+let _orgSearchTimer = null;
+
+function _isOrgStaff() {
+  return currentUser?.role === 'manager' || currentUser?.role === 'admin';
+}
+
+async function loadMyOrganizations() {
+  const el = document.getElementById('orgs-list');
+  if (!el) return;
+  const staff = _isOrgStaff();
+
+  // Тулбар: staff видит поиск (все организации), клиент — кнопку добавления (свои)
+  const titleEl  = document.getElementById('orgs-title');
+  const searchEl = document.getElementById('orgs-search');
+  const addBtn   = document.getElementById('orgs-add-btn');
+  if (titleEl)  titleEl.textContent = staff ? 'Организации' : 'Мои организации';
+  if (searchEl) searchEl.style.display = staff ? '' : 'none';
+  if (addBtn)   addBtn.style.display = staff ? 'none' : '';
+
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    let path = '/organizations';
+    if (staff) {
+      const q = (searchEl?.value || '').trim();
+      if (q) path += `?search=${encodeURIComponent(q)}`;
+    }
+    _myOrgs = await authGet(path);
+    if (!_myOrgs.length) {
+      el.innerHTML = staff
+        ? `<div class="empty-state">Организаций не найдено.</div>`
+        : `<div class="empty-state">У вас пока нет организаций. Добавьте юрлицо по ИНН, чтобы оформлять заявки от его имени.</div>`;
+      return;
+    }
+    el.innerHTML = _myOrgs.map(orgCardHTML).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function onOrgSearchInput() {
+  clearTimeout(_orgSearchTimer);
+  _orgSearchTimer = setTimeout(loadMyOrganizations, 350);
+}
+
+function orgCardHTML(o) {
+  const staff = _isOrgStaff();
+  const req = [
+    o.inn ? `ИНН ${escHtml(o.inn)}` : null,
+    o.kpp ? `КПП ${escHtml(o.kpp)}` : null,
+  ].filter(Boolean).join(' · ');
+
+  // Коммерческая строка (тариф/кредит) — только для staff
+  const commercial = staff ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">
+      ${o.credit_allowed ? '✓ кредит разрешён' : 'без кредита'}${o.credit_limit != null ? ` · лимит ${Number(o.credit_limit).toLocaleString('ru')} ₽` : ''}
+    </div>` : '';
+
+  // Кнопки действий
+  const btns = [`<button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>`];
+  if (staff) {
+    btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
+    if (currentUser?.role === 'admin')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);
+    btns.push(`<button class="btn btn-sm btn-danger" onclick="archiveOrg('${o.id}')">Архивировать</button>`);
+  }
+
+  return `
+  <div class="surface-card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:600">${escHtml(o.company_name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${req || '—'}</div>
+        ${o.legal_address ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${escHtml(o.legal_address)}</div>` : ''}
+        ${commercial}
+      </div>
+      <span style="font-size:11px;color:var(--text3);white-space:nowrap">O-${String(o.org_number).padStart(5,'0')}</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      ${btns.join('')}
+    </div>
+  </div>`;
+}
+
+// ── Staff: правка реквизитов организации ────────────────────────────────────
+function openEditOrgModal(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  openModal(`Реквизиты — ${escHtml(o.company_name)}`, `
+    <div class="form-group"><label class="form-label">Название</label>
+      <input id="eo-name" class="form-input" value="${escHtml(o.company_name || '')}"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="eo-kpp" class="form-input" value="${escHtml(o.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="eo-legal" class="form-input" value="${escHtml(o.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Адрес доставки</label>
+      <input id="eo-delivery" class="form-input" value="${escHtml(o.delivery_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="eo-bank" class="form-input" value="${escHtml(o.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="eo-bik" class="form-input" value="${escHtml(o.bik || '')}" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="eo-acc" class="form-input" value="${escHtml(o.bank_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="eo-corr" class="form-input" value="${escHtml(o.correspondent_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Номер договора</label>
+      <input id="eo-contract" class="form-input" value="${escHtml(o.contract_number || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для документов</label>
+      <input id="eo-email" class="form-input" value="${escHtml(o.billing_email || '')}"></div>
+  `, () => submitEditOrg(orgId));
+}
+
+async function submitEditOrg(orgId) {
+  const body = {
+    company_name:          document.getElementById('eo-name').value.trim() || null,
+    kpp:                   document.getElementById('eo-kpp').value.trim() || null,
+    legal_address:         document.getElementById('eo-legal').value.trim() || null,
+    delivery_address:      document.getElementById('eo-delivery').value.trim() || null,
+    bank_name:             document.getElementById('eo-bank').value.trim() || null,
+    bik:                   document.getElementById('eo-bik').value.trim() || null,
+    bank_account:          document.getElementById('eo-acc').value.trim() || null,
+    correspondent_account: document.getElementById('eo-corr').value.trim() || null,
+    contract_number:       document.getElementById('eo-contract').value.trim() || null,
+    billing_email:         document.getElementById('eo-email').value.trim() || null,
+  };
+  try {
+    await authPatch(`/organizations/${orgId}`, body);
+    closeModal();
+    toast('Реквизиты сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Admin: тариф / кредит организации ───────────────────────────────────────
+async function openOrgCommercial(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  let tariffOptions = '<option value="">— базовый —</option>';
+  try {
+    const tariffs = await orderGet('/tariffs');
+    tariffOptions += tariffs.filter(t => !t.is_archived).map(t =>
+      `<option value="${t.id}"${o.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
+    ).join('');
+  } catch (_) {}
+  openModal(`Тариф / кредит — ${escHtml(o.company_name)}`, `
+    <div class="form-group"><label class="form-label">Тариф</label>
+      <select id="oc-tariff" class="form-input">${tariffOptions}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="oc-credit" ${o.credit_allowed ? 'checked' : ''}>
+      <label for="oc-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label></div>
+    <div class="form-group"><label class="form-label">Кредитный лимит, ₽</label>
+      <input id="oc-limit" class="form-input" type="number" min="0" value="${o.credit_limit != null ? o.credit_limit : ''}" placeholder="пусто = без лимита"></div>
+  `, () => submitOrgCommercial(orgId));
+}
+
+async function submitOrgCommercial(orgId) {
+  const lim = document.getElementById('oc-limit').value.trim();
+  const body = {
+    tariff_id:      document.getElementById('oc-tariff').value || null,
+    credit_allowed: document.getElementById('oc-credit').checked,
+    credit_limit:   lim === '' ? null : Number(lim),
+  };
+  try {
+    await authPatch(`/organizations/${orgId}/commercial`, body);
+    closeModal();
+    toast('Коммерческие условия сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function archiveOrg(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  openModal('Архивировать организацию?',
+    `<p style="color:var(--text2);font-size:13px">Организация «${escHtml(o?.company_name || '')}» будет скрыта. Исторические заявки и документы сохранятся.</p>`,
+    async () => {
+      try {
+        await api(`${AUTH_URL}/organizations/${orgId}`, { method: 'DELETE' });
+        closeModal();
+        toast('Организация архивирована');
+        loadMyOrganizations();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+// Черновик создаваемой организации (переносится между шагами модалки)
+let _orgDraft = {};
+
+function _setModalConfirmText(t) {
+  const b = document.getElementById('modal-confirm');
+  if (b) b.textContent = t;
+}
+
+// Шаг 1 — ИНН (+ БИК): тянем реквизиты из ФНС/банка по DaData
+function openCreateOrgModal() {
+  _orgDraft = {};
+  openModal('Новая организация — шаг 1', `
+    <div class="form-group"><label class="form-label">ИНН <span style="color:var(--red)">*</span></label>
+      <input id="org-inn" class="form-input" placeholder="10 или 12 цифр" maxlength="12" inputmode="numeric"></div>
+    <div class="form-group"><label class="form-label">БИК банка</label>
+      <input id="org-bik" class="form-input" placeholder="9 цифр (необязательно)" maxlength="9" inputmode="numeric"></div>
+    <p style="font-size:11px;color:var(--text3)">Введите ИНН — реквизиты подтянутся из ФНС. На следующем шаге сможете проверить и дозаполнить.</p>
+    <div id="org-lookup-msg" style="font-size:12px;margin-top:6px"></div>
+  `, orgLookupAndContinue);
+  _setModalConfirmText('Найти →');
+}
+
+async function orgLookupAndContinue() {
+  const inn = document.getElementById('org-inn').value.trim();
+  const bik = document.getElementById('org-bik').value.trim();
+  if (!/^(\d{10}|\d{12})$/.test(inn)) { toast('Введите корректный ИНН (10 или 12 цифр)', 'error'); return; }
+  if (bik && !/^\d{9}$/.test(bik)) { toast('БИК — 9 цифр', 'error'); return; }
+
+  const msg = document.getElementById('org-lookup-msg');
+  if (msg) msg.innerHTML = '<span style="color:var(--text3)">Ищем в ФНС…</span>';
+
+  let party = null, bank = null;
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(x => x.json());
+    if (r && r.found) party = r.data;
+  } catch (_) {}
+  if (bik) {
+    try {
+      const rb = await fetch(`${AUTH_URL}/auth/lookup/bik?bik=${encodeURIComponent(bik)}`).then(x => x.json());
+      if (rb && rb.found) bank = rb.data;
+    } catch (_) {}
+  }
+
+  _orgDraft = { inn, bik, party: party || {}, bank: bank || {}, found: !!party };
+  openCreateOrgStep2();
+}
+
+// Шаг 2 — проверка/дозаполнение реквизитов
+function openCreateOrgStep2() {
+  const p = _orgDraft.party || {}, b = _orgDraft.bank || {};
+  const note = _orgDraft.found
+    ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Данные найдены в ФНС — проверьте и дополните</div>`
+    : `<div style="font-size:12px;color:var(--orange,#c80);margin-bottom:8px">По ИНН ничего не найдено — заполните реквизиты вручную</div>`;
+  openModal('Новая организация — реквизиты', `
+    ${note}
+    <div class="form-group"><label class="form-label">ИНН</label>
+      <input class="form-input" value="${escHtml(_orgDraft.inn)}" disabled></div>
+    <div class="form-group"><label class="form-label">Название <span style="color:var(--red)">*</span></label>
+      <input id="co-name" class="form-input" value="${escHtml(p.company_name || '')}" placeholder="ООО «…»"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="co-kpp" class="form-input" value="${escHtml(p.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">ОГРН</label>
+      <input id="co-ogrn" class="form-input" value="${escHtml(p.ogrn || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="co-legal" class="form-input" value="${escHtml(p.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Адрес доставки</label>
+      <input id="co-delivery" class="form-input" placeholder="если отличается от юридического"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="co-bank" class="form-input" value="${escHtml(b.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="co-bik" class="form-input" value="${escHtml(_orgDraft.bik || '')}" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="co-acc" class="form-input" placeholder="20 цифр"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="co-corr" class="form-input" value="${escHtml(b.correspondent_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для документов</label>
+      <input id="co-email" class="form-input" placeholder="необязательно"></div>
+  `, submitCreateOrg);
+  _setModalConfirmText('Создать');
+  // Кнопка «назад» к шагу 1
+  const body = document.getElementById('modal-body');
+  if (body) body.insertAdjacentHTML('afterbegin',
+    `<button class="btn btn-sm btn-ghost" style="margin-bottom:8px" onclick="openCreateOrgModal();document.getElementById('org-inn').value='${escHtml(_orgDraft.inn)}'">← назад к ИНН</button>`);
+}
+
+async function submitCreateOrg() {
+  const name = document.getElementById('co-name').value.trim();
+  if (!name) { toast('Укажите название организации', 'error'); return; }
+  const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
+  const body = {
+    inn:                   _orgDraft.inn,
+    company_name:          name,
+    kpp:                   v('co-kpp'),
+    ogrn:                  v('co-ogrn'),
+    legal_address:         v('co-legal'),
+    delivery_address:      v('co-delivery'),
+    bank_name:             v('co-bank'),
+    bik:                   v('co-bik'),
+    bank_account:          v('co-acc'),
+    correspondent_account: v('co-corr'),
+    billing_email:         v('co-email'),
+  };
+  try {
+    await authPost('/organizations', body);
+    closeModal();
+    toast('Организация добавлена');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openOrgMembers(orgId) {
+  const org = _myOrgs.find(o => o.id === orgId);
+  openModal(org ? `Сотрудники — ${org.company_name}` : 'Сотрудники',
+    '<div id="org-members-body"><div class="loading"></div></div>', null);
+  await renderOrgMembers(orgId);
+}
+
+async function renderOrgMembers(orgId) {
+  const box = document.getElementById('org-members-body');
+  if (!box) return;
+  try {
+    const members = await authGet(`/organizations/${orgId}/members`);
+    const rows = members.map(m => {
+      const role = m.member_role === 'owner' ? 'Владелец' : 'Сотрудник';
+      const st   = m.status === 'pending' ? ' · приглашение' : '';
+      const name = m.full_name || m.phone || '—';
+      const rm = m.member_role === 'owner' ? '' :
+        `<button class="btn btn-sm btn-danger" onclick="removeOrgMember('${orgId}','${m.id}')">✕</button>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-weight:500">${escHtml(name)}</div>
+        <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>${rm}</div>`;
+    }).join('');
+    box.innerHTML = `${rows || '<div style="color:var(--text3)">Нет сотрудников</div>'}
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <input id="org-add-phone" class="form-input" placeholder="+7 999 …" style="flex:1 1 auto;min-width:0;margin:0">
+        <button class="btn btn-sm btn-primary" onclick="addOrgMember('${orgId}')" style="flex:0 0 auto;width:auto;white-space:nowrap;padding:8px 18px">Добавить</button>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:6px">Если у номера ещё нет аккаунта — отправим приглашение, оно активируется при регистрации.</p>`;
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function addOrgMember(orgId) {
+  const phone = document.getElementById('org-add-phone').value.trim();
+  if (!phone) { toast('Введите номер телефона', 'error'); return; }
+  try {
+    await authPost(`/organizations/${orgId}/members`, { phone });
+    toast('Сотрудник добавлен / приглашён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeOrgMember(orgId, memberId) {
+  try {
+    await api(`${AUTH_URL}/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
+    toast('Сотрудник удалён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // Чекбокс «Я» — подставить имя и телефон текущего пользователя как контактное лицо
 function toggleSelfContact(cb) {
   const nameEl  = document.getElementById('c-contact-name');
@@ -5255,6 +5705,10 @@ async function doCreateOrder() {
     contact_person_name:  document.getElementById('c-contact-name')?.value.trim() || undefined,
     contact_person_phone: document.getElementById('c-contact-phone')?.value.trim() || undefined,
   };
+
+  // Организация (юрлицо), от имени которой создаётся заявка. Пусто = физлицо.
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
   if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
@@ -5428,6 +5882,23 @@ async function loadProfile() {
         if (p.delivery_address) fields.push(['Адрес доставки', escHtml(p.delivery_address)]);
       }
     }
+
+    // Паспортные данные — для всех ролей
+    const _dash = '<span style="color:var(--text3)">—</span>';
+    const passSerNum = [me.passport_series, me.passport_number].filter(Boolean).join(' ');
+    fields.push(['Паспорт (серия номер)', passSerNum ? escHtml(passSerNum) : _dash]);
+    fields.push(['Кем выдан', me.passport_issued_by ? escHtml(me.passport_issued_by) : _dash]);
+    const passDate = (() => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(me.passport_issued_at || ''); return m ? `${m[3]}.${m[2]}.${m[1]}` : null; })();
+    fields.push(['Дата выдачи', passDate ? passDate : _dash]);
+
+    // Копируемая строка «ФИО, паспорт … , выдан …»
+    const passLine = formatPassportLine(me);
+    const passportCopy = (passSerNum || me.passport_issued_by) ? `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">${escHtml(passLine)}</span>
+        <button class="btn btn-sm btn-ghost" data-copy="${escHtml(passLine)}" onclick="copyTextBtn(this.dataset.copy, this)" style="white-space:nowrap">${icon('copy',13)} Копировать</button>
+      </div>` : '';
+
     // «Редактировать профиль» (ФИО/email/телефон) — для всех ролей (правки 2026-06-11);
     // у юрлица дополнительно кнопка реквизитов.
     const editReqBtn = `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
@@ -5439,7 +5910,7 @@ async function loadProfile() {
         <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
         <span style="font-size:13px;color:var(--text2)">${value}</span>
        </div>`
-    ).join('') + editReqBtn;
+    ).join('') + passportCopy + editReqBtn;
   } catch (e) {
     el.textContent = `Ошибка: ${escHtml(e.message)}`;
   }
@@ -5572,7 +6043,10 @@ function openModal(title, bodyHTML, onConfirm) {
   document.getElementById('modal-body').innerHTML = bodyHTML;
   modalCallback = onConfirm;
   const confirmBtn = document.getElementById('modal-confirm');
-  if (confirmBtn) confirmBtn.style.display = onConfirm ? '' : 'none';
+  if (confirmBtn) {
+    confirmBtn.style.display = onConfirm ? '' : 'none';
+    confirmBtn.textContent = 'Подтвердить';  // сброс (некоторые модалки переопределяют)
+  }
   document.getElementById('modal-overlay').classList.add('open');
   // Focus first input
   setTimeout(() => {
@@ -6004,27 +6478,21 @@ async function requestInvReportXlsx() {
 }
 
 function reportHTML(r) {
-  const distStr = r.total_distance_km != null
-    ? `${Number(r.total_distance_km).toFixed(1)} км`
-    : '—';
-  const tripRows = r.trips.map(t => {
-    const sl = TRIP_STATUS_LABELS[t.status] || t.status;
-    const sb = t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed';
-    const vol = t.volume_actual != null
-      ? `факт ${Number(t.volume_actual).toLocaleString('ru')} л / план ${Number(t.volume_planned).toLocaleString('ru')} л`
-      : `план ${Number(t.volume_planned).toLocaleString('ru')} л`;
-    const addr = t.delivery_address ? escHtml(t.delivery_address) : '—';
-    const orderRef = t.inv_order_number ? escHtml(t.inv_order_number) : t.order_id.slice(0,8)+'…';
-    const fuel = t.inv_fuel_type ? (FUEL_LABELS_SHORT[t.inv_fuel_type] || t.inv_fuel_type) : '';
+  const orderRows = (r.orders || []).map(o => {
+    const vol = o.volume_delivered != null
+      ? `${Number(o.volume_delivered).toLocaleString('ru')} л`
+      : '—';
+    const addr = o.delivery_address ? escHtml(o.delivery_address) : '—';
+    const orderRef = escHtml(o.order_number);
+    const fuel = o.fuel_type ? fuelLabel(o.fuel_type) : '';
     return `
-    <div class="trip-card status-${t.status}" style="margin-top:6px">
+    <div class="trip-card status-completed" style="margin-top:6px">
       <div class="trip-card-head">
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="status-badge status-${sb}">${sl}</span>
           <span class="trip-order-ref">${orderRef}</span>
-          ${fuel ? `<span class="trip-fuel-badge">${fuel}</span>` : ''}
+          ${fuel ? `<span class="trip-fuel-badge">${escHtml(fuel)}</span>` : ''}
         </div>
-        <span style="font-size:11px;color:var(--text3)">${fmtDate(t.created_at)}</span>
+        <span style="font-size:11px;color:var(--text3)">${fmtDate(o.delivered_at)}</span>
       </div>
       <div class="trip-card-body">
         <div class="trip-vol-line">${vol}</div>
@@ -6036,34 +6504,17 @@ function reportHTML(r) {
   return `
     <div class="report-stats">
       <div class="stat-box">
-        <div class="stat-label">Всего рейсов</div>
-        <div class="stat-value">${r.total_trips}</div>
+        <div class="stat-label">Доставлено заявок</div>
+        <div class="stat-value">${r.total_orders}</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Завершено</div>
-        <div class="stat-value" style="color:var(--green)">${r.completed_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Отменено</div>
-        <div class="stat-value" style="color:var(--red)">${r.cancelled_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём план</div>
-        <div class="stat-value">${Number(r.total_volume_planned).toLocaleString('ru')}</div>
+        <div class="stat-label">Объём доставлено</div>
+        <div class="stat-value" style="color:var(--green)">${Number(r.total_volume_delivered).toLocaleString('ru')}</div>
         <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём факт</div>
-        <div class="stat-value">${Number(r.total_volume_actual).toLocaleString('ru')}</div>
-        <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Пробег</div>
-        <div class="stat-value" style="font-size:20px">${distStr}</div>
       </div>
     </div>
-    <div class="section-header">Рейсы за период</div>
-    ${tripRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Рейсов не найдено</div>'}
+    <div class="section-header">Заявки за период</div>
+    ${orderRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Доставленных заявок не найдено</div>'}
   `;
 }
 
@@ -6210,10 +6661,7 @@ function renderUsersTable(users) {
     const roleChip = `<span class="role-chip role-${u.role}" style="font-size:10px">${ROLE_LABELS[u.role] || u.role}</span>`;
     const actions = isAdmin ? `
       <div style="display:flex;gap:6px">
-        ${u.role === 'driver'
-          ? `<button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные для доверенности">Паспорт</button>`
-          : ''
-        }
+        <button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные">Паспорт</button>
         ${u.is_active
           ? `<button class="btn btn-sm btn-danger" onclick="setUserActive('${u.id}',false)">Деактив.</button>`
           : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>`
@@ -6296,8 +6744,8 @@ async function promptDriverPassport(userId) {
   let u;
   try { u = await authGet(`/users/${userId}`); }
   catch (e) { toast(e.message, 'error'); return; }
-  openModal('Паспортные данные водителя', `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)} — используются в доверенности (М-2).</div>
+  openModal('Паспортные данные', `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)}${u.role === 'driver' ? ' — используются в доверенности (М-2)' : ''}.</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Серия</label>
@@ -6610,8 +7058,9 @@ function hideChatSidebar() {
   }
 }
 
-// Один раз за сессию создаём клиенту-юрлицу чат с бухгалтерией (правки 2026-06-11).
-// Для физлиц бэкенд вернёт 400 — молча игнорируем.
+// Один раз за сессию создаём клиенту чат с бухгалтерией. Доступен клиенту с
+// организацией (единая модель); клиенту без организаций бэкенд вернёт 400 —
+// молча игнорируем.
 let _accountantEnsured = false;
 async function ensureAccountantChat() {
   if (_accountantEnsured || currentUser?.role !== 'client') return;

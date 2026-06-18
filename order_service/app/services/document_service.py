@@ -336,10 +336,15 @@ async def _fetch_buyer_snapshot(order: Order) -> dict:
     from app.config import settings as _settings
     base = _settings.auth_service_url.rstrip("/")
     headers = {"X-Internal-Secret": _settings.internal_api_secret}
+    # Для заявки от организации — реквизиты организации, иначе физлица.
+    params = (
+        {"organization_id": str(order.organization_id)} if order.organization_id else None
+    )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
                 f"{base}/api/v1/internal/clients/{order.client_id}/buyer-snapshot",
+                params=params,
                 headers=headers,
             )
             r.raise_for_status()

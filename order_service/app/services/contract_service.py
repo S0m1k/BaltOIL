@@ -59,18 +59,22 @@ async def _next_contract_number(db: AsyncSession) -> str:
 
 # ── Реквизиты покупателя из auth_service ───────────────────────────────────────
 
-async def _fetch_buyer_legal_profile(client_id: uuid.UUID) -> dict:
-    """Полные юр-реквизиты клиента для договора.
+async def _fetch_buyer_legal_profile(
+    client_id: uuid.UUID, organization_id: uuid.UUID | None = None
+) -> dict:
+    """Полные юр-реквизиты для договора.
 
-    404 от auth_service (физлицо / нет ИНН) → ValidationError: договор нельзя
-    сформировать без реквизитов покупателя. Недоступность сервиса → 503.
+    Если передан organization_id — реквизиты организации (auth проверяет членство),
+    иначе legacy: company-профиль клиента. 404 (физлицо / нет ИНН) → ValidationError.
+    Недоступность сервиса → 503.
     """
     base = settings.auth_service_url.rstrip("/")
     url = f"{base}/api/v1/internal/users/{client_id}/legal-profile"
+    params = {"organization_id": str(organization_id)} if organization_id else None
     headers = {"X-Internal-Secret": settings.internal_api_secret}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(url, headers=headers)
+            r = await client.get(url, params=params, headers=headers)
         if r.status_code == 404:
             raise ValidationError(
                 "У клиента не заполнены юридические реквизиты — договор сформировать нельзя"
@@ -115,10 +119,18 @@ def _save_contract_pdf(client_id: uuid.UUID, contract_number: str, pdf_bytes: by
     return str(file_path.relative_to(MEDIA_ROOT))
 
 
-async def get_active_contract(db: AsyncSession, client_id: uuid.UUID) -> Contract | None:
+async def get_active_contract(
+    db: AsyncSession, client_id: uuid.UUID, organization_id: uuid.UUID | None = None
+) -> Contract | None:
+    conds = [Contract.client_id == client_id, Contract.status == ContractStatus.ACTIVE]
+    # Договор на организацию ищем по организации; legacy (без org) — по NULL.
+    if organization_id is not None:
+        conds.append(Contract.organization_id == organization_id)
+    else:
+        conds.append(Contract.organization_id.is_(None))
     result = await db.execute(
         select(Contract)
-        .where(Contract.client_id == client_id, Contract.status == ContractStatus.ACTIVE)
+        .where(*conds)
         .order_by(Contract.created_at.desc())
         .limit(1)
     )
@@ -183,30 +195,31 @@ async def create_contract(
     db: AsyncSession,
     client_id: uuid.UUID,
     actor: TokenUser,
+    organization_id: uuid.UUID | None = None,
 ) -> Contract:
-    """Сформировать договор поставки для клиента-юрлица.
+    """Сформировать договор поставки для юрлица.
 
-    Идемпотентно: если активный договор уже есть — возвращаем его без повторной
-    генерации и без письма.
+    При organization_id — договор на организацию (реквизиты из неё). Иначе legacy:
+    company-профиль клиента. Идемпотентно: активный договор на ту же пару
+    (клиент, организация) возвращается без повторной генерации и письма.
     """
-    # Транзакционный advisory-lock по клиенту сериализует параллельные создания
-    # договора для одного клиента (защита от гонки «два активных договора»),
-    # не требуя схемных изменений. Снимается автоматически на commit/rollback.
+    # Транзакционный advisory-lock по (клиент, организация) сериализует параллельные
+    # создания договора (защита от гонки «два активных договора»). Снимается на commit.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-        {"k": f"contract:{client_id}"},
+        {"k": f"contract:{client_id}:{organization_id or ''}"},
     )
 
-    existing = await get_active_contract(db, client_id)
+    existing = await get_active_contract(db, client_id, organization_id)
     if existing is not None:
-        log.info("audit action=contract.skip_existing client_id=%s number=%s",
-                 client_id, existing.contract_number)
+        log.info("audit action=contract.skip_existing client_id=%s org_id=%s number=%s",
+                 client_id, organization_id, existing.contract_number)
         return existing
 
     seller = await get_seller_snapshot(db)
     if not seller:
         raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
-    buyer = await _fetch_buyer_legal_profile(client_id)
+    buyer = await _fetch_buyer_legal_profile(client_id, organization_id)
 
     contract_number = await _next_contract_number(db)
     signed_at = datetime.now(timezone.utc).date()
@@ -231,6 +244,7 @@ async def create_contract(
 
     contract = Contract(
         client_id=client_id,
+        organization_id=organization_id,
         contract_number=contract_number,
         seller_snapshot=seller,
         buyer_snapshot=buyer,

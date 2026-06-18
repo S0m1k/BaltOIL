@@ -93,6 +93,10 @@ class Order(Base):
         nullable=False, default=OrderStatus.NEW, index=True,
     )
 
+    # Организация, от имени которой создана заявка (юрлицо). NULL = «как физлицо»
+    # или legacy-заявка. Soft FK на organizations.id в auth_service БД (FK не создаём).
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+
     # Кто обрабатывает
     manager_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)

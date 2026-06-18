@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,9 +53,10 @@ async def create_contract(
     actor: CurrentUser,
     _: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
+    organization_id: uuid.UUID | None = Query(None, description="Организация (юрлицо) договора"),
 ):
-    """Сформировать договор для клиента (идемпотентно — вернёт существующий активный)."""
-    contract = await contract_service.create_contract(db, client_id, actor)
+    """Сформировать договор для клиента/организации (идемпотентно — вернёт активный)."""
+    contract = await contract_service.create_contract(db, client_id, actor, organization_id)
     await db.commit()
     await db.refresh(contract)
     return contract

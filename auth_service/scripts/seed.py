@@ -37,6 +37,12 @@ USERS = {
     "client_tc":    uuid.UUID("00000000-0000-0000-0000-000000000013"),  # trade_credit
     "client_post":  uuid.UUID("00000000-0000-0000-0000-000000000014"),  # postpaid
     "client_mix":   uuid.UUID("00000000-0000-0000-0000-000000000015"),  # mixed / company
+    # Захардкоженные реальные сотрудники (паспортные данные заполняет админ в UI)
+    "volkov_a":     uuid.UUID("00000000-0000-0000-0000-000000000021"),  # Волков Александр Сергеевич
+    "volkova_i":    uuid.UUID("00000000-0000-0000-0000-000000000022"),  # Волкова Ирина Александровна
+    "volkova_e":    uuid.UUID("00000000-0000-0000-0000-000000000023"),  # Волкова Екатерина Ивановна
+    "volkov_an":    uuid.UUID("00000000-0000-0000-0000-000000000024"),  # Волков Антон Александрович
+    "volkova_n":    uuid.UUID("00000000-0000-0000-0000-000000000025"),  # Волкова Надежда Васильевна
 }
 
 HASHED_PASSWORD = hash_password("password123")
@@ -52,6 +58,13 @@ USER_RECORDS = [
     dict(id=USERS["client_tc"],   email="tradecredit@baltoil.test",role=UserRole.CLIENT,   full_name="Клиент Товарный Кредит"),
     dict(id=USERS["client_post"], email="postpaid@baltoil.test",   role=UserRole.CLIENT,   full_name="Клиент Постоплата"),
     dict(id=USERS["client_mix"],  email="company@baltoil.test",    role=UserRole.CLIENT,   full_name="ООО Ромашка"),
+    # Захардкоженные сотрудники семьи Волковых. Паспортные данные оставляем
+    # пустыми — их вносит/меняет админ во вкладке «Пользователи».
+    dict(id=USERS["volkov_a"],    email="volkov.a@baltoil.test",   role=UserRole.ADMIN,    full_name="Волков Александр Сергеевич"),
+    dict(id=USERS["volkova_i"],   email="volkova.i@baltoil.test",  role=UserRole.ADMIN,    full_name="Волкова Ирина Александровна"),
+    dict(id=USERS["volkova_e"],   email="volkova.e@baltoil.test",  role=UserRole.MANAGER,  full_name="Волкова Екатерина Ивановна"),
+    dict(id=USERS["volkov_an"],   email="volkov.an@baltoil.test",  role=UserRole.CLIENT,   full_name="Волков Антон Александрович"),
+    dict(id=USERS["volkova_n"],   email="volkova.n@baltoil.test",  role=UserRole.CLIENT,   full_name="Волкова Надежда Васильевна"),
 ]
 
 CLIENT_PROFILES = [
@@ -70,19 +83,29 @@ async def main():
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with Session() as session:
-        # Wipe existing seed data (by known UUIDs) to make this idempotent
+        # Wipe existing seed data idempotently. Чистим не только по фиксированным
+        # UUID, но и по email/ФИО — захардкоженные сотрудники могли уже
+        # существовать в БД под другими UUID (иначе INSERT упадёт на unique email
+        # или создаст дубли).
         known_ids = list(USERS.values())
+        emails = [r["email"] for r in USER_RECORDS if r.get("email")]
+        names = [r["full_name"] for r in USER_RECORDS if r.get("full_name")]
+        rows = (await session.execute(
+            text("SELECT id FROM users WHERE id = ANY(:ids) OR email = ANY(:emails) OR full_name = ANY(:names)"),
+            {"ids": known_ids, "emails": emails, "names": names},
+        )).all()
+        wipe_ids = list({*known_ids, *(row[0] for row in rows)})
         await session.execute(
             text("DELETE FROM client_profiles WHERE user_id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.execute(
             text("DELETE FROM refresh_tokens WHERE user_id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.execute(
             text("DELETE FROM users WHERE id = ANY(:ids)"),
-            {"ids": known_ids},
+            {"ids": wipe_ids},
         )
         await session.commit()
 

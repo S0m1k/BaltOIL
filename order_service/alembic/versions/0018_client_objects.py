@@ -1,7 +1,7 @@
 """Сохранённые объекты доставки клиента (client_objects)
 
 Revision ID: 0018_client_objects
-Revises: 0017_fuel_label
+Revises: 0018_org_id
 Create Date: 2026-06-18
 
 Идемпотентные изменения:
@@ -16,7 +16,7 @@ from alembic import op
 
 
 revision: str = "0018_client_objects"
-down_revision: Union[str, None] = "0017_fuel_label"
+down_revision: Union[str, None] = "0018_org_id"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

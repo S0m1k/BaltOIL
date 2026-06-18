@@ -12,6 +12,7 @@ class PricePreviewRequest(BaseModel):
     delivery_lat: float | None = Field(None, ge=-90, le=90)
     delivery_lon: float | None = Field(None, ge=-180, le=180)
     client_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
 
 
 class PricePreviewResponse(BaseModel):
@@ -40,6 +41,10 @@ class OrderCreateRequest(BaseModel):
     payment_type: PaymentType = PaymentType.ON_DELIVERY
     expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
+
+    # Организация (юрлицо), от имени которой создаётся заявка. NULL = «как физлицо».
+    # Членство клиента проверяется в auth_service при резолве контекста.
+    organization_id: uuid.UUID | None = None
 
     # Координаты адреса доставки (из DaData-геокодирования на фронте)
     delivery_lat: float | None = Field(None, ge=-90, le=90)
@@ -105,6 +110,7 @@ class OrderResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
     fuel_type: str
     volume_requested: float
     volume_delivered: float | None
@@ -153,6 +159,7 @@ class OrderListResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
     fuel_type: str
     volume_requested: float
     volume_delivered: float | None
