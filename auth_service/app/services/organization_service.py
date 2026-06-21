@@ -120,9 +120,21 @@ async def create_organization(
     db.add(org)
     await db.flush()
 
+    # Владелец-участник. Staff (admin/manager) заводит организацию НА клиента,
+    # поэтому владельцем становится выбранный клиент, а не сам сотрудник.
+    if owner.role in _STAFF_ROLES:
+        if not data.owner_client_id:
+            raise ConflictError("Укажите клиента-владельца организации")
+        client = await db.get(User, data.owner_client_id)
+        if client is None or client.role != UserRole.CLIENT:
+            raise NotFoundError("Клиент-владелец не найден")
+        owner_user_id = client.id
+    else:
+        owner_user_id = owner.id
+
     db.add(OrganizationMember(
         organization_id=org.id,
-        user_id=owner.id,
+        user_id=owner_user_id,
         member_role=MemberRole.OWNER,
         status=MemberStatus.ACTIVE,
     ))

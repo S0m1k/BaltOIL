@@ -72,6 +72,9 @@ class CreateOrganizationRequest(BaseModel):
     correspondent_account: str | None = None
     contract_number: str | None = None
     billing_email: str | None = None
+    # Только для staff: клиент-владелец создаваемой организации.
+    # Если запрос делает клиент — игнорируется (владельцем становится он сам).
+    owner_client_id: uuid.UUID | None = None
 
 
 class UpdateOrganizationRequest(BaseModel):

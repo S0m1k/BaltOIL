@@ -791,6 +791,7 @@
     border-top: 3px solid transparent; border-image: var(--grad) 1;
     padding: 28px; min-width: 340px; max-width: 480px; width: 90%;
     border-radius: 4px; box-shadow: 0 8px 40px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
+    max-height: 90vh; overflow-y: auto;
   }
   .modal-title {
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
@@ -1933,7 +1934,8 @@
           </div>
           <div class="form-group">
             <label class="form-label">Желаемая дата доставки</label>
-            <input type="date" id="c-date" class="form-input">
+            <input type="date" id="c-date" class="form-input" lang="ru" oninput="updateDateDisplay()">
+            <div id="c-date-display" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
           </div>
         </div>
 
@@ -1977,16 +1979,12 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="c-save-object" onchange="toggleSaveObjectName(this)" style="cursor:pointer">
-            <span>Сохранить адрес как объект</span>
-          </label>
+          <label class="form-label">Название объекта (необязательно)</label>
           <input type="text" id="c-save-object-name" class="form-input" maxlength="120"
-            placeholder="Название объекта (необязательно)"
-            style="display:none;margin-top:8px">
+            placeholder="Например: Склад на Невском — адрес сохранится автоматически">
         </div>
 
-        <div class="form-row">
+        <div class="form-row" style="align-items:end">
           <div class="form-group">
             <div class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
               <span>Контактное лицо для приёмки топлива</span>
@@ -4638,6 +4636,12 @@ function paymentSummaryHTML(o) {
     return '';
   }
 
+  // Клиент: пока заявка на согласовании у менеджера (объём > 3000 л), сумма ещё
+  // не подтверждена — не показываем блок «Ожидается/Оплачено/Долг» и требование оплаты.
+  if (role === 'client' && o.status === 'awaiting_manager') {
+    return '';
+  }
+
   const ps = o.payment_status || 'unpaid';
   // Use 2-bucket display (DECISION 1)
   const dispPs = paymentStatusDisplay(ps);
@@ -4722,8 +4726,6 @@ function actionBarHTML(o) {
   }
 
   if (role === 'client') {
-    if (s === 'awaiting_manager')
-      btns.push(`<span style="font-size:12px;color:var(--amber);display:inline-flex;align-items:center;gap:4px">${icon('clock',13)} Объём > 3000 л — заявка на согласовании у менеджера</span>`);
     if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
     // Chat with manager
@@ -5182,9 +5184,15 @@ async function loadClientSelectForOrder() {
 // ═══════════════════════════════════════════════════════════════
 let _savedObjects = [];
 
-function toggleSaveObjectName(cb) {
-  const nameEl = document.getElementById('c-save-object-name');
-  if (nameEl) nameEl.style.display = cb.checked ? '' : 'none';
+// Показать выбранную дату по-русски (дд.мм.гггг) — нативный input type=date
+// рисует формат по локали браузера, поэтому дублируем дату текстом под полем.
+function updateDateDisplay() {
+  const el = document.getElementById('c-date');
+  const out = document.getElementById('c-date-display');
+  if (!el || !out) return;
+  out.textContent = el.value
+    ? new Date(el.value + 'T00:00:00').toLocaleDateString('ru-RU')
+    : '';
 }
 
 async function loadSavedObjects() {
@@ -5335,7 +5343,8 @@ async function loadMyOrganizations() {
   const addBtn   = document.getElementById('orgs-add-btn');
   if (titleEl)  titleEl.textContent = staff ? 'Организации' : 'Мои организации';
   if (searchEl) searchEl.style.display = staff ? '' : 'none';
-  if (addBtn)   addBtn.style.display = staff ? 'none' : '';
+  // Кнопку добавления видят все: клиент заводит свои юрлица, staff — на клиента
+  if (addBtn)   addBtn.style.display = '';
 
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
@@ -5551,11 +5560,19 @@ async function orgLookupAndContinue() {
 // Шаг 2 — проверка/дозаполнение реквизитов
 function openCreateOrgStep2() {
   const p = _orgDraft.party || {}, b = _orgDraft.bank || {};
+  const staff = _isOrgStaff();
   const note = _orgDraft.found
     ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Данные найдены в ФНС — проверьте и дополните</div>`
     : `<div style="font-size:12px;color:var(--orange,#c80);margin-bottom:8px">По ИНН ничего не найдено — заполните реквизиты вручную</div>`;
+  // Staff заводит юрлицо НА клиента — обязательный выбор владельца
+  const ownerBlock = staff ? `
+    <div class="form-group"><label class="form-label">Клиент-владелец <span style="color:var(--red)">*</span></label>
+      <select id="co-owner-client" class="form-input" onchange="_orgDraft.ownerClientId=this.value">
+        <option value="">— загрузка клиентов… —</option></select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Организация будет привязана к этому клиенту</div></div>` : '';
   openModal('Новая организация — реквизиты', `
     ${note}
+    ${ownerBlock}
     <div class="form-group"><label class="form-label">ИНН</label>
       <input class="form-input" value="${escHtml(_orgDraft.inn)}" disabled></div>
     <div class="form-group"><label class="form-label">Название <span style="color:var(--red)">*</span></label>
@@ -5584,11 +5601,31 @@ function openCreateOrgStep2() {
   const body = document.getElementById('modal-body');
   if (body) body.insertAdjacentHTML('afterbegin',
     `<button class="btn btn-sm btn-ghost" style="margin-bottom:8px" onclick="openCreateOrgModal();document.getElementById('org-inn').value='${escHtml(_orgDraft.inn)}'">← назад к ИНН</button>`);
+  if (staff) _fillOrgOwnerClients();
+}
+
+// Подгрузить список клиентов в селектор владельца (staff-флоу создания организации)
+async function _fillOrgOwnerClients() {
+  const sel = document.getElementById('co-owner-client');
+  if (!sel) return;
+  try {
+    const clients = await api(`${AUTH_URL}/users?role=client&limit=200&include_inactive=false`);
+    sel.innerHTML = '<option value="">— выберите клиента —</option>' +
+      clients.map(c => `<option value="${c.id}">${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+    if (_orgDraft.ownerClientId) sel.value = _orgDraft.ownerClientId;
+  } catch (_) {
+    sel.innerHTML = '<option value="">— не удалось загрузить клиентов —</option>';
+  }
 }
 
 async function submitCreateOrg() {
   const name = document.getElementById('co-name').value.trim();
   if (!name) { toast('Укажите название организации', 'error'); return; }
+  let ownerClientId;
+  if (_isOrgStaff()) {
+    ownerClientId = document.getElementById('co-owner-client')?.value || '';
+    if (!ownerClientId) { toast('Выберите клиента-владельца организации', 'error'); return; }
+  }
   const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
   const body = {
     inn:                   _orgDraft.inn,
@@ -5603,6 +5640,7 @@ async function submitCreateOrg() {
     correspondent_account: v('co-corr'),
     billing_email:         v('co-email'),
   };
+  if (ownerClientId) body.owner_client_id = ownerClientId;
   try {
     await authPost('/organizations', body);
     closeModal();
@@ -5756,8 +5794,8 @@ async function doCreateOrder() {
       toast(`Заявка ${order.order_number} создана!`);
     }
 
-    // Save address as object if checkbox checked
-    if (document.getElementById('c-save-object')?.checked && resolvedAddress) {
+    // Адрес доставки сохраняется в объекты автоматически (бэкенд дедуплицирует по адресу)
+    if (resolvedAddress) {
       try {
         const payload = { delivery_address: resolvedAddress, name: document.getElementById('c-save-object-name')?.value.trim() || undefined };
         if (body.delivery_lat != null) { payload.delivery_lat = body.delivery_lat; payload.delivery_lon = body.delivery_lon; }
@@ -5791,10 +5829,8 @@ async function doCreateOrder() {
     document.getElementById('c-zones-legend').innerHTML = '';
     if (_cMarker && _cZoneMap) { _cZoneMap.removeLayer(_cMarker); _cMarker = null; }
     // Reset saved-object controls
-    const saveObjCb = document.getElementById('c-save-object');
-    if (saveObjCb) saveObjCb.checked = false;
     const saveObjName = document.getElementById('c-save-object-name');
-    if (saveObjName) { saveObjName.value = ''; saveObjName.style.display = 'none'; }
+    if (saveObjName) saveObjName.value = '';
     const savedObjSel = document.getElementById('c-saved-object');
     if (savedObjSel) savedObjSel.value = '';
     const savedObjDel = document.getElementById('c-saved-object-del');
