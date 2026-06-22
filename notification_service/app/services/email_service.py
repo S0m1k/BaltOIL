@@ -17,8 +17,14 @@ from email.mime.multipart import MIMEMultipart
 import aiosmtplib
 
 from app.config import settings
+from app.services.email_http import send_unisender_go
 
 logger = logging.getLogger(__name__)
+
+
+def _use_http_provider() -> bool:
+    """True, когда письма надо слать через HTTP-API (порт 443), а не SMTP."""
+    return settings.email_http_provider == "unisender_go" and bool(settings.unisender_go_api_key)
 
 
 @contextmanager
@@ -55,6 +61,9 @@ async def send_email(to: str, subject: str, body_text: str) -> bool:
     if not settings.email_enabled:
         logger.debug("email disabled (EMAIL_ENABLED=false), skipping send to %s", to)
         return False
+
+    if _use_http_provider():
+        return await send_unisender_go(to, subject, body_text)
 
     if not settings.smtp_host:
         logger.warning("email_enabled=true but SMTP_HOST is not set — cannot send email")
@@ -111,6 +120,12 @@ async def send_email_with_attachment(
     if not settings.email_enabled:
         logger.debug("email disabled (EMAIL_ENABLED=false), skipping send to %s", to)
         return False
+
+    if _use_http_provider():
+        return await send_unisender_go(
+            to, subject, body_text,
+            filename=filename, content_bytes=content_bytes, mime_type=mime_type,
+        )
 
     if not settings.smtp_host:
         logger.warning("email_enabled=true but SMTP_HOST is not set — cannot send email")
