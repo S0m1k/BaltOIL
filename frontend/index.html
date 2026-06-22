@@ -1934,8 +1934,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Желаемая дата доставки</label>
-            <input type="date" id="c-date" class="form-input" lang="ru" oninput="updateDateDisplay()">
-            <div id="c-date-display" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
+            <input type="date" id="c-date" class="form-input" lang="ru">
           </div>
         </div>
 
@@ -4642,6 +4641,12 @@ function paymentSummaryHTML(o) {
     return '';
   }
 
+  // Клиент + юрлицо: оплата идёт по счёту (уходит на почту/в чат), поэтому в карточке
+  // не показываем блок «Ожидается/Оплачено/Долг» и красное «необходимо оплатить».
+  if (role === 'client' && o.order_kind && o.order_kind !== 'individual') {
+    return '';
+  }
+
   const ps = o.payment_status || 'unpaid';
   // Use 2-bucket display (DECISION 1)
   const dispPs = paymentStatusDisplay(ps);
@@ -5186,15 +5191,6 @@ let _savedObjects = [];
 
 // Показать выбранную дату по-русски (дд.мм.гггг) — нативный input type=date
 // рисует формат по локали браузера, поэтому дублируем дату текстом под полем.
-function updateDateDisplay() {
-  const el = document.getElementById('c-date');
-  const out = document.getElementById('c-date-display');
-  if (!el || !out) return;
-  out.textContent = el.value
-    ? new Date(el.value + 'T00:00:00').toLocaleDateString('ru-RU')
-    : '';
-}
-
 async function loadSavedObjects() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const group = document.getElementById('c-saved-object-group');
@@ -5385,8 +5381,9 @@ function orgCardHTML(o) {
 
   // Кнопки действий
   const btns = [`<button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>`];
+  // Реквизиты правит и владелец-клиент, и staff (бэкенд: _require_org_admin)
+  btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
   if (staff) {
-    btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
     if (currentUser?.role === 'admin')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);
     btns.push(`<button class="btn btn-sm btn-danger" onclick="archiveOrg('${o.id}')">Архивировать</button>`);
@@ -5420,8 +5417,6 @@ function openEditOrgModal(orgId) {
       <input id="eo-kpp" class="form-input" value="${escHtml(o.kpp || '')}"></div>
     <div class="form-group"><label class="form-label">Юридический адрес</label>
       <input id="eo-legal" class="form-input" value="${escHtml(o.legal_address || '')}"></div>
-    <div class="form-group"><label class="form-label">Адрес доставки</label>
-      <input id="eo-delivery" class="form-input" value="${escHtml(o.delivery_address || '')}"></div>
     <div class="form-group"><label class="form-label">Банк</label>
       <input id="eo-bank" class="form-input" value="${escHtml(o.bank_name || '')}"></div>
     <div class="form-group"><label class="form-label">БИК</label>
@@ -5432,8 +5427,8 @@ function openEditOrgModal(orgId) {
       <input id="eo-corr" class="form-input" value="${escHtml(o.correspondent_account || '')}"></div>
     <div class="form-group"><label class="form-label">Номер договора</label>
       <input id="eo-contract" class="form-input" value="${escHtml(o.contract_number || '')}"></div>
-    <div class="form-group"><label class="form-label">Email для документов</label>
-      <input id="eo-email" class="form-input" value="${escHtml(o.billing_email || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для счетов</label>
+      <input id="eo-email" class="form-input" type="email" value="${escHtml(o.billing_email || '')}" placeholder="на эту почту уйдут счета"></div>
   `, () => submitEditOrg(orgId));
 }
 
@@ -5442,7 +5437,6 @@ async function submitEditOrg(orgId) {
     company_name:          document.getElementById('eo-name').value.trim() || null,
     kpp:                   document.getElementById('eo-kpp').value.trim() || null,
     legal_address:         document.getElementById('eo-legal').value.trim() || null,
-    delivery_address:      document.getElementById('eo-delivery').value.trim() || null,
     bank_name:             document.getElementById('eo-bank').value.trim() || null,
     bik:                   document.getElementById('eo-bik').value.trim() || null,
     bank_account:          document.getElementById('eo-acc').value.trim() || null,
@@ -5583,8 +5577,6 @@ function openCreateOrgStep2() {
       <input id="co-ogrn" class="form-input" value="${escHtml(p.ogrn || '')}"></div>
     <div class="form-group"><label class="form-label">Юридический адрес</label>
       <input id="co-legal" class="form-input" value="${escHtml(p.legal_address || '')}"></div>
-    <div class="form-group"><label class="form-label">Адрес доставки</label>
-      <input id="co-delivery" class="form-input" placeholder="если отличается от юридического"></div>
     <div class="form-group"><label class="form-label">Банк</label>
       <input id="co-bank" class="form-input" value="${escHtml(b.bank_name || '')}"></div>
     <div class="form-group"><label class="form-label">БИК</label>
@@ -5593,8 +5585,8 @@ function openCreateOrgStep2() {
       <input id="co-acc" class="form-input" placeholder="20 цифр"></div>
     <div class="form-group"><label class="form-label">Корр. счёт</label>
       <input id="co-corr" class="form-input" value="${escHtml(b.correspondent_account || '')}"></div>
-    <div class="form-group"><label class="form-label">Email для документов</label>
-      <input id="co-email" class="form-input" placeholder="необязательно"></div>
+    <div class="form-group"><label class="form-label">Email для счетов <span style="color:var(--red)">*</span></label>
+      <input id="co-email" class="form-input" type="email" placeholder="на эту почту уйдут счета и документы"></div>
   `, submitCreateOrg);
   _setModalConfirmText('Создать');
   // Кнопка «назад» к шагу 1
@@ -5626,6 +5618,8 @@ async function submitCreateOrg() {
     ownerClientId = document.getElementById('co-owner-client')?.value || '';
     if (!ownerClientId) { toast('Выберите клиента-владельца организации', 'error'); return; }
   }
+  const email = (document.getElementById('co-email')?.value || '').trim();
+  if (!email) { toast('Укажите email для счетов', 'error'); return; }
   const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
   const body = {
     inn:                   _orgDraft.inn,
@@ -5633,12 +5627,11 @@ async function submitCreateOrg() {
     kpp:                   v('co-kpp'),
     ogrn:                  v('co-ogrn'),
     legal_address:         v('co-legal'),
-    delivery_address:      v('co-delivery'),
     bank_name:             v('co-bank'),
     bik:                   v('co-bik'),
     bank_account:          v('co-acc'),
     correspondent_account: v('co-corr'),
-    billing_email:         v('co-email'),
+    billing_email:         email,
   };
   if (ownerClientId) body.owner_client_id = ownerClientId;
   try {
@@ -5713,10 +5706,26 @@ function toggleSelfContact(cb) {
   }
 }
 
+let _orderSubmitting = false;
 async function doCreateOrder() {
+  if (_orderSubmitting) return;                       // защита от двойного сабмита (дубли заявок)
   const errEl = document.getElementById('create-error');
   errEl.innerHTML = '';
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+
+  // Понятная валидация объёма до отправки — вместо сырой ошибки бэкенда
+  const _volRaw = (document.getElementById('c-volume')?.value || '').trim();
+  const _vol = parseFloat(_volRaw);
+  const _volMin = isStaff ? 1 : 300;
+  if (!_volRaw || !Number.isFinite(_vol) || _vol < _volMin) {
+    errEl.innerHTML = `<div class="inline-error">Укажите объём топлива (минимум ${_volMin} л)</div>`;
+    return;
+  }
+
+  const submitBtn = document.querySelector('button[onclick="doCreateOrder()"]');
+  _orderSubmitting = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.label = submitBtn.textContent; submitBtn.innerHTML = '<span class="loading"></span> Отправка…'; }
+  try {
 
   // Собираем адрес: приоритет unrestricted_value дома, иначе склейка полей.
   const _addrFallback = [
@@ -5845,6 +5854,10 @@ async function doCreateOrder() {
     switchTab('orders');
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+  } finally {
+    _orderSubmitting = false;
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.label || 'Отправить заявку'; }
   }
 }
 
@@ -7169,10 +7182,15 @@ function renderConvList(convs) {
   updateChatTabBadge(convs);
   const el = document.getElementById('conv-list');
 
-  // Чипы папок (правки 2026-06-11)
+  // Чипы папок (правки 2026-06-11). Клиенту папки «Рабочие»/«Клиенты» не нужны —
+  // они для менеджеров и водителей; клиент видит только «Все» и «Личные».
+  const _folders = currentUser?.role === 'client'
+    ? CONV_FOLDERS.filter(([k]) => k === 'all' || k === 'personal')
+    : CONV_FOLDERS;
+  if (!_folders.some(([k]) => k === _convFolder)) _convFolder = 'all';
   const folderChips = `
     <div style="display:flex;gap:4px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-      ${CONV_FOLDERS.map(([key, label]) => `
+      ${_folders.map(([key, label]) => `
         <button class="btn btn-sm ${_convFolder === key ? 'btn-warn' : 'btn-ghost'}"
           style="padding:3px 10px;font-size:11px" onclick="setConvFolder('${key}')">${label}</button>`).join('')}
     </div>`;
