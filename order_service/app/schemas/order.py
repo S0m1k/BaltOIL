@@ -151,6 +151,9 @@ class OrderResponse(BaseModel):
     debt_amount: float = 0.0
     pricing_warning: bool = False  # True если expected_amount=None (тариф не настроен)
 
+    # Имя покупателя: организация, иначе ФИО клиента (правки 2026-06-23)
+    buyer_name: str | None = None
+
     model_config = {"from_attributes": True}
 
 
@@ -190,5 +193,8 @@ class OrderListResponse(BaseModel):
     paid_total: float = 0.0
     debt_amount: float = 0.0
     pricing_warning: bool = False
+
+    # Имя покупателя: организация, иначе ФИО клиента (правки 2026-06-23)
+    buyer_name: str | None = None
 
     model_config = {"from_attributes": True}

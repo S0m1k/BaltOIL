@@ -196,6 +196,74 @@ async def get_buyer_snapshot(
     )
 
 
+class BuyerNameItem(BaseModel):
+    client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+
+
+class BuyerNamesRequest(BaseModel):
+    items: list[BuyerNameItem]
+
+
+class BuyerNameResult(BaseModel):
+    client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    name: str | None = None
+
+
+@router.post(
+    "/orders/buyer-names",
+    response_model=list[BuyerNameResult],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_buyer_names(
+    body: BuyerNamesRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[BuyerNameResult]:
+    """Батч-резолв имени покупателя для заявок: организация (по organization_id)
+    иначе ФИО/название клиента-физлица. Используется order_service для вывода
+    «кто сделал заявку» в списке и карточке (правки 2026-06-23).
+
+    N запросов сводятся к 3 батч-выборкам (orgs / users / profiles) — без N+1.
+    """
+    if not body.items:
+        return []
+
+    org_ids = {i.organization_id for i in body.items if i.organization_id}
+    client_ids = {i.client_id for i in body.items}
+
+    orgs: dict[uuid.UUID, Organization] = {}
+    if org_ids:
+        res = await db.execute(select(Organization).where(Organization.id.in_(org_ids)))
+        orgs = {o.id: o for o in res.scalars().all()}
+
+    users_res = await db.execute(select(User).where(User.id.in_(client_ids)))
+    users = {u.id: u for u in users_res.scalars().all()}
+
+    prof_res = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id.in_(client_ids))
+    )
+    profiles = {p.user_id: p for p in prof_res.scalars().all()}
+
+    def _resolve(item: BuyerNameItem) -> str | None:
+        if item.organization_id and item.organization_id in orgs:
+            return orgs[item.organization_id].company_name
+        prof = profiles.get(item.client_id)
+        user = users.get(item.client_id)
+        if prof and prof.client_type.value == "company" and prof.company_name:
+            return prof.company_name
+        return user.full_name if user else None
+
+    return [
+        BuyerNameResult(
+            client_id=i.client_id,
+            organization_id=i.organization_id,
+            name=_resolve(i),
+        )
+        for i in body.items
+    ]
+
+
 class EmailTargetResponse(BaseModel):
     email: str | None
 

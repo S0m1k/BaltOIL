@@ -24,6 +24,7 @@ from app.services.payment_service import (
 )
 from app.services import document_service
 from app.services import contract_service
+from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
 from app.services.client_context import get_client_context, get_user_organization_ids
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
@@ -162,6 +163,7 @@ async def get_order(
                 raise ForbiddenError()
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -243,6 +245,7 @@ async def list_orders(
     )
     orders = list(result.scalars().all())
     await attach_payment_totals(db, orders)
+    await attach_buyer_names(orders)
     return orders
 
 
@@ -547,6 +550,7 @@ async def create_order(
     })
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -755,6 +759,7 @@ async def update_order(
     order = result.scalar_one()
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -832,6 +837,7 @@ async def claim_order(
         "body": "Водитель принял вашу заявку",
     })
 
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -852,6 +858,7 @@ async def ack_changes(
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
     order = result.scalar_one()
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -924,6 +931,7 @@ async def reschedule_order(
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
     order = result.scalar_one()
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -1053,6 +1061,7 @@ async def transition_status(
     })
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 

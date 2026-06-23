@@ -4383,18 +4383,18 @@ function orderCardHTML(o) {
       ${_changedMark(o)}
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
-      <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
+      <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${escHtml(o.delivery_address)}</div>
       <div class="order-volume">
         ${Number(o.volume_requested).toLocaleString('ru')} л
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
       </div>
-      ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">${icon('chat-circle',13,'margin-right:4px')} ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
       ${dateHtml}
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
         ${isStaff ? `<div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>` : ''}
+        ${o.buyer_name ? `<div class="detail-item"><div class="detail-label">Организация / клиент</div><div class="detail-value">${escHtml(o.buyer_name)}</div></div>` : ''}
         ${isStaff ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Топливо ${_editPencil(o,'fuel_type')}</div><div class="detail-value">${fuelLabel}</div></div>
         <div class="detail-item"><div class="detail-label">Объём заказан ${_editPencil(o,'volume_requested')}</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
