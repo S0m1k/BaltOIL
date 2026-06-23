@@ -4,13 +4,16 @@
 Договор живёт на клиенте. Генерация и список — manager/admin. Скачивание —
 manager/admin для любого договора, клиент — только своего.
 """
+import base64
+import logging
 import os
 import uuid
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, Query
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,8 +25,24 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.contract import ContractStatus
 from app.services import contract_service
 from app.services import document_export
+from app.config import settings
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["contracts"])
+
+
+async def _fetch_contract_target(org_id: uuid.UUID) -> dict:
+    """Цель договора организации (владелец, почта, участники) из auth_service."""
+    base = settings.auth_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": settings.internal_api_secret}
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.get(
+            f"{base}/api/v1/internal/organizations/{org_id}/contract-target",
+            headers=headers,
+        )
+        r.raise_for_status()
+        return r.json()
 
 ManagerOrAdmin = Annotated[object, Depends(require_roles("manager", "admin"))]
 
@@ -131,3 +150,143 @@ async def download_contract(
         media_type="application/pdf",
         filename=f"contract_{contract.contract_number.replace('/', '-')}.pdf",
     )
+
+
+# ── Договор по организации (кнопка «Договор» на карточке юрлица, правки 2026-06-23) ──
+
+@router.get("/organizations/{org_id}/contract", response_model=ContractResponse)
+async def get_org_contract(
+    org_id: uuid.UUID,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Договор организации (находит активный, иначе формирует). Доступ: staff —
+    всегда; клиент — только участник организации."""
+    try:
+        target = await _fetch_contract_target(org_id)
+    except Exception as exc:
+        log.error("contract-target lookup failed for org %s: %s", org_id, exc)
+        raise HTTPException(status_code=503, detail="Сервис организаций недоступен")
+
+    member_ids = set(target.get("member_ids") or [])
+    is_staff = actor.role in ("manager", "admin")
+    if not is_staff and str(actor.id) not in member_ids:
+        raise ForbiddenError("Договор доступен только сотрудникам организации")
+
+    contract = await contract_service.get_active_contract_by_org(db, org_id)
+    if contract is None:
+        owner_id = target.get("owner_client_id")
+        if not owner_id:
+            raise HTTPException(status_code=422, detail="У организации нет активных участников")
+        contract = await contract_service.create_contract(
+            db, uuid.UUID(owner_id), actor, org_id
+        )
+        await db.commit()
+        await db.refresh(contract)
+    return contract
+
+
+async def _resolve_contract_recipient(contract) -> str | None:
+    """Email для отправки договора: billing_email организации, иначе email владельца."""
+    if contract.organization_id:
+        try:
+            target = await _fetch_contract_target(contract.organization_id)
+            if target.get("billing_email"):
+                return target["billing_email"]
+        except Exception as exc:
+            log.warning("contract recipient org lookup failed: %s", exc)
+    # Fallback — email клиента-владельца через auth_service
+    base = settings.auth_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": settings.internal_api_secret}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{base}/api/v1/internal/users/{contract.client_id}/email-target",
+                headers=headers,
+            )
+            r.raise_for_status()
+            return r.json().get("email")
+    except Exception as exc:
+        log.warning("contract recipient email-target lookup failed: %s", exc)
+        return None
+
+
+@router.post("/contracts/{contract_id}/send-email", status_code=200)
+async def send_contract_by_email(
+    contract_id: uuid.UUID,
+    actor: CurrentUser,
+    _: ManagerOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Отправить PDF договора на почту организации (или владельца). Только staff."""
+    contract = await contract_service.get_contract(db, contract_id)
+    if not contract.file_path:
+        raise NotFoundError("PDF договора не готов")
+    full_path = resolve_media_path(MEDIA_ROOT, contract.file_path)
+    if not full_path.exists():
+        raise NotFoundError("Файл договора не найден")
+
+    recipient = await _resolve_contract_recipient(contract)
+    if not recipient:
+        raise HTTPException(status_code=422, detail="Не задан email для отправки договора")
+
+    content_b64 = base64.b64encode(full_path.read_bytes()).decode()
+    subject = f"Договор № {contract.contract_number}"
+    body_text = "Здравствуйте,\n\nВо вложении договор поставки нефтепродуктов.\n\n— BaltOIL"
+    filename = f"Договор_{contract.contract_number.replace('/', '-')}.pdf"
+
+    notif_base = settings.notification_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": settings.internal_api_secret}
+    sent = False
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"{notif_base}/internal/email/send-with-attachment",
+                json={
+                    "to": recipient,
+                    "subject": subject,
+                    "body": body_text,
+                    "attachment": {
+                        "filename": filename,
+                        "content_base64": content_b64,
+                        "mime_type": "application/pdf",
+                    },
+                },
+                headers=headers,
+            )
+            r.raise_for_status()
+            sent = r.json().get("sent", False)
+    except Exception as exc:
+        log.error("contract send-email failed: %s", exc)
+
+    if not sent:
+        raise HTTPException(status_code=503, detail="Почтовый сервис недоступен")
+
+    log.info("contract.sent_email contract_id=%s to=%s", contract_id, recipient)
+    return {"ok": True, "to": recipient}
+
+
+@router.post("/contracts/{contract_id}/send-edo", status_code=200)
+async def send_contract_via_edo(
+    contract_id: uuid.UUID,
+    actor: CurrentUser,
+    _: ManagerOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Отправить договор на подпись по ЭДО (Диадок/Контур).
+
+    Каркас: интеграция с оператором ЭДО требует API-ключей и идентификаторов
+    участников (см. settings.edo_*). Пока ключи не заданы — возвращаем 501 с
+    понятным сообщением, чтобы UI показал «ЭДО не настроен», а не падал.
+    """
+    contract = await contract_service.get_contract(db, contract_id)
+    edo_token = getattr(settings, "edo_api_token", None)
+    if not edo_token:
+        raise HTTPException(
+            status_code=501,
+            detail="Отправка по ЭДО не настроена: нужны доступы оператора (Диадок/Контур). "
+                   "Договор можно отправить на почту.",
+        )
+    # TODO: при наличии ключей — вызвать API оператора ЭДО, передать PDF и
+    # идентификаторы отправителя/получателя, сохранить external_id/статус.
+    raise HTTPException(status_code=501, detail="Интеграция ЭДО в разработке")

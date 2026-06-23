@@ -4635,6 +4635,61 @@ function downloadContractExport(contractId) {
     .catch(e => toast('Ошибка выгрузки: ' + e.message, 'error'));
 }
 
+// ── Договор организации (кнопка «Договор» на карточке юрлица, правки 2026-06-23) ──
+async function openOrgContract(orgId) {
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  openModal('Договор', '<div class="empty-state"><div class="loading"></div></div>', null);
+  let c;
+  try {
+    c = await orderGet(`/organizations/${orgId}/contract`);
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message || 'Не удалось получить договор')}</div>`;
+    return;
+  }
+  const dateStr = c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU')
+                : (c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU') : '—');
+  const staffBtns = isStaff ? `
+    <button class="btn btn-sm btn-ghost" onclick="contractSendEmail('${c.id}',this)">${icon('envelope',14)} На почту</button>
+    <button class="btn btn-sm btn-ghost" onclick="contractSendEdo('${c.id}',this)">${icon('file-text',14)} По ЭДО на подпись</button>` : '';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      <div><span style="color:var(--text3);font-size:12px">Номер:</span> <strong style="font-family:monospace">${escHtml(c.contract_number)}</strong></div>
+      <div><span style="color:var(--text3);font-size:12px">Дата:</span> ${dateStr}</div>
+      <div><span style="color:var(--text3);font-size:12px">Статус:</span> ${c.status === 'active' ? 'действующий' : escHtml(c.status)}</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-primary-outline" onclick="downloadContractPdf('${c.id}')">${icon('file-text',14)} Посмотреть PDF</button>
+      <button class="btn btn-sm btn-ghost" onclick="downloadContractExport('${c.id}')">${icon('microsoft-excel-logo',14)} Word</button>
+      ${staffBtns}
+    </div>`;
+}
+
+async function contractSendEmail(contractId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await orderPost(`/contracts/${contractId}/send-email`, {});
+    toast('Договор отправлен на ' + (r.to || 'почту'), 'success');
+  } catch (e) {
+    toast('Ошибка отправки: ' + (e.message || ''), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = `${icon('envelope',14)} На почту`; }
+  }
+}
+
+async function contractSendEdo(contractId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    await orderPost(`/contracts/${contractId}/send-edo`, {});
+    toast('Договор отправлен по ЭДО', 'success');
+  } catch (e) {
+    // 501 — ЭДО ещё не настроен (нет ключей оператора): показываем понятное сообщение.
+    toast(e.message || 'ЭДО недоступно', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = `${icon('file-text',14)} По ЭДО на подпись`; }
+  }
+}
+
 async function sendDocToChat(orderId, docId, btn) {
   btn.disabled = true;
   btn.textContent = '…';
@@ -5417,6 +5472,8 @@ function orgCardHTML(o) {
   const btns = [`<button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>`];
   // Реквизиты правит и владелец-клиент, и staff (бэкенд: _require_org_admin)
   btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
+  // Договор виден и админу, и клиенту-участнику (правки 2026-06-23)
+  btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgContract('${o.id}')">Договор</button>`);
   if (staff) {
     if (currentUser?.role === 'admin')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);

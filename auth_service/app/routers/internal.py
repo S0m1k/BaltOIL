@@ -18,7 +18,7 @@ from app.core.phone import normalize_phone, normalized_phone_column
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile
-from app.models.organization import Organization, OrganizationMember, MemberStatus
+from app.models.organization import Organization, OrganizationMember, MemberStatus, MemberRole
 
 
 async def _load_member_org(
@@ -262,6 +262,51 @@ async def get_buyer_names(
         )
         for i in body.items
     ]
+
+
+class ContractTargetResponse(BaseModel):
+    organization_id: uuid.UUID
+    owner_client_id: uuid.UUID | None   # под кого оформлять/искать договор
+    company_name: str
+    billing_email: str | None
+    member_ids: list[uuid.UUID]         # активные участники (для проверки доступа клиента)
+
+
+@router.get(
+    "/organizations/{org_id}/contract-target",
+    response_model=ContractTargetResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_contract_target(
+    org_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ContractTargetResponse:
+    """Кому принадлежит договор организации: владелец (OWNER, иначе любой активный
+    участник), почта для отправки и список участников. Используется order_service
+    для кнопки «Договор» на карточке юрлица (правки 2026-06-23)."""
+    org_res = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = org_res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    mem_res = await db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.organization_id == org_id,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+            OrganizationMember.user_id.isnot(None),
+        )
+    )
+    members = list(mem_res.scalars().all())
+    owner = next((m for m in members if m.member_role == MemberRole.OWNER), None)
+    owner_id = owner.user_id if owner else (members[0].user_id if members else None)
+
+    return ContractTargetResponse(
+        organization_id=org_id,
+        owner_client_id=owner_id,
+        company_name=org.company_name,
+        billing_email=org.billing_email,
+        member_ids=[m.user_id for m in members if m.user_id],
+    )
 
 
 class EmailTargetResponse(BaseModel):

@@ -137,6 +137,23 @@ async def get_active_contract(
     return result.scalar_one_or_none()
 
 
+async def get_active_contract_by_org(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> Contract | None:
+    """Активный договор организации (любой участник-владелец). Для кнопки «Договор»
+    на карточке юрлица — ищем по organization_id, без привязки к client_id."""
+    result = await db.execute(
+        select(Contract)
+        .where(
+            Contract.organization_id == organization_id,
+            Contract.status == ContractStatus.ACTIVE,
+        )
+        .order_by(Contract.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 # ── Уведомление admin+manager ──────────────────────────────────────────────────
 
 async def _notify_contract_created(contract: Contract, pdf_bytes: bytes) -> None:
