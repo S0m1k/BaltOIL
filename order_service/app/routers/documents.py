@@ -28,15 +28,18 @@ router = APIRouter(prefix="/orders/{order_id}/documents", tags=["documents"])
 
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/media"))
 
-# Активные типы документов (Д4): только два счёта. Остальные типы (УПД/ТТН/
-# договор/доверенность/legacy invoice) — спящие, не генерятся и не выдаются в UI.
-ACTIVE_DOC_TYPES = (DocumentType.INVOICE_PRELIMINARY, DocumentType.INVOICE_FINAL)
+# Активные типы документов (Д4 2026-06-23: единый счёт). Новый INVOICE — основной;
+# legacy preliminary/final оставлены в списке, чтобы старые заявки сохранили доступ
+# к уже выпущенным счетам. Прочие типы (УПД/ТТН/договор/доверенность) — спящие.
+ACTIVE_DOC_TYPES = (
+    DocumentType.INVOICE,
+    DocumentType.INVOICE_PRELIMINARY,
+    DocumentType.INVOICE_FINAL,
+)
 
-# Какой генератор вызывать для ручного выставления счёта.
-_GENERATORS = {
-    "invoice_preliminary": document_service.generate_invoice_preliminary,
-    "invoice_final": document_service.generate_invoice_final,
-}
+# Ручное выставление счёта всегда работает с единым счётом (тот же номер при
+# повторном вызове). Любой invoice-подобный doc_type маппится на единый генератор.
+_INVOICE_DOC_TYPES = {"invoice", "invoice_preliminary", "invoice_final"}
 
 
 class DocumentResponse(BaseModel):
@@ -56,7 +59,7 @@ class DocumentResponse(BaseModel):
 
 
 class GenerateDocumentRequest(BaseModel):
-    doc_type: str  # только "invoice_preliminary" | "invoice_final"
+    doc_type: str = "invoice"  # единый счёт; legacy-значения принимаются как алиасы
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -72,7 +75,13 @@ async def list_documents(
     """
     await get_order(db, order_id, actor)  # проверка доступа
     docs = await document_service.list_for_order(db, order_id)
-    return [d for d in docs if d.doc_type in ACTIVE_DOC_TYPES]
+    active = [d for d in docs if d.doc_type in ACTIVE_DOC_TYPES]
+    # Единый счёт: если по заявке есть новый INVOICE — показываем только его,
+    # legacy предв./финальный скрываем (иначе у старых заявок было бы 2-3 счёта).
+    has_unified = any(d.doc_type == DocumentType.INVOICE for d in active)
+    if has_unified:
+        active = [d for d in active if d.doc_type == DocumentType.INVOICE]
+    return active
 
 
 @router.post("/generate", response_model=DocumentResponse, status_code=201)
@@ -91,15 +100,16 @@ async def generate_document(
     if actor.role not in ("manager", "admin"):
         raise ForbiddenError("Выставлять счета может менеджер или администратор")
 
-    gen_fn = _GENERATORS.get(body.doc_type)
-    if gen_fn is None:
-        raise ValidationError("doc_type должен быть invoice_preliminary или invoice_final")
+    if body.doc_type not in _INVOICE_DOC_TYPES:
+        raise ValidationError("doc_type должен быть invoice")
 
     order = await get_order(db, order_id, actor)  # проверка доступа
     if order.order_kind == OrderKind.TTN_L:
         raise ValidationError("Для ТТН-Л счета не выставляются")
 
-    doc = await gen_fn(db, order, actor)
+    # Единый счёт: перевыпуск с теми же номером/датой и актуальными цифрами
+    # (или создание, если счёта ещё нет).
+    doc = await document_service.regenerate_invoice(db, order, actor)
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -208,15 +218,12 @@ async def send_document_to_chat(
             if convs:
                 conv_id = convs[0]["id"]
             else:
-                # Создаём диалог клиент ↔ менеджер по заявке
+                # Нет диалога по заявке — гарантируем диалог клиент ↔ менеджер.
+                # Раньше тут был POST /conversations, которого в chat_service нет
+                # (есть только ensure-*-эндпоинты) → отправка падала с 404.
                 r2 = await client.post(
-                    f"{base}/api/v1/conversations",
-                    json={
-                        "type": "client_support",
-                        "order_id": str(order_id),
-                        "participant_ids": [str(order.client_id)],
-                        "title": f"Заявка {order.order_number}",
-                    },
+                    f"{base}/api/v1/conversations/ensure-client-manager",
+                    json={"client_id": str(order.client_id)},
                     headers=headers,
                 )
                 r2.raise_for_status()
@@ -225,8 +232,8 @@ async def send_document_to_chat(
             # Отправляем document-сообщение
             doc_type_label = {
                 "invoice": "Счёт",
-                "invoice_preliminary": "Счёт (предв.)",
-                "invoice_final": "Счёт (финал)",
+                "invoice_preliminary": "Счёт",
+                "invoice_final": "Счёт",
                 "ttn": "ТТН",
                 "upd": "УПД",
             }.get(

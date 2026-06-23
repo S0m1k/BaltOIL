@@ -513,9 +513,9 @@ async def create_order(
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
             try:
-                await document_service.generate_invoice_preliminary(db, order, actor)
+                await document_service.generate_invoice(db, order, actor)
             except Exception as exc:
-                log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
+                log.warning("Auto-invoice failed for order %s: %s", order.id, exc)
 
     # Auto-contract: для клиента-юрлица без активного договора формируем договор
     # поставки. Не блокируем заявку — любая ошибка только логируется.
@@ -712,6 +712,18 @@ async def update_order(
         await recompute_and_save(db, order)
         changed = True
         changed_keys.append("amount")
+
+    # Единый счёт (Д4 2026-06-23): если staff поменял объём/стоимость/сумму —
+    # перевыпускаем счёт с теми же номером и датой, но новыми цифрами. Только для
+    # staff и только если суммовые поля затронуты (карандашики клиента/водителя
+    # сумму не меняют до согласования). Ошибка не блокирует сохранение заявки.
+    _amount_touched = bool({"amount", "volume", "fuel_type"} & set(changed_keys))
+    if is_staff and _amount_touched and order.order_kind != OrderKind.TTN_L:
+        try:
+            async with db.begin_nested():
+                await document_service.regenerate_invoice(db, order, actor)
+        except Exception as exc:
+            log.warning("Invoice regen on staff edit failed for order %s: %s", order.id, exc)
 
     # Если заявка была в ACCEPTED и что-то изменил НЕ водитель — водитель должен
     # подтвердить (свои изменения водитель не подтверждает, правки 2026-06-11).
@@ -962,12 +974,12 @@ async def transition_status(
     order.status = data.to_status
 
     # Согласование крупной заявки менеджером (правки 2026-06-11): при одобрении
-    # выставляем предварительный счёт — заказчик подтвердил «выставляется счёт».
+    # выставляем единый счёт — заказчик подтвердил «выставляется счёт».
     # Ошибка генерации не блокирует согласование (менеджер выставит вручную).
     if prev_status == OrderStatus.AWAITING_MANAGER and data.to_status == OrderStatus.NEW:
         try:
             async with db.begin_nested():
-                await document_service.generate_invoice_preliminary(db, order, actor)
+                await document_service.regenerate_invoice(db, order, actor)
         except Exception as exc:
             log.warning("Auto-invoice on approval failed for order %s: %s", order.id, exc)
 
@@ -994,14 +1006,12 @@ async def transition_status(
             except Exception as exc:
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
-            for gen_fn, label in [
-                (document_service.generate_invoice_final, "invoice_final"),
-            ]:
-                try:
-                    async with db.begin_nested():
-                        await gen_fn(db, order, actor)
-                except Exception as exc:
-                    log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
+            # Единый счёт: перевыпускаем с фактическим объёмом (тот же номер).
+            try:
+                async with db.begin_nested():
+                    await document_service.regenerate_invoice(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-invoice regen on delivery failed for order %s: %s", order.id, exc)
 
         # Departure-транзакция в delivery_service (списание топлива со склада)
         try:

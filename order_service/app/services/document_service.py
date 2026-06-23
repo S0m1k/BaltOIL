@@ -709,6 +709,107 @@ async def generate_invoice_final(
     return doc
 
 
+async def generate_invoice(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Единый счёт по заявке (Д4 2026-06-23: один счёт вместо предв./финального).
+
+    Идемпотентно: если активный счёт уже выпущен — возвращаем его. Для обновления
+    сумм/объёма после правок используйте regenerate_invoice (тот же номер)."""
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE)
+    if existing:
+        return existing
+
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order)
+    seller = await get_seller_snapshot(db)
+    buyer  = await _fetch_buyer_snapshot(order)
+    doc_number = await _next_doc_number(db, DocumentType.INVOICE)
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%d.%m.%Y")
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE)
+    ctx = _build_invoice_ctx(
+        doc_number=doc_number, issued_at=now_str,
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=basis,
+    )
+
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
+        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice PDF render failed for order %s: %s", order.id, exc)
+        file_path = None
+        status = DocumentStatus.DRAFT
+
+    doc = Document(
+        order_id=order.id,
+        doc_type=DocumentType.INVOICE,
+        doc_number=doc_number,
+        status=status,
+        seller_snapshot=seller,
+        buyer_snapshot=buyer,
+        issued_at=now,
+        total_amount=amount,
+        volume=volume,
+        file_path=file_path,
+        created_by_id=actor.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def regenerate_invoice(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Перевыпустить единый счёт с актуальными суммами/объёмом, СОХРАНИВ номер.
+
+    Вызывается после правок заявки админом (объём, стоимость доставки, сумма)
+    и при доставке (фактический объём). Если счёта ещё нет — создаёт новый.
+    Снимок реквизитов обновляется на текущий, PDF перерисовывается на месте.
+    """
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE)
+    if existing is None:
+        return await generate_invoice(db, order, actor)
+
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order)
+    seller = await get_seller_snapshot(db)
+    buyer  = await _fetch_buyer_snapshot(order)
+    issued_at = existing.issued_at or datetime.now(timezone.utc)
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE)
+    ctx = _build_invoice_ctx(
+        doc_number=existing.doc_number,
+        issued_at=issued_at.strftime("%d.%m.%Y"),
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=basis,
+    )
+
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
+        file_path = _save_pdf(order.id, existing.doc_number, pdf_bytes)
+        existing.file_path = file_path
+        existing.status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice PDF re-render failed for order %s: %s", order.id, exc)
+        # Оставляем прежний файл/статус — лучше старый корректный PDF, чем пустой.
+
+    existing.seller_snapshot = seller
+    existing.buyer_snapshot = buyer
+    existing.total_amount = amount
+    existing.volume = volume
+    await db.flush()
+    return existing
+
+
 async def build_export_ctx(db: AsyncSession, doc: Document, order: Order) -> dict:
     """Восстановить контекст документа из сохранённого снимка для выгрузки в xlsx/docx.
 

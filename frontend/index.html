@@ -4466,7 +4466,7 @@ async function loadTimeline(orderId) {
   }
 }
 
-const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Предварительный счёт', invoice_final: 'Финальный счёт', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
+const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт', invoice_final: 'Счёт', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
 // Редактируемый формат выгрузки по типу документа: Excel (xlsx) для таблиц, Word (docx) для текстовых.
 const DOC_EXPORT_FMT = { invoice: 'Excel', invoice_preliminary: 'Excel', invoice_final: 'Excel', ttn: 'Excel', upd: 'Excel', poa: 'Word' };
 const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
@@ -4480,11 +4480,9 @@ async function loadDocs(orderId) {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const generateBar = isStaff ? `
     <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
-      <span style="font-size:11px;color:var(--text3)">Выставить счёт:</span>
       <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
-        onclick="generateInvoice('${orderId}','invoice_preliminary',this)">Предварительный</button>
-      <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
-        onclick="generateInvoice('${orderId}','invoice_final',this)">Финальный</button>
+        onclick="generateInvoice('${orderId}','invoice',this)">Выставить счёт</button>
+      <span style="font-size:11px;color:var(--text3)">при изменении объёма счёт перевыпускается с теми же номером и датой</span>
     </div>` : '';
   try {
     const docs = await orderGet(`/orders/${orderId}/documents`);
@@ -4500,10 +4498,10 @@ async function loadDocs(orderId) {
       const statusColor = DOC_STATUS_COLORS[d.status] || 'inherit';
       const canDownload = d.status === 'ready' || d.status === 'sent';
       const canSend     = d.status === 'ready';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:18px">${icon('file-text',18)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace">${escHtml(d.doc_number)}</span></div>
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="font-size:18px;flex-shrink:0">${icon('file-text',18)}</div>
+        <div style="flex:1;min-width:140px">
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.doc_number)}</span></div>
           <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
         </div>
         ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
@@ -5410,7 +5408,7 @@ function orgCardHTML(o) {
 function openEditOrgModal(orgId) {
   const o = _myOrgs.find(x => x.id === orgId);
   if (!o) return;
-  openModal(`Реквизиты — ${escHtml(o.company_name)}`, `
+  openModal(`Реквизиты — ${o.company_name || ''}`, `
     <div class="form-group"><label class="form-label">Название</label>
       <input id="eo-name" class="form-input" value="${escHtml(o.company_name || '')}"></div>
     <div class="form-group"><label class="form-label">КПП</label>
@@ -5463,7 +5461,7 @@ async function openOrgCommercial(orgId) {
       `<option value="${t.id}"${o.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
     ).join('');
   } catch (_) {}
-  openModal(`Тариф / кредит — ${escHtml(o.company_name)}`, `
+  openModal(`Тариф / кредит — ${o.company_name || ''}`, `
     <div class="form-group"><label class="form-label">Тариф</label>
       <select id="oc-tariff" class="form-input">${tariffOptions}</select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div></div>
@@ -9644,7 +9642,7 @@ async function promptEditTariff(tariffId) {
   catch (e) { toast('Ошибка загрузки тарифа'); return; }
 
   const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
-  openModal(`Тариф: ${escHtml(tariff.name)}`, `
+  openModal(`Тариф: ${tariff.name || ''}`, `
     <div class="form-group">
       <label class="form-label">Цены за литр</label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -9745,7 +9743,7 @@ async function promptClientSettings(userId, clientName) {
     ).join('');
   } catch (_) {}
 
-  openModal(`Настройки клиента: ${escHtml(clientName || user.full_name || user.email || '')}`, `
+  openModal(`Настройки клиента: ${clientName || user.full_name || user.email || ''}`, `
     <div class="form-group">
       <label class="form-label">Тариф</label>
       <select id="cs-tariff" class="form-input">${tariffOptions}</select>
