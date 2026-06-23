@@ -2051,11 +2051,11 @@
     <!-- TRIPS TAB -->
     <div class="tab-pane" id="pane-trips">
       <div class="toolbar">
-        <div class="toolbar-title">Рейсы</div>
+        <div class="toolbar-title">Рейсы <span style="font-size:11px;color:var(--text3);font-weight:400">— журнал закрытых водителем рейсов</span></div>
         <select class="filter-select" id="trip-status-filter" onchange="loadTrips()">
+          <option value="completed">Завершённые</option>
           <option value="in_transit">Активные (в пути)</option>
           <option value="">Все рейсы</option>
-          <option value="completed">Завершённые</option>
           <option value="cancelled">Отменённые</option>
         </select>
         <button class="btn btn-sm btn-ghost" onclick="loadTrips()">↻ Обновить</button>
