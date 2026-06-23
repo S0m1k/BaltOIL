@@ -2488,8 +2488,12 @@
         <div class="chat-sidebar" id="chat-sidebar">
           <div class="chat-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span class="chat-sidebar-title">Диалоги</span>
-            <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
-              title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-sm btn-ghost" id="btn-new-staff-group" onclick="promptCreateStaffGroup()"
+                title="Создать групповой чат сотрудников" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"/></svg> Группа</button>
+              <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
+                title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
+            </div>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -7153,6 +7157,12 @@ async function loadConversations() {
   // Show "Диалоги" button on mobile when no chat is selected
   const showListBtn = document.getElementById('btn-show-conv-list');
   if (showListBtn) showListBtn.style.display = isMobileChat() ? '' : 'none';
+  // Кнопка создания группового чата — только для staff (правки 2026-06-23)
+  const grpBtn = document.getElementById('btn-new-staff-group');
+  if (grpBtn) {
+    const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+    grpBtn.style.display = isStaff ? '' : 'none';
+  }
   await ensureAccountantChat();
   try {
     const convs = await chatGet('/conversations');
@@ -7179,6 +7189,8 @@ function convTitle(c) {
     return label;
   }
   if (c.kind === 'staff_group') {
+    // Приватные группы (СЗТК и пр.) — показываем заданное название.
+    if ((c.group_code || '').startsWith('custom-')) return c.title || 'Группа';
     if (c.group_code === 'work')       return 'Работа';
     if (c.group_code === 'accounting') return 'Бухгалтерия';
     // legacy-коды (до рефакторинга чатов) — на случай старых архивных групп
@@ -7756,6 +7768,58 @@ function startChatByPhone() {
       }
     }
   );
+}
+
+// Создать приватный групповой чат сотрудников (например «СЗТК»). Доступ к чату —
+// только у выбранных участников; остальные менеджеры/админы его НЕ видят.
+function promptCreateStaffGroup() {
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  if (!isStaff) { toast('Доступно только сотрудникам', 'error'); return; }
+  openModal('Новый групповой чат',
+    `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+      Приватная группа сотрудников. Видна только выбранным участникам — остальные
+      менеджеры и админы её не увидят. Вы добавляетесь автоматически.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="nsg-title" class="form-input" placeholder="Например: СЗТК" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Участники</label>
+      <div class="user-picker" id="nc-user-picker" data-selected="">
+        <button type="button" class="user-picker-trigger" onclick="toggleUserPicker()">
+          <div class="user-picker-chips" id="nc-user-picker-chips">
+            <span class="user-picker-placeholder">Выберите участников…</span>
+          </div>
+          <span class="user-picker-caret">▾</span>
+        </button>
+        <div class="user-picker-dropdown">
+          <input type="text" class="user-picker-search" id="nc-user-search"
+                 placeholder="Поиск по имени…" oninput="filterNewConvUsers()" autocomplete="off">
+          <div class="user-picker-list" id="nc-user-list">
+            <div class="user-picker-empty">Загрузка…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <input type="radio" name="nc-type" value="internal" checked hidden>`,
+    async () => {
+      const title = (document.getElementById('nsg-title')?.value || '').trim();
+      if (!title) { toast('Укажите название группы', 'error'); return; }
+      const member_ids = _userPickerSelectedIds();
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations/staff-group', { title, member_ids });
+        toast('Групповой чат создан');
+        switchTab('chat');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast('Ошибка: ' + (e.message || 'не удалось создать чат'), 'error');
+      }
+    }
+  );
+  loadNewConvUserSelect();
 }
 
 function promptNewConv() {

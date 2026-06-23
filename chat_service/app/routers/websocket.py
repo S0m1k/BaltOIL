@@ -152,7 +152,7 @@ async def websocket_endpoint(
             await websocket.close(code=4004)
             return
         try:
-            _check_access(conv, actor)
+            _check_access(conv, actor, {p.user_id for p in conv.participants})
         except ForbiddenError:
             await websocket.close(code=4003)
             return

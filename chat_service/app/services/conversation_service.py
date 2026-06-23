@@ -41,6 +41,20 @@ STAFF_GROUP_TITLES = {
 # Группы, доступные водителю (остальные staff-группы — только admin/manager).
 DRIVER_STAFF_GROUPS = ("work",)
 
+# Приватные групповые чаты сотрудников (правки 2026-06-23: чат «СЗТК» — конкретные
+# участники, БЕЗ доступа остальных менеджеров/админов). group_code = "custom-<...>".
+# В отличие от work/accounting доступ — по явному членству (ConversationParticipant),
+# и проверяется ДО привилегии менеджеров (как DIRECT), иначе любой админ видел бы всё.
+PRIVATE_GROUP_PREFIX = "custom-"
+
+
+def _is_private_group(conv: "Conversation") -> bool:
+    return (
+        conv.kind == ConversationKind.STAFF_GROUP
+        and bool(conv.group_code)
+        and conv.group_code.startswith(PRIVATE_GROUP_PREFIX)
+    )
+
 MANAGER_ROLES = {"admin", "manager"}
 
 
@@ -48,14 +62,26 @@ MANAGER_ROLES = {"admin", "manager"}
 # Access control
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _check_access(conv: Conversation, actor: TokenUser) -> None:
-    """Raise ForbiddenError if the actor cannot access this conversation."""
+def _check_access(
+    conv: Conversation, actor: TokenUser, member_ids: set | None = None
+) -> None:
+    """Raise ForbiddenError if the actor cannot access this conversation.
+
+    member_ids — id участников (ConversationParticipant) для приватных групп;
+    передаётся вызывающими, которые уже загрузили conv.participants.
+    """
     # Прямой чат приватен — проверяем ДО привилегии менеджеров, иначе админ/менеджер
     # читали бы чужую личную переписку.
     if conv.kind == ConversationKind.DIRECT:
         if actor.id in (conv.client_id, conv.driver_id):
             return
         raise ForbiddenError("Это приватный чат")
+
+    # Приватная staff-группа (СЗТК): только явные участники, ДО привилегии менеджеров.
+    if _is_private_group(conv):
+        if member_ids is not None and actor.id in member_ids:
+            return
+        raise ForbiddenError("Это приватный групповой чат")
 
     if actor.role in MANAGER_ROLES:
         return  # managers/admins see everything
@@ -201,13 +227,9 @@ async def ensure_client_driver_order(
     db.add(conv)
     await db.flush()
 
-    # Post system message so participants see context
-    if redis:
-        system_text = (
-            f"Водитель {driver_name} принял заявку {order_number}. "
-            "Можете связаться напрямую."
-        ) if driver_name else "Водитель принял заявку."
-        await _post_system_message_raw(db, conv.id, system_text, redis)
+    # Системное сообщение «Водитель принял заявку» убрано (правки 2026-06-23):
+    # заказчик счёл его лишним шумом в рабочих чатах. Диалог создаётся молча —
+    # участники видят его в списке и так.
 
     return conv
 
@@ -284,11 +306,13 @@ async def ensure_staff_groups(db: AsyncSession) -> None:
             created_by_role="system",
         ))
 
-    # Архивируем staff-группы, которых больше нет в актуальном наборе.
+    # Архивируем устаревшие staff-группы (старые general/drivers/managers).
+    # Приватные группы (custom-*) НЕ трогаем — это пользовательские чаты вроде СЗТК.
     stale = await db.execute(
         select(Conversation).where(
             Conversation.kind == ConversationKind.STAFF_GROUP,
             Conversation.group_code.notin_(STAFF_GROUPS),
+            Conversation.group_code.notlike(f"{PRIVATE_GROUP_PREFIX}%"),
             Conversation.is_archived == False,  # noqa: E712
         )
     )
@@ -296,6 +320,89 @@ async def ensure_staff_groups(db: AsyncSession) -> None:
         conv.is_archived = True
 
     await db.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Приватные групповые чаты сотрудников (СЗТК и пр.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _load_private_group(db: AsyncSession, conv_id: uuid.UUID) -> Conversation:
+    res = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    conv = res.scalar_one_or_none()
+    if not conv or not _is_private_group(conv):
+        raise NotFoundError("Групповой чат не найден")
+    return conv
+
+
+async def create_private_group(
+    db: AsyncSession, actor: TokenUser, title: str, member_ids: list[uuid.UUID]
+) -> Conversation:
+    """Создать приватный групповой чат сотрудников с явным составом участников.
+
+    Создатель всегда входит в состав. Доступ к чату — только у участников
+    (см. _check_access / list_conversations). Только staff (admin/manager).
+    """
+    if actor.role not in MANAGER_ROLES:
+        raise ForbiddenError("Создавать групповые чаты может менеджер или администратор")
+    ids: set[uuid.UUID] = set(member_ids) | {actor.id}
+    code = PRIVATE_GROUP_PREFIX + uuid.uuid4().hex[:12]
+    conv = Conversation(
+        kind=ConversationKind.STAFF_GROUP,
+        group_code=code,
+        title=(title or "").strip() or "Группа",
+        created_by_id=actor.id,
+        created_by_role=actor.role,
+    )
+    db.add(conv)
+    await db.flush()
+
+    contacts = await auth_client.get_contacts(list(ids))
+    now = datetime.now(timezone.utc)
+    for uid in ids:
+        role = (contacts.get(str(uid)) or {}).get("role") or "manager"
+        db.add(ConversationParticipant(
+            conversation_id=conv.id,
+            user_id=uid,
+            user_role=role,
+            last_read_at=now if uid == actor.id else None,
+        ))
+    await db.flush()
+    return conv
+
+
+async def set_private_group_members(
+    db: AsyncSession, actor: TokenUser, conv_id: uuid.UUID, member_ids: list[uuid.UUID]
+) -> Conversation:
+    """Заменить состав участников приватной группы. Доступно текущим участникам-staff."""
+    conv = await _load_private_group(db, conv_id)
+    member_set = {p.user_id for p in conv.participants}
+    if actor.role not in MANAGER_ROLES or actor.id not in member_set:
+        raise ForbiddenError("Менять состав может только участник-сотрудник")
+
+    # Создатель и текущий actor всегда остаются — чтобы группа не осталась без владельца.
+    wanted: set[uuid.UUID] = set(member_ids) | {actor.id, conv.created_by_id}
+    existing = {p.user_id: p for p in conv.participants}
+
+    # Удаляем выбывших
+    for uid, part in existing.items():
+        if uid not in wanted:
+            await db.delete(part)
+
+    # Добавляем новых
+    to_add = wanted - set(existing.keys())
+    if to_add:
+        contacts = await auth_client.get_contacts(list(to_add))
+        for uid in to_add:
+            role = (contacts.get(str(uid)) or {}).get("role") or "manager"
+            db.add(ConversationParticipant(
+                conversation_id=conv.id, user_id=uid, user_role=role, last_read_at=None,
+            ))
+    await db.flush()
+    return conv
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -322,7 +429,7 @@ async def get_conversation(
     if not conv:
         raise NotFoundError("Диалог не найден")
 
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
     await _auto_enroll(db, conv_id, actor)
     await db.commit()
     await db.refresh(conv, ["participants"])
@@ -416,9 +523,20 @@ async def list_conversations(
         or_(Conversation.client_id == actor.id, Conversation.driver_id == actor.id),
     )
 
+    # Приватные staff-группы (СЗТК) — видны только своим участникам (по членству).
+    private_vis = and_(
+        Conversation.kind == ConversationKind.STAFF_GROUP,
+        Conversation.group_code.like(f"{PRIVATE_GROUP_PREFIX}%"),
+        Conversation.id.in_(
+            select(ConversationParticipant.conversation_id).where(
+                ConversationParticipant.user_id == actor.id
+            )
+        ),
+    )
+
     q = (
         select(Conversation)
-        .where(Conversation.is_archived == False, or_(visibility, direct_vis))  # noqa: E712
+        .where(Conversation.is_archived == False, or_(visibility, direct_vis, private_vis))  # noqa: E712
         .order_by(Conversation.updated_at.desc())
     )
     result = await db.execute(q)
@@ -544,14 +662,16 @@ async def set_pinned(
 ) -> None:
     """Закрепить/открепить чат для текущего пользователя (правки 2026-06-11)."""
     result = await db.execute(
-        select(Conversation).where(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(
             Conversation.id == conv_id, Conversation.is_archived == False  # noqa: E712
         )
     )
     conv = result.scalar_one_or_none()
     if not conv:
         raise NotFoundError("Диалог не найден")
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     part_res = await db.execute(
         select(ConversationParticipant).where(

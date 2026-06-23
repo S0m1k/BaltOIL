@@ -181,6 +181,67 @@ async def ensure_client_accountant(
     )
 
 
+class StaffGroupRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=80)
+    member_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class StaffGroupMembersRequest(BaseModel):
+    member_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+def _conv_list_response(conv) -> ConversationListResponse:
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+    )
+
+
+@router.post("/staff-group", response_model=ConversationListResponse, status_code=201)
+async def create_staff_group(
+    body: StaffGroupRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Создать приватный групповой чат сотрудников (например «СЗТК»).
+
+    Доступ к чату — только у явно добавленных участников (создатель + выбранные).
+    Прочие менеджеры/админы чат НЕ видят. Только staff (admin/manager).
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Создавать групповые чаты может менеджер или администратор")
+    conv = await conversation_service.create_private_group(
+        db, actor, body.title, body.member_ids
+    )
+    await db.commit()
+    return _conv_list_response(conv)
+
+
+@router.put("/staff-group/{conv_id}/members", response_model=ConversationListResponse)
+async def update_staff_group_members(
+    conv_id: uuid.UUID,
+    body: StaffGroupMembersRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Заменить состав участников приватной группы (доступно участникам-staff)."""
+    conv = await conversation_service.set_private_group_members(
+        db, actor, conv_id, body.member_ids
+    )
+    await db.commit()
+    return _conv_list_response(conv)
+
+
 class PinRequest(BaseModel):
     is_pinned: bool
 

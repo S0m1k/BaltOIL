@@ -56,7 +56,7 @@ async def send_message(
     if not conv:
         raise NotFoundError("Conversation not found")
 
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     # Блокировка мессенджера (правки 2026-06-11): заблокированный админом клиент
     # не может писать ни в один чат — «доступ ограничен».
@@ -211,7 +211,7 @@ async def get_messages(
     if not conv:
         raise NotFoundError("Conversation not found")
 
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     q = select(Message).where(
         Message.conversation_id == conv_id,
