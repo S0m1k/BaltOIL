@@ -4681,7 +4681,7 @@ async function contractSendEdo(contractId, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
     await orderPost(`/contracts/${contractId}/send-edo`, {});
-    toast('Договор отправлен по ЭДО', 'success');
+    toast('Уведомление об отправке по ЭДО опубликовано в чате клиента', 'success');
   } catch (e) {
     // 501 — ЭДО ещё не настроен (нет ключей оператора): показываем понятное сообщение.
     toast(e.message || 'ЭДО недоступно', 'error');

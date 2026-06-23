@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
 from app.core.media import resolve_media_path
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models.contract import ContractStatus
 from app.services import contract_service
 from app.services import document_export
@@ -273,20 +273,55 @@ async def send_contract_via_edo(
     _: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Отправить договор на подпись по ЭДО (Диадок/Контур).
+    """«Отправить» договор по ЭДО — без реальной интеграции с оператором.
 
-    Каркас: интеграция с оператором ЭДО требует API-ключей и идентификаторов
-    участников (см. settings.edo_*). Пока ключи не заданы — возвращаем 501 с
-    понятным сообщением, чтобы UI показал «ЭДО не настроен», а не падал.
+    Реальной интеграции с Диадок/Контур нет и не планируется в этом виде.
+    По просьбе заказчика кнопка просто публикует в чат клиента сообщение о
+    том, что договор будет направлен на подпись по ЭДО. Доступно только staff.
     """
     contract = await contract_service.get_contract(db, contract_id)
-    edo_token = getattr(settings, "edo_api_token", None)
-    if not edo_token:
-        raise HTTPException(
-            status_code=501,
-            detail="Отправка по ЭДО не настроена: нужны доступы оператора (Диадок/Контур). "
-                   "Договор можно отправить на почту.",
-        )
-    # TODO: при наличии ключей — вызвать API оператора ЭДО, передать PDF и
-    # идентификаторы отправителя/получателя, сохранить external_id/статус.
-    raise HTTPException(status_code=501, detail="Интеграция ЭДО в разработке")
+
+    base = settings.chat_service_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {actor.token}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # У договора нет order_id — ищем диалог клиент ↔ менеджер среди
+            # всех диалогов клиента (создавать диалог здесь не нужно).
+            r = await client.get(
+                f"{base}/api/v1/conversations",
+                headers=headers,
+            )
+            r.raise_for_status()
+            convs = r.json()
+
+            conv_id = None
+            for c in convs:
+                if c.get("kind") == "client_manager" and c.get("client_id") == str(contract.client_id):
+                    conv_id = c["id"]
+                    break
+
+            if conv_id is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="У клиента нет чата для отправки. Договор можно отправить на почту.",
+                )
+
+            msg_text = f"📄 Договор № {contract.contract_number} будет направлен вам на подпись по ЭДО."
+
+            r2 = await client.post(
+                f"{base}/api/v1/conversations/{conv_id}/messages",
+                json={"text": msg_text},
+                headers=headers,
+            )
+            r2.raise_for_status()
+
+    except httpx.HTTPStatusError as exc:
+        log.error("Chat service error sending contract %s via EDO: %s %s", contract_id, exc.response.status_code, exc.response.text)
+        raise ValidationError(f"Ошибка чат-сервиса: {exc.response.status_code}")
+    except httpx.RequestError as exc:
+        log.error("Chat service unreachable: %s", exc)
+        raise ValidationError("Чат-сервис недоступен")
+
+    log.info("contract.sent_edo_notice contract_id=%s conv_id=%s", contract_id, conv_id)
+    return {"ok": True, "conv_id": conv_id}
