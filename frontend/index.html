@@ -4289,6 +4289,20 @@ async function refreshOrderTabCounts() {
   } catch { /* счётчики не критичны — тихо игнорируем */ }
 }
 
+// Перезагрузить список, СОХРАНИВ раскрытую карточку заявки (правки 2026-06-23:
+// после правки заявку выкидывало в общий список — приходилось открывать заново).
+async function reloadOrdersKeepOpen(orderId) {
+  await loadOrders();
+  if (!orderId) return;
+  const card = document.getElementById(`card-${orderId}`);
+  if (!card) return;  // заявка ушла из текущего фильтра — это нормально
+  card.classList.add('expanded');
+  await loadTimeline(orderId);
+  const role = currentUser?.role;
+  if ((role === 'manager' || role === 'admin') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function renderOrders(orders) {
   const el = document.getElementById('orders-list');
   const legend = document.getElementById('orders-registry-legend');
@@ -4339,6 +4353,16 @@ function canEditOrderFields(o) {
 
 function _editPencil(o, field) {
   if (!canEditOrderFields(o)) return '';
+  return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
+    onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
+}
+
+// Карандаш только для staff (стоимость доставки правит менеджер/админ —
+// например при переадресации на 2 адреса, правки 2026-06-23).
+function _editPencilStaff(o, field) {
+  const role = currentUser?.role;
+  if (role !== 'manager' && role !== 'admin') return '';
+  if (!['new', 'awaiting_manager', 'accepted'].includes(o.status)) return '';
   return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
     onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
 }
@@ -4401,7 +4425,7 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
-        ${o.delivery_cost != null ? `<div class="detail-item"><div class="detail-label">Стоимость доставки</div><div class="detail-value">${Number(o.delivery_cost).toLocaleString('ru')} ₽</div></div>` : ''}
+        ${(o.delivery_cost != null || isStaff) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? Number(o.delivery_cost).toLocaleString('ru') + ' ₽' : '—'}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
@@ -4811,6 +4835,10 @@ async function promptEditOrderField(orderId, field) {
     title = 'Изменить желаемую дату';
     const cur = order.desired_date ? new Date(order.desired_date).toISOString().slice(0, 10) : '';
     inputHtml = `<input type="date" id="eof-value" class="form-input" value="${cur}">`;
+  } else if (field === 'delivery_cost') {
+    title = 'Изменить стоимость доставки';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${order.delivery_cost != null ? Number(order.delivery_cost) : ''}" placeholder="0">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Например, при переадресации на 2 адреса. Сумма заявки пересчитается, счёт перевыпустится с тем же номером.</div>`;
   } else { return; }
 
   openModal(`${title} · ${order.order_number}`,
@@ -4819,13 +4847,17 @@ async function promptEditOrderField(orderId, field) {
         ? '<div style="font-size:11px;color:var(--amber)">Заявка уже принята водителем — он получит запрос на подтверждение изменений.</div>' : ''}`,
     async () => {
       const raw = document.getElementById('eof-value').value;
-      if (!raw) { toast('Укажите значение', 'error'); return; }
+      if (field !== 'delivery_cost' && !raw) { toast('Укажите значение', 'error'); return; }
       const body = {};
       if (field === 'volume_requested') {
         const v = parseFloat(raw);
         const _staff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
         if (!v || v <= 0) { toast('Укажите объём', 'error'); return; }
         if (!_staff && v < 300) { toast('Минимальный объём — 300 л', 'error'); return; }
+        body[field] = v;
+      } else if (field === 'delivery_cost') {
+        const v = parseFloat(raw || '0');
+        if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
         body[field] = v;
       } else if (field === 'desired_date') {
         body[field] = new Date(raw + 'T00:00:00').toISOString();
@@ -4836,7 +4868,7 @@ async function promptEditOrderField(orderId, field) {
         await orderPatch(`/orders/${orderId}`, body);
         closeModal();
         toast('Заявка обновлена');
-        await loadOrders();
+        await reloadOrdersKeepOpen(orderId);
       } catch (e) {
         toast(e.message, 'error');
       }
