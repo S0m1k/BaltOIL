@@ -24,7 +24,11 @@ from app.config import settings
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.contract import Contract, ContractMonthCounter, ContractStatus
-from app.services.document_service import _render_pdf  # переиспользуем Jinja+WeasyPrint
+from app.services.document_service import (  # переиспользуем Jinja+WeasyPrint
+    _render_pdf,
+    seller_signature_data_uri,
+    seller_stamp_data_uri,
+)
 from app.services.legal_entity_service import get_seller_snapshot
 
 log = logging.getLogger(__name__)
@@ -225,6 +229,8 @@ def _build_contract_ctx(
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "seller_signature": seller_signature_data_uri(),
+        "seller_stamp":      seller_stamp_data_uri(),
     }
 
 

@@ -108,7 +108,7 @@
   <tr>
     <td class="s-role">Руководитель</td>
     <td class="s-pos">{{ seller.director_title or "Генеральный директор" }}</td>
-    <td class="s-line"></td>
+    <td class="s-line">{% if seller_signature %}<img src="{{ seller_signature }}" style="max-height:48px;display:block;margin:0 auto -6px">{% endif %}</td>
     <td class="s-name">{{ seller.director_name or "" }}</td>
   </tr>
   <tr>
@@ -142,5 +142,6 @@
     <td class="s-sub">расшифровка подписи</td>
   </tr>
 </table>
+{% if seller_stamp %}<img src="{{ seller_stamp }}" style="max-height:120px;opacity:.85;margin-top:-40px">{% endif %}
 
 {% endblock %}

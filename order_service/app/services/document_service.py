@@ -5,6 +5,7 @@
 Путь записывается в Document.file_path для последующей отдачи клиенту.
 """
 import asyncio
+import base64
 import logging
 import os
 import re
@@ -62,6 +63,26 @@ log = logging.getLogger(__name__)
 
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/media"))
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+# ── Факсимиле (подпись/печать продавца) — читаются с диска, без миграции БД ────
+
+def _legal_image_data_uri(filename: str) -> str | None:
+    """Прочитать факсимиле из MEDIA_ROOT/legal и вернуть как data: URI для PDF."""
+    path = MEDIA_ROOT / "legal" / filename
+    if not path.exists():
+        return None
+    data = path.read_bytes()
+    mime = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
+def seller_signature_data_uri() -> str | None:
+    return _legal_image_data_uri("signature.png")
+
+
+def seller_stamp_data_uri() -> str | None:
+    return _legal_image_data_uri("stamp.png")
+
 
 FUEL_LABELS = {
     "diesel_summer": "Дизельное топливо летнее (ДТ-Л)",
@@ -226,6 +247,8 @@ def _build_invoice_ctx(
         "vat_amount":      vat_amount,
         "total":           total,         # с НДС = total_amount (то, что платит клиент)
         "amount_in_words": amount_to_words_ru(total),
+        "seller_signature": seller_signature_data_uri(),
+        "seller_stamp":      seller_stamp_data_uri(),
         # Legacy переменные на случай если шаблон откатится:
         "fuel_name":        _fuel_name(order),
         "order_number":     order.order_number,

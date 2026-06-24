@@ -143,10 +143,12 @@
   <tr>
     <td class="sign-block">
       <div>{{ seller.director_title or "Генеральный директор" }}</div>
+      {% if seller_signature %}<img src="{{ seller_signature }}" style="max-height:46px;display:block;margin-bottom:-10px">{% endif %}
       <div style="margin-top:18px;">
         <span class="sign-line"></span> / {{ seller_sign_name }} /
       </div>
       <div class="sign-cap">подпись&nbsp;/&nbsp;расшифровка</div>
+      {% if seller_stamp %}<img src="{{ seller_stamp }}" style="max-height:110px;opacity:.85;display:block;margin-top:4px">{% endif %}
     </td>
     <td class="sign-block">
       <div>{{ buyer.director_title or "Руководитель" }}</div>

@@ -2473,6 +2473,31 @@
         </div>
       </form>
 
+      <div style="max-width:760px;margin-top:18px;border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px">Подпись и печать (факсимиле)</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">PNG/JPEG до 2 МБ. Выводятся на счёте и договоре.</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Подпись директора</div>
+            <img id="seller-signature-preview" style="max-height:60px;display:none;background:#fff;border:1px solid var(--border);border-radius:4px;padding:4px;margin-bottom:6px">
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="file" id="seller-signature-file" accept="image/png,image/jpeg" class="form-input" style="font-size:12px">
+              <button class="btn btn-sm btn-ghost" onclick="uploadSellerImage('signature')">Загрузить</button>
+              <button class="btn btn-sm btn-ghost" onclick="deleteSellerImage('signature')">Удалить</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Печать</div>
+            <img id="seller-stamp-preview" style="max-height:60px;display:none;background:#fff;border:1px solid var(--border);border-radius:4px;padding:4px;margin-bottom:6px">
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="file" id="seller-stamp-file" accept="image/png,image/jpeg" class="form-input" style="font-size:12px">
+              <button class="btn btn-sm btn-ghost" onclick="uploadSellerImage('stamp')">Загрузить</button>
+              <button class="btn btn-sm btn-ghost" onclick="deleteSellerImage('stamp')">Удалить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- История изменений (collapsible) -->
       <details id="legal-entity-history-details" style="max-width:760px;margin-top:18px" onToggle="onHistoryToggle(this)">
         <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);padding:8px 0;user-select:none">
@@ -6737,6 +6762,67 @@ async function loadLegalEntity() {
   } catch (e) {
     info.innerHTML = `<span style="color:var(--warn,#b00)">${escHtml(e.message)}</span>`;
   }
+  loadSellerImage('signature');
+  loadSellerImage('stamp');
+}
+
+async function loadSellerImage(kind) {
+  const preview = document.getElementById(`seller-${kind}-preview`);
+  if (!preview) return;
+  const token = localStorage.getItem('access_token');
+  try {
+    const r = await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (r.status === 404) { preview.style.display = 'none'; return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    preview.src = URL.createObjectURL(blob);
+    preview.style.display = '';
+  } catch (e) {
+    console.warn('loadSellerImage', kind, e);
+    preview.style.display = 'none';
+  }
+}
+
+async function uploadSellerImage(kind) {
+  const fileInput = document.getElementById(`seller-${kind}-file`);
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { toast('Выберите файл', 'error'); return; }
+  const token = localStorage.getItem('access_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!r.ok) {
+      let detail = 'Ошибка';
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    toast('Загружено', 'success');
+    loadSellerImage(kind);
+  } catch (e) {
+    toast(e.message || 'Ошибка', 'error');
+  }
+}
+
+async function deleteSellerImage(kind) {
+  const token = localStorage.getItem('access_token');
+  try {
+    await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    toast('Удалено', 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка', 'error');
+  }
+  const preview = document.getElementById(`seller-${kind}-preview`);
+  if (preview) preview.style.display = 'none';
 }
 
 async function saveLegalEntity(ev) {
