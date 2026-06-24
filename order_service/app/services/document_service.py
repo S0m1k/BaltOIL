@@ -117,20 +117,42 @@ def _get_jinja_env() -> Environment:
 
 # ── Document numbering ────────────────────────────────────────────────────────
 
+_INVOICE_DOC_TYPE_VALUES = {"invoice", "invoice_preliminary", "invoice_final"}
+
+# Сквозной счётчик-ключ для счётов (без года) — клиент хочет простые 4-значные
+# номера ("0145", "0146"...), а не "INV-2026-000069". TTN/УПД/доверенность —
+# нумерация по-прежнему по (префикс, год), без изменений.
+_INVOICE_COUNTER_KEY = "INV"
+
+
 async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
-    """Сгенерировать номер документа: TTN-2026-000001 / UPD-2026-000001 / INV-2026-000001.
+    """Сгенерировать номер документа.
+
+    Счета (invoice/invoice_preliminary/invoice_final) — сквозной 4-значный номер
+    вида "0145" (без года, без префикса), отдельный счётчик с prefix_key="INV".
+    ТТН/УПД/доверенность — прежняя схема "TTN-2026-000001" по (префикс, год).
 
     Атомарно через DocNumberCounter (INSERT ... ON CONFLICT DO UPDATE ... RETURNING) —
     как нумерация заказов/договоров. Прежний COUNT(*)+1 давал гонки: две одновременные
     доставки получали один номер → IntegrityError на flush внутри транзакции перехода.
     """
+    if doc_type.value in _INVOICE_DOC_TYPE_VALUES:
+        stmt = (
+            pg_insert(DocNumberCounter)
+            .values(prefix_key=_INVOICE_COUNTER_KEY, last_seq=1)
+            .on_conflict_do_update(
+                index_elements=["prefix_key"],
+                set_={"last_seq": DocNumberCounter.last_seq + 1},
+            )
+            .returning(DocNumberCounter.last_seq)
+        )
+        seq: int = (await db.execute(stmt)).scalar_one()
+        return f"{seq:04d}"
+
     prefix = {
         "ttn": "TTN",
         "upd": "UPD",
         "poa": "POA",
-        "invoice": "INV",
-        "invoice_preliminary": "INV",
-        "invoice_final": "INV",
     }[doc_type.value]
     year = datetime.now(timezone.utc).year
     prefix_key = f"{prefix}-{year}"
@@ -143,8 +165,8 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
         )
         .returning(DocNumberCounter.last_seq)
     )
-    seq: int = (await db.execute(stmt)).scalar_one()
-    return f"{prefix}-{year}-{seq:06d}"
+    seq2: int = (await db.execute(stmt)).scalar_one()
+    return f"{prefix}-{year}-{seq2:06d}"
 
 
 async def _existing_document(
@@ -413,14 +435,23 @@ async def _fetch_driver_profile(driver_id: uuid.UUID | None) -> dict:
 # ── Основание счёта ───────────────────────────────────────────────────────────
 
 async def _invoice_basis(db: AsyncSession, order: Order, doc_type: DocumentType) -> str:
-    """«Основание» счёта: «Договор о поставке Нефтепродуктов от «дд.мм.гггг»».
+    """«Основание» счёта: «Договор о поставке Нефтепродуктов № {N} от «дд.мм.гггг»».
 
-    Источник даты (решение 2026-06-05):
+    Номер и дата договора — из активного договора клиента/организации (если есть).
+    Источник даты для договора — дата его подписания (signed_at). Если активного
+    договора нет — fallback на прежнее поведение (только дата, без номера):
       - предварительный счёт → дата создания заявки;
       - финальный счёт → дата последней проведённой оплаты (fallback — текущий
         момент, т.е. дата доставки: финальный счёт выпускается при переходе
         в DELIVERED).
     """
+    from app.services.contract_service import get_active_contract  # локальный импорт — без цикла
+
+    contract = await get_active_contract(db, order.client_id, order.organization_id)
+    if contract is not None and contract.signed_at:
+        date_str = contract.signed_at.strftime("%d.%m.%Y")
+        return f"Договор о поставке Нефтепродуктов № {contract.contract_number} от «{date_str}»"
+
     if doc_type == DocumentType.INVOICE_FINAL:
         result = await db.execute(
             select(Payment.paid_at)

@@ -14,7 +14,8 @@ from app.core.dependencies import get_current_user, TokenUser
 from app.core.redis_dep import get_redis
 from app.core.exceptions import ForbiddenError
 from app.schemas.conversation import (
-    ConversationResponse, ConversationListResponse, EnsureClientManagerRequest,
+    ConversationResponse, ConversationListResponse, ConversationMember,
+    EnsureClientManagerRequest,
 )
 from app.schemas.message import MessageResponse, SendMessageRequest
 from app.services import conversation_service, message_service, auth_client
@@ -268,6 +269,22 @@ async def get_conversation(
     if actor.role == "client" and await auth_client.is_messenger_blocked(redis, actor.id):
         raise HTTPException(status_code=403, detail="Доступ ограничен")
     return await conversation_service.get_conversation(db, conv_id, actor)
+
+
+@router.get("/{conv_id}/members", response_model=list[ConversationMember])
+async def get_conversation_members(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Состав группового чата (задача: явно показать «состав» в UI).
+
+    Для преднастроенных staff-групп (work/accounting) состав вычисляется
+    по ролям (driver/manager/admin) на лету; для прочих чатов — список
+    реальных участников (ConversationParticipant).
+    """
+    rows = await conversation_service.get_conversation_members(db, conv_id, actor)
+    return [ConversationMember(**r) for r in rows]
 
 
 @router.post("/{conv_id}/read", status_code=204)

@@ -87,6 +87,28 @@ async def is_messenger_blocked(redis, user_id: uuid.UUID) -> bool:
     return blocked
 
 
+async def get_users_by_role(roles: list[str]) -> list[uuid.UUID]:
+    """ID активных пользователей с указанными ролями (для состава staff-групп).
+
+    Fail-open: при ошибке — [], вызывающая сторона должна мягко деградировать
+    (показать пустой список участников), а не падать с 500.
+    """
+    if not roles:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_BASE}/internal/users-by-role",
+                params={"roles": ",".join(roles)},
+                headers=_HEADERS,
+            )
+        resp.raise_for_status()
+        return [uuid.UUID(x) for x in resp.json()]
+    except Exception:
+        logger.exception("auth get_users_by_role failed")
+        return []
+
+
 async def get_contacts(ids: list[uuid.UUID]) -> dict[str, dict]:
     """Батч-резолв id → карточка. Возвращает {str(id): {full_name, role, phone}}.
 

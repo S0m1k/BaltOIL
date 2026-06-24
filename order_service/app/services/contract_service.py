@@ -95,6 +95,66 @@ async def _fetch_buyer_legal_profile(
 
 # ── Хелперы ────────────────────────────────────────────────────────────────────
 
+# ── Родительный падеж для преамбулы («в лице Генерального директора Борзяева Д.Г.») ──
+
+# petrovich склоняет ФИО, но не служебные названия должностей — для них своя
+# таблица. Не претендует на полноту, покрывает реально встречающиеся в БД
+# варианты; неизвестная должность возвращается без изменений (лучше нейтрально
+# неправильный падеж, чем сломанный PDF).
+_TITLE_GENITIVE = {
+    "генеральный директор": "Генерального директора",
+    "директор": "Директора",
+    "руководитель": "руководителя",
+    "исполнительный директор": "Исполнительного директора",
+    "коммерческий директор": "Коммерческого директора",
+    "управляющий": "управляющего",
+    "президент": "президента",
+    "учредитель": "учредителя",
+}
+
+
+def _title_genitive(title: str | None) -> str:
+    """'Генеральный директор' → 'Генерального директора'. Фоллбэк — исходная строка."""
+    if not title:
+        return "Генерального директора"
+    key = title.strip().lower()
+    return _TITLE_GENITIVE.get(key, title)
+
+
+def _name_genitive(full_name: str | None) -> str:
+    """'Борзяев Дмитрий Геннадьевич' → 'Борзяева Дмитрия Геннадьевича' (родительный падеж).
+
+    Через petrovich; при любой ошибке/неполном ФИО — фоллбэк на исходную строку
+    в именительном падеже (никогда не должны падать из-за генерации PDF).
+    """
+    if not full_name:
+        return "________________"
+    parts = full_name.split()
+    if len(parts) < 2:
+        return full_name
+    try:
+        from petrovich.main import Petrovich
+        from petrovich.enums import Case, Gender
+
+        last_name = parts[0]
+        first_name = parts[1]
+        middle_name = parts[2] if len(parts) >= 3 else ""
+
+        # Определяем пол по отчеству (Геннадьевич/Геннадьевна) — petrovich требует Gender.
+        gender = Gender.FEMALE if middle_name.lower().endswith(("вна", "чна")) else Gender.MALE
+
+        p = Petrovich()
+        last_g = p.lastname(last_name, Case.GENITIVE, gender)
+        first_g = p.firstname(first_name, Case.GENITIVE, gender)
+        middle_g = p.middlename(middle_name, Case.GENITIVE, gender) if middle_name else ""
+
+        result = " ".join(x for x in (last_g, first_g, middle_g) if x)
+        return result or full_name
+    except Exception as exc:
+        log.warning("contract.name_genitive_failed name=%r: %s", full_name, exc)
+        return full_name
+
+
 def _short_sign_name(full_name: str | None) -> str:
     """'Борзяев Дмитрий Геннадьевич' → 'Борзяев Д.Г.' (для подписи)."""
     if not full_name:
@@ -231,6 +291,11 @@ def _build_contract_ctx(
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
         "seller_signature": seller_signature_data_uri(),
         "seller_stamp":      seller_stamp_data_uri(),
+        # Родительный падеж для преамбулы "в лице ... кого" (правка 2026-06-24).
+        "seller_title_genitive":    _title_genitive(seller.get("director_title")),
+        "seller_director_genitive": _name_genitive(seller.get("director_name")),
+        "buyer_title_genitive":     _title_genitive(buyer.get("director_title")),
+        "buyer_director_genitive":  _name_genitive(buyer.get("director_name")),
     }
 
 
@@ -314,6 +379,10 @@ def build_contract_export_ctx(contract: Contract) -> dict:
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "seller_title_genitive":    _title_genitive(seller.get("director_title")),
+        "seller_director_genitive": _name_genitive(seller.get("director_name")),
+        "buyer_title_genitive":     _title_genitive(buyer.get("director_title")),
+        "buyer_director_genitive":  _name_genitive(buyer.get("director_name")),
     }
 
 

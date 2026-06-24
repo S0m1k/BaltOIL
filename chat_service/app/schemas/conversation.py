@@ -15,6 +15,14 @@ class ParticipantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConversationMember(BaseModel):
+    """Состав преднастроенной staff-группы (work/accounting) — для отображения
+    «состава» в UI. Роль-зависимое членство, вычисляется на лету (не хранится)."""
+    id: uuid.UUID
+    full_name: str | None = None
+    role: str
+
+
 class EnsureClientManagerRequest(BaseModel):
     client_id: uuid.UUID
 

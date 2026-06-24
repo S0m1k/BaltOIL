@@ -104,44 +104,10 @@
 <p class="summary">Всего наименований {{ items|length }}, на сумму {{ total | format_money }} руб.</p>
 <p class="words"><b>{{ amount_in_words }}</b></p>
 
-<table class="signs">
-  <tr>
-    <td class="s-role">Руководитель</td>
-    <td class="s-pos">{{ seller.director_title or "Генеральный директор" }}</td>
-    <td class="s-line">{% if seller_signature %}<img src="{{ seller_signature }}" style="max-height:48px;display:block;margin:0 auto -6px">{% endif %}</td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td class="s-sub">должность</td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
-  </tr>
-  <tr>
-    <td class="s-role">Главный (старший) бухгалтер</td>
-    <td></td>
-    <td class="s-line"></td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
-  </tr>
-  <tr>
-    <td class="s-role">Ответственный</td>
-    <td></td>
-    <td class="s-line"></td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
-  </tr>
-</table>
-{% if seller_stamp %}<img src="{{ seller_stamp }}" style="max-height:120px;opacity:.85;margin-top:-40px">{% endif %}
+{% if seller_signature %}
+<div style="text-align:center;margin-top:18px;">
+  <img src="{{ seller_signature }}" style="width:265px;max-width:7cm;height:auto;">
+</div>
+{% endif %}
 
 {% endblock %}

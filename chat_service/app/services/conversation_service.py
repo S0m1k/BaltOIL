@@ -31,22 +31,32 @@ from app.services import auth_client
 _SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 # Преднастроенные групповые чаты сотрудников:
-#   work       — «Работа»: водители + админы (НЕ менеджеры)
-#   accounting — «Бухгалтерия»: админы + менеджеры
+#   work       — «Работа»: водители + менеджеры + админы
+#   accounting — «Бухгалтерия»: менеджеры + админы
 STAFF_GROUPS = ("work", "accounting")
 STAFF_GROUP_TITLES = {
     "work": "Работа",
     "accounting": "Бухгалтерия",
 }
-# Видимость предустановленных групп по роли — admin видит обе, manager
-# только accounting, driver только work (правки 2026-06-24).
+# Видимость предустановленных групп по роли — admin видит обе, manager видит
+# обе (work + accounting), driver только work (правки 2026-06-24, ред. 2).
 STAFF_GROUP_ACCESS = {
     "admin":   {"work", "accounting"},
-    "manager": {"accounting"},
+    "manager": {"work", "accounting"},
     "driver":  {"work"},
 }
 # Группы, доступные водителю (остальные staff-группы — только admin/manager).
 DRIVER_STAFF_GROUPS = ("work",)
+
+# Роли, формирующие состав преднастроенных групп (для эндпоинта /members):
+#   work       — водители + менеджеры + админы
+#   accounting — менеджеры + админы
+STAFF_GROUP_MEMBER_ROLES = {
+    "work": ("driver", "manager", "admin"),
+    "accounting": ("manager", "admin"),
+}
+# Порядок ролей в выдаче состава (админы выше менеджеров выше водителей).
+_ROLE_SORT_ORDER = {"admin": 0, "manager": 1, "driver": 2}
 
 # Приватные групповые чаты сотрудников (правки 2026-06-23: чат «СЗТК» — конкретные
 # участники, БЕЗ доступа остальных менеджеров/админов). group_code = "custom-<...>".
@@ -90,8 +100,8 @@ def _check_access(
             return
         raise ForbiddenError("Это приватный групповой чат")
 
-    # Предустановленные группы (work/accounting): доступ по роли, ДО привилегии
-    # менеджеров — иначе menedzhery видели бы «Работу», хотя не должны.
+    # Предустановленные группы (work/accounting): доступ по роли через
+    # STAFF_GROUP_ACCESS — проверяем явно, не полагаясь на привилегию менеджеров.
     if conv.kind == ConversationKind.STAFF_GROUP and conv.group_code in STAFF_GROUPS:
         if conv.group_code in STAFF_GROUP_ACCESS.get(actor.role, set()):
             return
@@ -468,6 +478,64 @@ async def get_conversation(
             conv.peer_phone = card.get("phone")
 
     return conv
+
+
+async def get_conversation_members(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+) -> list[dict]:
+    """Состав группового чата для отображения в UI (задача: «состав» виден явно).
+
+    Для преднастроенных групп (work/accounting) членство ролевое — вычисляем
+    его на лету через auth_service (users-by-role + contacts), а не читаем
+    ConversationParticipant. Для прочих kind — явный список участников.
+    """
+    result = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Диалог не найден")
+
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
+
+    if conv.kind == ConversationKind.STAFF_GROUP and conv.group_code in STAFF_GROUP_MEMBER_ROLES:
+        roles = STAFF_GROUP_MEMBER_ROLES[conv.group_code]
+        user_ids = await auth_client.get_users_by_role(list(roles))
+        if not user_ids:
+            return []
+        contacts = await auth_client.get_contacts(user_ids)
+        members = []
+        for uid in user_ids:
+            card = contacts.get(str(uid))
+            if not card:
+                # Контакт не резолвился (auth_service недоступен/удалён) — пропускаем,
+                # не показываем «голый» id без имени и роли.
+                continue
+            members.append({
+                "id": uid,
+                "full_name": card.get("full_name"),
+                "role": card.get("role") or "manager",
+            })
+        members.sort(key=lambda m: (_ROLE_SORT_ORDER.get(m["role"], 9), m["full_name"] or ""))
+        return members
+
+    # Прочие kind — явный список участников (ConversationParticipant).
+    ids = [p.user_id for p in conv.participants]
+    contacts = await auth_client.get_contacts(ids) if ids else {}
+    members = [
+        {
+            "id": p.user_id,
+            "full_name": (contacts.get(str(p.user_id)) or {}).get("full_name"),
+            "role": p.user_role,
+        }
+        for p in conv.participants
+    ]
+    members.sort(key=lambda m: (_ROLE_SORT_ORDER.get(m["role"], 9), m["full_name"] or ""))
+    return members
 
 
 async def list_conversations(

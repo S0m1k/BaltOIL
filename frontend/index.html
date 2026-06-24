@@ -2542,6 +2542,7 @@
                 <div style="min-width:0">
                   <div class="chat-main-title" id="chat-conv-title">—</div>
                   <div class="chat-main-sub" id="chat-conv-sub"></div>
+                  <div class="chat-main-sub" id="chat-conv-members" style="display:none;flex-wrap:wrap;gap:4px;margin-top:2px"></div>
                 </div>
               </div>
               <span class="ws-status ws-offline" id="ws-status-badge" style="flex-shrink:0">● OFFLINE</span>
@@ -4329,7 +4330,7 @@ async function reloadOrdersKeepOpen(orderId) {
   card.classList.add('expanded');
   await loadTimeline(orderId);
   const role = currentUser?.role;
-  if ((role === 'manager' || role === 'admin') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+  if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -4472,7 +4473,7 @@ function orderCardHTML(o) {
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
-      ${isStaff && o.order_kind !== 'individual' ? `<div class="timeline-section" id="docs-${o.id}">
+      ${(isStaff || currentUser?.role === 'client') && o.order_kind !== 'individual' ? `<div class="timeline-section" id="docs-${o.id}">
         <div class="timeline-title">Документы</div>
         <div class="loading"></div>
       </div>` : ''}
@@ -4489,7 +4490,7 @@ async function toggleCard(orderId) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
     const role = currentUser?.role;
-    if ((role === 'manager' || role === 'admin') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+    if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
   }
 }
 
@@ -4531,8 +4532,10 @@ async function loadDocs(orderId) {
   if (!el) return;
   // Ручное выставление счёта (менеджер/админ) — нужно для заявок >= 3000 л,
   // где автогенерация отключена, и как общий механизм повторного выставления.
-  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  const generateBar = isStaff ? `
+  // Клиент тоже может сам выставить себе счёт по своей заявке (бэкенд это разрешает).
+  const isStaff  = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isClient = currentUser?.role === 'client';
+  const generateBar = (isStaff || isClient) ? `
     <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
       <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
         onclick="generateInvoice('${orderId}','invoice',this)">Выставить счёт</button>
@@ -4562,14 +4565,37 @@ async function loadDocs(orderId) {
             onclick="downloadDoc('${orderId}','${d.id}')">⬇ PDF</button>` : ''}
         ${canDownload && DOC_EXPORT_FMT[d.doc_type] ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
             onclick="downloadDocExport('${orderId}','${d.id}')">⬇ ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
-        ${canSend ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
+        ${canSend && isStaff ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
             onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
+        ${canSend ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+            onclick="sendDocEmail('${orderId}','${d.id}',this)">${icon('envelope-simple',14)} На почту</button>` : ''}
       </div>`;
     }).join('');
     el.innerHTML = `<div class="timeline-title">Документы</div>${generateBar}${rows}`;
   } catch(e) {
     el.innerHTML = `<div class="timeline-title">Документы</div>
       <div style="font-size:12px;color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+// Отправить документ на почту прямо из карточки заявки (доступно staff и клиенту
+// по своей заявке — бэкенд резолвит адрес получателя на сервере, см. send-email).
+async function sendDocEmail(orderId, docId, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '…';
+  try {
+    const res = await orderPost(`/orders/${orderId}/documents/${docId}/send-email`, {});
+    toast('Письмо отправлено' + (res.to ? ' на ' + res.to : ''), 'success');
+  } catch (e) {
+    if (e.status === 503) {
+      toast('SMTP недоступен, попробуйте позже', 'error');
+    } else {
+      toast('Ошибка: ' + e.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
 }
 
@@ -7344,6 +7370,24 @@ async function ensureAccountantChat() {
   try { await chatPost('/conversations/ensure-client-accountant', {}); } catch (_) {}
 }
 
+// Состав штатной группы (Работа/Бухгалтерия) — компактный список "Имя (роль)"
+// под заголовком диалога. Сортировка с бэка: admin → manager → driver.
+// Fail-soft: при ошибке просто не показываем блок, существующее "N уч." остаётся.
+async function renderConvMembers(convId, el) {
+  try {
+    const members = await chatGet(`/conversations/${convId}/members`);
+    if (!Array.isArray(members) || !members.length) return;
+    el.innerHTML = members.map(m => {
+      const role = m.role || '';
+      const label = ROLE_LABEL_RU[role] || role;
+      return `<span style="font-size:11px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:1px 8px">${escHtml(m.full_name || '—')}${label ? ` <span style="color:var(--text3)">(${escHtml(label)})</span>` : ''}</span>`;
+    }).join('');
+    el.style.display = 'flex';
+  } catch (_) {
+    // молча — заголовок уже показывает "N уч.", не критично
+  }
+}
+
 async function loadConversations() {
   const el = document.getElementById('conv-list');
   el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
@@ -7504,6 +7548,18 @@ async function openConversation(convId) {
         `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
         (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
         ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+    }
+
+    // Состав группы — для штатных групп «Работа»/«Бухгалтерия» подгружаем список
+    // участников через отдельный эндпоинт и показываем компактно под заголовком.
+    // Падает тихо: при ошибке просто оставляем «N уч.» как раньше, без краша.
+    const membersEl = document.getElementById('chat-conv-members');
+    if (membersEl) {
+      membersEl.style.display = 'none';
+      membersEl.innerHTML = '';
+      if (conv.kind === 'staff_group' && (conv.group_code === 'work' || conv.group_code === 'accounting')) {
+        renderConvMembers(convId, membersEl);
+      }
     }
 
     renderMessages(conv.messages);
