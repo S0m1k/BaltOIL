@@ -328,7 +328,61 @@ async def get_messages(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    return await message_service.get_messages(db, conv_id, actor, limit, before_id)
+    msgs = await message_service.get_messages(db, conv_id, actor, limit, before_id)
+    previews = await message_service.load_reply_previews(db, msgs)
+    out = []
+    for m in msgs:
+        resp = MessageResponse.model_validate(m)
+        preview = previews.get(m.id)
+        if preview:
+            resp.reply_preview = preview
+        out.append(resp)
+    return out
+
+
+@router.get("/{conv_id}/pinned", response_model=list[MessageResponse])
+async def get_pinned_messages(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Список закреплённых сообщений диалога, новые сверху (правки 2026-06-24)."""
+    msgs = await message_service.get_pinned_messages(db, conv_id, actor)
+    previews = await message_service.load_reply_previews(db, msgs)
+    out = []
+    for m in msgs:
+        resp = MessageResponse.model_validate(m)
+        preview = previews.get(m.id)
+        if preview:
+            resp.reply_preview = preview
+        out.append(resp)
+    return out
+
+
+@router.post("/{conv_id}/messages/{message_id}/pin", response_model=MessageResponse)
+async def pin_message(
+    conv_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Закрепить сообщение для всех участников диалога (правки 2026-06-24)."""
+    msg = await message_service.set_message_pinned(db, conv_id, message_id, actor, True, redis)
+    return MessageResponse.model_validate(msg)
+
+
+@router.post("/{conv_id}/messages/{message_id}/unpin", response_model=MessageResponse)
+async def unpin_message(
+    conv_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Открепить сообщение (правки 2026-06-24)."""
+    msg = await message_service.set_message_pinned(db, conv_id, message_id, actor, False, redis)
+    return MessageResponse.model_validate(msg)
 
 
 @router.post("/{conv_id}/messages", response_model=MessageResponse, status_code=201)
@@ -343,7 +397,12 @@ async def send_message(
         db, conv_id, data.text, actor, redis,
         msg_type=data.msg_type,
         metadata=data.metadata,
+        reply_to_id=data.reply_to_id,
     )
+    # reply_preview для realtime-доставки (батч из одного сообщения — не страшно).
+    previews = await message_service.load_reply_previews(db, [msg])
+    reply_preview = previews.get(msg.id)
+
     # Realtime-доставка REST-сообщений в открытые WS других участников
     # (раньше публиковал только WS-путь; вложения идут только через REST).
     try:
@@ -357,10 +416,16 @@ async def send_message(
             "text": msg.text,
             "metadata": msg.msg_metadata,
             "created_at": msg.created_at.isoformat(),
+            "reply_to_id": str(msg.reply_to_id) if msg.reply_to_id else None,
+            "is_pinned": msg.is_pinned,
+            "reply_preview": reply_preview,
         }))
     except Exception:
         pass
-    return msg
+    resp = MessageResponse.model_validate(msg)
+    if reply_preview:
+        resp.reply_preview = reply_preview
+    return resp
 
 
 # ── Вложения: фото/видео в чате (правки 2026-06-11) ──────────────────────────

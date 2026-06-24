@@ -9,6 +9,15 @@ class SendMessageRequest(BaseModel):
     # photo/video — вложения (правки 2026-06-11); metadata: {path, mime, size, original_name}
     msg_type: Literal["text", "document", "photo", "video"] = "text"
     metadata: dict | None = None
+    # Ответ на сообщение (правки 2026-06-24) — id сообщения в том же диалоге.
+    reply_to_id: uuid.UUID | None = None
+
+
+class ReplyPreview(BaseModel):
+    """Краткий снимок родительского сообщения для отрисовки «ответа» без доп. запроса."""
+    id: uuid.UUID
+    sender_name: str
+    text: str
 
 
 class MessageResponse(BaseModel):
@@ -26,5 +35,9 @@ class MessageResponse(BaseModel):
         validation_alias=AliasChoices("msg_metadata", "metadata"),
     )
     created_at: datetime
+    # Ответ + закреп (правки 2026-06-24)
+    reply_to_id: uuid.UUID | None = None
+    is_pinned: bool = False
+    reply_preview: ReplyPreview | None = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}

@@ -85,6 +85,10 @@ class OrderUpdateRequest(BaseModel):
     delivery_cost: Decimal | None = Field(None, ge=0)
     # Долговая заявка: менеджер/админ может переключить флаг
     allow_delivery_unpaid: bool | None = None
+    # Смена заказчика: организация (юрлицо) клиента или null = физлицо (правка 2026-06-24).
+    # "Передано или нет" различается в order_service.update_order через
+    # model_fields_set (exclude_none скрыл бы намеренный null).
+    organization_id: uuid.UUID | None = None
 
 
 class OrderStatusTransitionRequest(BaseModel):

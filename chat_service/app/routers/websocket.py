@@ -30,7 +30,7 @@ from app.core.dependencies import _decode_token
 from app.core.exceptions import AuthError, ForbiddenError
 from app.models.conversation import Conversation
 from app.services.conversation_service import _check_access
-from app.services.message_service import send_message
+from app.services.message_service import send_message, load_reply_previews
 from app.services import ws_manager
 
 router = APIRouter(tags=["websocket"])
@@ -173,7 +173,7 @@ async def websocket_endpoint(
 
     try:
         while True:
-            text = await websocket.receive_text()
+            raw_frame = await websocket.receive_text()
 
             # Re-check token expiry per message. Без этого WS живёт сколько угодно
             # даже после истечения access_token; клиент должен периодически
@@ -182,6 +182,20 @@ async def websocket_endpoint(
                 await websocket.send_text(json.dumps({"error": "token expired, reconnect"}))
                 await websocket.close(code=4401)
                 return
+
+            # Кадр может быть либо «голым» текстом сообщения (обратная совместимость),
+            # либо JSON {"text": "...", "reply_to_id": "<uuid>"} для ответа (правки 2026-06-24).
+            text = raw_frame
+            reply_to_id: uuid.UUID | None = None
+            try:
+                parsed = json.loads(raw_frame)
+                if isinstance(parsed, dict) and "text" in parsed:
+                    text = parsed.get("text", "")
+                    rid = parsed.get("reply_to_id")
+                    if rid:
+                        reply_to_id = uuid.UUID(str(rid))
+            except (json.JSONDecodeError, ValueError):
+                pass  # не JSON / не наш формат — считаем text=raw_frame как раньше
 
             # Validate message length (mirrors Pydantic schema max_length=4000)
             if len(text) > 4000:
@@ -192,10 +206,13 @@ async def websocket_endpoint(
             # returned as a JSON error frame without closing the connection.
             try:
                 async with AsyncSessionLocal() as db:
-                    msg = await send_message(db, conv_id, text, actor, redis)
+                    msg = await send_message(db, conv_id, text, actor, redis, reply_to_id=reply_to_id)
+                    previews = await load_reply_previews(db, [msg])
             except ForbiddenError as e:
                 await websocket.send_text(json.dumps({"error": str(e)}))
                 continue
+
+            reply_preview = previews.get(msg.id)
 
             # Publish via Redis → fan-out listener delivers to all sockets
             await redis.publish(channel, json.dumps({
@@ -208,6 +225,9 @@ async def websocket_endpoint(
                 "text": msg.text,
                 "metadata": msg.msg_metadata,
                 "created_at": msg.created_at.isoformat(),
+                "reply_to_id": str(msg.reply_to_id) if msg.reply_to_id else None,
+                "is_pinned": msg.is_pinned,
+                "reply_preview": reply_preview,
             }))
 
     except WebSocketDisconnect:

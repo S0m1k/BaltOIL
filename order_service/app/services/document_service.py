@@ -20,6 +20,10 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import httpx
+
+from app.config import settings
+from app.core.media import resolve_media_path
 from app.models.document import Document, DocumentType, DocumentStatus, DocNumberCounter
 from app.models.order import Order
 from app.models.payment import Payment, PaymentStatus
@@ -946,3 +950,154 @@ async def list_for_order(db: AsyncSession, order_id: uuid.UUID) -> list[Document
         .order_by(Document.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+# ── Отправка документа клиенту (чат/email) ──────────────────────────────────────
+# Вынесено из routers/documents.py (правка 2026-06-24), чтобы переиспользовать
+# из автоматики (счёт ≤3000 л для юрлица при создании заявки) и из ручных
+# эндпоинтов send/send-email без дублирования логики.
+
+_DOC_TYPE_LABELS_RU = {
+    "invoice": "Счёт",
+    "invoice_preliminary": "Счёт",
+    "invoice_final": "Счёт",
+    "ttn": "ТТН",
+    "upd": "УПД",
+}
+
+
+async def send_document_to_chat(
+    db: AsyncSession, order: Order, doc: Document, actor_token: str,
+) -> dict:
+    """Отправить документ в чат по заявке (диалог клиент↔менеджер).
+
+    Находит или создаёт диалог заявки, отправляет сообщение типа 'document',
+    обновляет статус документа на SENT. `actor_token` — JWT вызывающего
+    (менеджера/админа или служебный токен) для авторизации в chat_service.
+    """
+    if doc.status == DocumentStatus.DRAFT:
+        raise ValidationError("PDF ещё не сгенерирован (статус DRAFT). Дождитесь генерации.")
+
+    base = settings.chat_service_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {actor_token}"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{base}/api/v1/conversations",
+            params={"order_id": str(order.id)},
+            headers=headers,
+        )
+        r.raise_for_status()
+        convs = r.json()
+
+        if convs:
+            conv_id = convs[0]["id"]
+        else:
+            r2 = await client.post(
+                f"{base}/api/v1/conversations/ensure-client-manager",
+                json={"client_id": str(order.client_id)},
+                headers=headers,
+            )
+            r2.raise_for_status()
+            conv_id = r2.json()["id"]
+
+        doc_type_value = doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type
+        doc_type_label = _DOC_TYPE_LABELS_RU.get(doc_type_value, "Документ")
+        msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
+
+        r3 = await client.post(
+            f"{base}/api/v1/conversations/{conv_id}/messages",
+            json={
+                "text": msg_text,
+                "msg_type": "document",
+                "metadata": {
+                    "document_id": str(doc.id),
+                    "doc_number": doc.doc_number,
+                    "doc_type": doc_type_value,
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "download_path": f"/api/v1/orders/{order.id}/documents/{doc.id}/download",
+                },
+            },
+            headers=headers,
+        )
+        r3.raise_for_status()
+
+    doc.status = DocumentStatus.SENT
+    await db.flush()
+
+    return {"ok": True, "conv_id": conv_id}
+
+
+async def send_document_by_email(db: AsyncSession, order: Order, doc: Document) -> dict:
+    """Отправить PDF документа клиенту на email.
+
+    Адрес получателя берётся ТОЛЬКО из профиля клиента заявки (billing_email
+    или user.email через auth_service) — без override снаружи, чтобы документы
+    нельзя было отправить на произвольный адрес.
+    """
+    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
+        raise ValidationError("document not ready")
+    if not doc.file_path:
+        raise NotFoundError("document file missing")
+
+    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
+    if not full_path.exists():
+        raise NotFoundError("document file missing")
+
+    auth_base = settings.auth_service_url.rstrip("/")
+    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
+            headers=internal_headers,
+        )
+        r.raise_for_status()
+        recipient = r.json().get("email")
+
+    if not recipient:
+        raise ValidationError("recipient has no email")
+
+    pdf_bytes = full_path.read_bytes()
+    content_b64 = base64.b64encode(pdf_bytes).decode()
+
+    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
+    body_text = (
+        "Здравствуйте,\n\n"
+        "Во вложении документ по вашей заявке.\n\n"
+        "— СЗТК"
+    )
+    filename = f"{doc.doc_number}.pdf"
+
+    notif_base = settings.notification_service_url.rstrip("/")
+    sent = False
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.post(
+            f"{notif_base}/internal/email/send-with-attachment",
+            json={
+                "to": recipient,
+                "subject": subject,
+                "body": body_text,
+                "attachment": {
+                    "filename": filename,
+                    "content_base64": content_b64,
+                    "mime_type": "application/pdf",
+                },
+            },
+            headers=internal_headers,
+        )
+        r.raise_for_status()
+        sent = r.json().get("sent", False)
+
+    if not sent:
+        raise ValidationError("email service unavailable")
+
+    doc.status = DocumentStatus.SENT
+    await db.flush()
+
+    log.info(
+        "document.sent_email action document_id=%s order_id=%s to=%s filename=%s",
+        doc.id, order.id, recipient, filename,
+    )
+
+    return {"ok": True, "to": recipient}

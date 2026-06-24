@@ -516,9 +516,25 @@ async def create_order(
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
             try:
-                await document_service.generate_invoice(db, order, actor)
+                invoice_doc = await document_service.generate_invoice(db, order, actor)
             except Exception as exc:
                 log.warning("Auto-invoice failed for order %s: %s", order.id, exc)
+                invoice_doc = None
+
+            # Юрлицо ≤3000 л: счёт сразу уходит клиенту в чат и на email
+            # (правка заказчика 2026-06-24). Best-effort — ошибка отправки
+            # никогда не должна срывать создание заявки. Физлица — без авто-отправки.
+            if invoice_doc is not None and ctx.client_type == "company":
+                try:
+                    await document_service.send_document_to_chat(
+                        db, order, invoice_doc, actor.token,
+                    )
+                except Exception as exc:
+                    log.warning("Auto-send invoice to chat failed for order %s: %s", order.id, exc)
+                try:
+                    await document_service.send_document_by_email(db, order, invoice_doc)
+                except Exception as exc:
+                    log.warning("Auto-send invoice email failed for order %s: %s", order.id, exc)
 
     # Auto-contract: для клиента-юрлица без активного договора формируем договор
     # поставки. Не блокируем заявку — любая ошибка только логируется.
@@ -555,8 +571,11 @@ async def create_order(
 
 
 # Поля, которые клиент может править в своей заявке (карандашики, правки 2026-06-11)
+# organization_id — смена заказчика (правка 2026-06-24, скрин 6): клиент может
+# переключить заявку на одну из своих организаций или на физлицо (null).
 _CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
-                    "client_comment", "contact_person_name", "contact_person_phone"}
+                    "client_comment", "contact_person_name", "contact_person_phone",
+                    "organization_id"}
 # Поля, которые водитель может править в назначенной ему заявке
 _DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
 # Статусы, в которых клиент/водитель ещё могут править заявку
@@ -610,6 +629,12 @@ async def update_order(
 
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
     requested_fields = set(data.model_dump(exclude_unset=True, exclude_none=True).keys())
+    # organization_id — особый случай: null — это валидное намеренное значение
+    # (переключение заказчика на физлицо), exclude_none его бы скрыл, поэтому
+    # детектируем "поле передано" через model_fields_set отдельно.
+    organization_id_requested = "organization_id" in data.model_fields_set
+    if organization_id_requested:
+        requested_fields.add("organization_id")
 
     # Матрица прав: staff — всё; клиент — свои заявки, ограниченные поля;
     # водитель — назначенные ему, ограниченные поля.
@@ -638,6 +663,19 @@ async def update_order(
                        else data.desired_date.replace(tzinfo=timezone.utc))
         if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
+
+    # Смена заказчика (правка 2026-06-24): organization_id=<uuid> — переключить на
+    # организацию-юрлицо; organization_id=null — переключить на физлицо. Допустимо
+    # только если новая организация — та, в которой состоит клиент заявки (та же
+    # проверка членства, что и при создании заявки через get_client_context).
+    # Существующие документы/договор по заявке не трогаем — это ручное действие.
+    if organization_id_requested and data.organization_id != order.organization_id:
+        if data.organization_id is not None:
+            member_org_ids = await get_user_organization_ids(order.client_id)
+            if data.organization_id not in member_org_ids:
+                raise ValidationError(
+                    "Указанная организация не найдена среди организаций клиента заявки"
+                )
 
     # Track if we need to set pending_driver_ack
     was_accepted = order.status == OrderStatus.ACCEPTED
@@ -689,6 +727,10 @@ async def update_order(
     if data.contact_person_phone is not None:
         order.contact_person_phone = data.contact_person_phone
         changed = True
+    if organization_id_requested and data.organization_id != order.organization_id:
+        order.organization_id = data.organization_id
+        changed = True
+        changed_keys.append("organization")
     if data.delivery_cost is not None:
         # Перекладываем долю доставки в expected_amount: топливная часть
         # (expected_amount − старый delivery_cost) сохраняется, доставка заменяется.

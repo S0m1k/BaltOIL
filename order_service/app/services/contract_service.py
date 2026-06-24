@@ -43,13 +43,18 @@ _MONTHS_RU = (
 
 # ── Нумерация NNN/MM ───────────────────────────────────────────────────────────
 
+# Сквозной (не помесячный) счётчик номеров договоров: заказчик подтвердил, что
+# порядковый номер не сбрасывается каждый месяц (057/05 → 058/06 → 059/07),
+# /MM — это просто месяц подписания. Единый фиксированный ключ строки счётчика.
+_GLOBAL_CONTRACT_COUNTER_KEY = "GLOBAL"
+
+
 async def _next_contract_number(db: AsyncSession) -> str:
-    """Атомарно выдать номер вида '034/02' (seq за месяц / номер месяца)."""
+    """Атомарно выдать номер вида '058/06' (сквозной seq / номер месяца подписания)."""
     now = datetime.now(timezone.utc)
-    month_key = f"{now.year:04d}-{now.month:02d}"
     stmt = (
         pg_insert(ContractMonthCounter)
-        .values(month_key=month_key, last_seq=1)
+        .values(month_key=_GLOBAL_CONTRACT_COUNTER_KEY, last_seq=1)
         .on_conflict_do_update(
             index_elements=["month_key"],
             set_={"last_seq": ContractMonthCounter.last_seq + 1},

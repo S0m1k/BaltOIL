@@ -1,4 +1,3 @@
-import base64
 import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -201,68 +200,9 @@ async def send_document_to_chat(
 
     if doc.order_id != order_id:
         raise ForbiddenError("Документ не принадлежит этой заявке")
-    if doc.status == DocumentStatus.DRAFT:
-        raise ValidationError("PDF ещё не сгенерирован (статус DRAFT). Дождитесь генерации.")
-
-    # Находим диалог по заявке через chat_service
-    base = settings.chat_service_url.rstrip("/")
-    headers = {"Authorization": f"Bearer {actor.token}"}
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # Ищем существующий диалог по order_id
-            r = await client.get(
-                f"{base}/api/v1/conversations",
-                params={"order_id": str(order_id)},
-                headers=headers,
-            )
-            r.raise_for_status()
-            convs = r.json()
-
-            if convs:
-                conv_id = convs[0]["id"]
-            else:
-                # Нет диалога по заявке — гарантируем диалог клиент ↔ менеджер.
-                # Раньше тут был POST /conversations, которого в chat_service нет
-                # (есть только ensure-*-эндпоинты) → отправка падала с 404.
-                r2 = await client.post(
-                    f"{base}/api/v1/conversations/ensure-client-manager",
-                    json={"client_id": str(order.client_id)},
-                    headers=headers,
-                )
-                r2.raise_for_status()
-                conv_id = r2.json()["id"]
-
-            # Отправляем document-сообщение
-            doc_type_label = {
-                "invoice": "Счёт",
-                "invoice_preliminary": "Счёт",
-                "invoice_final": "Счёт",
-                "ttn": "ТТН",
-                "upd": "УПД",
-            }.get(
-                doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type, "Документ"
-            )
-            msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
-
-            r3 = await client.post(
-                f"{base}/api/v1/conversations/{conv_id}/messages",
-                json={
-                    "text": msg_text,
-                    "msg_type": "document",
-                    "metadata": {
-                        "document_id": str(doc.id),
-                        "doc_number": doc.doc_number,
-                        "doc_type": doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type,
-                        "order_id": str(order_id),
-                        "order_number": order.order_number,
-                        "download_path": f"/api/v1/orders/{order_id}/documents/{document_id}/download",
-                    },
-                },
-                headers=headers,
-            )
-            r3.raise_for_status()
-
+        result = await document_service.send_document_to_chat(db, order, doc, actor.token)
     except httpx.HTTPStatusError as exc:
         log.error("Chat service error sending doc %s: %s %s", document_id, exc.response.status_code, exc.response.text)
         raise ValidationError(f"Ошибка чат-сервиса: {exc.response.status_code}")
@@ -270,11 +210,8 @@ async def send_document_to_chat(
         log.error("Chat service unreachable: %s", exc)
         raise ValidationError("Чат-сервис недоступен")
 
-    # Отмечаем документ как отправленный
-    doc.status = DocumentStatus.SENT
     await db.commit()
-
-    return {"ok": True, "conv_id": conv_id}
+    return result
 
 
 async def _check_send_email_rate(actor_id: uuid.UUID) -> None:
@@ -325,83 +262,20 @@ async def send_document_by_email(
     if doc.order_id != order_id:
         raise ForbiddenError("Документ не принадлежит этой заявке")
 
-    # READY и SENT оба допустимы для повторной отправки
-    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
-        raise HTTPException(status_code=409, detail="document not ready")
-
-    if not doc.file_path:
-        raise NotFoundError("document file missing")
-
-    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
-    if not full_path.exists():
-        raise NotFoundError("document file missing")
-
-    # Адрес получателя — только из профиля клиента, без override из тела
-    auth_base = settings.auth_service_url.rstrip("/")
-    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
-                headers=internal_headers,
-            )
-            r.raise_for_status()
-            recipient = r.json().get("email")
+        result = await document_service.send_document_by_email(db, order, doc)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="document file missing")
+    except ValidationError as exc:
+        msg = str(exc)
+        if msg == "document not ready":
+            raise HTTPException(status_code=409, detail="document not ready")
+        if msg == "recipient has no email":
+            raise HTTPException(status_code=422, detail="recipient has no email")
+        raise HTTPException(status_code=503, detail="email service unavailable")
     except Exception as exc:
-        log.error("auth_service email-target lookup failed: %s", exc)
+        log.error("send_document_by_email failed for doc %s: %s", document_id, exc)
         raise HTTPException(status_code=503, detail="email service unavailable")
 
-    if not recipient:
-        raise HTTPException(status_code=422, detail="recipient has no email")
-
-    # Читаем PDF и кодируем
-    pdf_bytes = full_path.read_bytes()
-    content_b64 = base64.b64encode(pdf_bytes).decode()
-
-    # Составляем тему письма: "Документ ИНВ-2026-000123 по заявке ORD-2026-000045"
-    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
-    body_text = (
-        "Здравствуйте,\n\n"
-        "Во вложении документ по вашей заявке.\n\n"
-        "— СЗТК"
-    )
-    filename = f"{doc.doc_number}.pdf"
-
-    # Вызываем notification_service
-    notif_base = settings.notification_service_url.rstrip("/")
-    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
-    sent = False
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(
-                f"{notif_base}/internal/email/send-with-attachment",
-                json={
-                    "to": recipient,
-                    "subject": subject,
-                    "body": body_text,
-                    "attachment": {
-                        "filename": filename,
-                        "content_base64": content_b64,
-                        "mime_type": "application/pdf",
-                    },
-                },
-                headers=internal_headers,
-            )
-            r.raise_for_status()
-            sent = r.json().get("sent", False)
-    except Exception as exc:
-        log.error("notification_service send-with-attachment failed: %s", exc)
-
-    if not sent:
-        raise HTTPException(status_code=503, detail="email service unavailable")
-
-    # Только после подтверждения от notification_service обновляем статус
-    doc.status = DocumentStatus.SENT
     await db.commit()
-
-    log.info(
-        "document.sent_email action document_id=%s order_id=%s to=%s filename=%s",
-        document_id, order_id, recipient, filename,
-    )
-
-    return {"ok": True, "to": recipient}
+    return result

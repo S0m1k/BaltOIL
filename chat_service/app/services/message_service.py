@@ -44,6 +44,7 @@ async def send_message(
     redis: aioredis.Redis,
     msg_type: str = "text",
     metadata: dict | None = None,
+    reply_to_id: uuid.UUID | None = None,
 ) -> Message:
     # Load conversation with participants
     from sqlalchemy.orm import selectinload
@@ -64,6 +65,19 @@ async def send_message(
         raise ForbiddenError("Доступ ограничен")
 
     await _check_message_rate(redis, actor.id, conv_id)
+
+    # Reply-to (правки 2026-06-24): родитель должен существовать и принадлежать
+    # этому же диалогу — иначе игнорируем (не считаем критичной ошибкой).
+    if reply_to_id is not None:
+        parent_result = await db.execute(
+            select(Message.id).where(
+                Message.id == reply_to_id,
+                Message.conversation_id == conv_id,
+                Message.is_archived == False,  # noqa: E712
+            )
+        )
+        if parent_result.scalar_one_or_none() is None:
+            reply_to_id = None
 
     # Staff (manager/admin) bypass the participant check in _check_access but are
     # not recorded in conversation_participants. Auto-enroll them on first message
@@ -89,6 +103,7 @@ async def send_message(
         msg_type=msg_type,
         text=text,
         msg_metadata=metadata,
+        reply_to_id=reply_to_id,
     )
     db.add(msg)
 
@@ -231,6 +246,126 @@ async def get_messages(
     msgs_result = await db.execute(q)
     msgs = msgs_result.scalars().all()
     return list(reversed(msgs))
+
+
+_REPLY_PREVIEW_TEXT_LIMIT = 120
+
+
+async def load_reply_previews(
+    db: AsyncSession, messages: list[Message]
+) -> dict[uuid.UUID, dict]:
+    """Батч-загрузка родителей для reply_preview — без N+1 на список сообщений.
+
+    Возвращает {message_id: {"id", "sender_name", "text"}} только для тех
+    сообщений из `messages`, у которых заполнен reply_to_id.
+    """
+    parent_ids = {m.reply_to_id for m in messages if m.reply_to_id is not None}
+    if not parent_ids:
+        return {}
+    result = await db.execute(
+        select(Message.id, Message.sender_name, Message.text).where(
+            Message.id.in_(parent_ids)
+        )
+    )
+    parents = {
+        row.id: {"id": row.id, "sender_name": row.sender_name, "text": row.text}
+        for row in result.all()
+    }
+    previews: dict[uuid.UUID, dict] = {}
+    for m in messages:
+        if m.reply_to_id is None:
+            continue
+        parent = parents.get(m.reply_to_id)
+        if not parent:
+            continue
+        text = parent["text"]
+        if len(text) > _REPLY_PREVIEW_TEXT_LIMIT:
+            text = text[:_REPLY_PREVIEW_TEXT_LIMIT].rstrip() + "…"
+        previews[m.id] = {
+            "id": parent["id"],
+            "sender_name": parent["sender_name"],
+            "text": text,
+        }
+    return previews
+
+
+async def set_message_pinned(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    msg_id: uuid.UUID,
+    actor: TokenUser,
+    is_pinned: bool,
+    redis: aioredis.Redis,
+) -> Message:
+    """Закрепить/открепить сообщение для ВСЕХ участников диалога.
+
+    Доступ — любой участник, у кого есть доступ к диалогу (_check_access),
+    не только отправитель/staff: закреп — общая функция чата, а не модерация.
+    """
+    from sqlalchemy.orm import selectinload
+    conv_result = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    conv = conv_result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Conversation not found")
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
+
+    msg_result = await db.execute(
+        select(Message).where(
+            Message.id == msg_id,
+            Message.conversation_id == conv_id,
+            Message.is_archived == False,  # noqa: E712
+        )
+    )
+    msg = msg_result.scalar_one_or_none()
+    if not msg:
+        raise NotFoundError("Message not found")
+
+    msg.is_pinned = is_pinned
+    await db.commit()
+    await db.refresh(msg)
+
+    try:
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "event": "message_pinned" if is_pinned else "message_unpinned",
+            "conversation_id": str(conv_id),
+            "message_id": str(msg_id),
+        }))
+    except Exception:
+        logger.exception("Failed to publish pin event")
+
+    return msg
+
+
+async def get_pinned_messages(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+) -> list[Message]:
+    from sqlalchemy.orm import selectinload
+    conv_result = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    conv = conv_result.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Conversation not found")
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
+
+    result = await db.execute(
+        select(Message)
+        .where(
+            Message.conversation_id == conv_id,
+            Message.is_pinned == True,  # noqa: E712
+            Message.is_archived == False,  # noqa: E712
+        )
+        .order_by(Message.created_at.desc())
+    )
+    return list(result.scalars().all())
 
 
 async def delete_message(

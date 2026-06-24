@@ -77,7 +77,8 @@ async def ensure_client_driver(
 
     Called by order_service when a driver claims an order (claim_order).
     Idempotent — returns existing conversation if one already exists for the order.
-    Posts a system message announcing the driver.
+    Молча создаёт диалог без системного сообщения (правки 2026-06-23) — клиент
+    видит нового собеседника в списке, push-уведомление шлёт order_service отдельно.
     """
     conv = await conversation_service.ensure_client_driver_order(
         db,
