@@ -31,12 +31,19 @@ from app.services import auth_client
 _SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 # Преднастроенные групповые чаты сотрудников:
-#   work       — «Работа»: все водители + менеджеры + админы
-#   accounting — «Бухгалтерия»: только менеджеры + админы
+#   work       — «Работа»: водители + админы (НЕ менеджеры)
+#   accounting — «Бухгалтерия»: админы + менеджеры
 STAFF_GROUPS = ("work", "accounting")
 STAFF_GROUP_TITLES = {
     "work": "Работа",
     "accounting": "Бухгалтерия",
+}
+# Видимость предустановленных групп по роли — admin видит обе, manager
+# только accounting, driver только work (правки 2026-06-24).
+STAFF_GROUP_ACCESS = {
+    "admin":   {"work", "accounting"},
+    "manager": {"accounting"},
+    "driver":  {"work"},
 }
 # Группы, доступные водителю (остальные staff-группы — только admin/manager).
 DRIVER_STAFF_GROUPS = ("work",)
@@ -83,6 +90,13 @@ def _check_access(
             return
         raise ForbiddenError("Это приватный групповой чат")
 
+    # Предустановленные группы (work/accounting): доступ по роли, ДО привилегии
+    # менеджеров — иначе menedzhery видели бы «Работу», хотя не должны.
+    if conv.kind == ConversationKind.STAFF_GROUP and conv.group_code in STAFF_GROUPS:
+        if conv.group_code in STAFF_GROUP_ACCESS.get(actor.role, set()):
+            return
+        raise ForbiddenError("У вас нет доступа к этому групповому чату")
+
     if actor.role in MANAGER_ROLES:
         return  # managers/admins see everything
 
@@ -95,11 +109,6 @@ def _check_access(
         if actor.id in (conv.client_id, conv.driver_id):
             return
         raise ForbiddenError("Вы не участник этого диалога")
-
-    if conv.kind == ConversationKind.STAFF_GROUP:
-        if actor.role == "driver" and conv.group_code in DRIVER_STAFF_GROUPS:
-            return
-        raise ForbiddenError("У вас нет доступа к этому групповому чату")
 
     raise ForbiddenError("Доступ запрещён")
 
@@ -505,7 +514,7 @@ async def list_conversations(
         visibility = or_(
             and_(
                 Conversation.kind == ConversationKind.STAFF_GROUP,
-                Conversation.group_code.in_(list(STAFF_GROUPS)),
+                Conversation.group_code.in_(list(STAFF_GROUP_ACCESS.get(role, set()))),
             ),
             Conversation.kind.in_([
                 ConversationKind.CLIENT_MANAGER,

@@ -7107,6 +7107,7 @@ let _convFolder = 'all';
 const CONV_FOLDERS = [
   ['all',      'Все'],
   ['work',     'Рабочие'],
+  ['orders',   'Заявки'],
   ['clients',  'Клиенты'],
   ['personal', 'Личные'],
 ];
@@ -7114,7 +7115,7 @@ const CONV_FOLDERS = [
 function convFolderOf(c) {
   const role = currentUser?.role;
   if (c.kind === 'staff_group') return 'work';
-  if (c.kind === 'client_driver_order') return 'work';
+  if (c.kind === 'client_driver_order') return 'orders';
   if (c.kind === 'client_manager' || c.kind === 'client_accountant')
     return role === 'client' ? 'work' : 'clients';
   if (c.kind === 'direct') return 'personal';
