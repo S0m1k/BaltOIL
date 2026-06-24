@@ -131,13 +131,15 @@ a { color: inherit; }
   color: var(--ink);
   min-width: 0;
 }
-.brand-logo {
-  height: 44px;
-  width: auto;
-  display: block;
-  transition: height .25s ease;
+.brand-wordmark {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 24px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  transition: font-size .25s ease;
 }
-.nav.compact .brand-logo { height: 36px; }
+.nav.compact .brand-wordmark { font-size: 20px; }
 .brand-tag {
   font-family: var(--mono);
   font-size: 10px;
@@ -155,7 +157,7 @@ a { color: inherit; }
 .nav-actions { display: flex; align-items: center; gap: 10px; }
 
 @media (min-width: 700px) {
-  .brand-logo { height: 52px; }
+  .brand-wordmark { font-size: 28px; }
   .brand-tag { display: block; }
 }
 @media (min-width: 1024px) {
@@ -749,9 +751,7 @@ a { color: inherit; }
   <div class="wrap">
     <nav class="nav-inner">
       <a href="landing.html" class="brand" aria-label="СЗТК — на главную">
-        <img class="brand-logo"
-             src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
-             alt="СЗТК — Северо-Западная Топливная Компания">
+        <span class="brand-wordmark">СЗТК</span>
         <span class="brand-tag">Северо-Западная<br>Топливная компания</span>
       </a>
       <div class="nav-links">
@@ -846,7 +846,7 @@ a { color: inherit; }
         </div>
         <h3>Нефтепродукты</h3>
         <ul>
-          <li>Дизельное топливо ДТ-Л, ДТ-Е, ДТ-З (ГОСТ&nbsp;305)</li>
+          <li>Дизельное топливо ДТ-Л-К5, ДТ-Е, ДТ-З-К5 (ГОСТ&nbsp;305)</li>
           <li>Бензины АИ-92, АИ-95 (К5)</li>
           <li>Мазут топочный М-100</li>
           <li>Керосин ТС-1, печное топливо</li>

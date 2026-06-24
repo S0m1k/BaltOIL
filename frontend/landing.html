@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>СЗТК — Северо-Западная Топливная Компания · Дизель в СПб и области</title>
-<meta name="description" content="Оптовая поставка дизельного топлива, бензина и мазута по Санкт-Петербургу и Ленинградской области. От 100 до 25 000 литров. Доставка за 1 час. Личный кабинет.">
+<meta name="description" content="Оптовая поставка дизельного топлива, бензина и мазута по Санкт-Петербургу и Ленинградской области. От 300 литров. Доставка за 1 час. Личный кабинет.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -160,13 +160,15 @@ body::before {
   color: var(--ink);
   flex-shrink: 0;
 }
-.brand-logo {
-  height: 48px;
-  width: auto;
-  display: block;
-  transition: height .25s ease;
+.brand-wordmark {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  transition: font-size .25s ease;
 }
-.nav.compact .brand-logo { height: 38px; }
+.nav.compact .brand-wordmark { font-size: 21px; }
 .brand-tag {
   font-family: var(--mono);
   font-size: 10px;
@@ -1142,9 +1144,7 @@ body::before {
   <div class="wrap">
     <nav class="nav-inner" role="navigation" aria-label="Основная навигация">
       <a href="#top" class="brand" aria-label="СЗТК — главная">
-        <img class="brand-logo"
-             src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
-             alt="СЗТК — Северо-Западная Топливная Компания">
+        <span class="brand-wordmark">СЗТК</span>
         <span class="brand-tag">Северо-Западная<br>Топливная компания</span>
       </a>
 
@@ -1173,9 +1173,7 @@ body::before {
 <div class="nav-drawer" id="nav-drawer" aria-hidden="true" role="dialog" aria-label="Меню навигации">
   <div class="drawer-top">
     <a href="#top" class="brand" onclick="closeDrawer()">
-      <img class="brand-logo" style="height:40px;"
-           src="https://9171517.ru/wp-content/uploads/2021/09/10.png"
-           alt="СЗТК">
+      <span class="brand-wordmark" style="font-size:22px;">СЗТК</span>
     </a>
     <button class="drawer-close" id="drawer-close" aria-label="Закрыть меню">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -1233,11 +1231,11 @@ body::before {
         <h1 class="hero-title">
           Топливо<br>
           <em>точно</em> к&nbsp;сроку.<br>
-          От ста литров.
+          От 300 литров.
         </h1>
         <p class="hero-sub">
           Северо-Западная Топливная Компания поставляет <b>дизель, бензин и мазут</b>
-          бензовозами от&nbsp;100&nbsp;до&nbsp;25&nbsp;000 литров.
+          бензовозами от&nbsp;300&nbsp;литров.
           Заявка, документы, оплата и&nbsp;отслеживание&nbsp;— в&nbsp;личном&nbsp;кабинете.
         </p>
         <div class="hero-cta">
@@ -1259,11 +1257,7 @@ body::before {
       <aside class="hero-side">
         <div class="hero-side-block">
           <div class="hero-side-label">от</div>
-          <div class="hero-side-value">100<span class="unit">литров</span></div>
-        </div>
-        <div class="hero-side-block">
-          <div class="hero-side-label">до</div>
-          <div class="hero-side-value">25 000<span class="unit">литров / рейс</span></div>
+          <div class="hero-side-value">300<span class="unit">литров</span></div>
         </div>
         <div class="hero-side-block">
           <div class="hero-side-label">скорость</div>
@@ -1340,7 +1334,7 @@ body::before {
         <span class="fuel-swatch diesel-s"></span>
         <div class="fuel-info">
           <h3 class="fuel-name">Дизельное топливо — лето</h3>
-          <p class="fuel-spec">ДТ-Л · ГОСТ 305-2013 · до +5°C</p>
+          <p class="fuel-spec">ДТ-Л-К5 · ГОСТ 305-2013 · до +5°C</p>
         </div>
         <div class="fuel-price">49,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
       </article>
@@ -1358,7 +1352,7 @@ body::before {
         <span class="fuel-swatch diesel-w"></span>
         <div class="fuel-info">
           <h3 class="fuel-name">Дизельное топливо — зима</h3>
-          <p class="fuel-spec">ДТ-З · до −32°C · депрессорные присадки</p>
+          <p class="fuel-spec">ДТ-З-К5 · до −32°C · депрессорные присадки</p>
         </div>
         <div class="fuel-price">57,00<span class="currency">₽</span><span class="perliter">за литр</span></div>
       </article>
@@ -1483,7 +1477,7 @@ body::before {
         <div class="step-num">шаг&nbsp;01</div>
         <h3 class="step-title">Создаёте заявку</h3>
         <p class="step-text">
-          Тип топлива, объём, адрес, желаемое время. Минимум — 100&nbsp;л.
+          Тип топлива, объём, адрес, желаемое время. Минимум — 300&nbsp;л.
         </p>
       </div>
       <div class="step reveal reveal-d1">
