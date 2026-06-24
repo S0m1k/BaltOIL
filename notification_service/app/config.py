@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Пусто = слать через SMTP; "unisender_go" = слать через Unisender Go.
     email_http_provider: str = ""
     unisender_go_api_key: str = ""
-    email_from_name: str = "BaltOIL"
+    email_from_name: str = "СЗТК"
 
     # SMSC.ru / SMS
     smsc_login: str = ""

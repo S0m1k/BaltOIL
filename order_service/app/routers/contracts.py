@@ -232,7 +232,7 @@ async def send_contract_by_email(
 
     content_b64 = base64.b64encode(full_path.read_bytes()).decode()
     subject = f"Договор № {contract.contract_number}"
-    body_text = "Здравствуйте,\n\nВо вложении договор поставки нефтепродуктов.\n\n— BaltOIL"
+    body_text = "Здравствуйте,\n\nВо вложении договор поставки нефтепродуктов.\n\n— СЗТК"
     filename = f"Договор_{contract.contract_number.replace('/', '-')}.pdf"
 
     notif_base = settings.notification_service_url.rstrip("/")

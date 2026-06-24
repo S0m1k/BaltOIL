@@ -173,7 +173,7 @@ async def _notify_contract_created(contract: Contract, pdf_bytes: bytes) -> None
         f"Дата заключения: {signed}\n"
         f"Действителен до: {until}\n\n"
         "Файл договора во вложении.\n\n"
-        "—\nBaltOIL"
+        "—\nСЗТК"
     )
     content_b64 = base64.b64encode(pdf_bytes).decode()
     safe_num = re.sub(r"[^\w\-]", "_", contract.contract_number)

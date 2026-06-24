@@ -356,7 +356,7 @@ async def send_document_by_email(
     body_text = (
         "Здравствуйте,\n\n"
         "Во вложении документ по вашей заявке.\n\n"
-        "— BaltOIL"
+        "— СЗТК"
     )
     filename = f"{doc.doc_number}.pdf"
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BaltOIL — Панель управления</title>
+<title>СЗТК — Панель управления</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -1521,7 +1521,7 @@
 <!-- ════════════════════════════════ AUTH SCREEN ════════════════════════════════ -->
 <div id="auth-screen">
   <div class="auth-card">
-    <div class="auth-logo">BALTOIL</div>
+    <div class="auth-logo">СЗТК</div>
     <div class="auth-subtitle">Система управления доставкой топлива</div>
 
     <!-- Step 1: Войти / Зарегистрироваться -->
@@ -1768,7 +1768,7 @@
   <div class="burger-overlay" id="burger-overlay" onclick="closeBurger()"></div>
   <div class="burger-drawer" id="burger-drawer">
     <div class="burger-head">
-      <span class="burger-logo">BALTOIL</span>
+      <span class="burger-logo">СЗТК</span>
       <button class="burger-close-btn" onclick="closeBurger()">✕</button>
     </div>
     <nav class="burger-nav" id="burger-nav"></nav>
@@ -1779,7 +1779,7 @@
   </div>
 
   <div class="topbar">
-    <div class="topbar-logo">BALTOIL</div>
+    <div class="topbar-logo">СЗТК</div>
     <div class="nav-tabs">
       <div class="nav-tab-group">
         <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
@@ -2608,7 +2608,7 @@
     <div class="call-avatar" id="incoming-call-avatar">?</div>
     <div class="call-status-label">Входящий звонок</div>
     <div class="call-caller-name" id="incoming-call-name">—</div>
-    <div class="call-sub">Аудио-вызов через BaltOIL</div>
+    <div class="call-sub">Аудио-вызов через СЗТК</div>
     <div class="call-actions">
       <button class="call-btn decline" onclick="declineIncomingCall()" title="Отклонить">
         <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" transform="rotate(135 128 128)"/></svg>
@@ -4660,7 +4660,7 @@ async function openOrgContract(orgId) {
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-sm btn-primary-outline" onclick="downloadContractPdf('${c.id}')">${icon('file-text',14)} Посмотреть PDF</button>
-      <button class="btn btn-sm btn-ghost" onclick="downloadContractExport('${c.id}')">${icon('microsoft-excel-logo',14)} Word</button>
+      ${isStaff ? `<button class="btn btn-sm btn-ghost" onclick="downloadContractExport('${c.id}')">${icon('microsoft-excel-logo',14)} Word</button>` : ''}
       ${staffBtns}
     </div>`;
 }
