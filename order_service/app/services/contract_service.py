@@ -206,6 +206,28 @@ async def _notify_contract_created(contract: Contract, pdf_bytes: bytes) -> None
         log.warning("contract.notify failed for %s: %s", contract.contract_number, exc)
 
 
+def _build_contract_ctx(
+    seller: dict,
+    buyer: dict,
+    contract_number: str,
+    signed_at: date,
+    effective_until: date,
+) -> dict:
+    """Контекст для рендера contract.html — общий для создания и перегенерации."""
+    return {
+        "contract_number":  contract_number,
+        "city":             "Санкт-Петербург",
+        "signed_day":       f"{signed_at.day:02d}",
+        "signed_month_ru":  _MONTHS_RU[signed_at.month],
+        "signed_year":      signed_at.year,
+        "effective_until":  effective_until.strftime("%d.%m.%Y"),
+        "seller":           seller,
+        "buyer":            buyer,
+        "seller_sign_name": _short_sign_name(seller.get("director_name")),
+        "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+    }
+
+
 # ── Публичное API ───────────────────────────────────────────────────────────────
 
 async def create_contract(
@@ -242,18 +264,7 @@ async def create_contract(
     signed_at = datetime.now(timezone.utc).date()
     effective_until = _plus_five_years(signed_at)
 
-    ctx = {
-        "contract_number":  contract_number,
-        "city":             "Санкт-Петербург",
-        "signed_day":       f"{signed_at.day:02d}",
-        "signed_month_ru":  _MONTHS_RU[signed_at.month],
-        "signed_year":      signed_at.year,
-        "effective_until":  effective_until.strftime("%d.%m.%Y"),
-        "seller":           seller,
-        "buyer":            buyer,
-        "seller_sign_name": _short_sign_name(seller.get("director_name")),
-        "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
-    }
+    ctx = _build_contract_ctx(seller, buyer, contract_number, signed_at, effective_until)
 
     # WeasyPrint — CPU-bound; в отдельный поток, чтобы не блокировать event loop.
     pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
@@ -314,4 +325,62 @@ async def get_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
     contract = result.scalar_one_or_none()
     if not contract:
         raise NotFoundError("Договор не найден")
+    return contract
+
+
+async def list_all_contracts(db: AsyncSession) -> list[Contract]:
+    """Все договоры (для реестра, staff-only)."""
+    result = await db.execute(select(Contract).order_by(Contract.created_at.desc()))
+    return list(result.scalars().all())
+
+
+async def regenerate_contract(
+    db: AsyncSession,
+    contract: Contract,
+    actor: TokenUser,
+    *,
+    new_number: str | None = None,
+    new_signed_at: date | None = None,
+) -> Contract:
+    """Перевыпустить PDF договора с правкой номера и/или даты подписания.
+
+    Реквизиты продавца снимаются заново (могли измениться); реквизиты
+    покупателя берутся из уже сохранённого снимка договора.
+    """
+    if new_number is not None and new_number != contract.contract_number:
+        result = await db.execute(
+            select(Contract).where(
+                Contract.contract_number == new_number,
+                Contract.id != contract.id,
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            raise ValidationError("Договор с таким номером уже существует")
+        contract.contract_number = new_number
+
+    if new_signed_at is not None:
+        contract.signed_at = new_signed_at
+        contract.effective_until = _plus_five_years(new_signed_at)
+
+    seller = await get_seller_snapshot(db)
+    if not seller:
+        raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
+    contract.seller_snapshot = seller
+    buyer = contract.buyer_snapshot
+
+    ctx = _build_contract_ctx(
+        seller, buyer, contract.contract_number, contract.signed_at, contract.effective_until
+    )
+
+    pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
+    file_path = _save_contract_pdf(contract.client_id, contract.contract_number, pdf_bytes)
+    contract.file_path = file_path
+
+    await db.flush()
+
+    log.info(
+        "audit action=contract.regenerated contract_id=%s number=%s actor_id=%s",
+        contract.id, contract.contract_number, actor.id,
+    )
+
     return contract

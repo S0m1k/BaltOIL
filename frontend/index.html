@@ -2042,6 +2042,7 @@
         <div class="toolbar-title" id="orgs-title">Организации</div>
         <input id="orgs-search" class="form-input" placeholder="Поиск по названию или ИНН" style="display:none;max-width:280px;margin-left:auto" oninput="onOrgSearchInput()">
         <button class="btn btn-sm btn-primary" id="orgs-add-btn" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
+        <button class="btn btn-sm btn-ghost" id="contracts-registry-btn" style="display:none" onclick="openContractsRegistry()">Реестр договоров</button>
       </div>
       <div id="orgs-list" style="display:flex;flex-direction:column;gap:10px">
         <div class="empty-state"><div class="loading"></div></div>
@@ -4650,19 +4651,78 @@ async function openOrgContract(orgId) {
   const dateStr = c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU')
                 : (c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU') : '—');
   const staffBtns = isStaff ? `
-    <button class="btn btn-sm btn-ghost" onclick="contractSendEmail('${c.id}',this)">${icon('envelope',14)} На почту</button>
-    <button class="btn btn-sm btn-ghost" onclick="contractSendEdo('${c.id}',this)">${icon('file-text',14)} По ЭДО на подпись</button>` : '';
+    <button class="btn btn-sm btn-ghost" onclick="contractSendEmail('${c.id}',this)">${icon('envelope',14)} На почту</button>` : '';
+  const signedDateValue = c.signed_at ? c.signed_at.slice(0, 10) : '';
+  const regenFields = isStaff ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="color:var(--text3);font-size:12px">Номер</label>
+        <input id="oc-num" class="form-input" style="width:120px" value="${escHtml(c.contract_number)}">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="color:var(--text3);font-size:12px">Дата</label>
+        <input id="oc-date" type="date" class="form-input" value="${signedDateValue}">
+      </div>
+      <button class="btn btn-sm btn-warn" onclick="regenContract('${c.id}','${orgId}')">Сгенерировать заново</button>
+    </div>` : '';
   document.getElementById('modal-body').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
       <div><span style="color:var(--text3);font-size:12px">Номер:</span> <strong style="font-family:monospace">${escHtml(c.contract_number)}</strong></div>
       <div><span style="color:var(--text3);font-size:12px">Дата:</span> ${dateStr}</div>
       <div><span style="color:var(--text3);font-size:12px">Статус:</span> ${c.status === 'active' ? 'действующий' : escHtml(c.status)}</div>
     </div>
+    ${regenFields}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-sm btn-primary-outline" onclick="downloadContractPdf('${c.id}')">${icon('file-text',14)} Посмотреть PDF</button>
       ${isStaff ? `<button class="btn btn-sm btn-ghost" onclick="downloadContractExport('${c.id}')">${icon('microsoft-excel-logo',14)} Word</button>` : ''}
       ${staffBtns}
     </div>`;
+}
+
+async function regenContract(contractId, orgId) {
+  const numEl = document.getElementById('oc-num');
+  const dateEl = document.getElementById('oc-date');
+  const body = {
+    contract_number: numEl ? numEl.value.trim() : null,
+    signed_at: dateEl && dateEl.value ? dateEl.value : null,
+  };
+  try {
+    await orderPatch(`/contracts/${contractId}/regenerate`, body);
+    toast('Договор перевыпущен', 'success');
+    openOrgContract(orgId);
+  } catch (e) {
+    toast(e.message || 'Ошибка перевыпуска договора', 'error');
+  }
+}
+
+async function openContractsRegistry() {
+  openModal('Реестр договоров', '<div class="empty-state"><div class="loading"></div></div>', null);
+  let rows;
+  try {
+    rows = await orderGet('/contracts');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message || 'Не удалось получить реестр договоров')}</div>`;
+    return;
+  }
+  if (!rows.length) {
+    document.getElementById('modal-body').innerHTML = `<div class="empty-state">Договоров нет.</div>`;
+    return;
+  }
+  const trs = rows.map(r => {
+    const d = r.signed_at || r.created_at;
+    const dateStr = d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+    return `<tr>
+      <td style="font-family:monospace">${escHtml(r.contract_number)}</td>
+      <td>${escHtml(r.organization_name || '—')}</td>
+      <td>${dateStr}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <table class="table" style="width:100%">
+      <thead><tr><th>Номер</th><th>Организация</th><th>Дата</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
 }
 
 async function contractSendEmail(contractId, btn) {
@@ -4674,19 +4734,6 @@ async function contractSendEmail(contractId, btn) {
     toast('Ошибка отправки: ' + (e.message || ''), 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = `${icon('envelope',14)} На почту`; }
-  }
-}
-
-async function contractSendEdo(contractId, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  try {
-    await orderPost(`/contracts/${contractId}/send-edo`, {});
-    toast('Уведомление об отправке по ЭДО опубликовано в чате клиента', 'success');
-  } catch (e) {
-    // 501 — ЭДО ещё не настроен (нет ключей оператора): показываем понятное сообщение.
-    toast(e.message || 'ЭДО недоступно', 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = `${icon('file-text',14)} По ЭДО на подпись`; }
   }
 }
 
@@ -5426,10 +5473,12 @@ async function loadMyOrganizations() {
   const titleEl  = document.getElementById('orgs-title');
   const searchEl = document.getElementById('orgs-search');
   const addBtn   = document.getElementById('orgs-add-btn');
+  const registryBtn = document.getElementById('contracts-registry-btn');
   if (titleEl)  titleEl.textContent = staff ? 'Организации' : 'Мои организации';
   if (searchEl) searchEl.style.display = staff ? '' : 'none';
   // Кнопку добавления видят все: клиент заводит свои юрлица, staff — на клиента
   if (addBtn)   addBtn.style.display = '';
+  if (registryBtn) registryBtn.style.display = staff ? '' : 'none';
 
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {

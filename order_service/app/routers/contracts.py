@@ -62,6 +62,21 @@ class ContractResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RegenerateContractRequest(BaseModel):
+    contract_number: str | None = None
+    signed_at: date | None = None
+
+
+class ContractRegistryRow(BaseModel):
+    id: uuid.UUID
+    contract_number: str
+    organization_id: uuid.UUID | None
+    organization_name: str | None
+    signed_at: date | None
+    created_at: datetime
+    status: ContractStatus
+
+
 @router.post(
     "/clients/{client_id}/contracts",
     response_model=ContractResponse,
@@ -95,6 +110,68 @@ async def list_client_contracts(
     return await contract_service.list_contracts(db, client_id)
 
 
+async def _fetch_buyer_names(items: list[dict]) -> dict[str, str]:
+    """Имена покупателей (клиент/организация) батчем из auth_service.
+
+    Ключ карты: f"{client_id}|{organization_id or ''}". При недоступности
+    auth_service возвращает пустую карту — не падаем (organization_name=None).
+    """
+    if not items:
+        return {}
+    base = settings.auth_service_url.rstrip("/")
+    headers = {"X-Internal-Secret": settings.internal_api_secret}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{base}/api/v1/internal/orders/buyer-names",
+                json={"items": items},
+                headers=headers,
+            )
+            r.raise_for_status()
+            rows = r.json()
+    except Exception as exc:
+        log.warning("buyer-names lookup failed: %s", exc)
+        return {}
+    names: dict[str, str] = {}
+    for row in rows:
+        key = f"{row.get('client_id')}|{row.get('organization_id') or ''}"
+        names[key] = row.get("name")
+    return names
+
+
+@router.get("/contracts", response_model=list[ContractRegistryRow])
+async def list_contracts_registry(
+    actor: CurrentUser,
+    _: ManagerOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Реестр всех договоров (staff-only)."""
+    contracts = await contract_service.list_all_contracts(db)
+    items = [
+        {
+            "client_id": str(c.client_id),
+            "organization_id": str(c.organization_id) if c.organization_id else None,
+        }
+        for c in contracts
+    ]
+    names = await _fetch_buyer_names(items)
+    rows = []
+    for c in contracts:
+        key = f"{c.client_id}|{c.organization_id or ''}"
+        rows.append(
+            ContractRegistryRow(
+                id=c.id,
+                contract_number=c.contract_number,
+                organization_id=c.organization_id,
+                organization_name=names.get(key),
+                signed_at=c.signed_at,
+                created_at=c.created_at,
+                status=c.status,
+            )
+        )
+    return rows
+
+
 @router.get("/contracts/{contract_id}", response_model=ContractResponse)
 async def get_contract(
     contract_id: uuid.UUID,
@@ -105,6 +182,28 @@ async def get_contract(
     contract = await contract_service.get_contract(db, contract_id)
     if actor.role not in ("manager", "admin") and contract.client_id != actor.id:
         raise ForbiddenError("Договор принадлежит другому клиенту")
+    return contract
+
+
+@router.patch("/contracts/{contract_id}/regenerate", response_model=ContractResponse)
+async def regenerate_contract(
+    contract_id: uuid.UUID,
+    payload: RegenerateContractRequest,
+    actor: CurrentUser,
+    _: ManagerOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Перевыпустить договор с новым номером и/или датой подписания (staff-only)."""
+    contract = await contract_service.get_contract(db, contract_id)
+    contract = await contract_service.regenerate_contract(
+        db,
+        contract,
+        actor,
+        new_number=payload.contract_number,
+        new_signed_at=payload.signed_at,
+    )
+    await db.commit()
+    await db.refresh(contract)
     return contract
 
 
@@ -266,62 +365,3 @@ async def send_contract_by_email(
     return {"ok": True, "to": recipient}
 
 
-@router.post("/contracts/{contract_id}/send-edo", status_code=200)
-async def send_contract_via_edo(
-    contract_id: uuid.UUID,
-    actor: CurrentUser,
-    _: ManagerOrAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    """«Отправить» договор по ЭДО — без реальной интеграции с оператором.
-
-    Реальной интеграции с Диадок/Контур нет и не планируется в этом виде.
-    По просьбе заказчика кнопка просто публикует в чат клиента сообщение о
-    том, что договор будет направлен на подпись по ЭДО. Доступно только staff.
-    """
-    contract = await contract_service.get_contract(db, contract_id)
-
-    base = settings.chat_service_url.rstrip("/")
-    headers = {"Authorization": f"Bearer {actor.token}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # У договора нет order_id — ищем диалог клиент ↔ менеджер среди
-            # всех диалогов клиента (создавать диалог здесь не нужно).
-            r = await client.get(
-                f"{base}/api/v1/conversations",
-                headers=headers,
-            )
-            r.raise_for_status()
-            convs = r.json()
-
-            conv_id = None
-            for c in convs:
-                if c.get("kind") == "client_manager" and c.get("client_id") == str(contract.client_id):
-                    conv_id = c["id"]
-                    break
-
-            if conv_id is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="У клиента нет чата для отправки. Договор можно отправить на почту.",
-                )
-
-            msg_text = f"📄 Договор № {contract.contract_number} будет направлен вам на подпись по ЭДО."
-
-            r2 = await client.post(
-                f"{base}/api/v1/conversations/{conv_id}/messages",
-                json={"text": msg_text},
-                headers=headers,
-            )
-            r2.raise_for_status()
-
-    except httpx.HTTPStatusError as exc:
-        log.error("Chat service error sending contract %s via EDO: %s %s", contract_id, exc.response.status_code, exc.response.text)
-        raise ValidationError(f"Ошибка чат-сервиса: {exc.response.status_code}")
-    except httpx.RequestError as exc:
-        log.error("Chat service unreachable: %s", exc)
-        raise ValidationError("Чат-сервис недоступен")
-
-    log.info("contract.sent_edo_notice contract_id=%s conv_id=%s", contract_id, conv_id)
-    return {"ok": True, "conv_id": conv_id}
