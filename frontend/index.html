@@ -2637,7 +2637,7 @@
           </div>
         </div>
         <div>
-          <div style="font-weight:600;font-size:14px;margin-bottom:10px">Сохранить новую зону</div>
+          <div id="zones-form-title" style="font-weight:600;font-size:14px;margin-bottom:10px">Сохранить новую зону</div>
           <div id="zones-draw-form" style="display:none">
             <div class="form-group">
               <label class="form-label">Название зоны</label>
@@ -2648,9 +2648,12 @@
               <input type="number" id="zone-price-input" class="form-input" placeholder="Например, 3000" step="100" min="0">
               <div style="font-size:11px;color:var(--text3);margin-top:4px">Фиксированная цена доставки в эту зону. Показывается клиенту в расчёте заявки.</div>
             </div>
+            <div id="zone-edit-hint" style="display:none;font-size:11px;color:var(--text3);margin-bottom:8px">
+              Перетаскивайте узлы полигона на карте, чтобы изменить границы зоны.
+            </div>
             <div style="display:flex;gap:8px">
-              <button class="btn btn-primary btn-sm" onclick="saveDrawnZone()">Сохранить</button>
-              <button class="btn btn-ghost btn-sm" onclick="cancelDrawnZone()">Отмена</button>
+              <button id="zone-save-btn" class="btn btn-primary btn-sm" onclick="submitZoneForm()">Сохранить</button>
+              <button class="btn btn-ghost btn-sm" onclick="cancelZoneForm()">Отмена</button>
             </div>
           </div>
           <div id="zones-draw-hint" style="color:var(--text3);font-size:13px">
@@ -2819,6 +2822,7 @@ const ICONS = {
   'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'clock':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>',
   'push-pin':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M232,93.85a16,16,0,0,0-4.69-11.33L173.48,28.69a16,16,0,0,0-22.63,0L104,75.51a16,16,0,0,0-3.32,17.74l-44.3,44.3a16,16,0,0,0,0,22.62l8,8L24,208.57V232H47.43l40.4-40.4,8,8a16,16,0,0,0,22.63,0l44.3-44.3A16,16,0,0,0,180.49,152l46.82-46.82A16,16,0,0,0,232,93.85Zm-124.69,94.4L66.49,147.43,107.31,106.6l41.83,41.83Zm61.17-50.34L126.66,96.09,162.17,40.6l53.85,53.85Z"/></svg>',
+  'push-pin-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,168h-9.29L185.54,48H192a8,8,0,0,0,0-16H64a8,8,0,0,0,0,16h6.46L49.29,168H40a8,8,0,0,0,0,16h80v56a8,8,0,0,0,16,0V184h80a8,8,0,0,0,0-16ZM86.71,48h82.58l21.17,120H65.54Z"/></svg>',
   'paperclip':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>',
   'circle':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"/></svg>',
   'x-circle':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M165.66,101.66,139.31,128l26.35,26.34a8,8,0,0,1-11.32,11.32L128,139.31l-26.34,26.35a8,8,0,0,1-11.32-11.32L116.69,128,90.34,101.66a8,8,0,0,1,11.32-11.32L128,116.69l26.34-26.35a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
@@ -3320,6 +3324,9 @@ function deliveryGet(path) {
 }
 function deliveryPost(path, body) {
   return api(`${DELIVERY_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
+}
+function deliveryPut(path, body) {
+  return api(`${DELIVERY_URL}${path}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 function deliveryPatch(path, body) {
   return api(`${DELIVERY_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -3875,6 +3882,11 @@ let _drawnLayer = null;
 // Группа отрисованных существующих зон — чтобы очищать при перезагрузке,
 // не трогая _drawnLayer.
 let _zoneLayers = null;
+// id зоны, которую сейчас редактируем (null = режим создания). При редактировании
+// границы правятся прямо на её полигоне через geoman (layer.pm.enable()).
+let _editingZoneId = null;
+// id зоны → { zone, layer, color } для доступа к слою при редактировании.
+let _zoneById = {};
 // Палитра для заливки полигонов зон (циклически).
 const ZONE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
 
@@ -3936,13 +3948,15 @@ function initZones() {
 async function loadZones() {
   const listEl = document.getElementById('zones-list');
   if (_zoneLayers) _zoneLayers.clearLayers();
+  _zoneById = {};
   try {
     const zones = await deliveryGet('/zones');
     zones.forEach((z, i) => {
       const color = ZONE_COLORS[i % ZONE_COLORS.length];
-      L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.15 })
+      const layer = L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.15 })
         .bindTooltip(escHtml(z.name))
         .addTo(_zoneLayers);
+      _zoneById[z.id] = { zone: z, layer, color };
     });
     renderZonesList(zones);
   } catch (e) {
@@ -3958,8 +3972,10 @@ function renderZonesList(zones) {
   }
   el.innerHTML = zones.map((z, i) => {
     const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    const editing = _editingZoneId === z.id;
+    const nameAttr = escHtml(z.name).replace(/'/g, '&#39;');
     return `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px">
+    <div style="background:var(--bg2);border:1px solid ${editing ? 'var(--accent)' : 'var(--border)'};border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px">
       <span style="width:12px;height:12px;border-radius:3px;background:${color};flex-shrink:0"></span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${escHtml(z.name)}</div>
@@ -3967,33 +3983,68 @@ function renderZonesList(zones) {
           ? `Доставка: ${Number(z.delivery_price).toLocaleString('ru')} ₽`
           : `Коэффициент: ${Number(z.cost_coefficient).toLocaleString('ru')} (стоимость не задана)`}</div>
       </div>
+      <button class="btn btn-sm btn-ghost" title="Редактировать"
+        onclick="editZone('${z.id}')">${icon('pencil-simple', 14)}</button>
       <button class="btn btn-sm btn-ghost" style="color:var(--red)" title="Удалить"
-        onclick="deleteZone('${z.id}', '${escHtml(z.name).replace(/'/g, '&#39;')}')">${icon('trash', 14)}</button>
+        onclick="deleteZone('${z.id}', '${nameAttr}')">${icon('trash', 14)}</button>
     </div>`;
   }).join('');
 }
 
-async function saveDrawnZone() {
-  if (!_drawnLayer) { toast('Сначала нарисуйте полигон на карте', 'warn'); return; }
+// Начать редактирование существующей зоны: правка названия/цены в форме +
+// правка границ прямо на полигоне (geoman vertex-drag).
+function editZone(id) {
+  const entry = _zoneById[id];
+  if (!entry) return;
+  // Сбросить незавершённый черновик создания.
+  if (_drawnLayer) { _zonesMap.removeLayer(_drawnLayer); _drawnLayer = null; }
+  // Если уже редактировали другую зону — выключить правку и вернуть её исходные границы
+  // (без loadZones, чтобы не пересобирать слои под нами).
+  if (_editingZoneId && _editingZoneId !== id) {
+    const prev = _zoneById[_editingZoneId];
+    if (prev) { prev.layer.pm.disable(); prev.layer.setLatLngs(prev.zone.polygon); }
+  }
+
+  _editingZoneId = id;
+  const { zone, layer } = entry;
+  layer.pm.enable({ allowSelfIntersection: false });
+  _zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40] });
+
+  document.getElementById('zone-name-input').value = zone.name || '';
+  document.getElementById('zone-price-input').value = zone.delivery_price != null ? zone.delivery_price : '';
+  document.getElementById('zones-form-title').textContent = 'Редактировать зону';
+  document.getElementById('zone-save-btn').textContent = 'Сохранить изменения';
+  document.getElementById('zone-edit-hint').style.display = '';
+  document.getElementById('zones-draw-form').style.display = '';
+  document.getElementById('zones-draw-hint').style.display = 'none';
+  renderZonesList(Object.values(_zoneById).map(e => e.zone));
+}
+
+// Единая отправка формы: создание (из _drawnLayer) или обновление (по _editingZoneId).
+async function submitZoneForm() {
   const name = document.getElementById('zone-name-input').value.trim();
   if (!name) { toast('Введите название зоны', 'warn'); return; }
   const priceRaw = document.getElementById('zone-price-input').value;
   const price = priceRaw === '' ? null : parseFloat(priceRaw);
   if (price == null || !(price >= 0)) { toast('Укажите стоимость доставки в рублях (≥ 0)', 'warn'); return; }
 
-  const polygon = _drawnLayer.getLatLngs()[0].map(p => [p.lat, p.lng]);
+  const sourceLayer = _editingZoneId ? _zoneById[_editingZoneId]?.layer : _drawnLayer;
+  if (!sourceLayer) { toast('Сначала нарисуйте полигон на карте', 'warn'); return; }
+  const polygon = sourceLayer.getLatLngs()[0].map(p => [p.lat, p.lng]);
   if (polygon.length < 3) { toast('Полигон должен содержать минимум 3 точки', 'warn'); return; }
 
   try {
-    await deliveryPost('/zones', {
-      name,
-      polygon,
-      delivery_price: price,
-      is_active: true,
-    });
-    toast('Зона сохранена');
-    _zonesMap.removeLayer(_drawnLayer);
-    _drawnLayer = null;
+    if (_editingZoneId) {
+      await deliveryPut(`/zones/${_editingZoneId}`, { name, polygon, delivery_price: price });
+      sourceLayer.pm.disable();
+      _editingZoneId = null;
+      toast('Зона обновлена');
+    } else {
+      await deliveryPost('/zones', { name, polygon, delivery_price: price, is_active: true });
+      _zonesMap.removeLayer(_drawnLayer);
+      _drawnLayer = null;
+      toast('Зона сохранена');
+    }
     resetZoneForm();
     loadZones();
   } catch (e) {
@@ -4001,7 +4052,13 @@ async function saveDrawnZone() {
   }
 }
 
-function cancelDrawnZone() {
+function cancelZoneForm() {
+  if (_editingZoneId) {
+    const entry = _zoneById[_editingZoneId];
+    if (entry) entry.layer.pm.disable();
+    _editingZoneId = null;
+    loadZones(); // перерисовать зону в исходных границах (отменить правки узлов)
+  }
   if (_drawnLayer) { _zonesMap.removeLayer(_drawnLayer); _drawnLayer = null; }
   resetZoneForm();
 }
@@ -4009,8 +4066,11 @@ function cancelDrawnZone() {
 function resetZoneForm() {
   document.getElementById('zones-draw-form').style.display = 'none';
   document.getElementById('zones-draw-hint').style.display = '';
+  document.getElementById('zone-edit-hint').style.display = 'none';
   document.getElementById('zone-name-input').value = '';
   document.getElementById('zone-price-input').value = '';
+  document.getElementById('zones-form-title').textContent = 'Сохранить новую зону';
+  document.getElementById('zone-save-btn').textContent = 'Сохранить';
 }
 
 async function deleteZone(id, name) {
@@ -4018,6 +4078,7 @@ async function deleteZone(id, name) {
   try {
     await deliveryDelete(`/zones/${id}`);
     toast('Зона удалена');
+    if (_editingZoneId === id) { _editingZoneId = null; resetZoneForm(); }
     loadZones();
   } catch (e) {
     toast('Ошибка: ' + e.message, 'error');
@@ -7717,11 +7778,11 @@ function renderConvList(convs) {
   el.innerHTML = folderChips + visible.map(c => `
     <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
       <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
-        ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin', 12)}</span>` : ''}
+        ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin-simple', 12)}</span>` : ''}
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(convTitle(c))}</span>
         <button title="${c.is_pinned ? 'Открепить' : 'Закрепить'}"
           style="border:none;background:none;cursor:pointer;color:${c.is_pinned ? 'var(--amber)' : 'var(--text3)'};padding:0;opacity:.7"
-          onclick="toggleConvPin(event, '${c.id}', ${c.is_pinned ? 'false' : 'true'})">${icon('push-pin', 13)}</button>
+          onclick="toggleConvPin(event, '${c.id}', ${c.is_pinned ? 'false' : 'true'})">${icon('push-pin-simple', 13)}</button>
       </div>
       <div class="conv-item-meta">
         <span class="conv-type-chip conv-type-${c.kind}">${CONV_KIND_LABELS[c.kind] || c.kind}</span>
@@ -7920,7 +7981,7 @@ function msgHTML(m) {
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
       ${replyQuoteHtml}
       ${bodyHtml}
-      <div class="msg-time">${fmtTime(m.created_at)}${isPinned ? ' · 📌' : ''}</div>
+      <div class="msg-time">${fmtTime(m.created_at)}${isPinned ? ` · <span title="Закреплено" style="color:var(--amber)">${icon('push-pin-simple', 11)}</span>` : ''}</div>
     </div>
     ${actionsHtml}
   </div>`;
@@ -8138,7 +8199,7 @@ function renderPinnedBar(pinned) {
   bar.style.display = 'flex';
   bar.innerHTML = pinned.map(m => `
     <div class="chat-pinned-item" onclick="scrollToMessage('${escHtml(m.id)}')">
-      📌 <span class="pin-name">${escHtml(m.sender_name || '')}</span>
+      <span style="color:var(--amber);flex-shrink:0">${icon('push-pin-simple', 13)}</span> <span class="pin-name">${escHtml(m.sender_name || '')}</span>
       <span class="pin-text">${escHtml(m.text || '')}</span>
       <button type="button" class="pin-unpin" title="Открепить"
         onclick="event.stopPropagation();unpinChatMessage('${escHtml(m.id)}')">×</button>
