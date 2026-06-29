@@ -88,6 +88,18 @@ def seller_stamp_data_uri() -> str | None:
     return _legal_image_data_uri("stamp.png")
 
 
+def _short_sign_name(full_name: str | None) -> str:
+    """'Борзяев Дмитрий Геннадьевич' → 'Борзяев Д.Г.' (для расшифровки подписи)."""
+    if not full_name:
+        return "________________"
+    parts = full_name.split()
+    if len(parts) >= 3:
+        return f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
+    if len(parts) == 2:
+        return f"{parts[0]} {parts[1][0]}."
+    return full_name
+
+
 FUEL_LABELS = {
     "diesel_summer": "Дизельное топливо летнее (ДТ-Л)",
     "diesel_winter": "Дизельное топливо зимнее (ДТ-З)",
@@ -275,6 +287,7 @@ def _build_invoice_ctx(
         "amount_in_words": amount_to_words_ru(total),
         "seller_signature": seller_signature_data_uri(),
         "seller_stamp":      seller_stamp_data_uri(),
+        "seller_sign_name":  _short_sign_name((seller or {}).get("director_name")),
         # Legacy переменные на случай если шаблон откатится:
         "fuel_name":        _fuel_name(order),
         "order_number":     order.order_number,

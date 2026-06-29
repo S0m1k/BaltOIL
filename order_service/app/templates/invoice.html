@@ -104,10 +104,37 @@
 <p class="summary">Всего наименований {{ items|length }}, на сумму {{ total | format_money }} руб.</p>
 <p class="words"><b>{{ amount_in_words }}</b></p>
 
-{% if seller_signature %}
-<div style="text-align:center;margin-top:18px;">
-  <img src="{{ seller_signature }}" style="width:265px;max-width:7cm;height:auto;">
-</div>
-{% endif %}
+<table class="signs">
+  <tr>
+    <td class="s-role">Руководитель</td>
+    <td class="s-pos">
+      <div class="s-fld">Генеральный директор</div>
+      <div class="s-sub">должность</div>
+    </td>
+    <td class="s-stamp" rowspan="3">
+      {% if seller_signature %}<img class="s-img" src="{{ seller_signature }}">{% endif %}
+    </td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
+  </tr>
+  <tr>
+    <td class="s-role">Главный (старший) бухгалтер</td>
+    <td class="s-pos"></td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
+  </tr>
+  <tr>
+    <td class="s-role">Ответственный</td>
+    <td class="s-pos"></td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
+  </tr>
+</table>
 
 {% endblock %}

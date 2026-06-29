@@ -26,6 +26,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.models.contract import Contract, ContractMonthCounter, ContractStatus
 from app.services.document_service import (  # переиспользуем Jinja+WeasyPrint
     _render_pdf,
+    _short_sign_name,
     seller_signature_data_uri,
     seller_stamp_data_uri,
 )
@@ -158,18 +159,6 @@ def _name_genitive(full_name: str | None) -> str:
     except Exception as exc:
         log.warning("contract.name_genitive_failed name=%r: %s", full_name, exc)
         return full_name
-
-
-def _short_sign_name(full_name: str | None) -> str:
-    """'Борзяев Дмитрий Геннадьевич' → 'Борзяев Д.Г.' (для подписи)."""
-    if not full_name:
-        return "________________"
-    parts = full_name.split()
-    if len(parts) >= 3:
-        return f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
-    if len(parts) == 2:
-        return f"{parts[0]} {parts[1][0]}."
-    return full_name
 
 
 def _plus_five_years(d: date) -> date:
