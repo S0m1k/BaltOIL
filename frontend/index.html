@@ -4593,6 +4593,9 @@ function orderCardHTML(o) {
   const isStaff     = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   // Driver sees no money for company orders (SPEC 5.4)
   const driverHidesMoney = currentUser?.role === 'driver' && o.order_kind !== 'individual';
+  // Стоимость топлива = ожидаемая сумма − доставка (цены бандлятся в expected_amount).
+  // Нужна водителю-физику (сколько наличными собрать) и менеджеру (правка/скидка).
+  const fuelCost    = o.expected_amount != null ? o.expected_amount - (o.delivery_cost || 0) : null;
   const rowClass    = _orderRowClass(o);
   // Дата: желаемая — крупно (красная если просрочена), дата создания — мелко под ней
   const _today = new Date(); _today.setHours(0,0,0,0);
@@ -4637,7 +4640,8 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
-        ${(o.delivery_cost != null || isStaff) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? Number(o.delivery_cost).toLocaleString('ru') + ' ₽' : '—'}</div></div>` : ''}
+        ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? Number(fuelCost).toLocaleString('ru-RU',{minimumFractionDigits:2}) + ' ₽' : '—'}</div></div>` : ''}
+        ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? Number(o.delivery_cost).toLocaleString('ru') + ' ₽' : '—'}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
@@ -5174,6 +5178,11 @@ async function promptEditOrderField(orderId, field) {
     title = 'Изменить стоимость доставки';
     inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${order.delivery_cost != null ? Number(order.delivery_cost) : ''}" placeholder="0">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Например, при переадресации на 2 адреса. Сумма заявки пересчитается, счёт перевыпустится с тем же номером.</div>`;
+  } else if (field === 'fuel_cost') {
+    title = 'Изменить стоимость топлива';
+    const _fuel = order.expected_amount != null ? order.expected_amount - (order.delivery_cost || 0) : '';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${_fuel !== '' ? Number(_fuel) : ''}" placeholder="0">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Стоимость топлива без доставки (например, скидка клиенту). Доставка ${order.delivery_cost != null ? Number(order.delivery_cost).toLocaleString('ru') + ' ₽' : '0 ₽'} добавится к сумме заявки. Счёт перевыпустится с тем же номером.</div>`;
   } else { return; }
 
   openModal(`${title} · ${order.order_number}`,
@@ -5194,6 +5203,11 @@ async function promptEditOrderField(orderId, field) {
         const v = parseFloat(raw || '0');
         if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
         body[field] = v;
+      } else if (field === 'fuel_cost') {
+        const v = parseFloat(raw || '0');
+        if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
+        // Бэкенд хранит бандл expected_amount = топливо + доставка
+        body.expected_amount = v + (order.delivery_cost || 0);
       } else if (field === 'desired_date') {
         body[field] = new Date(raw + 'T00:00:00').toISOString();
       } else {
