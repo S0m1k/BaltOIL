@@ -1594,8 +1594,9 @@
           </div>
           <div id="login-error"></div>
           <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
-            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('sms')">Войти по SMS-коду</button>
+          <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:10px">
+            <!-- Вход по SMS скрыт по требованию. Чтобы вернуть: убрать display:none ниже и вернуть justify-content:space-between выше. -->
+            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0;display:none" onclick="switchLoginMode('sms')">Войти по SMS-коду</button>
             <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('forgot')">Забыли пароль?</button>
           </div>
         </div>
