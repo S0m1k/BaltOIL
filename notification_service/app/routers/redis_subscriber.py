@@ -10,7 +10,7 @@ events:chat    – chat_service publishes JSON on every new message
 Payload shapes
 ──────────────
 order event:
-  { "event": "order_created"|"order_status",
+  { "event": "order_created"|"order_status"|"order_large_volume"|"order_rescheduled",
     "order_id": "...", "client_id": "...",
     "driver_id": "...|null", "manager_id": "...|null",
     "status": "...", "title": "...", "body": "..." }
@@ -84,6 +84,16 @@ async def _build_order_request(payload: dict) -> PublishRequest | None:
         # Переиспользуем ORDER_CREATED — отдельный enum не заводим (есть шаблон).
         notif_type = NotificationType.ORDER_CREATED
         recipients.extend(await _fetch_staff_ids())
+    elif event == "order_rescheduled":
+        # Перенос даты/водителя (order_service.reschedule_order публикует событие,
+        # но раньше его никто не слушал — водитель не получал ни SSE, ни email).
+        # Переиспользуем ORDER_STATUS — тот же получатель-набор (клиент+водитель),
+        # отдельный enum не заводим (есть шаблон order_in_transit.txt).
+        notif_type = NotificationType.ORDER_STATUS
+        if client_id:
+            recipients.append(uuid.UUID(client_id))
+        if driver_id:
+            recipients.append(uuid.UUID(driver_id))
     else:
         return None
 
@@ -172,7 +182,7 @@ async def _build_call_request(payload: dict) -> PublishRequest | None:
 
 async def _handle(payload: dict, r: aioredis.Redis) -> None:
     event = payload.get("event", "")
-    if event in ("order_created", "order_status", "order_large_volume"):
+    if event in ("order_created", "order_status", "order_large_volume", "order_rescheduled"):
         req = await _build_order_request(payload)
     elif event == "chat_message":
         req = _build_chat_request(payload)
