@@ -301,6 +301,7 @@ class OrdersRepository {
     String? driverId,
     bool isTtnL = false,
     bool allowDeliveryUnpaid = false,
+    String? organizationId,
   }) async {
     final resp = await _dio.post('$_base/orders', data: {
       'fuel_type': fuelType,
@@ -319,7 +320,62 @@ class OrdersRepository {
       if (driverId != null) 'driver_id': driverId,
       if (isTtnL) 'is_ttn_l': true,
       if (allowDeliveryUnpaid) 'allow_delivery_unpaid': true,
+      // «Оформить от имени» — организация клиента (веб: c-organization)
+      if (organizationId != null) 'organization_id': organizationId,
     });
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }
+
+  /// Доступные типы оплаты клиента (веб renderPaymentRadios):
+  /// GET /tariffs/clients/{id}/payment-options.
+  Future<({String clientType, List<String> types})> paymentOptions(
+      String clientId) async {
+    final resp =
+        await _dio.get('$_base/tariffs/clients/$clientId/payment-options');
+    final data = resp.data as Map<String, dynamic>;
+    return (
+      clientType: (data['client_type'] ?? '') as String,
+      types: ((data['available_payment_types'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+    );
+  }
+
+  /// Сохранённые объекты доставки клиента (веб b815cf1, c-saved-object).
+  /// Клиент — свои; staff — объекты выбранного клиента.
+  Future<List<ClientObject>> clientObjects({String? clientId}) async {
+    final resp = await _dio.get(
+      '$_base/client-objects',
+      queryParameters: {if (clientId != null) 'client_id': clientId},
+    );
+    return (resp.data as List)
+        .map((e) => ClientObject.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> deleteClientObject(String id) async {
+    await _dio.delete('$_base/client-objects/$id');
+  }
+}
+
+/// Сохранённый объект доставки (ClientObjectResponse).
+class ClientObject {
+  const ClientObject({
+    required this.id,
+    required this.deliveryAddress,
+    this.name,
+  });
+
+  final String id;
+  final String deliveryAddress;
+  final String? name;
+
+  String get label =>
+      name == null ? deliveryAddress : '$name — $deliveryAddress';
+
+  factory ClientObject.fromJson(Map<String, dynamic> json) => ClientObject(
+        id: (json['id'] as Object).toString(),
+        deliveryAddress: (json['delivery_address'] ?? '') as String,
+        name: json['name'] as String?,
+      );
 }

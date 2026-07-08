@@ -5,6 +5,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../common/copyable_phone.dart';
+import 'order_create_screen.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -922,6 +923,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               : () => _recordPaymentManager(order),
         ));
       }
+      // Дублировать (веб F1, 2026-06-24): открыть форму создания с
+      // предзаполненными полями — например, разбить заявку >3000 л на две.
+      btns.add(_ActionBtn(
+        label: 'Дублировать',
+        icon: Icons.copy,
+        color: c.text2,
+        onTap: _busy
+            ? null
+            : () async {
+                final created = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => OrderCreateScreen(
+                        user: widget.user, duplicateFrom: order),
+                  ),
+                );
+                if (created == true && mounted) _reload();
+              },
+      ));
     }
 
     // Driver buttons

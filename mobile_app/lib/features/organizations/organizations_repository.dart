@@ -104,12 +104,13 @@ class OrganizationsRepository {
   String get _base => AppConfig.authBase;
 
   /// Staff без user_id — все организации (поиск по названию/ИНН);
-  /// клиент — только свои. Роль разруливает сервер.
-  Future<List<Organization>> list({String? search}) async {
+  /// с user_id — организации этого пользователя; клиент — только свои.
+  Future<List<Organization>> list({String? search, String? userId}) async {
     final resp = await _dio.get(
       '$_base/organizations',
       queryParameters: {
         if (search != null && search.isNotEmpty) 'search': search,
+        if (userId != null) 'user_id': userId,
       },
     );
     return (resp.data as List)
