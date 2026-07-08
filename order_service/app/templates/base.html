@@ -53,14 +53,16 @@
     .summary { margin: 12px 0 2px; font-size: 9.5pt; }
     .words { margin: 0 0 16px; font-size: 9.5pt; border-bottom: 1px solid #000; padding-bottom: 4px; }
 
-    /* Подписи */
-    .signs { margin-top: 18px; }
-    .signs td { padding: 4px 6px; font-size: 9pt; vertical-align: bottom; border: none; }
-    .signs .s-role { width: 25%; font-weight: bold; }
-    .signs .s-pos  { width: 28%; }
-    .signs .s-line { width: 22%; border-bottom: 1px solid #000; height: 14px; }
-    .signs .s-name { width: 25%; text-align: center; }
-    .signs .s-sub  { font-size: 7pt; color: #666; text-align: center; padding-top: 0; }
+    /* Подписи (блок руководитель / бухгалтер / ответственный на счёте) */
+    .signs { margin-top: 22px; }
+    .signs td { padding: 8px 6px 2px; font-size: 9pt; vertical-align: bottom; border: none; }
+    .signs .s-role  { width: 22%; font-weight: bold; }
+    .signs .s-pos   { width: 22%; }
+    .signs .s-name  { width: 22%; }
+    .signs .s-stamp { width: 5.4cm; text-align: center; vertical-align: middle; }
+    .signs .s-img   { width: 5cm; max-width: 5cm; height: auto; }
+    .signs .s-fld   { border-bottom: 1px solid #000; text-align: center; font-weight: bold; min-height: 13px; padding: 0 4px; }
+    .signs .s-sub   { font-size: 7pt; color: #666; text-align: center; padding-top: 1px; }
 
     /* legacy classes (TTN / УПД пока пользуются старой версткой) */
     .req-grid { display: flex; gap: 30px; margin-bottom: 14px; }

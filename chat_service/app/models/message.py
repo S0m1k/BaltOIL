@@ -31,4 +31,13 @@ class Message(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
+    # Ответ на сообщение (reply). ON DELETE SET NULL — если родителя удалят/архивируют
+    # жёстко, ссылка просто гаснет, а не ломает вставку.
+    reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Закреплено для ВСЕХ участников диалога (в отличие от ConversationParticipant.is_pinned,
+    # которое закрепляет сам чат индивидуально для пользователя).
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")

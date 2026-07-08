@@ -12,6 +12,7 @@ class PricePreviewRequest(BaseModel):
     delivery_lat: float | None = Field(None, ge=-90, le=90)
     delivery_lon: float | None = Field(None, ge=-180, le=180)
     client_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
 
 
 class PricePreviewResponse(BaseModel):
@@ -40,6 +41,10 @@ class OrderCreateRequest(BaseModel):
     payment_type: PaymentType = PaymentType.ON_DELIVERY
     expected_amount: Decimal | None = Field(None, ge=0, description="Ожидаемая сумма оплаты")
     client_comment: str | None = None
+
+    # Организация (юрлицо), от имени которой создаётся заявка. NULL = «как физлицо».
+    # Членство клиента проверяется в auth_service при резолве контекста.
+    organization_id: uuid.UUID | None = None
 
     # Координаты адреса доставки (из DaData-геокодирования на фронте)
     delivery_lat: float | None = Field(None, ge=-90, le=90)
@@ -80,6 +85,10 @@ class OrderUpdateRequest(BaseModel):
     delivery_cost: Decimal | None = Field(None, ge=0)
     # Долговая заявка: менеджер/админ может переключить флаг
     allow_delivery_unpaid: bool | None = None
+    # Смена заказчика: организация (юрлицо) клиента или null = физлицо (правка 2026-06-24).
+    # "Передано или нет" различается в order_service.update_order через
+    # model_fields_set (exclude_none скрыл бы намеренный null).
+    organization_id: uuid.UUID | None = None
 
 
 class OrderStatusTransitionRequest(BaseModel):
@@ -108,6 +117,7 @@ class OrderResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
     fuel_type: str
     volume_requested: float
     volume_delivered: float | None
@@ -148,6 +158,9 @@ class OrderResponse(BaseModel):
     debt_amount: float = 0.0
     pricing_warning: bool = False  # True если expected_amount=None (тариф не настроен)
 
+    # Имя покупателя: организация, иначе ФИО клиента (правки 2026-06-23)
+    buyer_name: str | None = None
+
     model_config = {"from_attributes": True}
 
 
@@ -156,6 +169,7 @@ class OrderListResponse(BaseModel):
     order_number: str
     order_kind: OrderKind
     client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
     fuel_type: str
     volume_requested: float
     volume_delivered: float | None
@@ -186,5 +200,8 @@ class OrderListResponse(BaseModel):
     paid_total: float = 0.0
     debt_amount: float = 0.0
     pricing_warning: bool = False
+
+    # Имя покупателя: организация, иначе ФИО клиента (правки 2026-06-23)
+    buyer_name: str | None = None
 
     model_config = {"from_attributes": True}

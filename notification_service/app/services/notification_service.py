@@ -25,7 +25,10 @@ _WS_KEY_TTL = 300  # must match ws_manager._KEY_TTL
 
 # Notification types for which we must check WS presence before emailing.
 # For these types, skip email if recipient is currently online.
-_ONLINE_GATED_TYPES = {NotificationType.CHAT_MESSAGE, NotificationType.CHAT_NEW, NotificationType.CALL_MISSED}
+# CALL_MISSED исключён намеренно: событие теперь публикуется только из end_call,
+# когда звонок реально пропущен (никто не ответил) → email шлём всегда,
+# независимо от текущего присутствия получателя.
+_ONLINE_GATED_TYPES = {NotificationType.CHAT_MESSAGE, NotificationType.CHAT_NEW}
 
 
 def _get_redis() -> aioredis.Redis:
@@ -104,21 +107,20 @@ def _render_template(template_name: str, notification: Notification) -> str | No
     # Provide all notification fields as template variables so any template
     # can reference them.  Unknown variables just render as empty string via
     # Jinja2 default behaviour (undefined=Undefined, which renders to "").
+    #
+    # title/body — единственный источник реальных данных: order_service/
+    # delivery_service формируют их с уже подставленным номером заявки,
+    # адресом, водителем и т.д. Раньше здесь были заглушки client_name/
+    # driver_name/route/pickup_date/document_type/order_number — они ВСЕГДА
+    # рендерились пустыми (order_number вдобавок был сырым UUID entity_id),
+    # хотя нужные данные уже лежали в title/body. Шаблоны переведены на
+    # title/body напрямую — см. order_created.txt/order_in_transit.txt/
+    # document_ready.txt.
     ctx = {
         "title":        notification.title,
         "body":         notification.body,
         "entity_type":  notification.entity_type,
         "entity_id":    str(notification.entity_id) if notification.entity_id else "",
-        # Convenience aliases parsed from body/title for common templates.
-        # Real values come from the publishing service via title/body text;
-        # templates fall back to those if the specific var is empty.
-        "order_number": notification.entity_id or "",
-        "client_name":  "",
-        "driver_name":  "",
-        "route":        "",
-        "pickup_date":  "",
-        "vehicle":      "",
-        "document_type": "",
         "sender_name":  notification.title,
         "message_body": notification.body,
         "caller_name":  notification.title,

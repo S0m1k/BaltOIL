@@ -45,6 +45,25 @@ async def get_contact(user_id: uuid.UUID) -> dict | None:
     return contacts.get(str(user_id))
 
 
+async def get_organization_ids(user_id: uuid.UUID) -> list[str]:
+    """ID организаций, в которых пользователь — активный участник.
+
+    Используется для правила показа чата «Бухгалтерия» (доступен клиенту,
+    у которого есть хотя бы одна организация). Fail-open: при ошибке — [].
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_BASE}/internal/users/{user_id}/organization-ids",
+                headers=_HEADERS,
+            )
+        resp.raise_for_status()
+        return [str(x) for x in resp.json()]
+    except Exception:
+        logger.exception("auth get_organization_ids failed")
+        return []
+
+
 async def is_messenger_blocked(redis, user_id: uuid.UUID) -> bool:
     """Заблокирован ли мессенджер у пользователя (правки 2026-06-11).
 
@@ -66,6 +85,28 @@ async def is_messenger_blocked(redis, user_id: uuid.UUID) -> bool:
     except Exception:
         pass
     return blocked
+
+
+async def get_users_by_role(roles: list[str]) -> list[uuid.UUID]:
+    """ID активных пользователей с указанными ролями (для состава staff-групп).
+
+    Fail-open: при ошибке — [], вызывающая сторона должна мягко деградировать
+    (показать пустой список участников), а не падать с 500.
+    """
+    if not roles:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_BASE}/internal/users-by-role",
+                params={"roles": ",".join(roles)},
+                headers=_HEADERS,
+            )
+        resp.raise_for_status()
+        return [uuid.UUID(x) for x in resp.json()]
+    except Exception:
+        logger.exception("auth get_users_by_role failed")
+        return []
 
 
 async def get_contacts(ids: list[uuid.UUID]) -> dict[str, dict]:

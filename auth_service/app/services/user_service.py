@@ -17,6 +17,7 @@ from app.schemas.user import (
 from app.schemas.client_profile import UpdateClientProfileRequest
 from app.services.audit_service import log_action
 from app.services.dadata_service import lookup_by_inn, lookup_by_bik
+from app.services import organization_service
 from app.core.token_revocation import revoke_user_tokens
 
 
@@ -110,6 +111,9 @@ async def register_individual(
     db.add(profile)
     await db.flush()
 
+    # Привязать pending-приглашения в организации по номеру телефона
+    await organization_service.link_pending_invites(db, user)
+
     await log_action(
         db,
         action="user.registered_individual",
@@ -185,6 +189,9 @@ async def register_company(
     )
     db.add(profile)
     await db.flush()
+
+    # Привязать pending-приглашения в организации по номеру телефона
+    await organization_service.link_pending_invites(db, user)
 
     await log_action(
         db,

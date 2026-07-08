@@ -1,4 +1,3 @@
-import base64
 import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -28,15 +27,18 @@ router = APIRouter(prefix="/orders/{order_id}/documents", tags=["documents"])
 
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/media"))
 
-# Активные типы документов (Д4): только два счёта. Остальные типы (УПД/ТТН/
-# договор/доверенность/legacy invoice) — спящие, не генерятся и не выдаются в UI.
-ACTIVE_DOC_TYPES = (DocumentType.INVOICE_PRELIMINARY, DocumentType.INVOICE_FINAL)
+# Активные типы документов (Д4 2026-06-23: единый счёт). Новый INVOICE — основной;
+# legacy preliminary/final оставлены в списке, чтобы старые заявки сохранили доступ
+# к уже выпущенным счетам. Прочие типы (УПД/ТТН/договор/доверенность) — спящие.
+ACTIVE_DOC_TYPES = (
+    DocumentType.INVOICE,
+    DocumentType.INVOICE_PRELIMINARY,
+    DocumentType.INVOICE_FINAL,
+)
 
-# Какой генератор вызывать для ручного выставления счёта.
-_GENERATORS = {
-    "invoice_preliminary": document_service.generate_invoice_preliminary,
-    "invoice_final": document_service.generate_invoice_final,
-}
+# Ручное выставление счёта всегда работает с единым счётом (тот же номер при
+# повторном вызове). Любой invoice-подобный doc_type маппится на единый генератор.
+_INVOICE_DOC_TYPES = {"invoice", "invoice_preliminary", "invoice_final"}
 
 
 class DocumentResponse(BaseModel):
@@ -56,7 +58,7 @@ class DocumentResponse(BaseModel):
 
 
 class GenerateDocumentRequest(BaseModel):
-    doc_type: str  # только "invoice_preliminary" | "invoice_final"
+    doc_type: str = "invoice"  # единый счёт; legacy-значения принимаются как алиасы
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -72,7 +74,13 @@ async def list_documents(
     """
     await get_order(db, order_id, actor)  # проверка доступа
     docs = await document_service.list_for_order(db, order_id)
-    return [d for d in docs if d.doc_type in ACTIVE_DOC_TYPES]
+    active = [d for d in docs if d.doc_type in ACTIVE_DOC_TYPES]
+    # Единый счёт: если по заявке есть новый INVOICE — показываем только его,
+    # legacy предв./финальный скрываем (иначе у старых заявок было бы 2-3 счёта).
+    has_unified = any(d.doc_type == DocumentType.INVOICE for d in active)
+    if has_unified:
+        active = [d for d in active if d.doc_type == DocumentType.INVOICE]
+    return active
 
 
 @router.post("/generate", response_model=DocumentResponse, status_code=201)
@@ -82,24 +90,29 @@ async def generate_document(
     actor: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Выставить счёт вручную (менеджер/админ).
+    """Выставить счёт вручную (менеджер/админ) либо самостоятельно клиентом по своей заявке.
 
     Нужно прежде всего для заявок >= 3000 л, где автогенерация отключена, а также
     как общий механизм повторного выставления. Генераторы идемпотентны — повторный
     вызов вернёт уже выпущенный документ без создания дубля.
-    """
-    if actor.role not in ("manager", "admin"):
-        raise ForbiddenError("Выставлять счета может менеджер или администратор")
 
-    gen_fn = _GENERATORS.get(body.doc_type)
-    if gen_fn is None:
-        raise ValidationError("doc_type должен быть invoice_preliminary или invoice_final")
+    Клиент может сгенерировать счёт только по СВОЕЙ заявке — это гарантирует
+    get_order(db, order_id, actor) ниже (проверка владения/доступа), поэтому для
+    роли client достаточно просто не блокировать запрос здесь.
+    """
+    if actor.role not in ("manager", "admin", "client"):
+        raise ForbiddenError("Выставлять счета может менеджер, администратор или клиент по своей заявке")
+
+    if body.doc_type not in _INVOICE_DOC_TYPES:
+        raise ValidationError("doc_type должен быть invoice")
 
     order = await get_order(db, order_id, actor)  # проверка доступа
     if order.order_kind == OrderKind.TTN_L:
         raise ValidationError("Для ТТН-Л счета не выставляются")
 
-    doc = await gen_fn(db, order, actor)
+    # Единый счёт: перевыпуск с теми же номером/датой и актуальными цифрами
+    # (или создание, если счёта ещё нет).
+    doc = await document_service.regenerate_invoice(db, order, actor)
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -187,71 +200,9 @@ async def send_document_to_chat(
 
     if doc.order_id != order_id:
         raise ForbiddenError("Документ не принадлежит этой заявке")
-    if doc.status == DocumentStatus.DRAFT:
-        raise ValidationError("PDF ещё не сгенерирован (статус DRAFT). Дождитесь генерации.")
-
-    # Находим диалог по заявке через chat_service
-    base = settings.chat_service_url.rstrip("/")
-    headers = {"Authorization": f"Bearer {actor.token}"}
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # Ищем существующий диалог по order_id
-            r = await client.get(
-                f"{base}/api/v1/conversations",
-                params={"order_id": str(order_id)},
-                headers=headers,
-            )
-            r.raise_for_status()
-            convs = r.json()
-
-            if convs:
-                conv_id = convs[0]["id"]
-            else:
-                # Создаём диалог клиент ↔ менеджер по заявке
-                r2 = await client.post(
-                    f"{base}/api/v1/conversations",
-                    json={
-                        "type": "client_support",
-                        "order_id": str(order_id),
-                        "participant_ids": [str(order.client_id)],
-                        "title": f"Заявка {order.order_number}",
-                    },
-                    headers=headers,
-                )
-                r2.raise_for_status()
-                conv_id = r2.json()["id"]
-
-            # Отправляем document-сообщение
-            doc_type_label = {
-                "invoice": "Счёт",
-                "invoice_preliminary": "Счёт (предв.)",
-                "invoice_final": "Счёт (финал)",
-                "ttn": "ТТН",
-                "upd": "УПД",
-            }.get(
-                doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type, "Документ"
-            )
-            msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
-
-            r3 = await client.post(
-                f"{base}/api/v1/conversations/{conv_id}/messages",
-                json={
-                    "text": msg_text,
-                    "msg_type": "document",
-                    "metadata": {
-                        "document_id": str(doc.id),
-                        "doc_number": doc.doc_number,
-                        "doc_type": doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type,
-                        "order_id": str(order_id),
-                        "order_number": order.order_number,
-                        "download_path": f"/api/v1/orders/{order_id}/documents/{document_id}/download",
-                    },
-                },
-                headers=headers,
-            )
-            r3.raise_for_status()
-
+        result = await document_service.send_document_to_chat(db, order, doc, actor.token)
     except httpx.HTTPStatusError as exc:
         log.error("Chat service error sending doc %s: %s %s", document_id, exc.response.status_code, exc.response.text)
         raise ValidationError(f"Ошибка чат-сервиса: {exc.response.status_code}")
@@ -259,11 +210,8 @@ async def send_document_to_chat(
         log.error("Chat service unreachable: %s", exc)
         raise ValidationError("Чат-сервис недоступен")
 
-    # Отмечаем документ как отправленный
-    doc.status = DocumentStatus.SENT
     await db.commit()
-
-    return {"ok": True, "conv_id": conv_id}
+    return result
 
 
 async def _check_send_email_rate(actor_id: uuid.UUID) -> None:
@@ -295,13 +243,16 @@ async def send_document_by_email(
 
     Адрес получателя берётся ТОЛЬКО из профиля клиента заявки (billing_email
     или user.email через auth_service). Произвольный адрес в теле запроса не
-    принимаем — иначе менеджер может слать чужие документы куда угодно.
+    принимаем — иначе менеджер может слать чужие документы куда угодно, а клиент
+    может отправить письмо только на свой же адрес (он резолвится по order.client_id,
+    а доступ к заявке проверен get_order ниже).
 
-    Доступно менеджеру и администратору. Rate-limit: 5 отправок/мин на пользователя.
-    При ошибке SMTP — 503, статус документа не меняется.
+    Доступно менеджеру, администратору и клиенту по своей заявке. Rate-limit:
+    5 отправок/мин на пользователя. При ошибке SMTP — 503, статус документа
+    не меняется.
     """
-    if actor.role not in ("manager", "admin"):
-        raise ForbiddenError("Отправлять документы по email может менеджер или администратор")
+    if actor.role not in ("manager", "admin", "client"):
+        raise ForbiddenError("Отправлять документы по email может менеджер, администратор или клиент по своей заявке")
 
     await _check_send_email_rate(actor.id)
 
@@ -311,83 +262,20 @@ async def send_document_by_email(
     if doc.order_id != order_id:
         raise ForbiddenError("Документ не принадлежит этой заявке")
 
-    # READY и SENT оба допустимы для повторной отправки
-    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
-        raise HTTPException(status_code=409, detail="document not ready")
-
-    if not doc.file_path:
-        raise NotFoundError("document file missing")
-
-    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
-    if not full_path.exists():
-        raise NotFoundError("document file missing")
-
-    # Адрес получателя — только из профиля клиента, без override из тела
-    auth_base = settings.auth_service_url.rstrip("/")
-    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
-                headers=internal_headers,
-            )
-            r.raise_for_status()
-            recipient = r.json().get("email")
+        result = await document_service.send_document_by_email(db, order, doc)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="document file missing")
+    except ValidationError as exc:
+        msg = str(exc)
+        if msg == "document not ready":
+            raise HTTPException(status_code=409, detail="document not ready")
+        if msg == "recipient has no email":
+            raise HTTPException(status_code=422, detail="recipient has no email")
+        raise HTTPException(status_code=503, detail="email service unavailable")
     except Exception as exc:
-        log.error("auth_service email-target lookup failed: %s", exc)
+        log.error("send_document_by_email failed for doc %s: %s", document_id, exc)
         raise HTTPException(status_code=503, detail="email service unavailable")
 
-    if not recipient:
-        raise HTTPException(status_code=422, detail="recipient has no email")
-
-    # Читаем PDF и кодируем
-    pdf_bytes = full_path.read_bytes()
-    content_b64 = base64.b64encode(pdf_bytes).decode()
-
-    # Составляем тему письма: "Документ ИНВ-2026-000123 по заявке ORD-2026-000045"
-    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
-    body_text = (
-        "Здравствуйте,\n\n"
-        "Во вложении документ по вашей заявке.\n\n"
-        "— BaltOIL"
-    )
-    filename = f"{doc.doc_number}.pdf"
-
-    # Вызываем notification_service
-    notif_base = settings.notification_service_url.rstrip("/")
-    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
-    sent = False
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(
-                f"{notif_base}/internal/email/send-with-attachment",
-                json={
-                    "to": recipient,
-                    "subject": subject,
-                    "body": body_text,
-                    "attachment": {
-                        "filename": filename,
-                        "content_base64": content_b64,
-                        "mime_type": "application/pdf",
-                    },
-                },
-                headers=internal_headers,
-            )
-            r.raise_for_status()
-            sent = r.json().get("sent", False)
-    except Exception as exc:
-        log.error("notification_service send-with-attachment failed: %s", exc)
-
-    if not sent:
-        raise HTTPException(status_code=503, detail="email service unavailable")
-
-    # Только после подтверждения от notification_service обновляем статус
-    doc.status = DocumentStatus.SENT
     await db.commit()
-
-    log.info(
-        "document.sent_email action document_id=%s order_id=%s to=%s filename=%s",
-        document_id, order_id, recipient, filename,
-    )
-
-    return {"ok": True, "to": recipient}
+    return result

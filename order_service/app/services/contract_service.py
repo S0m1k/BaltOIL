@@ -24,7 +24,12 @@ from app.config import settings
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.contract import Contract, ContractMonthCounter, ContractStatus
-from app.services.document_service import _render_pdf  # переиспользуем Jinja+WeasyPrint
+from app.services.document_service import (  # переиспользуем Jinja+WeasyPrint
+    _render_pdf,
+    _short_sign_name,
+    seller_signature_data_uri,
+    seller_stamp_data_uri,
+)
 from app.services.legal_entity_service import get_seller_snapshot
 
 log = logging.getLogger(__name__)
@@ -39,13 +44,18 @@ _MONTHS_RU = (
 
 # ── Нумерация NNN/MM ───────────────────────────────────────────────────────────
 
+# Сквозной (не помесячный) счётчик номеров договоров: заказчик подтвердил, что
+# порядковый номер не сбрасывается каждый месяц (057/05 → 058/06 → 059/07),
+# /MM — это просто месяц подписания. Единый фиксированный ключ строки счётчика.
+_GLOBAL_CONTRACT_COUNTER_KEY = "GLOBAL"
+
+
 async def _next_contract_number(db: AsyncSession) -> str:
-    """Атомарно выдать номер вида '034/02' (seq за месяц / номер месяца)."""
+    """Атомарно выдать номер вида '058/06' (сквозной seq / номер месяца подписания)."""
     now = datetime.now(timezone.utc)
-    month_key = f"{now.year:04d}-{now.month:02d}"
     stmt = (
         pg_insert(ContractMonthCounter)
-        .values(month_key=month_key, last_seq=1)
+        .values(month_key=_GLOBAL_CONTRACT_COUNTER_KEY, last_seq=1)
         .on_conflict_do_update(
             index_elements=["month_key"],
             set_={"last_seq": ContractMonthCounter.last_seq + 1},
@@ -59,18 +69,22 @@ async def _next_contract_number(db: AsyncSession) -> str:
 
 # ── Реквизиты покупателя из auth_service ───────────────────────────────────────
 
-async def _fetch_buyer_legal_profile(client_id: uuid.UUID) -> dict:
-    """Полные юр-реквизиты клиента для договора.
+async def _fetch_buyer_legal_profile(
+    client_id: uuid.UUID, organization_id: uuid.UUID | None = None
+) -> dict:
+    """Полные юр-реквизиты для договора.
 
-    404 от auth_service (физлицо / нет ИНН) → ValidationError: договор нельзя
-    сформировать без реквизитов покупателя. Недоступность сервиса → 503.
+    Если передан organization_id — реквизиты организации (auth проверяет членство),
+    иначе legacy: company-профиль клиента. 404 (физлицо / нет ИНН) → ValidationError.
+    Недоступность сервиса → 503.
     """
     base = settings.auth_service_url.rstrip("/")
     url = f"{base}/api/v1/internal/users/{client_id}/legal-profile"
+    params = {"organization_id": str(organization_id)} if organization_id else None
     headers = {"X-Internal-Secret": settings.internal_api_secret}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(url, headers=headers)
+            r = await client.get(url, params=params, headers=headers)
         if r.status_code == 404:
             raise ValidationError(
                 "У клиента не заполнены юридические реквизиты — договор сформировать нельзя"
@@ -87,16 +101,64 @@ async def _fetch_buyer_legal_profile(client_id: uuid.UUID) -> dict:
 
 # ── Хелперы ────────────────────────────────────────────────────────────────────
 
-def _short_sign_name(full_name: str | None) -> str:
-    """'Борзяев Дмитрий Геннадьевич' → 'Борзяев Д.Г.' (для подписи)."""
+# ── Родительный падеж для преамбулы («в лице Генерального директора Борзяева Д.Г.») ──
+
+# petrovich склоняет ФИО, но не служебные названия должностей — для них своя
+# таблица. Не претендует на полноту, покрывает реально встречающиеся в БД
+# варианты; неизвестная должность возвращается без изменений (лучше нейтрально
+# неправильный падеж, чем сломанный PDF).
+_TITLE_GENITIVE = {
+    "генеральный директор": "Генерального директора",
+    "директор": "Директора",
+    "руководитель": "руководителя",
+    "исполнительный директор": "Исполнительного директора",
+    "коммерческий директор": "Коммерческого директора",
+    "управляющий": "управляющего",
+    "президент": "президента",
+    "учредитель": "учредителя",
+}
+
+
+def _title_genitive(title: str | None) -> str:
+    """'Генеральный директор' → 'Генерального директора'. Фоллбэк — исходная строка."""
+    if not title:
+        return "Генерального директора"
+    key = title.strip().lower()
+    return _TITLE_GENITIVE.get(key, title)
+
+
+def _name_genitive(full_name: str | None) -> str:
+    """'Борзяев Дмитрий Геннадьевич' → 'Борзяева Дмитрия Геннадьевича' (родительный падеж).
+
+    Через petrovich; при любой ошибке/неполном ФИО — фоллбэк на исходную строку
+    в именительном падеже (никогда не должны падать из-за генерации PDF).
+    """
     if not full_name:
         return "________________"
     parts = full_name.split()
-    if len(parts) >= 3:
-        return f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
-    if len(parts) == 2:
-        return f"{parts[0]} {parts[1][0]}."
-    return full_name
+    if len(parts) < 2:
+        return full_name
+    try:
+        from petrovich.main import Petrovich
+        from petrovich.enums import Case, Gender
+
+        last_name = parts[0]
+        first_name = parts[1]
+        middle_name = parts[2] if len(parts) >= 3 else ""
+
+        # Определяем пол по отчеству (Геннадьевич/Геннадьевна) — petrovich требует Gender.
+        gender = Gender.FEMALE if middle_name.lower().endswith(("вна", "чна")) else Gender.MALE
+
+        p = Petrovich()
+        last_g = p.lastname(last_name, Case.GENITIVE, gender)
+        first_g = p.firstname(first_name, Case.GENITIVE, gender)
+        middle_g = p.middlename(middle_name, Case.GENITIVE, gender) if middle_name else ""
+
+        result = " ".join(x for x in (last_g, first_g, middle_g) if x)
+        return result or full_name
+    except Exception as exc:
+        log.warning("contract.name_genitive_failed name=%r: %s", full_name, exc)
+        return full_name
 
 
 def _plus_five_years(d: date) -> date:
@@ -115,10 +177,35 @@ def _save_contract_pdf(client_id: uuid.UUID, contract_number: str, pdf_bytes: by
     return str(file_path.relative_to(MEDIA_ROOT))
 
 
-async def get_active_contract(db: AsyncSession, client_id: uuid.UUID) -> Contract | None:
+async def get_active_contract(
+    db: AsyncSession, client_id: uuid.UUID, organization_id: uuid.UUID | None = None
+) -> Contract | None:
+    conds = [Contract.client_id == client_id, Contract.status == ContractStatus.ACTIVE]
+    # Договор на организацию ищем по организации; legacy (без org) — по NULL.
+    if organization_id is not None:
+        conds.append(Contract.organization_id == organization_id)
+    else:
+        conds.append(Contract.organization_id.is_(None))
     result = await db.execute(
         select(Contract)
-        .where(Contract.client_id == client_id, Contract.status == ContractStatus.ACTIVE)
+        .where(*conds)
+        .order_by(Contract.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_active_contract_by_org(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> Contract | None:
+    """Активный договор организации (любой участник-владелец). Для кнопки «Договор»
+    на карточке юрлица — ищем по organization_id, без привязки к client_id."""
+    result = await db.execute(
+        select(Contract)
+        .where(
+            Contract.organization_id == organization_id,
+            Contract.status == ContractStatus.ACTIVE,
+        )
         .order_by(Contract.created_at.desc())
         .limit(1)
     )
@@ -144,7 +231,7 @@ async def _notify_contract_created(contract: Contract, pdf_bytes: bytes) -> None
         f"Дата заключения: {signed}\n"
         f"Действителен до: {until}\n\n"
         "Файл договора во вложении.\n\n"
-        "—\nBaltOIL"
+        "—\nСЗТК"
     )
     content_b64 = base64.b64encode(pdf_bytes).decode()
     safe_num = re.sub(r"[^\w\-]", "_", contract.contract_number)
@@ -177,42 +264,15 @@ async def _notify_contract_created(contract: Contract, pdf_bytes: bytes) -> None
         log.warning("contract.notify failed for %s: %s", contract.contract_number, exc)
 
 
-# ── Публичное API ───────────────────────────────────────────────────────────────
-
-async def create_contract(
-    db: AsyncSession,
-    client_id: uuid.UUID,
-    actor: TokenUser,
-) -> Contract:
-    """Сформировать договор поставки для клиента-юрлица.
-
-    Идемпотентно: если активный договор уже есть — возвращаем его без повторной
-    генерации и без письма.
-    """
-    # Транзакционный advisory-lock по клиенту сериализует параллельные создания
-    # договора для одного клиента (защита от гонки «два активных договора»),
-    # не требуя схемных изменений. Снимается автоматически на commit/rollback.
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-        {"k": f"contract:{client_id}"},
-    )
-
-    existing = await get_active_contract(db, client_id)
-    if existing is not None:
-        log.info("audit action=contract.skip_existing client_id=%s number=%s",
-                 client_id, existing.contract_number)
-        return existing
-
-    seller = await get_seller_snapshot(db)
-    if not seller:
-        raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
-    buyer = await _fetch_buyer_legal_profile(client_id)
-
-    contract_number = await _next_contract_number(db)
-    signed_at = datetime.now(timezone.utc).date()
-    effective_until = _plus_five_years(signed_at)
-
-    ctx = {
+def _build_contract_ctx(
+    seller: dict,
+    buyer: dict,
+    contract_number: str,
+    signed_at: date,
+    effective_until: date,
+) -> dict:
+    """Контекст для рендера contract.html — общий для создания и перегенерации."""
+    return {
         "contract_number":  contract_number,
         "city":             "Санкт-Петербург",
         "signed_day":       f"{signed_at.day:02d}",
@@ -223,7 +283,53 @@ async def create_contract(
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "seller_signature": seller_signature_data_uri(),
+        "seller_stamp":      seller_stamp_data_uri(),
+        # Родительный падеж для преамбулы "в лице ... кого" (правка 2026-06-24).
+        "seller_title_genitive":    _title_genitive(seller.get("director_title")),
+        "seller_director_genitive": _name_genitive(seller.get("director_name")),
+        "buyer_title_genitive":     _title_genitive(buyer.get("director_title")),
+        "buyer_director_genitive":  _name_genitive(buyer.get("director_name")),
     }
+
+
+# ── Публичное API ───────────────────────────────────────────────────────────────
+
+async def create_contract(
+    db: AsyncSession,
+    client_id: uuid.UUID,
+    actor: TokenUser,
+    organization_id: uuid.UUID | None = None,
+) -> Contract:
+    """Сформировать договор поставки для юрлица.
+
+    При organization_id — договор на организацию (реквизиты из неё). Иначе legacy:
+    company-профиль клиента. Идемпотентно: активный договор на ту же пару
+    (клиент, организация) возвращается без повторной генерации и письма.
+    """
+    # Транзакционный advisory-lock по (клиент, организация) сериализует параллельные
+    # создания договора (защита от гонки «два активных договора»). Снимается на commit.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"contract:{client_id}:{organization_id or ''}"},
+    )
+
+    existing = await get_active_contract(db, client_id, organization_id)
+    if existing is not None:
+        log.info("audit action=contract.skip_existing client_id=%s org_id=%s number=%s",
+                 client_id, organization_id, existing.contract_number)
+        return existing
+
+    seller = await get_seller_snapshot(db)
+    if not seller:
+        raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
+    buyer = await _fetch_buyer_legal_profile(client_id, organization_id)
+
+    contract_number = await _next_contract_number(db)
+    signed_at = datetime.now(timezone.utc).date()
+    effective_until = _plus_five_years(signed_at)
+
+    ctx = _build_contract_ctx(seller, buyer, contract_number, signed_at, effective_until)
 
     # WeasyPrint — CPU-bound; в отдельный поток, чтобы не блокировать event loop.
     pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
@@ -231,6 +337,7 @@ async def create_contract(
 
     contract = Contract(
         client_id=client_id,
+        organization_id=organization_id,
         contract_number=contract_number,
         seller_snapshot=seller,
         buyer_snapshot=buyer,
@@ -266,6 +373,10 @@ def build_contract_export_ctx(contract: Contract) -> dict:
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "seller_title_genitive":    _title_genitive(seller.get("director_title")),
+        "seller_director_genitive": _name_genitive(seller.get("director_name")),
+        "buyer_title_genitive":     _title_genitive(buyer.get("director_title")),
+        "buyer_director_genitive":  _name_genitive(buyer.get("director_name")),
     }
 
 
@@ -283,4 +394,62 @@ async def get_contract(db: AsyncSession, contract_id: uuid.UUID) -> Contract:
     contract = result.scalar_one_or_none()
     if not contract:
         raise NotFoundError("Договор не найден")
+    return contract
+
+
+async def list_all_contracts(db: AsyncSession) -> list[Contract]:
+    """Все договоры (для реестра, staff-only)."""
+    result = await db.execute(select(Contract).order_by(Contract.created_at.desc()))
+    return list(result.scalars().all())
+
+
+async def regenerate_contract(
+    db: AsyncSession,
+    contract: Contract,
+    actor: TokenUser,
+    *,
+    new_number: str | None = None,
+    new_signed_at: date | None = None,
+) -> Contract:
+    """Перевыпустить PDF договора с правкой номера и/или даты подписания.
+
+    Реквизиты продавца снимаются заново (могли измениться); реквизиты
+    покупателя берутся из уже сохранённого снимка договора.
+    """
+    if new_number is not None and new_number != contract.contract_number:
+        result = await db.execute(
+            select(Contract).where(
+                Contract.contract_number == new_number,
+                Contract.id != contract.id,
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            raise ValidationError("Договор с таким номером уже существует")
+        contract.contract_number = new_number
+
+    if new_signed_at is not None:
+        contract.signed_at = new_signed_at
+        contract.effective_until = _plus_five_years(new_signed_at)
+
+    seller = await get_seller_snapshot(db)
+    if not seller:
+        raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
+    contract.seller_snapshot = seller
+    buyer = contract.buyer_snapshot
+
+    ctx = _build_contract_ctx(
+        seller, buyer, contract.contract_number, contract.signed_at, contract.effective_until
+    )
+
+    pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
+    file_path = _save_contract_pdf(contract.client_id, contract.contract_number, pdf_bytes)
+    contract.file_path = file_path
+
+    await db.flush()
+
+    log.info(
+        "audit action=contract.regenerated contract_id=%s number=%s actor_id=%s",
+        contract.id, contract.contract_number, actor.id,
+    )
+
     return contract

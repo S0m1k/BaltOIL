@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BaltOIL — Панель управления</title>
+<title>СЗТК — Панель управления</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -791,6 +791,7 @@
     border-top: 3px solid transparent; border-image: var(--grad) 1;
     padding: 28px; min-width: 340px; max-width: 480px; width: 90%;
     border-radius: 4px; box-shadow: 0 8px 40px rgba(14,165,233,.1), 0 2px 8px rgba(0,0,0,.06);
+    max-height: 90vh; overflow-y: auto;
   }
   .modal-title {
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 18px; font-weight: 700;
@@ -1038,6 +1039,51 @@
   }
   .msg-system-text { color: var(--text2); }
   .msg-system-time { font-family: 'SF Mono', ui-monospace, monospace; font-size: 10px; color: var(--text3); }
+  /* ── Reply / pin (правки F7/F8) ───────────────────────────────── */
+  .msg-row { position: relative; }
+  .msg-actions {
+    display: none; align-items: center; gap: 2px;
+    position: absolute; top: -22px; right: 0;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 2px; z-index: 2;
+  }
+  .msg-row.mine .msg-actions { right: 42px; }
+  .msg-row:hover .msg-actions { display: flex; }
+  .msg-action-btn {
+    border: none; background: none; cursor: pointer; padding: 3px 6px;
+    font-size: 10px; color: var(--text3); border-radius: 4px; white-space: nowrap;
+  }
+  .msg-action-btn:hover { background: var(--bg3); color: var(--text); }
+  .msg-reply-quote {
+    border-left: 2px solid var(--amber); padding: 3px 8px; margin-bottom: 6px;
+    font-size: 11px; color: var(--text3); background: rgba(255,255,255,.03);
+    border-radius: 3px; cursor: pointer; max-width: 100%; overflow: hidden;
+  }
+  .msg-reply-quote .rq-name { color: var(--amber); font-weight: 600; display: block; }
+  .msg-reply-quote .rq-text { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  .msg-row.pinned .msg-bubble { border-color: var(--amber); }
+  .chat-pinned-bar {
+    display: none; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;
+    padding: 8px 20px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.02);
+    flex-shrink: 0;
+  }
+  .chat-pinned-item {
+    display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;
+    padding: 4px 6px; border-radius: 4px;
+  }
+  .chat-pinned-item:hover { background: var(--bg3); }
+  .chat-pinned-item .pin-name { color: var(--amber); font-weight: 600; flex-shrink: 0; }
+  .chat-pinned-item .pin-text { color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .chat-pinned-item .pin-unpin { flex-shrink: 0; color: var(--text3); background:none; border:none; cursor:pointer; padding:2px; }
+  .chat-pinned-item .pin-unpin:hover { color: var(--red); }
+  .chat-compose-reply {
+    display: none; align-items: flex-start; gap: 8px; padding: 8px 20px 0;
+  }
+  .chat-compose-reply .cr-bar { flex: 1; border-left: 2px solid var(--amber); padding: 2px 8px; font-size: 11px; color: var(--text3); min-width: 0; }
+  .chat-compose-reply .cr-bar .rq-name { color: var(--amber); font-weight: 600; display: block; }
+  .chat-compose-reply .cr-bar .rq-text { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-compose-reply .cr-cancel { background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;line-height:1;padding:2px 6px; }
+  .chat-compose-reply .cr-cancel:hover { color: var(--text); }
   /* Clickable toast (chat-message notifications) */
   .toast.toast-clickable { cursor: pointer; transition: transform .12s ease; }
   .toast.toast-clickable:hover { transform: translateY(-1px); }
@@ -1520,7 +1566,7 @@
 <!-- ════════════════════════════════ AUTH SCREEN ════════════════════════════════ -->
 <div id="auth-screen">
   <div class="auth-card">
-    <div class="auth-logo">BALTOIL</div>
+    <div class="auth-logo">СЗТК</div>
     <div class="auth-subtitle">Система управления доставкой топлива</div>
 
     <!-- Step 1: Войти / Зарегистрироваться -->
@@ -1548,8 +1594,9 @@
           </div>
           <div id="login-error"></div>
           <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Войти</button>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
-            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('sms')">Войти по SMS-коду</button>
+          <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:10px">
+            <!-- Вход по SMS скрыт по требованию. Чтобы вернуть: убрать display:none ниже и вернуть justify-content:space-between выше. -->
+            <button class="btn btn-ghost" style="font-size:12px;padding:4px 0;display:none" onclick="switchLoginMode('sms')">Войти по SMS-коду</button>
             <button class="btn btn-ghost" style="font-size:12px;padding:4px 0" onclick="switchLoginMode('forgot')">Забыли пароль?</button>
           </div>
         </div>
@@ -1647,9 +1694,9 @@
       </div>
     </div>
 
-    <!-- Register Individual (step 2) -->
+    <!-- Register (физлицо/человек). Организации добавляются после входа. -->
     <div id="auth-reg-individual" style="display:none">
-      <button class="auth-back" onclick="switchAuthTab('reg-picker')">← назад</button>
+      <button class="auth-back" onclick="switchAuthMode('login')">← ко входу</button>
       <div class="form-group">
         <label class="form-label">Телефон <span style="color:var(--red)">*</span></label>
         <input type="tel" id="ri-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="tel">
@@ -1667,6 +1714,9 @@
       </div>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">
+        Работаете от юрлица? Зарегистрируйтесь, затем добавьте организацию в разделе «Мои организации».
+      </p>
     </div>
 
     <!-- Register Company (step 1): INN lookup -->
@@ -1764,7 +1814,7 @@
   <div class="burger-overlay" id="burger-overlay" onclick="closeBurger()"></div>
   <div class="burger-drawer" id="burger-drawer">
     <div class="burger-head">
-      <span class="burger-logo">BALTOIL</span>
+      <span class="burger-logo">СЗТК</span>
       <button class="burger-close-btn" onclick="closeBurger()">✕</button>
     </div>
     <nav class="burger-nav" id="burger-nav"></nav>
@@ -1775,7 +1825,7 @@
   </div>
 
   <div class="topbar">
-    <div class="topbar-logo">BALTOIL</div>
+    <div class="topbar-logo">СЗТК</div>
     <div class="nav-tabs">
       <div class="nav-tab-group">
         <button class="nav-tab active" data-tab="orders" onclick="switchTab('orders')">Заявки</button>
@@ -1788,6 +1838,7 @@
       <button class="nav-tab" data-tab="tariffs" id="tab-tariffs-btn" onclick="switchTab('tariffs')">Тарифы</button>
       <button class="nav-tab" data-tab="report" id="tab-report-btn" onclick="switchTab('report')">Отчёт</button>
       <button class="nav-tab" data-tab="clients" id="tab-clients-btn" onclick="switchTab('clients')">Клиенты</button>
+      <button class="nav-tab" data-tab="orgs" id="tab-orgs-btn" onclick="switchTab('orgs')" style="display:none">Организации</button>
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
       <button class="nav-tab" data-tab="zones" id="tab-zones-btn" onclick="switchTab('zones')" style="display:none">Зоны</button>
@@ -1907,6 +1958,14 @@
           <div class="section-divider">Данные заявки</div>
         </div>
 
+        <!-- Селектор организации: показывается, если у клиента есть организации -->
+        <div class="form-group" id="c-org-group" style="display:none">
+          <label class="form-label">Оформить от имени</label>
+          <select id="c-organization" class="form-input" onchange="updatePricePreview()">
+            <option value="">Физлицо (на себя)</option>
+          </select>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Вид топлива</label>
           <select id="c-fuel" class="form-input">
@@ -1916,12 +1975,26 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Объём (литры, min 300)</label>
+            <label class="form-label">Объём (литры, от 300)</label>
             <input type="number" id="c-volume" class="form-input" placeholder="5000" min="300" step="100">
           </div>
           <div class="form-group">
             <label class="form-label">Желаемая дата доставки</label>
-            <input type="date" id="c-date" class="form-input">
+            <input type="date" id="c-date" class="form-input" lang="ru" oninput="document.getElementById('c-date-echo').textContent = this.value ? fmtDateRu(this.value) : ''">
+            <div id="c-date-echo" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+          </div>
+        </div>
+
+        <div class="form-group" id="c-saved-object-group" style="display:none">
+          <label class="form-label">Сохранённые объекты</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="c-saved-object" class="form-input" style="flex:1" onchange="applySavedObject()">
+              <option value="">— сохранённые объекты —</option>
+            </select>
+            <button type="button" id="c-saved-object-del" onclick="deleteSavedObject()" title="Удалить объект"
+              style="display:none;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer;color:var(--text2);line-height:0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg>
+            </button>
           </div>
         </div>
 
@@ -1951,9 +2024,15 @@
           <div id="c-zones-legend" style="margin-top:8px"></div>
         </div>
 
-        <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Название объекта (необязательно)</label>
+          <input type="text" id="c-save-object-name" class="form-input" maxlength="120"
+            placeholder="Например: Склад на Невском — адрес сохранится автоматически">
+        </div>
+
+        <div class="form-row" style="align-items:start">
           <div class="form-group">
-            <div class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px">
               <span>Контактное лицо для приёмки топлива</span>
               <label style="display:inline-flex;align-items:center;gap:5px;font-weight:500;font-size:13px;color:var(--text2);cursor:pointer;text-transform:none;letter-spacing:0">
                 <input type="checkbox" id="c-contact-self" onchange="toggleSelfContact(this)" style="cursor:pointer"> Я
@@ -1962,7 +2041,7 @@
             <input type="text" id="c-contact-name" class="form-input" placeholder="Имя" maxlength="120">
           </div>
           <div class="form-group">
-            <label class="form-label">Телефон контактного лица</label>
+            <label class="form-label" style="display:flex;align-items:center;min-height:18px">Телефон контактного лица</label>
             <input type="tel" id="c-contact-phone" class="form-input" placeholder="+7 900 000 00 00" maxlength="20">
           </div>
         </div>
@@ -2004,14 +2083,27 @@
       </div>
     </div>
 
+    <!-- MY ORGANIZATIONS TAB -->
+    <div class="tab-pane" id="pane-orgs">
+      <div class="toolbar">
+        <div class="toolbar-title" id="orgs-title">Организации</div>
+        <input id="orgs-search" class="form-input" placeholder="Поиск по названию или ИНН" style="display:none;max-width:280px;margin-left:auto" oninput="onOrgSearchInput()">
+        <button class="btn btn-sm btn-primary" id="orgs-add-btn" style="margin-left:auto" onclick="openCreateOrgModal()">+ Добавить организацию</button>
+        <button class="btn btn-sm btn-ghost" id="contracts-registry-btn" style="display:none" onclick="openContractsRegistry()">Реестр договоров</button>
+      </div>
+      <div id="orgs-list" style="display:flex;flex-direction:column;gap:10px">
+        <div class="empty-state"><div class="loading"></div></div>
+      </div>
+    </div>
+
     <!-- TRIPS TAB -->
     <div class="tab-pane" id="pane-trips">
       <div class="toolbar">
-        <div class="toolbar-title">Рейсы</div>
+        <div class="toolbar-title">Рейсы <span style="font-size:11px;color:var(--text3);font-weight:400">— журнал закрытых водителем рейсов</span></div>
         <select class="filter-select" id="trip-status-filter" onchange="loadTrips()">
+          <option value="completed">Завершённые</option>
           <option value="in_transit">Активные (в пути)</option>
           <option value="">Все рейсы</option>
-          <option value="completed">Завершённые</option>
           <option value="cancelled">Отменённые</option>
         </select>
         <button class="btn btn-sm btn-ghost" onclick="loadTrips()">↻ Обновить</button>
@@ -2024,7 +2116,7 @@
     <!-- REPORT TAB -->
     <div class="tab-pane" id="pane-report">
       <div class="report-card">
-        <div class="form-card-title">Отчёт по рейсам водителя</div>
+        <div class="form-card-title">Отчёт водителя — доставленные заявки</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
           <div class="form-group" style="margin:0;flex:1;min-width:220px">
             <label class="form-label">Водитель</label>
@@ -2428,6 +2520,31 @@
         </div>
       </form>
 
+      <div style="max-width:760px;margin-top:18px;border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px">Подпись и печать (факсимиле)</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">PNG/JPEG до 2 МБ. Выводятся на счёте и договоре.</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Подпись директора</div>
+            <img id="seller-signature-preview" style="max-height:60px;display:none;background:#fff;border:1px solid var(--border);border-radius:4px;padding:4px;margin-bottom:6px">
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="file" id="seller-signature-file" accept="image/png,image/jpeg" class="form-input" style="font-size:12px">
+              <button class="btn btn-sm btn-ghost" onclick="uploadSellerImage('signature')">Загрузить</button>
+              <button class="btn btn-sm btn-ghost" onclick="deleteSellerImage('signature')">Удалить</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:4px">Печать</div>
+            <img id="seller-stamp-preview" style="max-height:60px;display:none;background:#fff;border:1px solid var(--border);border-radius:4px;padding:4px;margin-bottom:6px">
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="file" id="seller-stamp-file" accept="image/png,image/jpeg" class="form-input" style="font-size:12px">
+              <button class="btn btn-sm btn-ghost" onclick="uploadSellerImage('stamp')">Загрузить</button>
+              <button class="btn btn-sm btn-ghost" onclick="deleteSellerImage('stamp')">Удалить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- История изменений (collapsible) -->
       <details id="legal-entity-history-details" style="max-width:760px;margin-top:18px" onToggle="onHistoryToggle(this)">
         <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);padding:8px 0;user-select:none">
@@ -2444,8 +2561,12 @@
         <div class="chat-sidebar" id="chat-sidebar">
           <div class="chat-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span class="chat-sidebar-title">Диалоги</span>
-            <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
-              title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-sm btn-ghost" id="btn-new-staff-group" onclick="promptCreateStaffGroup()"
+                title="Создать групповой чат сотрудников" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"/></svg> Группа</button>
+              <button class="btn btn-sm btn-warn" onclick="startChatByPhone()"
+                title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
+            </div>
           </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
@@ -2468,6 +2589,7 @@
                 <div style="min-width:0">
                   <div class="chat-main-title" id="chat-conv-title">—</div>
                   <div class="chat-main-sub" id="chat-conv-sub"></div>
+                  <div class="chat-main-sub" id="chat-conv-members" style="display:none;flex-wrap:wrap;gap:4px;margin-top:2px"></div>
                 </div>
               </div>
               <span class="ws-status ws-offline" id="ws-status-badge" style="flex-shrink:0">● OFFLINE</span>
@@ -2480,8 +2602,13 @@
                 title="Удалить диалог (архивировать)"
                 style="flex-shrink:0;color:var(--text3);display:none"><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></svg></button>
             </div>
+            <div class="chat-pinned-bar" id="chat-pinned-bar"></div>
             <div class="chat-messages" id="chat-messages"></div>
             <div id="chat-templates" style="display:none;gap:6px;flex-wrap:wrap;padding:6px 12px 0"></div>
+            <div class="chat-compose-reply" id="chat-compose-reply">
+              <div class="cr-bar" id="chat-compose-reply-bar"></div>
+              <button class="cr-cancel" type="button" onclick="cancelReplyTo()" title="Отменить ответ">×</button>
+            </div>
             <div class="chat-input-area">
               <input type="file" id="chat-attach-input" style="display:none"
                 accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm" onchange="sendChatAttachment(this)">
@@ -2511,7 +2638,7 @@
           </div>
         </div>
         <div>
-          <div style="font-weight:600;font-size:14px;margin-bottom:10px">Сохранить новую зону</div>
+          <div id="zones-form-title" style="font-weight:600;font-size:14px;margin-bottom:10px">Сохранить новую зону</div>
           <div id="zones-draw-form" style="display:none">
             <div class="form-group">
               <label class="form-label">Название зоны</label>
@@ -2522,9 +2649,12 @@
               <input type="number" id="zone-price-input" class="form-input" placeholder="Например, 3000" step="100" min="0">
               <div style="font-size:11px;color:var(--text3);margin-top:4px">Фиксированная цена доставки в эту зону. Показывается клиенту в расчёте заявки.</div>
             </div>
+            <div id="zone-edit-hint" style="display:none;font-size:11px;color:var(--text3);margin-bottom:8px">
+              Перетаскивайте узлы полигона на карте, чтобы изменить границы зоны.
+            </div>
             <div style="display:flex;gap:8px">
-              <button class="btn btn-primary btn-sm" onclick="saveDrawnZone()">Сохранить</button>
-              <button class="btn btn-ghost btn-sm" onclick="cancelDrawnZone()">Отмена</button>
+              <button id="zone-save-btn" class="btn btn-primary btn-sm" onclick="submitZoneForm()">Сохранить</button>
+              <button class="btn btn-ghost btn-sm" onclick="cancelZoneForm()">Отмена</button>
             </div>
           </div>
           <div id="zones-draw-hint" style="color:var(--text3);font-size:13px">
@@ -2560,7 +2690,7 @@
     <div class="call-avatar" id="incoming-call-avatar">?</div>
     <div class="call-status-label">Входящий звонок</div>
     <div class="call-caller-name" id="incoming-call-name">—</div>
-    <div class="call-sub">Аудио-вызов через BaltOIL</div>
+    <div class="call-sub">Аудио-вызов через СЗТК</div>
     <div class="call-actions">
       <button class="call-btn decline" onclick="declineIncomingCall()" title="Отклонить">
         <svg width="26" height="26" viewBox="0 0 256 256" fill="currentColor"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" transform="rotate(135 128 128)"/></svg>
@@ -2693,6 +2823,7 @@ const ICONS = {
   'check-circle':      '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
   'clock':             '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>',
   'push-pin':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M232,93.85a16,16,0,0,0-4.69-11.33L173.48,28.69a16,16,0,0,0-22.63,0L104,75.51a16,16,0,0,0-3.32,17.74l-44.3,44.3a16,16,0,0,0,0,22.62l8,8L24,208.57V232H47.43l40.4-40.4,8,8a16,16,0,0,0,22.63,0l44.3-44.3A16,16,0,0,0,180.49,152l46.82-46.82A16,16,0,0,0,232,93.85Zm-124.69,94.4L66.49,147.43,107.31,106.6l41.83,41.83Zm61.17-50.34L126.66,96.09,162.17,40.6l53.85,53.85Z"/></svg>',
+  'push-pin-simple':   '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,168h-9.29L185.54,48H192a8,8,0,0,0,0-16H64a8,8,0,0,0,0,16h6.46L49.29,168H40a8,8,0,0,0,0,16h80v56a8,8,0,0,0,16,0V184h80a8,8,0,0,0,0-16ZM86.71,48h82.58l21.17,120H65.54Z"/></svg>',
   'paperclip':         '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></svg>',
   'circle':            '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"/></svg>',
   'x-circle':          '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M165.66,101.66,139.31,128l26.35,26.34a8,8,0,0,1-11.32,11.32L128,139.31l-26.34,26.35a8,8,0,0,1-11.32-11.32L116.69,128,90.34,101.66a8,8,0,0,1,11.32-11.32L128,116.69l26.34-26.35a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>',
@@ -2709,6 +2840,7 @@ const ICONS = {
   'currency-circle-dollar':'<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm40-68a28,28,0,0,1-28,28h-4v8a8,8,0,0,1-16,0v-8H104a8,8,0,0,1,0-16h36a12,12,0,0,0,0-24H116a28,28,0,0,1,0-56h4V72a8,8,0,0,1,16,0v8h16a8,8,0,0,1,0,16H116a12,12,0,0,0,0,24h24A28,28,0,0,1,168,148Z"/></svg>',
   'microsoft-excel-logo':  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M200,24H72A16,16,0,0,0,56,40V64H40A16,16,0,0,0,24,80v96a16,16,0,0,0,16,16H56v24a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V40A16,16,0,0,0,200,24Zm-40,80h40v48H160Zm40-16H160V80a16,16,0,0,0-16-16V40h56ZM72,40h56V64H72ZM40,80H144v79.83c0,.06,0,.11,0,.17s0,.11,0,.17V176H40ZM72,192h56v24H72Zm72,24V192a16,16,0,0,0,16-16v-8h40v48ZM65.85,146.88,81.59,128,65.85,109.12a8,8,0,0,1,12.3-10.24L92,115.5l13.85-16.62a8,8,0,1,1,12.3,10.24L102.41,128l15.74,18.88a8,8,0,0,1-12.3,10.24L92,140.5,78.15,157.12a8,8,0,0,1-12.3-10.24Z"/></svg>',
   'warning-circle':        '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z"/></svg>',
+  'copy':                  '<svg viewBox="0 0 256 256" fill="currentColor"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96h112Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg>',
 };
 
 function icon(name, size = 16, style = '') {
@@ -2823,6 +2955,7 @@ function buildBurgerMenu() {
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
     { tab: 'create',    label: 'Создать заявку',       show: role !== 'driver' },
+    { tab: 'orgs',      label: role === 'client' ? 'Мои организации' : 'Организации', show: role !== 'driver' },
     { tab: 'vehicles',  label: 'Транспорт',            show: role !== 'client' },
     { tab: 'trips',     label: 'Рейсы',                show: role !== 'client' },
     { tab: 'report',    label: 'Отчёт',               show: role === 'manager' || role === 'admin' },
@@ -2853,8 +2986,8 @@ function buildBurgerMenu() {
 let _fuelCatalog = [];
 // Фолбэк на случай, если API ещё не загрузился
 const _FUEL_LABELS_FALLBACK = {
-  diesel_summer: 'ДТ – Л – К5',
-  diesel_winter: 'ДТ – З – К5',
+  diesel_summer: 'ДТ-Л-К5',
+  diesel_winter: 'ДТ-З-К5',
   petrol_92:     'АИ-92',
   petrol_95:     'АИ-95',
   fuel_oil:      'М-100',
@@ -3017,6 +3150,44 @@ function copyUUID(uuid, btn) {
     .catch(() => toast('Не удалось скопировать', 'error'));
 }
 
+// Копирование произвольного текста с восстановлением исходной подписи кнопки.
+function copyTextBtn(text, btn) {
+  const orig = btn.textContent;
+  const doCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok ? Promise.resolve() : Promise.reject(); }
+    catch (e) { document.body.removeChild(ta); return Promise.reject(e); }
+  };
+  doCopy()
+    .then(() => { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.textContent = orig; }, 1500); })
+    .catch(() => toast('Не удалось скопировать', 'error'));
+}
+
+// «ФИО, паспорт <серия> <номер>, выдан <кем> <дата>» — одной строкой для копирования.
+function formatPassportLine(u) {
+  if (!u) return '';
+  const fmtDate = d => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : (d || '');
+  };
+  const parts = [];
+  if (u.passport_series || u.passport_number)
+    parts.push(`паспорт ${[u.passport_series, u.passport_number].filter(Boolean).join(' ')}`);
+  if (u.passport_issued_by) {
+    let s = `выдан ${u.passport_issued_by}`;
+    if (u.passport_issued_at) s += ` ${fmtDate(u.passport_issued_at)}`;
+    parts.push(s);
+  } else if (u.passport_issued_at) {
+    parts.push(`выдан ${fmtDate(u.passport_issued_at)}`);
+  }
+  const tail = parts.join(', ');
+  return [u.full_name, tail].filter(Boolean).join(', ');
+}
+
 function uuidCell(uuid) {
   if (!uuid) return '—';
   const short = uuid.slice(0, 8) + '…';
@@ -3155,11 +3326,17 @@ function deliveryGet(path) {
 function deliveryPost(path, body) {
   return api(`${DELIVERY_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
 }
+function deliveryPut(path, body) {
+  return api(`${DELIVERY_URL}${path}`, { method: 'PUT', body: JSON.stringify(body) });
+}
 function deliveryPatch(path, body) {
   return api(`${DELIVERY_URL}${path}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 function deliveryDelete(path) {
   return api(`${DELIVERY_URL}${path}`, { method: 'DELETE' });
+}
+function orderDelete(path) {
+  return api(`${ORDER_URL}${path}`, { method: 'DELETE' });
 }
 function chatGet(path) {
   return api(`${CHAT_URL}${path}`);
@@ -3180,9 +3357,10 @@ function switchAuthMode(mode) {
     btn.classList.toggle('active', (i === 0) === (mode === 'login'));
   });
   document.getElementById('auth-login').style.display      = mode === 'login'    ? '' : 'none';
-  document.getElementById('auth-reg-picker').style.display = mode === 'register' ? '' : 'none';
-  // Hide form panels when switching top mode
-  document.getElementById('auth-reg-individual').style.display     = 'none';
+  // Регистрация = только физлицо (человек). Организации (юрлица) добавляются
+  // после входа в разделе «Мои организации». Шаг выбора типа больше не нужен.
+  document.getElementById('auth-reg-picker').style.display = 'none';
+  document.getElementById('auth-reg-individual').style.display     = mode === 'register' ? '' : 'none';
   document.getElementById('auth-reg-company-inn').style.display    = 'none';
   document.getElementById('auth-reg-company-confirm').style.display = 'none';
   document.getElementById('auth-reg-company').style.display        = 'none';
@@ -3576,6 +3754,13 @@ async function initApp() {
   document.getElementById('tab-clients-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Организации — клиент видит свои («Мои организации»), staff — все («Организации»)
+  const orgsBtn = document.getElementById('tab-orgs-btn');
+  if (orgsBtn) {
+    orgsBtn.style.display = role !== 'driver' ? '' : 'none';
+    orgsBtn.textContent = role === 'client' ? 'Мои организации' : 'Организации';
+  }
+
   // Export button in clients tab — admin + manager only; init icon
   const exportBtn = document.getElementById('btn-export-clients');
   if (exportBtn) {
@@ -3669,6 +3854,7 @@ function switchTab(tab) {
 
   if (tab === 'orders')    loadOrders();
   if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); initClientZoneMap(); }
+  if (tab === 'orgs')      loadMyOrganizations();
   if (tab === 'vehicles')  loadVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
@@ -3697,6 +3883,11 @@ let _drawnLayer = null;
 // Группа отрисованных существующих зон — чтобы очищать при перезагрузке,
 // не трогая _drawnLayer.
 let _zoneLayers = null;
+// id зоны, которую сейчас редактируем (null = режим создания). При редактировании
+// границы правятся прямо на её полигоне через geoman (layer.pm.enable()).
+let _editingZoneId = null;
+// id зоны → { zone, layer, color } для доступа к слою при редактировании.
+let _zoneById = {};
 // Палитра для заливки полигонов зон (циклически).
 const ZONE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'];
 
@@ -3758,13 +3949,15 @@ function initZones() {
 async function loadZones() {
   const listEl = document.getElementById('zones-list');
   if (_zoneLayers) _zoneLayers.clearLayers();
+  _zoneById = {};
   try {
     const zones = await deliveryGet('/zones');
     zones.forEach((z, i) => {
       const color = ZONE_COLORS[i % ZONE_COLORS.length];
-      L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.15 })
+      const layer = L.polygon(z.polygon, { color, weight: 2, fillOpacity: 0.15 })
         .bindTooltip(escHtml(z.name))
         .addTo(_zoneLayers);
+      _zoneById[z.id] = { zone: z, layer, color };
     });
     renderZonesList(zones);
   } catch (e) {
@@ -3780,8 +3973,10 @@ function renderZonesList(zones) {
   }
   el.innerHTML = zones.map((z, i) => {
     const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    const editing = _editingZoneId === z.id;
+    const nameAttr = escHtml(z.name).replace(/'/g, '&#39;');
     return `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px">
+    <div style="background:var(--bg2);border:1px solid ${editing ? 'var(--accent)' : 'var(--border)'};border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px">
       <span style="width:12px;height:12px;border-radius:3px;background:${color};flex-shrink:0"></span>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${escHtml(z.name)}</div>
@@ -3789,33 +3984,68 @@ function renderZonesList(zones) {
           ? `Доставка: ${Number(z.delivery_price).toLocaleString('ru')} ₽`
           : `Коэффициент: ${Number(z.cost_coefficient).toLocaleString('ru')} (стоимость не задана)`}</div>
       </div>
+      <button class="btn btn-sm btn-ghost" title="Редактировать"
+        onclick="editZone('${z.id}')">${icon('pencil-simple', 14)}</button>
       <button class="btn btn-sm btn-ghost" style="color:var(--red)" title="Удалить"
-        onclick="deleteZone('${z.id}', '${escHtml(z.name).replace(/'/g, '&#39;')}')">${icon('trash', 14)}</button>
+        onclick="deleteZone('${z.id}', '${nameAttr}')">${icon('trash', 14)}</button>
     </div>`;
   }).join('');
 }
 
-async function saveDrawnZone() {
-  if (!_drawnLayer) { toast('Сначала нарисуйте полигон на карте', 'warn'); return; }
+// Начать редактирование существующей зоны: правка названия/цены в форме +
+// правка границ прямо на полигоне (geoman vertex-drag).
+function editZone(id) {
+  const entry = _zoneById[id];
+  if (!entry) return;
+  // Сбросить незавершённый черновик создания.
+  if (_drawnLayer) { _zonesMap.removeLayer(_drawnLayer); _drawnLayer = null; }
+  // Если уже редактировали другую зону — выключить правку и вернуть её исходные границы
+  // (без loadZones, чтобы не пересобирать слои под нами).
+  if (_editingZoneId && _editingZoneId !== id) {
+    const prev = _zoneById[_editingZoneId];
+    if (prev) { prev.layer.pm.disable(); prev.layer.setLatLngs(prev.zone.polygon); }
+  }
+
+  _editingZoneId = id;
+  const { zone, layer } = entry;
+  layer.pm.enable({ allowSelfIntersection: false });
+  _zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40] });
+
+  document.getElementById('zone-name-input').value = zone.name || '';
+  document.getElementById('zone-price-input').value = zone.delivery_price != null ? zone.delivery_price : '';
+  document.getElementById('zones-form-title').textContent = 'Редактировать зону';
+  document.getElementById('zone-save-btn').textContent = 'Сохранить изменения';
+  document.getElementById('zone-edit-hint').style.display = '';
+  document.getElementById('zones-draw-form').style.display = '';
+  document.getElementById('zones-draw-hint').style.display = 'none';
+  renderZonesList(Object.values(_zoneById).map(e => e.zone));
+}
+
+// Единая отправка формы: создание (из _drawnLayer) или обновление (по _editingZoneId).
+async function submitZoneForm() {
   const name = document.getElementById('zone-name-input').value.trim();
   if (!name) { toast('Введите название зоны', 'warn'); return; }
   const priceRaw = document.getElementById('zone-price-input').value;
   const price = priceRaw === '' ? null : parseFloat(priceRaw);
   if (price == null || !(price >= 0)) { toast('Укажите стоимость доставки в рублях (≥ 0)', 'warn'); return; }
 
-  const polygon = _drawnLayer.getLatLngs()[0].map(p => [p.lat, p.lng]);
+  const sourceLayer = _editingZoneId ? _zoneById[_editingZoneId]?.layer : _drawnLayer;
+  if (!sourceLayer) { toast('Сначала нарисуйте полигон на карте', 'warn'); return; }
+  const polygon = sourceLayer.getLatLngs()[0].map(p => [p.lat, p.lng]);
   if (polygon.length < 3) { toast('Полигон должен содержать минимум 3 точки', 'warn'); return; }
 
   try {
-    await deliveryPost('/zones', {
-      name,
-      polygon,
-      delivery_price: price,
-      is_active: true,
-    });
-    toast('Зона сохранена');
-    _zonesMap.removeLayer(_drawnLayer);
-    _drawnLayer = null;
+    if (_editingZoneId) {
+      await deliveryPut(`/zones/${_editingZoneId}`, { name, polygon, delivery_price: price });
+      sourceLayer.pm.disable();
+      _editingZoneId = null;
+      toast('Зона обновлена');
+    } else {
+      await deliveryPost('/zones', { name, polygon, delivery_price: price, is_active: true });
+      _zonesMap.removeLayer(_drawnLayer);
+      _drawnLayer = null;
+      toast('Зона сохранена');
+    }
     resetZoneForm();
     loadZones();
   } catch (e) {
@@ -3823,7 +4053,13 @@ async function saveDrawnZone() {
   }
 }
 
-function cancelDrawnZone() {
+function cancelZoneForm() {
+  if (_editingZoneId) {
+    const entry = _zoneById[_editingZoneId];
+    if (entry) entry.layer.pm.disable();
+    _editingZoneId = null;
+    loadZones(); // перерисовать зону в исходных границах (отменить правки узлов)
+  }
   if (_drawnLayer) { _zonesMap.removeLayer(_drawnLayer); _drawnLayer = null; }
   resetZoneForm();
 }
@@ -3831,8 +4067,11 @@ function cancelDrawnZone() {
 function resetZoneForm() {
   document.getElementById('zones-draw-form').style.display = 'none';
   document.getElementById('zones-draw-hint').style.display = '';
+  document.getElementById('zone-edit-hint').style.display = 'none';
   document.getElementById('zone-name-input').value = '';
   document.getElementById('zone-price-input').value = '';
+  document.getElementById('zones-form-title').textContent = 'Сохранить новую зону';
+  document.getElementById('zone-save-btn').textContent = 'Сохранить';
 }
 
 async function deleteZone(id, name) {
@@ -3840,6 +4079,7 @@ async function deleteZone(id, name) {
   try {
     await deliveryDelete(`/zones/${id}`);
     toast('Зона удалена');
+    if (_editingZoneId === id) { _editingZoneId = null; resetZoneForm(); }
     loadZones();
   } catch (e) {
     toast('Ошибка: ' + e.message, 'error');
@@ -3895,6 +4135,11 @@ function initAddressAutocomplete() {
     _addrStreet = null;
     _orderGeo = null;
     _orderAddress = '';
+    // Сброс выбранного сохранённого объекта — UI должен быть согласован
+    const _soSel = document.getElementById('c-saved-object');
+    if (_soSel) _soSel.value = '';
+    const _soDel = document.getElementById('c-saved-object-del');
+    if (_soDel) _soDel.style.display = 'none';
     streetInput.value = '';
     streetInput.disabled = true;
     houseInput.value = '';
@@ -4117,6 +4362,8 @@ async function _doPricePreview() {
     const cid = document.getElementById('c-client-id')?.value;
     if (cid) body.client_id = cid;
   }
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   try {
     const r = await orderPost('/orders/preview-price', body);
@@ -4187,6 +4434,20 @@ async function refreshOrderTabCounts() {
   } catch { /* счётчики не критичны — тихо игнорируем */ }
 }
 
+// Перезагрузить список, СОХРАНИВ раскрытую карточку заявки (правки 2026-06-23:
+// после правки заявку выкидывало в общий список — приходилось открывать заново).
+async function reloadOrdersKeepOpen(orderId) {
+  await loadOrders();
+  if (!orderId) return;
+  const card = document.getElementById(`card-${orderId}`);
+  if (!card) return;  // заявка ушла из текущего фильтра — это нормально
+  card.classList.add('expanded');
+  await loadTimeline(orderId);
+  const role = currentUser?.role;
+  if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function renderOrders(orders) {
   const el = document.getElementById('orders-list');
   const legend = document.getElementById('orders-registry-legend');
@@ -4196,12 +4457,62 @@ function renderOrders(orders) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('package',36)}</div>Заявок не найдено</div>`;
     return;
   }
+  // F3 (правка 2026-06-24): водителю в «Ждут доставки» группируем заявки по дате
+  // доставки — «Без даты» сверху, затем «Сегодня», «Завтра», далее по датам.
+  if (currentUser?.role === 'driver' && _activeOrderStatus === 'accepted') {
+    el.innerHTML = renderOrdersGroupedByDate(orders);
+    return;
+  }
   el.innerHTML = orders.map(o => orderCardHTML(o)).join('');
+}
+
+function renderOrdersGroupedByDate(orders) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Группируем по ключу: '' (без даты), либо ISO дата (только день) для сортировки
+  const groups = new Map(); // key -> { label, sortKey, orders: [] }
+  const addToGroup = (key, label, sortKey, order) => {
+    if (!groups.has(key)) groups.set(key, { label, sortKey, orders: [] });
+    groups.get(key).orders.push(order);
+  };
+
+  orders.forEach(o => {
+    if (!o.desired_date) {
+      addToGroup('none', 'Без даты', -2, o);
+      return;
+    }
+    const d = new Date(o.desired_date); d.setHours(0, 0, 0, 0);
+    const dKey = d.toISOString().slice(0, 10);
+    if (d.getTime() === today.getTime()) {
+      addToGroup(dKey, 'Сегодня', -1, o);
+    } else if (d.getTime() === tomorrow.getTime()) {
+      addToGroup(dKey, 'Завтра', 0, o);
+    } else {
+      addToGroup(dKey, fmtDateRu(d), d.getTime(), o);
+    }
+  });
+
+  const sortedGroups = [...groups.values()].sort((a, b) => a.sortKey - b.sortKey);
+
+  return sortedGroups.map(g => `
+    <div class="order-date-group">
+      <div class="order-date-group-header" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${escHtml(g.label)} <span style="font-weight:400;text-transform:none;letter-spacing:0">· ${g.orders.length}</span></div>
+      ${g.orders.map(o => orderCardHTML(o)).join('')}
+    </div>`).join('');
 }
 
 function fmtDate(dt) {
   if (!dt) return '—';
   return new Date(dt).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+// Дата без времени в формате дд.мм.гггг (F4: эхо выбранной даты в форме заявки)
+function fmtDateRu(dt) {
+  if (!dt) return '';
+  const d = (dt instanceof Date) ? dt : new Date(dt);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' });
 }
 
 function _orderRowClass(o) {
@@ -4241,6 +4552,34 @@ function _editPencil(o, field) {
     onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
 }
 
+// Может ли текущий пользователь сменить заказчика (организацию) заявки —
+// клиент (своя заявка) или staff, в редактируемых статусах (F2, правка 2026-06-24)
+function _canEditOrgOf(o) {
+  const role = currentUser?.role;
+  if (role === 'manager' || role === 'admin')
+    return ['new', 'awaiting_manager', 'accepted'].includes(o.status);
+  if (role === 'client')
+    return o.client_id === currentUser?.id
+      && ['new', 'awaiting_manager', 'accepted'].includes(o.status);
+  return false;
+}
+
+function _orgEditPencil(o) {
+  if (!_canEditOrgOf(o)) return '';
+  return `<button class="btn-icon" title="Сменить заказчика" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
+    onclick="event.stopPropagation();promptEditOrderOrganization('${o.id}')">${icon('pencil-simple',12)}</button>`;
+}
+
+// Карандаш только для staff (стоимость доставки правит менеджер/админ —
+// например при переадресации на 2 адреса, правки 2026-06-23).
+function _editPencilStaff(o, field) {
+  const role = currentUser?.role;
+  if (role !== 'manager' && role !== 'admin') return '';
+  if (!['new', 'awaiting_manager', 'accepted'].includes(o.status)) return '';
+  return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
+    onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
+}
+
 // «!» — заявка изменена, водитель ещё не подтвердил (правки 2026-06-11)
 function _changedMark(o) {
   if (!o.pending_driver_ack) return '';
@@ -4255,11 +4594,25 @@ function orderCardHTML(o) {
   const isStaff     = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   // Driver sees no money for company orders (SPEC 5.4)
   const driverHidesMoney = currentUser?.role === 'driver' && o.order_kind !== 'individual';
+  // Стоимость топлива = ожидаемая сумма − доставка (цены бандлятся в expected_amount).
+  // Нужна водителю-физику (сколько наличными собрать) и менеджеру (правка/скидка).
+  const fuelCost    = o.expected_amount != null ? o.expected_amount - (o.delivery_cost || 0) : null;
   const rowClass    = _orderRowClass(o);
-  // В списке показываем запланированную дату отгрузки, а не дату создания
-  const listDate = o.desired_date
-    ? new Date(o.desired_date).toLocaleDateString('ru-RU')
-    : fmtDate(o.created_at);
+  // Дата: желаемая — крупно (красная если просрочена), дата создания — мелко под ней
+  const _today = new Date(); _today.setHours(0,0,0,0);
+  const dateHtml = (() => {
+    const createdSmall = `<div style="font-size:10px;color:var(--text3);margin-top:1px">${fmtDate(o.created_at)}</div>`;
+    if (o.desired_date) {
+      const d = new Date(o.desired_date); d.setHours(0,0,0,0);
+      const overdue = d < _today;
+      const dateStr = d.toLocaleDateString('ru-RU');
+      return `<div style="text-align:right">`
+        + `<div style="font-weight:700;font-size:13px;color:${overdue ? 'var(--red)' : 'var(--accent)'}" title="Запланированная дата доставки${overdue ? ' (просрочена)' : ''}">${dateStr}</div>`
+        + createdSmall
+        + `</div>`;
+    }
+    return `<div style="text-align:right">${createdSmall}</div>`;
+  })();
   return `
   <div class="order-card${rowClass ? ' ' + rowClass : ''}" id="card-${o.id}"
        data-order-kind="${escHtml(o.order_kind || '')}"
@@ -4270,25 +4623,26 @@ function orderCardHTML(o) {
       ${_changedMark(o)}
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
-      <div class="order-fuel">${fuelLabel} · ${escHtml(o.delivery_address)}</div>
+      <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${escHtml(o.delivery_address)}</div>
       <div class="order-volume">
         ${Number(o.volume_requested).toLocaleString('ru')} л
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
       </div>
-      ${(o.client_comment || o.manager_comment) ? `<div class="order-comment-hint" title="${escHtml(o.client_comment || o.manager_comment)}">${icon('chat-circle',13,'margin-right:4px')} ${escHtml((o.client_comment || o.manager_comment || '').slice(0,40))}${(o.client_comment || o.manager_comment || '').length > 40 ? '…' : ''}</div>` : ''}
-      <div class="order-date" title="${o.desired_date ? 'Запланированная дата отгрузки' : 'Дата создания'}">${listDate}</div>
+      ${dateHtml}
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
       <div class="order-details-grid">
         ${isStaff ? `<div class="detail-item"><div class="detail-label">ID заявки</div><div class="detail-value">${uuidCell(o.id)}</div></div>` : ''}
+        ${(o.buyer_name || _canEditOrgOf(o)) ? `<div class="detail-item"><div class="detail-label">Заказчик ${_orgEditPencil(o)}</div><div class="detail-value">${escHtml(o.buyer_name || 'Физлицо')}</div></div>` : ''}
         ${isStaff ? `<div class="detail-item"><div class="detail-label">Клиент (ID)</div><div class="detail-value">${uuidCell(o.client_id)}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Топливо ${_editPencil(o,'fuel_type')}</div><div class="detail-value">${fuelLabel}</div></div>
         <div class="detail-item"><div class="detail-label">Объём заказан ${_editPencil(o,'volume_requested')}</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
-        ${o.delivery_cost != null ? `<div class="detail-item"><div class="detail-label">Стоимость доставки</div><div class="detail-value">${Number(o.delivery_cost).toLocaleString('ru')} ₽</div></div>` : ''}
+        ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? Number(fuelCost).toLocaleString('ru-RU',{minimumFractionDigits:2}) + ' ₽' : '—'}</div></div>` : ''}
+        ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? Number(o.delivery_cost).toLocaleString('ru') + ' ₽' : '—'}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
@@ -4305,7 +4659,7 @@ function orderCardHTML(o) {
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
-      ${isStaff ? `<div class="timeline-section" id="docs-${o.id}">
+      ${(isStaff || currentUser?.role === 'client') && o.order_kind !== 'individual' ? `<div class="timeline-section" id="docs-${o.id}">
         <div class="timeline-title">Документы</div>
         <div class="loading"></div>
       </div>` : ''}
@@ -4322,7 +4676,7 @@ async function toggleCard(orderId) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
     const role = currentUser?.role;
-    if (role === 'manager' || role === 'admin') loadDocs(orderId);
+    if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
   }
 }
 
@@ -4353,7 +4707,7 @@ async function loadTimeline(orderId) {
   }
 }
 
-const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Предварительный счёт', invoice_final: 'Финальный счёт', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
+const DOC_TYPE_LABELS = { invoice: 'Счёт', invoice_preliminary: 'Счёт', invoice_final: 'Счёт', ttn: 'ТТН', upd: 'УПД', poa: 'Доверенность' };
 // Редактируемый формат выгрузки по типу документа: Excel (xlsx) для таблиц, Word (docx) для текстовых.
 const DOC_EXPORT_FMT = { invoice: 'Excel', invoice_preliminary: 'Excel', invoice_final: 'Excel', ttn: 'Excel', upd: 'Excel', poa: 'Word' };
 const DOC_STATUS_LABELS = { draft: 'Черновик', ready: 'Готов', sent: 'Отправлен', cancelled: 'Аннулирован' };
@@ -4364,14 +4718,14 @@ async function loadDocs(orderId) {
   if (!el) return;
   // Ручное выставление счёта (менеджер/админ) — нужно для заявок >= 3000 л,
   // где автогенерация отключена, и как общий механизм повторного выставления.
-  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  const generateBar = isStaff ? `
+  // Клиент тоже может сам выставить себе счёт по своей заявке (бэкенд это разрешает).
+  const isStaff  = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isClient = currentUser?.role === 'client';
+  const generateBar = (isStaff || isClient) ? `
     <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
-      <span style="font-size:11px;color:var(--text3)">Выставить счёт:</span>
       <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
-        onclick="generateInvoice('${orderId}','invoice_preliminary',this)">Предварительный</button>
-      <button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
-        onclick="generateInvoice('${orderId}','invoice_final',this)">Финальный</button>
+        onclick="generateInvoice('${orderId}','invoice',this)">Выставить счёт</button>
+      <span style="font-size:11px;color:var(--text3)">при изменении объёма счёт перевыпускается с теми же номером и датой</span>
     </div>` : '';
   try {
     const docs = await orderGet(`/orders/${orderId}/documents`);
@@ -4387,24 +4741,47 @@ async function loadDocs(orderId) {
       const statusColor = DOC_STATUS_COLORS[d.status] || 'inherit';
       const canDownload = d.status === 'ready' || d.status === 'sent';
       const canSend     = d.status === 'ready';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:18px">${icon('file-text',18)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace">${escHtml(d.doc_number)}</span></div>
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="font-size:18px;flex-shrink:0">${icon('file-text',18)}</div>
+        <div style="flex:1;min-width:140px">
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.doc_number)}</span></div>
           <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
         </div>
         ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
             onclick="downloadDoc('${orderId}','${d.id}')">⬇ PDF</button>` : ''}
         ${canDownload && DOC_EXPORT_FMT[d.doc_type] ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
             onclick="downloadDocExport('${orderId}','${d.id}')">⬇ ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
-        ${canSend ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
+        ${canSend && isStaff ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
             onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
+        ${canSend ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+            onclick="sendDocEmail('${orderId}','${d.id}',this)">${icon('envelope-simple',14)} На почту</button>` : ''}
       </div>`;
     }).join('');
     el.innerHTML = `<div class="timeline-title">Документы</div>${generateBar}${rows}`;
   } catch(e) {
     el.innerHTML = `<div class="timeline-title">Документы</div>
       <div style="font-size:12px;color:var(--red)">${escHtml(e.message)}</div>`;
+  }
+}
+
+// Отправить документ на почту прямо из карточки заявки (доступно staff и клиенту
+// по своей заявке — бэкенд резолвит адрес получателя на сервере, см. send-email).
+async function sendDocEmail(orderId, docId, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '…';
+  try {
+    const res = await orderPost(`/orders/${orderId}/documents/${docId}/send-email`, {});
+    toast('Письмо отправлено' + (res.to ? ' на ' + res.to : ''), 'success');
+  } catch (e) {
+    if (e.status === 503) {
+      toast('SMTP недоступен, попробуйте позже', 'error');
+    } else {
+      toast('Ошибка: ' + e.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
 }
 
@@ -4496,6 +4873,107 @@ function downloadContractExport(contractId) {
     .catch(e => toast('Ошибка выгрузки: ' + e.message, 'error'));
 }
 
+// ── Договор организации (кнопка «Договор» на карточке юрлица, правки 2026-06-23) ──
+async function openOrgContract(orgId) {
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  openModal('Договор', '<div class="empty-state"><div class="loading"></div></div>', null);
+  let c;
+  try {
+    c = await orderGet(`/organizations/${orgId}/contract`);
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message || 'Не удалось получить договор')}</div>`;
+    return;
+  }
+  const dateStr = c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU')
+                : (c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU') : '—');
+  const staffBtns = isStaff ? `
+    <button class="btn btn-sm btn-ghost" onclick="contractSendEmail('${c.id}',this)">${icon('envelope',14)} На почту</button>` : '';
+  const signedDateValue = c.signed_at ? c.signed_at.slice(0, 10) : '';
+  const regenFields = isStaff ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="color:var(--text3);font-size:12px">Номер</label>
+        <input id="oc-num" class="form-input" style="width:120px" value="${escHtml(c.contract_number)}">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="color:var(--text3);font-size:12px">Дата</label>
+        <input id="oc-date" type="date" class="form-input" value="${signedDateValue}">
+      </div>
+      <button class="btn btn-sm btn-warn" onclick="regenContract('${c.id}','${orgId}')">Сгенерировать заново</button>
+    </div>` : '';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      <div><span style="color:var(--text3);font-size:12px">Номер:</span> <strong style="font-family:monospace">${escHtml(c.contract_number)}</strong></div>
+      <div><span style="color:var(--text3);font-size:12px">Дата:</span> ${dateStr}</div>
+      <div><span style="color:var(--text3);font-size:12px">Статус:</span> ${c.status === 'active' ? 'действующий' : escHtml(c.status)}</div>
+    </div>
+    ${regenFields}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-primary-outline" onclick="downloadContractPdf('${c.id}')">${icon('file-text',14)} Посмотреть PDF</button>
+      ${isStaff ? `<button class="btn btn-sm btn-ghost" onclick="downloadContractExport('${c.id}')">${icon('microsoft-excel-logo',14)} Word</button>` : ''}
+      ${staffBtns}
+    </div>`;
+}
+
+async function regenContract(contractId, orgId) {
+  const numEl = document.getElementById('oc-num');
+  const dateEl = document.getElementById('oc-date');
+  const body = {
+    contract_number: numEl ? numEl.value.trim() : null,
+    signed_at: dateEl && dateEl.value ? dateEl.value : null,
+  };
+  try {
+    await orderPatch(`/contracts/${contractId}/regenerate`, body);
+    toast('Договор перевыпущен', 'success');
+    openOrgContract(orgId);
+  } catch (e) {
+    toast(e.message || 'Ошибка перевыпуска договора', 'error');
+  }
+}
+
+async function openContractsRegistry() {
+  openModal('Реестр договоров', '<div class="empty-state"><div class="loading"></div></div>', null);
+  let rows;
+  try {
+    rows = await orderGet('/contracts');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message || 'Не удалось получить реестр договоров')}</div>`;
+    return;
+  }
+  if (!rows.length) {
+    document.getElementById('modal-body').innerHTML = `<div class="empty-state">Договоров нет.</div>`;
+    return;
+  }
+  const trs = rows.map(r => {
+    const d = r.signed_at || r.created_at;
+    const dateStr = d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+    return `<tr>
+      <td style="font-family:monospace">${escHtml(r.contract_number)}</td>
+      <td>${escHtml(r.organization_name || '—')}</td>
+      <td>${dateStr}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <table class="table" style="width:100%">
+      <thead><tr><th>Номер</th><th>Организация</th><th>Дата</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+}
+
+async function contractSendEmail(contractId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await orderPost(`/contracts/${contractId}/send-email`, {});
+    toast('Договор отправлен на ' + (r.to || 'почту'), 'success');
+  } catch (e) {
+    toast('Ошибка отправки: ' + (e.message || ''), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = `${icon('envelope',14)} На почту`; }
+  }
+}
+
 async function sendDocToChat(orderId, docId, btn) {
   btn.disabled = true;
   btn.textContent = '…';
@@ -4522,6 +5000,18 @@ function paymentSummaryHTML(o) {
     return '';
   }
 
+  // Клиент: пока заявка на согласовании у менеджера (объём > 3000 л), сумма ещё
+  // не подтверждена — не показываем блок «Ожидается/Оплачено/Долг» и требование оплаты.
+  if (role === 'client' && o.status === 'awaiting_manager') {
+    return '';
+  }
+
+  // Клиент + юрлицо: оплата идёт по счёту (уходит на почту/в чат), поэтому в карточке
+  // не показываем блок «Ожидается/Оплачено/Долг» и красное «необходимо оплатить».
+  if (role === 'client' && o.order_kind && o.order_kind !== 'individual') {
+    return '';
+  }
+
   const ps = o.payment_status || 'unpaid';
   // Use 2-bucket display (DECISION 1)
   const dispPs = paymentStatusDisplay(ps);
@@ -4532,14 +5022,9 @@ function paymentSummaryHTML(o) {
     ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(245,158,11,.08);border:1px solid var(--amber);border-radius:6px;color:var(--amber);font-size:12px">${icon('warning',14,'margin-right:6px')} Сумма не определена — назначьте тариф для клиента, чтобы корректно считать долг.</div>`
     : '';
 
-  // Client unpaid alert (SPEC 5.5): show when unpaid, not a debt order, not ttn_l
-  const clientUnpaidAlert = (role === 'client' && dispPs === 'unpaid'
-    && !o.allow_delivery_unpaid && o.order_kind !== 'ttn_l' && o.status !== 'cancelled')
-    ? `<div style="margin-top:8px;padding:10px 12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.4);border-radius:6px;display:flex;align-items:flex-start;gap:8px">
-        <span style="color:var(--red);flex-shrink:0;margin-top:1px">${icon('warning-circle',16)}</span>
-        <span style="color:var(--red);font-size:13px;font-weight:500">Заявку необходимо оплатить. Свяжитесь с менеджером.</span>
-       </div>`
-    : '';
+  // Баннер «Заявку необходимо оплатить...» убран по правке заказчика (F2, 2026-06-24) —
+  // дублировал статус оплаты и сбивал с толку клиентов.
+  const clientUnpaidAlert = '';
 
   return `
     <div style="margin-top:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
@@ -4581,6 +5066,8 @@ function actionBarHTML(o) {
     const payable = s !== 'cancelled' && paymentStatusDisplay(o.payment_status || 'unpaid') !== 'paid';
     if (payable)
       btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
+    // F1 (правка 2026-06-24): дублировать заявку — например, разбить заявку >3000 л на две
+    btns.push(`<button class="btn btn-sm btn-ghost" onclick="duplicateOrder('${o.id}')">${icon('copy',14)} Дублировать</button>`);
   }
 
   if (role === 'driver') {
@@ -4606,8 +5093,6 @@ function actionBarHTML(o) {
   }
 
   if (role === 'client') {
-    if (s === 'awaiting_manager')
-      btns.push(`<span style="font-size:12px;color:var(--amber);display:inline-flex;align-items:center;gap:4px">${icon('clock',13)} Объём > 3000 л — заявка на согласовании у менеджера</span>`);
     if (s === 'new' || s === 'accepted' || s === 'awaiting_manager')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
     // Chat with manager
@@ -4690,6 +5175,15 @@ async function promptEditOrderField(orderId, field) {
     title = 'Изменить желаемую дату';
     const cur = order.desired_date ? new Date(order.desired_date).toISOString().slice(0, 10) : '';
     inputHtml = `<input type="date" id="eof-value" class="form-input" value="${cur}">`;
+  } else if (field === 'delivery_cost') {
+    title = 'Изменить стоимость доставки';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${order.delivery_cost != null ? Number(order.delivery_cost) : ''}" placeholder="0">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Например, при переадресации на 2 адреса. Сумма заявки пересчитается, счёт перевыпустится с тем же номером.</div>`;
+  } else if (field === 'fuel_cost') {
+    title = 'Изменить стоимость топлива';
+    const _fuel = order.expected_amount != null ? order.expected_amount - (order.delivery_cost || 0) : '';
+    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${_fuel !== '' ? Number(_fuel) : ''}" placeholder="0">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Стоимость топлива без доставки (например, скидка клиенту). Доставка ${order.delivery_cost != null ? Number(order.delivery_cost).toLocaleString('ru') + ' ₽' : '0 ₽'} добавится к сумме заявки. Счёт перевыпустится с тем же номером.</div>`;
   } else { return; }
 
   openModal(`${title} · ${order.order_number}`,
@@ -4698,7 +5192,7 @@ async function promptEditOrderField(orderId, field) {
         ? '<div style="font-size:11px;color:var(--amber)">Заявка уже принята водителем — он получит запрос на подтверждение изменений.</div>' : ''}`,
     async () => {
       const raw = document.getElementById('eof-value').value;
-      if (!raw) { toast('Укажите значение', 'error'); return; }
+      if (field !== 'delivery_cost' && !raw) { toast('Укажите значение', 'error'); return; }
       const body = {};
       if (field === 'volume_requested') {
         const v = parseFloat(raw);
@@ -4706,6 +5200,15 @@ async function promptEditOrderField(orderId, field) {
         if (!v || v <= 0) { toast('Укажите объём', 'error'); return; }
         if (!_staff && v < 300) { toast('Минимальный объём — 300 л', 'error'); return; }
         body[field] = v;
+      } else if (field === 'delivery_cost') {
+        const v = parseFloat(raw || '0');
+        if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
+        body[field] = v;
+      } else if (field === 'fuel_cost') {
+        const v = parseFloat(raw || '0');
+        if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
+        // Бэкенд хранит бандл expected_amount = топливо + доставка
+        body.expected_amount = v + (order.delivery_cost || 0);
       } else if (field === 'desired_date') {
         body[field] = new Date(raw + 'T00:00:00').toISOString();
       } else {
@@ -4715,12 +5218,124 @@ async function promptEditOrderField(orderId, field) {
         await orderPatch(`/orders/${orderId}`, body);
         closeModal();
         toast('Заявка обновлена');
-        await loadOrders();
+        await reloadOrdersKeepOpen(orderId);
       } catch (e) {
         toast(e.message, 'error');
       }
     }
   );
+}
+
+// F2 (правка 2026-06-24): сменить заказчика заявки (организацию юрлица или физлицо).
+// Доступно клиенту (своя заявка) и staff, бэкенд проверяет членство клиента в организации.
+async function promptEditOrderOrganization(orderId) {
+  let order;
+  try {
+    order = await orderGet(`/orders/${orderId}`);
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  let orgs = [];
+  try {
+    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    const path = isStaff ? `/organizations?user_id=${order.client_id}` : '/organizations';
+    orgs = await authGet(path);
+    if (!Array.isArray(orgs)) orgs = [];
+  } catch (_) { orgs = []; }
+
+  const opts = [`<option value="">Физлицо</option>`]
+    .concat(orgs.map(o => `<option value="${o.id}" ${o.id === order.organization_id ? 'selected' : ''}>${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`))
+    .join('');
+
+  openModal(`Сменить заказчика · ${order.order_number}`,
+    `<div class="form-group">
+       <label class="form-label">Заказчик</label>
+       <select id="eoo-value" class="form-input">${opts}</select>
+     </div>
+     ${!orgs.length ? '<div style="font-size:11px;color:var(--text3)">У клиента пока нет организаций — доступен только вариант «Физлицо».</div>' : ''}`,
+    async () => {
+      const val = document.getElementById('eoo-value').value;
+      const body = { organization_id: val || null };
+      try {
+        await orderPatch(`/orders/${orderId}`, body);
+        closeModal();
+        toast('Заказчик обновлён');
+        await reloadOrdersKeepOpen(orderId);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
+}
+
+// F1 (правка 2026-06-24): дублировать заявку — открыть форму «Новая заявка» с
+// предзаполненными полями исходной заявки (для разбивки крупной заявки на две).
+// Доступно только staff (кнопка рендерится только в actionBarHTML для manager/admin).
+async function duplicateOrder(orderId) {
+  let order;
+  try {
+    order = await orderGet(`/orders/${orderId}`);
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  switchTab('create');
+  // switchTab('create') запускает несколько асинхронных загрузок (клиенты, водители,
+  // топливо). Ждём их и только потом проставляем значения — иначе селекты перезапишут
+  // прямо поставленные value пустыми списками опций.
+  await Promise.all([
+    loadClientSelectForOrder(),
+    loadDriverSelectForOrder(),
+    populateOrderFuelSelect(),
+  ]);
+
+  const titleEl = document.getElementById('create-form-title');
+  if (titleEl) titleEl.textContent = `Новая заявка (дублирована из ${order.order_number})`;
+
+  const clientSel = document.getElementById('c-client-id');
+  if (clientSel) {
+    clientSel.value = order.client_id || '';
+    // Подгружаем платёж/организации/сохранённые объекты под выбранного клиента
+    if (order.client_id) {
+      renderPaymentRadios(order.client_id);
+      await loadOrganizationSelectForOrder(order.client_id);
+    }
+  }
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && order.organization_id) orgSel.value = order.organization_id;
+
+  const fuelSel = document.getElementById('c-fuel');
+  if (fuelSel && order.fuel_type) fuelSel.value = order.fuel_type;
+
+  const volEl = document.getElementById('c-volume');
+  if (volEl) volEl.value = order.volume_requested != null ? Number(order.volume_requested) : '';
+
+  const dateEl = document.getElementById('c-date');
+  if (dateEl) {
+    dateEl.value = order.desired_date ? new Date(order.desired_date).toISOString().slice(0, 10) : '';
+    dateEl.dispatchEvent(new Event('input'));
+  }
+
+  // Адрес — заполняем как готовую строку (без повторного геокодинга/подсказок DaData)
+  _orderAddress = order.delivery_address || '';
+  const cityEl = document.getElementById('c-addr-city');
+  if (cityEl) cityEl.value = order.delivery_address || '';
+  const streetEl = document.getElementById('c-addr-street');
+  const houseEl = document.getElementById('c-addr-house');
+  if (streetEl) { streetEl.value = ''; streetEl.disabled = false; }
+  if (houseEl) { houseEl.value = ''; houseEl.disabled = false; }
+
+  const nameEl = document.getElementById('c-contact-name');
+  if (nameEl) nameEl.value = order.contact_person_name || '';
+  const phoneEl = document.getElementById('c-contact-phone');
+  if (phoneEl) phoneEl.value = order.contact_person_phone || '';
+
+  if (order.payment_type) {
+    const radio = document.querySelector(`input[name="payment"][value="${order.payment_type}"]`);
+    if (radio) { radio.checked = true; updatePaymentUI(); }
+  }
+
+  const commentEl = document.getElementById('c-manager-comment');
+  if (commentEl) commentEl.value = order.manager_comment || '';
+
+  toast(`Заявка ${order.order_number} взята за основу — проверьте поля и отправьте`);
 }
 
 function promptDeliver(orderId) {
@@ -5037,6 +5652,9 @@ async function loadClientSelectForOrder() {
   if (!isStaff) {
     // For client role: render payment radios based on own profile
     if (currentUser?.id) renderPaymentRadios(currentUser.id);
+    loadSavedObjects();
+    // Подгружаем свои организации в селектор «Оформить от имени»
+    loadOrganizationSelectForOrder(currentUser?.id);
     return;
   }
   const sel = document.getElementById('c-client-id');
@@ -5046,13 +5664,529 @@ async function loadClientSelectForOrder() {
     const current = sel.value;
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
-    // Reload payment options when manager picks a different client
+    // Reload payment radios, saved objects + organizations when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
       if (cid) renderPaymentRadios(cid);
+      loadSavedObjects();
+      loadOrganizationSelectForOrder(cid || null);
     };
-    if (current) renderPaymentRadios(current);
+    if (current) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
+    loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAVED OBJECTS (сохранённые объекты доставки)
+// ═══════════════════════════════════════════════════════════════
+let _savedObjects = [];
+
+// Показать выбранную дату по-русски (дд.мм.гггг) — нативный input type=date
+// рисует формат по локали браузера, поэтому дублируем дату текстом под полем.
+async function loadSavedObjects() {
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const group = document.getElementById('c-saved-object-group');
+  const sel = document.getElementById('c-saved-object');
+  if (!sel) return;
+
+  let clientId = null;
+  if (isStaff) {
+    const clientSel = document.getElementById('c-client-id');
+    clientId = clientSel?.value || null;
+    if (!clientId) {
+      // No client selected yet — hide the selector
+      _savedObjects = [];
+      sel.innerHTML = '<option value="">— сохранённые объекты —</option>';
+      if (group) group.style.display = 'none';
+      return;
+    }
+  }
+
+  try {
+    const url = '/client-objects' + (clientId ? `?client_id=${clientId}` : '');
+    const objs = await orderGet(url);
+    _savedObjects = objs;
+    sel.innerHTML = '<option value="">— сохранённые объекты —</option>' +
+      objs.map(o => {
+        const label = o.name ? `${escHtml(o.name)} — ${escHtml(o.delivery_address)}` : escHtml(o.delivery_address);
+        return `<option value="${escHtml(o.id)}">${label}</option>`;
+      }).join('');
+    if (group) group.style.display = objs.length > 0 ? '' : 'none';
+  } catch (_) {
+    // Never block the form
+    if (group) group.style.display = 'none';
+  }
+}
+
+function applySavedObject() {
+  const sel = document.getElementById('c-saved-object');
+  const delBtn = document.getElementById('c-saved-object-del');
+  if (!sel) return;
+
+  const id = sel.value;
+  if (!id) {
+    if (delBtn) delBtn.style.display = 'none';
+    return;
+  }
+
+  const obj = _savedObjects.find(o => o.id === id);
+  if (!obj) return;
+
+  // Set the resolved address globals
+  _orderAddress = obj.delivery_address;
+  _orderGeo = (obj.delivery_lat != null && obj.delivery_lon != null)
+    ? { lat: Number(obj.delivery_lat), lon: Number(obj.delivery_lon) }
+    : null;
+
+  // Show address in city field, disable cascade fields
+  const cityInput   = document.getElementById('c-addr-city');
+  const streetInput = document.getElementById('c-addr-street');
+  const houseInput  = document.getElementById('c-addr-house');
+  if (cityInput)   cityInput.value = obj.delivery_address;
+  if (streetInput) { streetInput.value = ''; streetInput.disabled = true; }
+  if (houseInput)  { houseInput.value = ''; houseInput.disabled = true; }
+  // Reset cascade state so manual entry works correctly after deselect
+  _addrCity   = null;
+  _addrStreet = null;
+
+  if (delBtn) delBtn.style.display = '';
+
+  // Trigger zone preview + map + price (same chain as house-select)
+  previewDeliveryZone();
+  if (_orderGeo) {
+    initClientZoneMap().then(() => {
+      setClientMapMarker();
+      updatePricePreview();
+    });
+  }
+}
+
+async function deleteSavedObject() {
+  const sel = document.getElementById('c-saved-object');
+  if (!sel) return;
+  const id = sel.value;
+  if (!id) return;
+  if (!confirm('Удалить сохранённый объект?')) return;
+
+  const wasApplied = _orderAddress === (_savedObjects.find(o => o.id === id)?.delivery_address);
+  try {
+    await orderDelete('/client-objects/' + id);
+    toast('Объект удалён');
+    if (wasApplied) {
+      _orderAddress = '';
+      _orderGeo = null;
+    }
+    sel.value = '';
+    const delBtn = document.getElementById('c-saved-object-del');
+    if (delBtn) delBtn.style.display = 'none';
+    await loadSavedObjects();
+  } catch (e) {
+    toast('Ошибка при удалении: ' + e.message);
+  }
+}
+
+// Загрузить организации пользователя в селектор «Оформить от имени».
+// Клиент — свои; staff — организации выбранного клиента. Скрываем, если их нет.
+async function loadOrganizationSelectForOrder(userId) {
+  const group = document.getElementById('c-org-group');
+  const sel   = document.getElementById('c-organization');
+  if (!group || !sel) return;
+  sel.innerHTML = '<option value="">Физлицо (на себя)</option>';
+  if (!userId) { group.style.display = 'none'; return; }
+  try {
+    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+    const path = isStaff ? `/organizations?user_id=${userId}` : '/organizations';
+    const orgs = await authGet(path);
+    if (Array.isArray(orgs) && orgs.length) {
+      sel.innerHTML += orgs.map(o =>
+        `<option value="${o.id}">${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`
+      ).join('');
+      group.style.display = '';
+    } else {
+      group.style.display = 'none';
+    }
+  } catch {
+    group.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MY ORGANIZATIONS (клиент)
+// ═══════════════════════════════════════════════════════════════
+let _myOrgs = [];
+let _orgSearchTimer = null;
+
+function _isOrgStaff() {
+  return currentUser?.role === 'manager' || currentUser?.role === 'admin';
+}
+
+async function loadMyOrganizations() {
+  const el = document.getElementById('orgs-list');
+  if (!el) return;
+  const staff = _isOrgStaff();
+
+  // Тулбар: staff видит поиск (все организации), клиент — кнопку добавления (свои)
+  const titleEl  = document.getElementById('orgs-title');
+  const searchEl = document.getElementById('orgs-search');
+  const addBtn   = document.getElementById('orgs-add-btn');
+  const registryBtn = document.getElementById('contracts-registry-btn');
+  if (titleEl)  titleEl.textContent = staff ? 'Организации' : 'Мои организации';
+  if (searchEl) searchEl.style.display = staff ? '' : 'none';
+  // Кнопку добавления видят все: клиент заводит свои юрлица, staff — на клиента
+  if (addBtn)   addBtn.style.display = '';
+  if (registryBtn) registryBtn.style.display = staff ? '' : 'none';
+
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    let path = '/organizations';
+    if (staff) {
+      const q = (searchEl?.value || '').trim();
+      if (q) path += `?search=${encodeURIComponent(q)}`;
+    }
+    _myOrgs = await authGet(path);
+    if (!_myOrgs.length) {
+      el.innerHTML = staff
+        ? `<div class="empty-state">Организаций не найдено.</div>`
+        : `<div class="empty-state">У вас пока нет организаций. Добавьте юрлицо по ИНН, чтобы оформлять заявки от его имени.</div>`;
+      return;
+    }
+    el.innerHTML = _myOrgs.map(orgCardHTML).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+function onOrgSearchInput() {
+  clearTimeout(_orgSearchTimer);
+  _orgSearchTimer = setTimeout(loadMyOrganizations, 350);
+}
+
+function orgCardHTML(o) {
+  const staff = _isOrgStaff();
+  const req = [
+    o.inn ? `ИНН ${escHtml(o.inn)}` : null,
+    o.kpp ? `КПП ${escHtml(o.kpp)}` : null,
+  ].filter(Boolean).join(' · ');
+
+  // Коммерческая строка (тариф/кредит) — только для staff
+  const commercial = staff ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">
+      ${o.credit_allowed ? '✓ кредит разрешён' : 'без кредита'}${o.credit_limit != null ? ` · лимит ${Number(o.credit_limit).toLocaleString('ru')} ₽` : ''}
+    </div>` : '';
+
+  // Кнопки действий
+  const btns = [`<button class="btn btn-sm btn-ghost" onclick="openOrgMembers('${o.id}')">Сотрудники</button>`];
+  // Реквизиты правит и владелец-клиент, и staff (бэкенд: _require_org_admin)
+  btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
+  // Договор виден и админу, и клиенту-участнику (правки 2026-06-23)
+  btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgContract('${o.id}')">Договор</button>`);
+  if (staff) {
+    if (currentUser?.role === 'admin')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);
+    btns.push(`<button class="btn btn-sm btn-danger" onclick="archiveOrg('${o.id}')">Архивировать</button>`);
+  }
+
+  return `
+  <div class="surface-card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:600">${escHtml(o.company_name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${req || '—'}</div>
+        ${o.legal_address ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${escHtml(o.legal_address)}</div>` : ''}
+        ${commercial}
+      </div>
+      <span style="font-size:11px;color:var(--text3);white-space:nowrap">O-${String(o.org_number).padStart(5,'0')}</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      ${btns.join('')}
+    </div>
+  </div>`;
+}
+
+// ── Staff: правка реквизитов организации ────────────────────────────────────
+function openEditOrgModal(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  openModal(`Реквизиты — ${o.company_name || ''}`, `
+    <div class="form-group"><label class="form-label">Название</label>
+      <input id="eo-name" class="form-input" value="${escHtml(o.company_name || '')}"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="eo-kpp" class="form-input" value="${escHtml(o.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="eo-legal" class="form-input" value="${escHtml(o.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="eo-bank" class="form-input" value="${escHtml(o.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="eo-bik" class="form-input" value="${escHtml(o.bik || '')}" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="eo-acc" class="form-input" value="${escHtml(o.bank_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="eo-corr" class="form-input" value="${escHtml(o.correspondent_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Номер договора</label>
+      <input id="eo-contract" class="form-input" value="${escHtml(o.contract_number || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для счетов</label>
+      <input id="eo-email" class="form-input" type="email" value="${escHtml(o.billing_email || '')}" placeholder="на эту почту уйдут счета"></div>
+  `, () => submitEditOrg(orgId));
+}
+
+async function submitEditOrg(orgId) {
+  const body = {
+    company_name:          document.getElementById('eo-name').value.trim() || null,
+    kpp:                   document.getElementById('eo-kpp').value.trim() || null,
+    legal_address:         document.getElementById('eo-legal').value.trim() || null,
+    bank_name:             document.getElementById('eo-bank').value.trim() || null,
+    bik:                   document.getElementById('eo-bik').value.trim() || null,
+    bank_account:          document.getElementById('eo-acc').value.trim() || null,
+    correspondent_account: document.getElementById('eo-corr').value.trim() || null,
+    contract_number:       document.getElementById('eo-contract').value.trim() || null,
+    billing_email:         document.getElementById('eo-email').value.trim() || null,
+  };
+  try {
+    await authPatch(`/organizations/${orgId}`, body);
+    closeModal();
+    toast('Реквизиты сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Admin: тариф / кредит организации ───────────────────────────────────────
+async function openOrgCommercial(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  if (!o) return;
+  let tariffOptions = '<option value="">— базовый —</option>';
+  try {
+    const tariffs = await orderGet('/tariffs');
+    tariffOptions += tariffs.filter(t => !t.is_archived).map(t =>
+      `<option value="${t.id}"${o.tariff_id === t.id ? ' selected' : ''}>${escHtml(t.name)}${t.is_default ? ' (базовый)' : ''}</option>`
+    ).join('');
+  } catch (_) {}
+  openModal(`Тариф / кредит — ${o.company_name || ''}`, `
+    <div class="form-group"><label class="form-label">Тариф</label>
+      <select id="oc-tariff" class="form-input">${tariffOptions}</select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое значение = базовый тариф</div></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="oc-credit" ${o.credit_allowed ? 'checked' : ''}>
+      <label for="oc-credit" style="font-size:13px;cursor:pointer">Разрешить тип оплаты «В долг»</label></div>
+    <div class="form-group"><label class="form-label">Кредитный лимит, ₽</label>
+      <input id="oc-limit" class="form-input" type="number" min="0" value="${o.credit_limit != null ? o.credit_limit : ''}" placeholder="пусто = без лимита"></div>
+  `, () => submitOrgCommercial(orgId));
+}
+
+async function submitOrgCommercial(orgId) {
+  const lim = document.getElementById('oc-limit').value.trim();
+  const body = {
+    tariff_id:      document.getElementById('oc-tariff').value || null,
+    credit_allowed: document.getElementById('oc-credit').checked,
+    credit_limit:   lim === '' ? null : Number(lim),
+  };
+  try {
+    await authPatch(`/organizations/${orgId}/commercial`, body);
+    closeModal();
+    toast('Коммерческие условия сохранены');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function archiveOrg(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  openModal('Архивировать организацию?',
+    `<p style="color:var(--text2);font-size:13px">Организация «${escHtml(o?.company_name || '')}» будет скрыта. Исторические заявки и документы сохранятся.</p>`,
+    async () => {
+      try {
+        await api(`${AUTH_URL}/organizations/${orgId}`, { method: 'DELETE' });
+        closeModal();
+        toast('Организация архивирована');
+        loadMyOrganizations();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+// Черновик создаваемой организации (переносится между шагами модалки)
+let _orgDraft = {};
+
+function _setModalConfirmText(t) {
+  const b = document.getElementById('modal-confirm');
+  if (b) b.textContent = t;
+}
+
+// Шаг 1 — ИНН (+ БИК): тянем реквизиты из ФНС/банка по DaData
+function openCreateOrgModal() {
+  _orgDraft = {};
+  openModal('Новая организация — шаг 1', `
+    <div class="form-group"><label class="form-label">ИНН <span style="color:var(--red)">*</span></label>
+      <input id="org-inn" class="form-input" placeholder="10 или 12 цифр" maxlength="12" inputmode="numeric"></div>
+    <div class="form-group"><label class="form-label">БИК банка</label>
+      <input id="org-bik" class="form-input" placeholder="9 цифр (необязательно)" maxlength="9" inputmode="numeric"></div>
+    <p style="font-size:11px;color:var(--text3)">Введите ИНН — реквизиты подтянутся из ФНС. На следующем шаге сможете проверить и дозаполнить.</p>
+    <div id="org-lookup-msg" style="font-size:12px;margin-top:6px"></div>
+  `, orgLookupAndContinue);
+  _setModalConfirmText('Найти →');
+}
+
+async function orgLookupAndContinue() {
+  const inn = document.getElementById('org-inn').value.trim();
+  const bik = document.getElementById('org-bik').value.trim();
+  if (!/^(\d{10}|\d{12})$/.test(inn)) { toast('Введите корректный ИНН (10 или 12 цифр)', 'error'); return; }
+  if (bik && !/^\d{9}$/.test(bik)) { toast('БИК — 9 цифр', 'error'); return; }
+
+  const msg = document.getElementById('org-lookup-msg');
+  if (msg) msg.innerHTML = '<span style="color:var(--text3)">Ищем в ФНС…</span>';
+
+  let party = null, bank = null;
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(x => x.json());
+    if (r && r.found) party = r.data;
+  } catch (_) {}
+  if (bik) {
+    try {
+      const rb = await fetch(`${AUTH_URL}/auth/lookup/bik?bik=${encodeURIComponent(bik)}`).then(x => x.json());
+      if (rb && rb.found) bank = rb.data;
+    } catch (_) {}
+  }
+
+  _orgDraft = { inn, bik, party: party || {}, bank: bank || {}, found: !!party };
+  openCreateOrgStep2();
+}
+
+// Шаг 2 — проверка/дозаполнение реквизитов
+function openCreateOrgStep2() {
+  const p = _orgDraft.party || {}, b = _orgDraft.bank || {};
+  const staff = _isOrgStaff();
+  const note = _orgDraft.found
+    ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Данные найдены в ФНС — проверьте и дополните</div>`
+    : `<div style="font-size:12px;color:var(--orange,#c80);margin-bottom:8px">По ИНН ничего не найдено — заполните реквизиты вручную</div>`;
+  // Staff заводит юрлицо НА клиента — обязательный выбор владельца
+  const ownerBlock = staff ? `
+    <div class="form-group"><label class="form-label">Клиент-владелец <span style="color:var(--red)">*</span></label>
+      <select id="co-owner-client" class="form-input" onchange="_orgDraft.ownerClientId=this.value">
+        <option value="">— загрузка клиентов… —</option></select>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Организация будет привязана к этому клиенту</div></div>` : '';
+  openModal('Новая организация — реквизиты', `
+    ${note}
+    ${ownerBlock}
+    <div class="form-group"><label class="form-label">ИНН</label>
+      <input class="form-input" value="${escHtml(_orgDraft.inn)}" disabled></div>
+    <div class="form-group"><label class="form-label">Название <span style="color:var(--red)">*</span></label>
+      <input id="co-name" class="form-input" value="${escHtml(p.company_name || '')}" placeholder="ООО «…»"></div>
+    <div class="form-group"><label class="form-label">КПП</label>
+      <input id="co-kpp" class="form-input" value="${escHtml(p.kpp || '')}"></div>
+    <div class="form-group"><label class="form-label">ОГРН</label>
+      <input id="co-ogrn" class="form-input" value="${escHtml(p.ogrn || '')}"></div>
+    <div class="form-group"><label class="form-label">Юридический адрес</label>
+      <input id="co-legal" class="form-input" value="${escHtml(p.legal_address || '')}"></div>
+    <div class="form-group"><label class="form-label">Банк</label>
+      <input id="co-bank" class="form-input" value="${escHtml(b.bank_name || '')}"></div>
+    <div class="form-group"><label class="form-label">БИК</label>
+      <input id="co-bik" class="form-input" value="${escHtml(_orgDraft.bik || '')}" maxlength="9"></div>
+    <div class="form-group"><label class="form-label">Расчётный счёт</label>
+      <input id="co-acc" class="form-input" placeholder="20 цифр"></div>
+    <div class="form-group"><label class="form-label">Корр. счёт</label>
+      <input id="co-corr" class="form-input" value="${escHtml(b.correspondent_account || '')}"></div>
+    <div class="form-group"><label class="form-label">Email для счетов <span style="color:var(--red)">*</span></label>
+      <input id="co-email" class="form-input" type="email" placeholder="на эту почту уйдут счета и документы"></div>
+  `, submitCreateOrg);
+  _setModalConfirmText('Создать');
+  // Кнопка «назад» к шагу 1
+  const body = document.getElementById('modal-body');
+  if (body) body.insertAdjacentHTML('afterbegin',
+    `<button class="btn btn-sm btn-ghost" style="margin-bottom:8px" onclick="openCreateOrgModal();document.getElementById('org-inn').value='${escHtml(_orgDraft.inn)}'">← назад к ИНН</button>`);
+  if (staff) _fillOrgOwnerClients();
+}
+
+// Подгрузить список клиентов в селектор владельца (staff-флоу создания организации)
+async function _fillOrgOwnerClients() {
+  const sel = document.getElementById('co-owner-client');
+  if (!sel) return;
+  try {
+    const clients = await api(`${AUTH_URL}/users?role=client&limit=200&include_inactive=false`);
+    sel.innerHTML = '<option value="">— выберите клиента —</option>' +
+      clients.map(c => `<option value="${c.id}">${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+    if (_orgDraft.ownerClientId) sel.value = _orgDraft.ownerClientId;
+  } catch (_) {
+    sel.innerHTML = '<option value="">— не удалось загрузить клиентов —</option>';
+  }
+}
+
+async function submitCreateOrg() {
+  const name = document.getElementById('co-name').value.trim();
+  if (!name) { toast('Укажите название организации', 'error'); return; }
+  let ownerClientId;
+  if (_isOrgStaff()) {
+    ownerClientId = document.getElementById('co-owner-client')?.value || '';
+    if (!ownerClientId) { toast('Выберите клиента-владельца организации', 'error'); return; }
+  }
+  const email = (document.getElementById('co-email')?.value || '').trim();
+  if (!email) { toast('Укажите email для счетов', 'error'); return; }
+  const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
+  const body = {
+    inn:                   _orgDraft.inn,
+    company_name:          name,
+    kpp:                   v('co-kpp'),
+    ogrn:                  v('co-ogrn'),
+    legal_address:         v('co-legal'),
+    bank_name:             v('co-bank'),
+    bik:                   v('co-bik'),
+    bank_account:          v('co-acc'),
+    correspondent_account: v('co-corr'),
+    billing_email:         email,
+  };
+  if (ownerClientId) body.owner_client_id = ownerClientId;
+  try {
+    await authPost('/organizations', body);
+    closeModal();
+    toast('Организация добавлена');
+    loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openOrgMembers(orgId) {
+  const org = _myOrgs.find(o => o.id === orgId);
+  openModal(org ? `Сотрудники — ${org.company_name}` : 'Сотрудники',
+    '<div id="org-members-body"><div class="loading"></div></div>', null);
+  await renderOrgMembers(orgId);
+}
+
+async function renderOrgMembers(orgId) {
+  const box = document.getElementById('org-members-body');
+  if (!box) return;
+  try {
+    const members = await authGet(`/organizations/${orgId}/members`);
+    const rows = members.map(m => {
+      const role = m.member_role === 'owner' ? 'Владелец' : 'Сотрудник';
+      const st   = m.status === 'pending' ? ' · приглашение' : '';
+      const name = m.full_name || m.phone || '—';
+      const rm = m.member_role === 'owner' ? '' :
+        `<button class="btn btn-sm btn-danger" onclick="removeOrgMember('${orgId}','${m.id}')">✕</button>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><div style="font-weight:500">${escHtml(name)}</div>
+        <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>${rm}</div>`;
+    }).join('');
+    box.innerHTML = `${rows || '<div style="color:var(--text3)">Нет сотрудников</div>'}
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <input id="org-add-phone" class="form-input" placeholder="+7 999 …" style="flex:1 1 auto;min-width:0;margin:0">
+        <button class="btn btn-sm btn-primary" onclick="addOrgMember('${orgId}')" style="flex:0 0 auto;width:auto;white-space:nowrap;padding:8px 18px">Добавить</button>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:6px">Если у номера ещё нет аккаунта — отправим приглашение, оно активируется при регистрации.</p>`;
+  } catch (e) {
+    box.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function addOrgMember(orgId) {
+  const phone = document.getElementById('org-add-phone').value.trim();
+  if (!phone) { toast('Введите номер телефона', 'error'); return; }
+  try {
+    await authPost(`/organizations/${orgId}/members`, { phone });
+    toast('Сотрудник добавлен / приглашён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeOrgMember(orgId, memberId) {
+  try {
+    await api(`${AUTH_URL}/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
+    toast('Сотрудник удалён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // Чекбокс «Я» — подставить имя и телефон текущего пользователя как контактное лицо
@@ -5068,10 +6202,26 @@ function toggleSelfContact(cb) {
   }
 }
 
+let _orderSubmitting = false;
 async function doCreateOrder() {
+  if (_orderSubmitting) return;                       // защита от двойного сабмита (дубли заявок)
   const errEl = document.getElementById('create-error');
   errEl.innerHTML = '';
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+
+  // Понятная валидация объёма до отправки — вместо сырой ошибки бэкенда
+  const _volRaw = (document.getElementById('c-volume')?.value || '').trim();
+  const _vol = parseFloat(_volRaw);
+  const _volMin = isStaff ? 1 : 300;
+  if (!_volRaw || !Number.isFinite(_vol) || _vol < _volMin) {
+    errEl.innerHTML = `<div class="inline-error">Укажите объём топлива (минимум ${_volMin} л)</div>`;
+    return;
+  }
+
+  const submitBtn = document.querySelector('button[onclick="doCreateOrder()"]');
+  _orderSubmitting = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.label = submitBtn.textContent; submitBtn.innerHTML = '<span class="loading"></span> Отправка…'; }
+  try {
 
   // Собираем адрес: приоритет unrestricted_value дома, иначе склейка полей.
   const _addrFallback = [
@@ -5098,6 +6248,10 @@ async function doCreateOrder() {
     contact_person_name:  document.getElementById('c-contact-name')?.value.trim() || undefined,
     contact_person_phone: document.getElementById('c-contact-phone')?.value.trim() || undefined,
   };
+
+  // Организация (юрлицо), от имени которой создаётся заявка. Пусто = физлицо.
+  const orgSel = document.getElementById('c-organization');
+  if (orgSel && orgSel.value) body.organization_id = orgSel.value;
 
   // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
   if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
@@ -5144,6 +6298,18 @@ async function doCreateOrder() {
     } else {
       toast(`Заявка ${order.order_number} создана!`);
     }
+
+    // Адрес доставки сохраняется в объекты автоматически (бэкенд дедуплицирует по адресу)
+    if (resolvedAddress) {
+      try {
+        const payload = { delivery_address: resolvedAddress, name: document.getElementById('c-save-object-name')?.value.trim() || undefined };
+        if (body.delivery_lat != null) { payload.delivery_lat = body.delivery_lat; payload.delivery_lon = body.delivery_lon; }
+        if (isStaff) payload.client_id = body.client_id;
+        await orderPost('/client-objects', payload);
+        toast('Адрес сохранён в объекты');
+      } catch (_) { /* non-fatal: order already created */ }
+    }
+
     // Reset form
     document.getElementById('c-contact-name').value = '';
     document.getElementById('c-contact-phone').value = '';
@@ -5167,6 +6333,14 @@ async function doCreateOrder() {
     document.getElementById('c-price-preview').innerHTML = '';
     document.getElementById('c-zones-legend').innerHTML = '';
     if (_cMarker && _cZoneMap) { _cZoneMap.removeLayer(_cMarker); _cMarker = null; }
+    // Reset saved-object controls
+    const saveObjName = document.getElementById('c-save-object-name');
+    if (saveObjName) saveObjName.value = '';
+    const savedObjSel = document.getElementById('c-saved-object');
+    if (savedObjSel) savedObjSel.value = '';
+    const savedObjDel = document.getElementById('c-saved-object-del');
+    if (savedObjDel) savedObjDel.style.display = 'none';
+    _savedObjects = [];
     if (isStaff) {
       document.getElementById('c-client-id').value = '';
       document.getElementById('c-manager-comment').value = '';
@@ -5176,6 +6350,10 @@ async function doCreateOrder() {
     switchTab('orders');
   } catch (e) {
     errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+  } finally {
+    _orderSubmitting = false;
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.label || 'Отправить заявку'; }
   }
 }
 
@@ -5249,6 +6427,23 @@ async function loadProfile() {
         if (p.delivery_address) fields.push(['Адрес доставки', escHtml(p.delivery_address)]);
       }
     }
+
+    // Паспортные данные — для всех ролей
+    const _dash = '<span style="color:var(--text3)">—</span>';
+    const passSerNum = [me.passport_series, me.passport_number].filter(Boolean).join(' ');
+    fields.push(['Паспорт (серия номер)', passSerNum ? escHtml(passSerNum) : _dash]);
+    fields.push(['Кем выдан', me.passport_issued_by ? escHtml(me.passport_issued_by) : _dash]);
+    const passDate = (() => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(me.passport_issued_at || ''); return m ? `${m[3]}.${m[2]}.${m[1]}` : null; })();
+    fields.push(['Дата выдачи', passDate ? passDate : _dash]);
+
+    // Копируемая строка «ФИО, паспорт … , выдан …»
+    const passLine = formatPassportLine(me);
+    const passportCopy = (passSerNum || me.passport_issued_by) ? `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">${escHtml(passLine)}</span>
+        <button class="btn btn-sm btn-ghost" data-copy="${escHtml(passLine)}" onclick="copyTextBtn(this.dataset.copy, this)" style="white-space:nowrap">${icon('copy',13)} Копировать</button>
+      </div>` : '';
+
     // «Редактировать профиль» (ФИО/email/телефон) — для всех ролей (правки 2026-06-11);
     // у юрлица дополнительно кнопка реквизитов.
     const editReqBtn = `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
@@ -5260,7 +6455,7 @@ async function loadProfile() {
         <span style="min-width:180px;color:var(--text3);font-family:'SF Mono', ui-monospace, 'Cascadia Code', monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px">${label}</span>
         <span style="font-size:13px;color:var(--text2)">${value}</span>
        </div>`
-    ).join('') + editReqBtn;
+    ).join('') + passportCopy + editReqBtn;
   } catch (e) {
     el.textContent = `Ошибка: ${escHtml(e.message)}`;
   }
@@ -5393,7 +6588,10 @@ function openModal(title, bodyHTML, onConfirm) {
   document.getElementById('modal-body').innerHTML = bodyHTML;
   modalCallback = onConfirm;
   const confirmBtn = document.getElementById('modal-confirm');
-  if (confirmBtn) confirmBtn.style.display = onConfirm ? '' : 'none';
+  if (confirmBtn) {
+    confirmBtn.style.display = onConfirm ? '' : 'none';
+    confirmBtn.textContent = 'Подтвердить';  // сброс (некоторые модалки переопределяют)
+  }
   document.getElementById('modal-overlay').classList.add('open');
   // Focus first input
   setTimeout(() => {
@@ -5825,27 +7023,21 @@ async function requestInvReportXlsx() {
 }
 
 function reportHTML(r) {
-  const distStr = r.total_distance_km != null
-    ? `${Number(r.total_distance_km).toFixed(1)} км`
-    : '—';
-  const tripRows = r.trips.map(t => {
-    const sl = TRIP_STATUS_LABELS[t.status] || t.status;
-    const sb = t.status === 'completed' ? 'delivered' : t.status === 'planned' ? 'new' : t.status === 'in_transit' ? 'in_transit' : 'closed';
-    const vol = t.volume_actual != null
-      ? `факт ${Number(t.volume_actual).toLocaleString('ru')} л / план ${Number(t.volume_planned).toLocaleString('ru')} л`
-      : `план ${Number(t.volume_planned).toLocaleString('ru')} л`;
-    const addr = t.delivery_address ? escHtml(t.delivery_address) : '—';
-    const orderRef = t.inv_order_number ? escHtml(t.inv_order_number) : t.order_id.slice(0,8)+'…';
-    const fuel = t.inv_fuel_type ? (FUEL_LABELS_SHORT[t.inv_fuel_type] || t.inv_fuel_type) : '';
+  const orderRows = (r.orders || []).map(o => {
+    const vol = o.volume_delivered != null
+      ? `${Number(o.volume_delivered).toLocaleString('ru')} л`
+      : '—';
+    const addr = o.delivery_address ? escHtml(o.delivery_address) : '—';
+    const orderRef = escHtml(o.order_number);
+    const fuel = o.fuel_type ? fuelLabel(o.fuel_type) : '';
     return `
-    <div class="trip-card status-${t.status}" style="margin-top:6px">
+    <div class="trip-card status-completed" style="margin-top:6px">
       <div class="trip-card-head">
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="status-badge status-${sb}">${sl}</span>
           <span class="trip-order-ref">${orderRef}</span>
-          ${fuel ? `<span class="trip-fuel-badge">${fuel}</span>` : ''}
+          ${fuel ? `<span class="trip-fuel-badge">${escHtml(fuel)}</span>` : ''}
         </div>
-        <span style="font-size:11px;color:var(--text3)">${fmtDate(t.created_at)}</span>
+        <span style="font-size:11px;color:var(--text3)">${fmtDate(o.delivered_at)}</span>
       </div>
       <div class="trip-card-body">
         <div class="trip-vol-line">${vol}</div>
@@ -5857,34 +7049,17 @@ function reportHTML(r) {
   return `
     <div class="report-stats">
       <div class="stat-box">
-        <div class="stat-label">Всего рейсов</div>
-        <div class="stat-value">${r.total_trips}</div>
+        <div class="stat-label">Доставлено заявок</div>
+        <div class="stat-value">${r.total_orders}</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Завершено</div>
-        <div class="stat-value" style="color:var(--green)">${r.completed_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Отменено</div>
-        <div class="stat-value" style="color:var(--red)">${r.cancelled_trips}</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём план</div>
-        <div class="stat-value">${Number(r.total_volume_planned).toLocaleString('ru')}</div>
+        <div class="stat-label">Объём доставлено</div>
+        <div class="stat-value" style="color:var(--green)">${Number(r.total_volume_delivered).toLocaleString('ru')}</div>
         <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Объём факт</div>
-        <div class="stat-value">${Number(r.total_volume_actual).toLocaleString('ru')}</div>
-        <div class="stat-unit">литров</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">Пробег</div>
-        <div class="stat-value" style="font-size:20px">${distStr}</div>
       </div>
     </div>
-    <div class="section-header">Рейсы за период</div>
-    ${tripRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Рейсов не найдено</div>'}
+    <div class="section-header">Заявки за период</div>
+    ${orderRows || '<div style="color:var(--text3);font-size:12px;padding:12px 0">Доставленных заявок не найдено</div>'}
   `;
 }
 
@@ -5918,6 +7093,67 @@ async function loadLegalEntity() {
   } catch (e) {
     info.innerHTML = `<span style="color:var(--warn,#b00)">${escHtml(e.message)}</span>`;
   }
+  loadSellerImage('signature');
+  loadSellerImage('stamp');
+}
+
+async function loadSellerImage(kind) {
+  const preview = document.getElementById(`seller-${kind}-preview`);
+  if (!preview) return;
+  const token = localStorage.getItem('access_token');
+  try {
+    const r = await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (r.status === 404) { preview.style.display = 'none'; return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    preview.src = URL.createObjectURL(blob);
+    preview.style.display = '';
+  } catch (e) {
+    console.warn('loadSellerImage', kind, e);
+    preview.style.display = 'none';
+  }
+}
+
+async function uploadSellerImage(kind) {
+  const fileInput = document.getElementById(`seller-${kind}-file`);
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { toast('Выберите файл', 'error'); return; }
+  const token = localStorage.getItem('access_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!r.ok) {
+      let detail = 'Ошибка';
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    toast('Загружено', 'success');
+    loadSellerImage(kind);
+  } catch (e) {
+    toast(e.message || 'Ошибка', 'error');
+  }
+}
+
+async function deleteSellerImage(kind) {
+  const token = localStorage.getItem('access_token');
+  try {
+    await fetch(`${ORDER_URL}/admin/legal-entity/${kind}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    toast('Удалено', 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка', 'error');
+  }
+  const preview = document.getElementById(`seller-${kind}-preview`);
+  if (preview) preview.style.display = 'none';
 }
 
 async function saveLegalEntity(ev) {
@@ -6031,10 +7267,7 @@ function renderUsersTable(users) {
     const roleChip = `<span class="role-chip role-${u.role}" style="font-size:10px">${ROLE_LABELS[u.role] || u.role}</span>`;
     const actions = isAdmin ? `
       <div style="display:flex;gap:6px">
-        ${u.role === 'driver'
-          ? `<button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные для доверенности">Паспорт</button>`
-          : ''
-        }
+        <button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные">Паспорт</button>
         ${u.is_active
           ? `<button class="btn btn-sm btn-danger" onclick="setUserActive('${u.id}',false)">Деактив.</button>`
           : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>`
@@ -6117,8 +7350,8 @@ async function promptDriverPassport(userId) {
   let u;
   try { u = await authGet(`/users/${userId}`); }
   catch (e) { toast(e.message, 'error'); return; }
-  openModal('Паспортные данные водителя', `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)} — используются в доверенности (М-2).</div>
+  openModal('Паспортные данные', `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${escHtml(u.full_name || u.email)}${u.role === 'driver' ? ' — используются в доверенности (М-2)' : ''}.</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Серия</label>
@@ -6338,18 +7571,22 @@ const CONV_KIND_LABELS = {
 // Папки диалогов (правки 2026-06-11): рабочие / клиенты / личные
 let _convFolder = 'all';
 const CONV_FOLDERS = [
-  ['all',      'Все'],
-  ['work',     'Рабочие'],
-  ['clients',  'Клиенты'],
-  ['personal', 'Личные'],
+  ['all',        'Все'],
+  ['work',       'Рабочие'],
+  ['orders',     'Заявки'],
+  ['clients',    'Клиенты'],
+  ['accounting', 'Бухгалтерия'],
+  ['personal',   'Личные'],
 ];
 
 function convFolderOf(c) {
   const role = currentUser?.role;
   if (c.kind === 'staff_group') return 'work';
-  if (c.kind === 'client_driver_order') return 'work';
-  if (c.kind === 'client_manager' || c.kind === 'client_accountant')
-    return role === 'client' ? 'work' : 'clients';
+  if (c.kind === 'client_driver_order') return 'orders';
+  // Чат клиент↔бухгалтерия — отдельная папка для staff (F6, правка 2026-06-24);
+  // клиенту эта папка не показывается, у него такие чаты остаются в «Рабочие».
+  if (c.kind === 'client_accountant') return role === 'client' ? 'work' : 'accounting';
+  if (c.kind === 'client_manager') return role === 'client' ? 'work' : 'clients';
   if (c.kind === 'direct') return 'personal';
   return 'work';
 }
@@ -6431,13 +7668,32 @@ function hideChatSidebar() {
   }
 }
 
-// Один раз за сессию создаём клиенту-юрлицу чат с бухгалтерией (правки 2026-06-11).
-// Для физлиц бэкенд вернёт 400 — молча игнорируем.
+// Один раз за сессию создаём клиенту чат с бухгалтерией. Доступен клиенту с
+// организацией (единая модель); клиенту без организаций бэкенд вернёт 400 —
+// молча игнорируем.
 let _accountantEnsured = false;
 async function ensureAccountantChat() {
   if (_accountantEnsured || currentUser?.role !== 'client') return;
   _accountantEnsured = true;
   try { await chatPost('/conversations/ensure-client-accountant', {}); } catch (_) {}
+}
+
+// Состав штатной группы (Работа/Бухгалтерия) — компактный список "Имя (роль)"
+// под заголовком диалога. Сортировка с бэка: admin → manager → driver.
+// Fail-soft: при ошибке просто не показываем блок, существующее "N уч." остаётся.
+async function renderConvMembers(convId, el) {
+  try {
+    const members = await chatGet(`/conversations/${convId}/members`);
+    if (!Array.isArray(members) || !members.length) return;
+    el.innerHTML = members.map(m => {
+      const role = m.role || '';
+      const label = ROLE_LABEL_RU[role] || role;
+      return `<span style="font-size:11px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:1px 8px">${escHtml(m.full_name || '—')}${label ? ` <span style="color:var(--text3)">(${escHtml(label)})</span>` : ''}</span>`;
+    }).join('');
+    el.style.display = 'flex';
+  } catch (_) {
+    // молча — заголовок уже показывает "N уч.", не критично
+  }
 }
 
 async function loadConversations() {
@@ -6446,6 +7702,12 @@ async function loadConversations() {
   // Show "Диалоги" button on mobile when no chat is selected
   const showListBtn = document.getElementById('btn-show-conv-list');
   if (showListBtn) showListBtn.style.display = isMobileChat() ? '' : 'none';
+  // Кнопка создания группового чата — только для staff (правки 2026-06-23)
+  const grpBtn = document.getElementById('btn-new-staff-group');
+  if (grpBtn) {
+    const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+    grpBtn.style.display = isStaff ? '' : 'none';
+  }
   await ensureAccountantChat();
   try {
     const convs = await chatGet('/conversations');
@@ -6472,6 +7734,8 @@ function convTitle(c) {
     return label;
   }
   if (c.kind === 'staff_group') {
+    // Приватные группы (СЗТК и пр.) — показываем заданное название.
+    if ((c.group_code || '').startsWith('custom-')) return c.title || 'Группа';
     if (c.group_code === 'work')       return 'Работа';
     if (c.group_code === 'accounting') return 'Бухгалтерия';
     // legacy-коды (до рефакторинга чатов) — на случай старых архивных групп
@@ -6505,10 +7769,15 @@ function renderConvList(convs) {
   updateChatTabBadge(convs);
   const el = document.getElementById('conv-list');
 
-  // Чипы папок (правки 2026-06-11)
+  // Чипы папок (правки 2026-06-11). Клиенту папки «Рабочие»/«Клиенты» не нужны —
+  // они для менеджеров и водителей; клиент видит только «Все» и «Личные».
+  const _folders = currentUser?.role === 'client'
+    ? CONV_FOLDERS.filter(([k]) => k === 'all' || k === 'personal')
+    : CONV_FOLDERS;
+  if (!_folders.some(([k]) => k === _convFolder)) _convFolder = 'all';
   const folderChips = `
     <div style="display:flex;gap:4px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-      ${CONV_FOLDERS.map(([key, label]) => `
+      ${_folders.map(([key, label]) => `
         <button class="btn btn-sm ${_convFolder === key ? 'btn-warn' : 'btn-ghost'}"
           style="padding:3px 10px;font-size:11px" onclick="setConvFolder('${key}')">${label}</button>`).join('')}
     </div>`;
@@ -6524,11 +7793,11 @@ function renderConvList(convs) {
   el.innerHTML = folderChips + visible.map(c => `
     <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
       <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
-        ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin', 12)}</span>` : ''}
+        ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin-simple', 12)}</span>` : ''}
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(convTitle(c))}</span>
         <button title="${c.is_pinned ? 'Открепить' : 'Закрепить'}"
           style="border:none;background:none;cursor:pointer;color:${c.is_pinned ? 'var(--amber)' : 'var(--text3)'};padding:0;opacity:.7"
-          onclick="toggleConvPin(event, '${c.id}', ${c.is_pinned ? 'false' : 'true'})">${icon('push-pin', 13)}</button>
+          onclick="toggleConvPin(event, '${c.id}', ${c.is_pinned ? 'false' : 'true'})">${icon('push-pin-simple', 13)}</button>
       </div>
       <div class="conv-item-meta">
         <span class="conv-type-chip conv-type-${c.kind}">${CONV_KIND_LABELS[c.kind] || c.kind}</span>
@@ -6548,6 +7817,8 @@ function _lastMsgPreview(m) {
 
 async function openConversation(convId) {
   activeConvId = convId;
+  // F7: переключение диалога сбрасывает незавершённый ответ на сообщение
+  cancelReplyTo();
 
   // Highlight sidebar item
   document.querySelectorAll('.conv-item').forEach(el =>
@@ -6589,8 +7860,22 @@ async function openConversation(convId) {
         ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
     }
 
+    // Состав группы — для штатных групп «Работа»/«Бухгалтерия» подгружаем список
+    // участников через отдельный эндпоинт и показываем компактно под заголовком.
+    // Падает тихо: при ошибке просто оставляем «N уч.» как раньше, без краша.
+    const membersEl = document.getElementById('chat-conv-members');
+    if (membersEl) {
+      membersEl.style.display = 'none';
+      membersEl.innerHTML = '';
+      if (conv.kind === 'staff_group' && (conv.group_code === 'work' || conv.group_code === 'accounting' || conv.group_code === 'sztk')) {
+        renderConvMembers(convId, membersEl);
+      }
+    }
+
     renderMessages(conv.messages);
     renderChatTemplates(conv);
+    // F8: панель закреплённых сообщений
+    loadPinnedMessages(convId).catch(() => {});
 
     // Show delete button for managers/admins only
     const archiveBtn = document.getElementById('btn-archive-conv');
@@ -6686,14 +7971,34 @@ function msgHTML(m) {
     bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
   }
 
+  // F7: цитата сообщения, на которое отвечаем (если есть)
+  const replyQuoteHtml = m.reply_preview
+    ? `<div class="msg-reply-quote" onclick="scrollToMessage('${escHtml(m.reply_preview.id)}')">
+         <span class="rq-name">${escHtml(m.reply_preview.sender_name || '')}</span>
+         <span class="rq-text">${escHtml(m.reply_preview.text || '')}</span>
+       </div>`
+    : '';
+
+  // F7/F8: кнопки «Ответить» / «Закрепить»-«Открепить», видны при наведении на сообщение
+  const isPinned = !!m.is_pinned;
+  const pinLabel = isPinned ? 'Открепить' : 'Закрепить';
+  const pinAction = isPinned ? 'unpinChatMessage' : 'pinChatMessage';
+  const actionsHtml = `
+    <div class="msg-actions">
+      <button type="button" class="msg-action-btn" onclick="replyToMessage('${escHtml(m.id)}')">Ответить</button>
+      <button type="button" class="msg-action-btn" onclick="${pinAction}('${escHtml(m.id)}')">${pinLabel}</button>
+    </div>`;
+
   return `
-  <div class="msg-row ${mine ? 'mine' : ''}" id="msg-${m.id}">
+  <div class="msg-row ${mine ? 'mine' : ''}${isPinned ? ' pinned' : ''}" id="msg-${m.id}">
     <div class="msg-avatar">${escHtml(initials)}</div>
     <div class="msg-bubble">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
+      ${replyQuoteHtml}
       ${bodyHtml}
-      <div class="msg-time">${fmtTime(m.created_at)}</div>
+      <div class="msg-time">${fmtTime(m.created_at)}${isPinned ? ` · <span title="Закреплено" style="color:var(--amber)">${icon('push-pin-simple', 11)}</span>` : ''}</div>
     </div>
+    ${actionsHtml}
   </div>`;
 }
 
@@ -6760,6 +8065,21 @@ function connectWs(convId) {
           if (el) el.innerHTML = '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
           return;
         }
+        // F8: пин/анпин сообщения другим участником — обновляем бейдж в пузыре и панель закреплённых
+        if (msg.event === 'message_pinned' || msg.event === 'message_unpinned') {
+          const isPinnedNow = msg.event === 'message_pinned';
+          const row = document.getElementById(`msg-${msg.message_id}`);
+          if (row) {
+            row.classList.toggle('pinned', isPinnedNow);
+            const btn = row.querySelector('.msg-actions .msg-action-btn:nth-child(2)');
+            if (btn) {
+              btn.textContent = isPinnedNow ? 'Открепить' : 'Закрепить';
+              btn.setAttribute('onclick', `${isPinnedNow ? 'unpinChatMessage' : 'pinChatMessage'}('${msg.message_id}')`);
+            }
+          }
+          loadPinnedMessages(convId).catch(() => {});
+          return;
+        }
         // Avoid duplicate if we sent it (we already append optimistically on send)
         const existing = document.getElementById(`msg-${msg.id}`);
         if (existing) return;
@@ -6802,6 +8122,105 @@ function appendMessage(msg) {
   el.scrollTop = el.scrollHeight;
 }
 
+// ── F7: ответ на сообщение ───────────────────────────────────────
+let _replyToId = null;
+
+function replyToMessage(messageId) {
+  const row = document.getElementById(`msg-${messageId}`);
+  if (!row) return;
+  const nameEl = row.querySelector('.msg-meta');
+  const textEl = row.querySelector('.msg-text');
+  const senderName = nameEl ? nameEl.textContent.split('·')[0].trim() : (currentUser?.full_name || 'Вы');
+  const text = textEl ? textEl.textContent : '[вложение]';
+  _replyToId = messageId;
+  const bar = document.getElementById('chat-compose-reply');
+  const barInner = document.getElementById('chat-compose-reply-bar');
+  if (barInner) {
+    barInner.innerHTML = `<span class="rq-name">${escHtml(senderName)}</span><span class="rq-text">${escHtml(text)}</span>`;
+  }
+  if (bar) bar.style.display = 'flex';
+  const inp = document.getElementById('chat-input');
+  if (inp) inp.focus();
+}
+
+function cancelReplyTo() {
+  _replyToId = null;
+  const bar = document.getElementById('chat-compose-reply');
+  if (bar) bar.style.display = 'none';
+}
+
+function scrollToMessage(messageId) {
+  const row = document.getElementById(`msg-${messageId}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.style.outline = '1px solid var(--amber)';
+  setTimeout(() => { row.style.outline = ''; }, 1200);
+}
+
+// ── F8: закрепление сообщений ────────────────────────────────────
+async function pinChatMessage(messageId) {
+  if (!activeConvId) return;
+  try {
+    await chatPost(`/conversations/${activeConvId}/messages/${messageId}/pin`, {});
+    const row = document.getElementById(`msg-${messageId}`);
+    if (row) {
+      row.classList.add('pinned');
+      const btn = row.querySelector('.msg-actions .msg-action-btn:nth-child(2)');
+      if (btn) { btn.textContent = 'Открепить'; btn.setAttribute('onclick', `unpinChatMessage('${messageId}')`); }
+    }
+    loadPinnedMessages(activeConvId).catch(() => {});
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function unpinChatMessage(messageId) {
+  if (!activeConvId) return;
+  try {
+    await chatPost(`/conversations/${activeConvId}/messages/${messageId}/unpin`, {});
+    const row = document.getElementById(`msg-${messageId}`);
+    if (row) {
+      row.classList.remove('pinned');
+      const btn = row.querySelector('.msg-actions .msg-action-btn:nth-child(2)');
+      if (btn) { btn.textContent = 'Закрепить'; btn.setAttribute('onclick', `pinChatMessage('${messageId}')`); }
+    }
+    loadPinnedMessages(activeConvId).catch(() => {});
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function loadPinnedMessages(convId) {
+  const bar = document.getElementById('chat-pinned-bar');
+  if (!bar) return;
+  try {
+    const pinned = await chatGet(`/conversations/${convId}/pinned`);
+    renderPinnedBar(Array.isArray(pinned) ? pinned : []);
+  } catch (_) {
+    // Тихо скрываем панель — пин не критичен для базовой работы чата
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+  }
+}
+
+function renderPinnedBar(pinned) {
+  const bar = document.getElementById('chat-pinned-bar');
+  if (!bar) return;
+  if (!pinned.length) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = pinned.map(m => `
+    <div class="chat-pinned-item" onclick="scrollToMessage('${escHtml(m.id)}')">
+      <span style="color:var(--amber);flex-shrink:0">${icon('push-pin-simple', 13)}</span> <span class="pin-name">${escHtml(m.sender_name || '')}</span>
+      <span class="pin-text">${escHtml(m.text || '')}</span>
+      <button type="button" class="pin-unpin" title="Открепить"
+        onclick="event.stopPropagation();unpinChatMessage('${escHtml(m.id)}')">×</button>
+    </div>`).join('');
+}
+
 function chatInputKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -6815,11 +8234,15 @@ async function sendChatMessage() {
   const text = inp.value.trim();
   if (!text) return;
   inp.value = '';
+  // F7: если идёт ответ на сообщение — прикладываем reply_to_id и сбрасываем состояние
+  const replyToId = _replyToId;
+  cancelReplyTo();
 
   // Always save via REST for guaranteed delivery + immediate UI feedback.
   // WebSocket is used only for RECEIVING messages from other users.
   try {
-    const msg = await chatPost(`/conversations/${activeConvId}/messages`, { text });
+    const payload = replyToId ? { text, reply_to_id: replyToId } : { text };
+    const msg = await chatPost(`/conversations/${activeConvId}/messages`, payload);
     if (!document.getElementById(`msg-${msg.id}`)) {
       appendMessage(msg);
     }
@@ -6829,6 +8252,7 @@ async function sendChatMessage() {
   } catch (e) {
     toast(e.message, 'error');
     inp.value = text;
+    if (replyToId) replyToMessage(replyToId);
   }
 }
 
@@ -6866,27 +8290,40 @@ async function sendTemplateMessage(text) {
   }
 }
 
-// Акт сверки: период обязателен (правки 2026-06-11)
-function promptReconciliationAct() {
+// Акт сверки (F9, правка 2026-06-24): вместо двух дат — свободный текст периода
+// плюс выбор организации (тот же источник списка, что и в F2 promptEditOrderOrganization).
+async function promptReconciliationAct() {
+  const role = currentUser?.role;
+  const isStaff = role === 'manager' || role === 'admin';
+  const clientId = isStaff ? (_currentConv?.client_id || null) : null;
+
+  let orgs = [];
+  try {
+    const path = isStaff && clientId ? `/organizations?user_id=${clientId}` : '/organizations';
+    orgs = await authGet(path);
+    if (!Array.isArray(orgs)) orgs = [];
+  } catch (_) { orgs = []; }
+
+  const opts = [`<option value="">Физлицо</option>`]
+    .concat(orgs.map(o => `<option value="${escHtml(o.id)}">${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`))
+    .join('');
+
   openModal('Запросить акт сверки',
-    `<div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Период с <span style="color:var(--red)">*</span></label>
-        <input type="date" id="ra-from" class="form-input">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Период по <span style="color:var(--red)">*</span></label>
-        <input type="date" id="ra-to" class="form-input">
-      </div>
+    `<div class="form-group">
+      <label class="form-label">Период / уточнение <span style="color:var(--red)">*</span></label>
+      <input type="text" id="ra-text" class="form-input" placeholder="Например: за 2025 год">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Организация</label>
+      <select id="ra-org" class="form-input">${opts}</select>
     </div>`,
     async () => {
-      const from = document.getElementById('ra-from').value;
-      const to = document.getElementById('ra-to').value;
-      if (!from || !to) { toast('Укажите период (обе даты)', 'error'); return; }
-      if (from > to) { toast('Дата начала позже даты окончания', 'error'); return; }
-      const f = d => new Date(d + 'T00:00:00').toLocaleDateString('ru-RU');
+      const text = (document.getElementById('ra-text')?.value || '').trim();
+      if (!text) { toast('Укажите период', 'error'); return; }
+      const orgSelect = document.getElementById('ra-org');
+      const orgName = orgSelect.value ? orgSelect.options[orgSelect.selectedIndex].textContent : 'Физлицо';
       closeModal();
-      await sendTemplateMessage(`Прошу предоставить акт сверки за период ${f(from)} — ${f(to)}.`);
+      await sendTemplateMessage(`Прошу предоставить акт сверки: ${text}. Организация: ${orgName}.`);
     }
   );
 }
@@ -7044,6 +8481,58 @@ function startChatByPhone() {
       }
     }
   );
+}
+
+// Создать приватный групповой чат сотрудников (например «СЗТК»). Доступ к чату —
+// только у выбранных участников; остальные менеджеры/админы его НЕ видят.
+function promptCreateStaffGroup() {
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  if (!isStaff) { toast('Доступно только сотрудникам', 'error'); return; }
+  openModal('Новый групповой чат',
+    `<p style="color:var(--text2);font-size:12px;margin-bottom:14px">
+      Приватная группа сотрудников. Видна только выбранным участникам — остальные
+      менеджеры и админы её не увидят. Вы добавляетесь автоматически.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="nsg-title" class="form-input" placeholder="Например: СЗТК" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Участники</label>
+      <div class="user-picker" id="nc-user-picker" data-selected="">
+        <button type="button" class="user-picker-trigger" onclick="toggleUserPicker()">
+          <div class="user-picker-chips" id="nc-user-picker-chips">
+            <span class="user-picker-placeholder">Выберите участников…</span>
+          </div>
+          <span class="user-picker-caret">▾</span>
+        </button>
+        <div class="user-picker-dropdown">
+          <input type="text" class="user-picker-search" id="nc-user-search"
+                 placeholder="Поиск по имени…" oninput="filterNewConvUsers()" autocomplete="off">
+          <div class="user-picker-list" id="nc-user-list">
+            <div class="user-picker-empty">Загрузка…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <input type="radio" name="nc-type" value="internal" checked hidden>`,
+    async () => {
+      const title = (document.getElementById('nsg-title')?.value || '').trim();
+      if (!title) { toast('Укажите название группы', 'error'); return; }
+      const member_ids = _userPickerSelectedIds();
+      closeModal();
+      try {
+        const conv = await chatPost('/conversations/staff-group', { title, member_ids });
+        toast('Групповой чат создан');
+        switchTab('chat');
+        await loadConversations();
+        openConversation(conv.id);
+      } catch (e) {
+        toast('Ошибка: ' + (e.message || 'не удалось создать чат'), 'error');
+      }
+    }
+  );
+  loadNewConvUserSelect();
 }
 
 function promptNewConv() {
@@ -8962,7 +10451,7 @@ async function promptEditTariff(tariffId) {
   catch (e) { toast('Ошибка загрузки тарифа'); return; }
 
   const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
-  openModal(`Тариф: ${escHtml(tariff.name)}`, `
+  openModal(`Тариф: ${tariff.name || ''}`, `
     <div class="form-group">
       <label class="form-label">Цены за литр</label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -9021,17 +10510,17 @@ async function renderPaymentRadios(clientId) {
   if (!container) return;
   try {
     const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
-    // Физлица всегда платят по факту — скрываем выбор типа оплаты
+    // Физ и юр лица — выбор типа оплаты скрыт; первый доступный тип выбирается автоматически
     const wrapper = container.closest('.form-group');
-    if (opts.client_type === 'individual') {
+    const types = opts.available_payment_types || ['on_delivery'];
+    const defaultType = types[0] || 'on_delivery';
+    if (opts.client_type === 'individual' || opts.client_type === 'company') {
       if (wrapper) wrapper.style.display = 'none';
-      // Ensure on_delivery is selected in the hidden group
-      container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()"> По факту (при прибытии)</label>`;
+      container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="${defaultType}" checked onchange="updatePaymentUI()"></label>`;
       return;
     }
     if (wrapper) wrapper.style.display = '';
-    const types = opts.available_payment_types || [];
-    const current = container.querySelector('input[name="payment"]:checked')?.value || types[0];
+    const current = container.querySelector('input[name="payment"]:checked')?.value || defaultType;
     container.innerHTML = types.map((pt, i) => `
       <label class="radio-label${pt === current || (i === 0 && !current) ? ' selected' : ''}" id="pay-${pt}-label">
         <input type="radio" name="payment" value="${pt}"
@@ -9063,7 +10552,7 @@ async function promptClientSettings(userId, clientName) {
     ).join('');
   } catch (_) {}
 
-  openModal(`Настройки клиента: ${escHtml(clientName || user.full_name || user.email || '')}`, `
+  openModal(`Настройки клиента: ${clientName || user.full_name || user.email || ''}`, `
     <div class="form-group">
       <label class="form-label">Тариф</label>
       <select id="cs-tariff" class="form-input">${tariffOptions}</select>

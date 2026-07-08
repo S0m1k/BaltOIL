@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     smtp_use_starttls: bool = False  # STARTTLS (port 587). Взаимоисключимо с smtp_use_tls.
     smtp_force_ipv6: bool = False    # форс AF_INET6, нужно когда провайдер режет egress IPv4 (RU VPS + Yandex SMTP)
     email_enabled: bool = False  # глобальный kill-switch
+    # HTTP-API транспорт (порт 443) — когда VPS режет исходящий SMTP целиком.
+    # Пусто = слать через SMTP; "unisender_go" = слать через Unisender Go.
+    email_http_provider: str = ""
+    unisender_go_api_key: str = ""
+    email_from_name: str = "СЗТК"
 
     # SMSC.ru / SMS
     smsc_login: str = ""

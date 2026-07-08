@@ -107,39 +107,33 @@
 <table class="signs">
   <tr>
     <td class="s-role">Руководитель</td>
-    <td class="s-pos">{{ seller.director_title or "Генеральный директор" }}</td>
-    <td class="s-line"></td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td class="s-sub">должность</td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
+    <td class="s-pos">
+      <div class="s-fld">Генеральный директор</div>
+      <div class="s-sub">должность</div>
+    </td>
+    <td class="s-stamp" rowspan="3">
+      {% if seller_signature %}<img class="s-img" src="{{ seller_signature }}">{% endif %}
+    </td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
   </tr>
   <tr>
     <td class="s-role">Главный (старший) бухгалтер</td>
-    <td></td>
-    <td class="s-line"></td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
+    <td class="s-pos"></td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
   </tr>
   <tr>
     <td class="s-role">Ответственный</td>
-    <td></td>
-    <td class="s-line"></td>
-    <td class="s-name">{{ seller.director_name or "" }}</td>
-  </tr>
-  <tr>
-    <td></td>
-    <td></td>
-    <td></td>
-    <td class="s-sub">расшифровка подписи</td>
+    <td class="s-pos"></td>
+    <td class="s-name">
+      <div class="s-fld">{{ seller_sign_name }}</div>
+      <div class="s-sub">расшифровка подписи</div>
+    </td>
   </tr>
 </table>
 

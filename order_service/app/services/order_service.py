@@ -24,7 +24,8 @@ from app.services.payment_service import (
 )
 from app.services import document_service
 from app.services import contract_service
-from app.services.client_context import get_client_context
+from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
+from app.services.client_context import get_client_context, get_user_organization_ids
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
@@ -131,12 +132,18 @@ def _with_logs(query):
     return query.options(selectinload(Order.status_logs))
 
 
-async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> Order:
-    result = await db.execute(
-        _with_logs(
-            select(Order).where(Order.id == order_id, Order.is_archived == False)  # noqa: E712
-        )
+async def get_order(
+    db: AsyncSession, order_id: uuid.UUID, actor: TokenUser, *, lock: bool = False
+) -> Order:
+    query = _with_logs(
+        select(Order).where(Order.id == order_id, Order.is_archived == False)  # noqa: E712
     )
+    if lock:
+        # FOR UPDATE OF orders: сериализует параллельные переходы статуса,
+        # чтобы два запроса не прошли validate_transition по одному состоянию.
+        # selectinload(status_logs) грузится отдельным запросом — блокировки не требует.
+        query = query.with_for_update(of=Order)
+    result = await db.execute(query)
     order = result.scalar_one_or_none()
     if not order:
         raise NotFoundError("Заявка не найдена")
@@ -156,15 +163,25 @@ async def get_order(db: AsyncSession, order_id: uuid.UUID, actor: TokenUser) -> 
                 raise ForbiddenError()
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
-def _visibility_conditions(actor: TokenUser) -> list:
-    """Условия видимости заявок по роли — общие для списка и счётчиков."""
+def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> list:
+    """Условия видимости заявок по роли — общие для списка и счётчиков.
+
+    Для клиента: свои заявки (client_id) + все заявки его организаций
+    (organization_id ∈ org_ids) — member видит весь учёт по юрлицу.
+    """
     conditions = [Order.is_archived == False]  # noqa: E712
 
     if actor.role == ROLE_CLIENT:
-        conditions.append(Order.client_id == actor.id)
+        if org_ids:
+            conditions.append(
+                or_(Order.client_id == actor.id, Order.organization_id.in_(org_ids))
+            )
+        else:
+            conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
         # Водитель видит:
         # - свои заявки (driver_id == actor.id) всех видов
@@ -189,7 +206,8 @@ async def count_orders_by_status(
 ) -> dict[str, int]:
     """Количество заявок по каждому статусу в пределах видимости роли.
     Используется для бейджей на вкладках реестра (правка заказчика 2026-06-16)."""
-    conditions = _visibility_conditions(actor)
+    org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
+    conditions = _visibility_conditions(actor, org_ids)
     result = await db.execute(
         select(Order.status, func.count())
         .where(and_(*conditions))
@@ -208,7 +226,8 @@ async def list_orders(
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
-    conditions = _visibility_conditions(actor)
+    org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
+    conditions = _visibility_conditions(actor, org_ids)
 
     if status:
         conditions.append(Order.status == status)
@@ -226,6 +245,7 @@ async def list_orders(
     )
     orders = list(result.scalars().all())
     await attach_payment_totals(db, orders)
+    await attach_buyer_names(orders)
     return orders
 
 
@@ -243,7 +263,7 @@ async def preview_price(
     else:
         client_id = actor.id
 
-    ctx = await get_client_context(client_id)
+    ctx = await get_client_context(client_id, data.organization_id)
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
@@ -321,9 +341,13 @@ async def create_order(
             raise ForbiddenError("Клиент не может назначать водителя")
         client_id = actor.id
 
-    # Fetch client context (client_type, credit_allowed, tariff_id) from auth_service.
+    # Организация (юрлицо), от имени которой создаётся заявка. NULL = «как физлицо».
+    organization_id = data.organization_id
+
+    # Fetch client/organization context (client_type, credit_allowed, tariff_id) from auth_service.
+    # При organization_id auth проверяет членство клиента (400 если не участник).
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
-    ctx = await get_client_context(client_id)
+    ctx = await get_client_context(client_id, organization_id)
 
     # Определить вид заявки
     if data.is_ttn_l:
@@ -410,14 +434,18 @@ async def create_order(
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
-    # Согласование крупных заявок (правки 2026-06-16): заявка клиента строго > 3000 л
-    # уходит менеджеру на согласование; ровно 3000 л везём одной машиной без согласования.
+    # Согласование заявок (правки 2026-06-16):
+    # - Физ лица: ВСЕ заявки клиента уходят на согласование менеджера.
+    # - Юр лица: только строго > 3000 л.
     # Водители заявку на согласовании не видят и не могут взять.
     # Заявки, созданные менеджером/админом, согласования не требуют.
     needs_approval = (
         not is_staff
         and order_kind != OrderKind.TTN_L
-        and float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
+        and (
+            ctx.client_type == "individual"
+            or float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
+        )
     )
     initial_status = OrderStatus.AWAITING_MANAGER if needs_approval else OrderStatus.NEW
 
@@ -425,6 +453,7 @@ async def create_order(
         order_number=order_number,
         order_kind=order_kind,
         client_id=client_id,
+        organization_id=organization_id,
         manager_id=actor.id if is_staff else None,
         driver_id=data.driver_id if is_staff else None,
         fuel_type=data.fuel_type,
@@ -451,7 +480,10 @@ async def create_order(
 
     # Лог: создание
     if needs_approval:
-        create_comment = "Заявка создана — объём > 3000 л, требуется согласование менеджера"
+        if ctx.client_type == "individual":
+            create_comment = "Заявка создана — ожидайте звонка менеджера"
+        else:
+            create_comment = "Заявка создана — объём > 3000 л, требуется согласование менеджера"
     elif is_staff:
         create_comment = "Заявка создана менеджером"
     else:
@@ -484,21 +516,37 @@ async def create_order(
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
             try:
-                await document_service.generate_invoice_preliminary(db, order, actor)
+                invoice_doc = await document_service.generate_invoice(db, order, actor)
             except Exception as exc:
-                log.warning("Auto-invoice_preliminary failed for order %s: %s", order.id, exc)
+                log.warning("Auto-invoice failed for order %s: %s", order.id, exc)
+                invoice_doc = None
+
+            # Юрлицо ≤3000 л: счёт сразу уходит клиенту в чат и на email
+            # (правка заказчика 2026-06-24). Best-effort — ошибка отправки
+            # никогда не должна срывать создание заявки. Физлица — без авто-отправки.
+            if invoice_doc is not None and ctx.client_type == "company":
+                try:
+                    await document_service.send_document_to_chat(
+                        db, order, invoice_doc, actor.token,
+                    )
+                except Exception as exc:
+                    log.warning("Auto-send invoice to chat failed for order %s: %s", order.id, exc)
+                try:
+                    await document_service.send_document_by_email(db, order, invoice_doc)
+                except Exception as exc:
+                    log.warning("Auto-send invoice email failed for order %s: %s", order.id, exc)
 
     # Auto-contract: для клиента-юрлица без активного договора формируем договор
     # поставки. Не блокируем заявку — любая ошибка только логируется.
     # Физлица и ttn_l пропускаются тихо.
     if ctx.client_type == "company" and order.order_kind != OrderKind.TTN_L:
         try:
-            existing = await contract_service.get_active_contract(db, client_id)
+            existing = await contract_service.get_active_contract(db, client_id, organization_id)
             if existing is None:
-                await contract_service.create_contract(db, client_id, actor)
+                await contract_service.create_contract(db, client_id, actor, organization_id)
         except Exception as exc:
-            log.warning("Auto-contract failed for client %s (order %s): %s",
-                        client_id, order.id, exc)
+            log.warning("Auto-contract failed for client %s org %s (order %s): %s",
+                        client_id, organization_id, order.id, exc)
 
     # Re-fetch with eager-loaded status_logs
     result = await db.execute(
@@ -518,12 +566,16 @@ async def create_order(
     })
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
 # Поля, которые клиент может править в своей заявке (карандашики, правки 2026-06-11)
+# organization_id — смена заказчика (правка 2026-06-24, скрин 6): клиент может
+# переключить заявку на одну из своих организаций или на физлицо (null).
 _CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
-                    "client_comment", "contact_person_name", "contact_person_phone"}
+                    "client_comment", "contact_person_name", "contact_person_phone",
+                    "organization_id"}
 # Поля, которые водитель может править в назначенной ему заявке
 _DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
 # Статусы, в которых клиент/водитель ещё могут править заявку
@@ -536,7 +588,7 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
     Fail-open: при недоступности auth/delivery сервисов суммы остаются прежними.
     """
     try:
-        ctx = await get_client_context(order.client_id)
+        ctx = await get_client_context(order.client_id, order.organization_id)
         expected = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_requested),
             ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
@@ -577,6 +629,12 @@ async def update_order(
 
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
     requested_fields = set(data.model_dump(exclude_unset=True, exclude_none=True).keys())
+    # organization_id — особый случай: null — это валидное намеренное значение
+    # (переключение заказчика на физлицо), exclude_none его бы скрыл, поэтому
+    # детектируем "поле передано" через model_fields_set отдельно.
+    organization_id_requested = "organization_id" in data.model_fields_set
+    if organization_id_requested:
+        requested_fields.add("organization_id")
 
     # Матрица прав: staff — всё; клиент — свои заявки, ограниченные поля;
     # водитель — назначенные ему, ограниченные поля.
@@ -605,6 +663,19 @@ async def update_order(
                        else data.desired_date.replace(tzinfo=timezone.utc))
         if desired_utc < datetime.now(timezone.utc):
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
+
+    # Смена заказчика (правка 2026-06-24): organization_id=<uuid> — переключить на
+    # организацию-юрлицо; organization_id=null — переключить на физлицо. Допустимо
+    # только если новая организация — та, в которой состоит клиент заявки (та же
+    # проверка членства, что и при создании заявки через get_client_context).
+    # Существующие документы/договор по заявке не трогаем — это ручное действие.
+    if organization_id_requested and data.organization_id != order.organization_id:
+        if data.organization_id is not None:
+            member_org_ids = await get_user_organization_ids(order.client_id)
+            if data.organization_id not in member_org_ids:
+                raise ValidationError(
+                    "Указанная организация не найдена среди организаций клиента заявки"
+                )
 
     # Track if we need to set pending_driver_ack
     was_accepted = order.status == OrderStatus.ACCEPTED
@@ -656,7 +727,18 @@ async def update_order(
     if data.contact_person_phone is not None:
         order.contact_person_phone = data.contact_person_phone
         changed = True
+    if organization_id_requested and data.organization_id != order.organization_id:
+        order.organization_id = data.organization_id
+        changed = True
+        changed_keys.append("organization")
     if data.delivery_cost is not None:
+        # Перекладываем долю доставки в expected_amount: топливная часть
+        # (expected_amount − старый delivery_cost) сохраняется, доставка заменяется.
+        # Пропускаем, если staff задал expected_amount явно (имеет приоритет) или
+        # сумма ещё не рассчитана (нет тарифа — заполнит менеджер вручную).
+        if data.expected_amount is None and order.expected_amount is not None:
+            fuel_part = order.expected_amount - (order.delivery_cost or 0)
+            order.expected_amount = fuel_part + data.delivery_cost
         order.delivery_cost = data.delivery_cost
         changed = True
         changed_keys.append("amount")
@@ -676,6 +758,18 @@ async def update_order(
         await recompute_and_save(db, order)
         changed = True
         changed_keys.append("amount")
+
+    # Единый счёт (Д4 2026-06-23): если staff поменял объём/стоимость/сумму —
+    # перевыпускаем счёт с теми же номером и датой, но новыми цифрами. Только для
+    # staff и только если суммовые поля затронуты (карандашики клиента/водителя
+    # сумму не меняют до согласования). Ошибка не блокирует сохранение заявки.
+    _amount_touched = bool({"amount", "volume", "fuel_type"} & set(changed_keys))
+    if is_staff and _amount_touched and order.order_kind != OrderKind.TTN_L:
+        try:
+            async with db.begin_nested():
+                await document_service.regenerate_invoice(db, order, actor)
+        except Exception as exc:
+            log.warning("Invoice regen on staff edit failed for order %s: %s", order.id, exc)
 
     # Если заявка была в ACCEPTED и что-то изменил НЕ водитель — водитель должен
     # подтвердить (свои изменения водитель не подтверждает, правки 2026-06-11).
@@ -707,6 +801,7 @@ async def update_order(
     order = result.scalar_one()
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -784,6 +879,7 @@ async def claim_order(
         "body": "Водитель принял вашу заявку",
     })
 
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -804,6 +900,7 @@ async def ack_changes(
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
     order = result.scalar_one()
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -876,6 +973,7 @@ async def reschedule_order(
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
     order = result.scalar_one()
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
     return order
 
 
@@ -908,7 +1006,7 @@ async def transition_status(
             return cached
     # ── End idempotency gate ───────────────────────────────────────────────
 
-    order = await get_order(db, order_id, actor)
+    order = await get_order(db, order_id, actor, lock=True)
 
     validate_transition(order.status, data.to_status, actor.role)
 
@@ -933,7 +1031,7 @@ async def transition_status(
         )
 
         # Пересчитываем final_amount по фактическому объёму (+ стоимость доставки)
-        ctx = await get_client_context(order.client_id)
+        ctx = await get_client_context(order.client_id, order.organization_id)
         recalc = await compute_expected_amount(
             db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
             ctx.fuel_coefficient,
@@ -949,12 +1047,12 @@ async def transition_status(
     order.status = data.to_status
 
     # Согласование крупной заявки менеджером (правки 2026-06-11): при одобрении
-    # выставляем предварительный счёт — заказчик подтвердил «выставляется счёт».
+    # выставляем единый счёт — заказчик подтвердил «выставляется счёт».
     # Ошибка генерации не блокирует согласование (менеджер выставит вручную).
     if prev_status == OrderStatus.AWAITING_MANAGER and data.to_status == OrderStatus.NEW:
         try:
             async with db.begin_nested():
-                await document_service.generate_invoice_preliminary(db, order, actor)
+                await document_service.regenerate_invoice(db, order, actor)
         except Exception as exc:
             log.warning("Auto-invoice on approval failed for order %s: %s", order.id, exc)
 
@@ -981,14 +1079,12 @@ async def transition_status(
             except Exception as exc:
                 log.warning("Large-volume notify failed for order %s: %s", order.id, exc)
         else:
-            for gen_fn, label in [
-                (document_service.generate_invoice_final, "invoice_final"),
-            ]:
-                try:
-                    async with db.begin_nested():
-                        await gen_fn(db, order, actor)
-                except Exception as exc:
-                    log.warning("Auto-%s generation failed for order %s: %s", label, order.id, exc)
+            # Единый счёт: перевыпускаем с фактическим объёмом (тот же номер).
+            try:
+                async with db.begin_nested():
+                    await document_service.regenerate_invoice(db, order, actor)
+            except Exception as exc:
+                log.warning("Auto-invoice regen on delivery failed for order %s: %s", order.id, exc)
 
         # Departure-транзакция в delivery_service (списание топлива со склада)
         try:
@@ -1030,6 +1126,7 @@ async def transition_status(
     })
 
     await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
 
     # Строка идемпотентности с order_id уже записана gate'ом в начале функции —
     # повторная вставка не нужна.

@@ -30,6 +30,11 @@ class Contract(Base):
     client_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
+    # Организация (юрлицо), на которую заключён договор. NULL = legacy-договор
+    # (привязка к клиенту-юрлицу до внедрения организаций). Soft FK.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
 
     # Номер вида "034/02" (seq/месяц).
     contract_number: Mapped[str] = mapped_column(

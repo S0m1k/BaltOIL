@@ -5,6 +5,7 @@
 Путь записывается в Document.file_path для последующей отдачи клиенту.
 """
 import asyncio
+import base64
 import logging
 import os
 import re
@@ -19,6 +20,10 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import httpx
+
+from app.config import settings
+from app.core.media import resolve_media_path
 from app.models.document import Document, DocumentType, DocumentStatus, DocNumberCounter
 from app.models.order import Order
 from app.models.payment import Payment, PaymentStatus
@@ -63,6 +68,38 @@ log = logging.getLogger(__name__)
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/media"))
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
+# ── Факсимиле (подпись/печать продавца) — читаются с диска, без миграции БД ────
+
+def _legal_image_data_uri(filename: str) -> str | None:
+    """Прочитать факсимиле из MEDIA_ROOT/legal и вернуть как data: URI для PDF."""
+    path = MEDIA_ROOT / "legal" / filename
+    if not path.exists():
+        return None
+    data = path.read_bytes()
+    mime = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
+def seller_signature_data_uri() -> str | None:
+    return _legal_image_data_uri("signature.png")
+
+
+def seller_stamp_data_uri() -> str | None:
+    return _legal_image_data_uri("stamp.png")
+
+
+def _short_sign_name(full_name: str | None) -> str:
+    """'Борзяев Дмитрий Геннадьевич' → 'Борзяев Д.Г.' (для расшифровки подписи)."""
+    if not full_name:
+        return "________________"
+    parts = full_name.split()
+    if len(parts) >= 3:
+        return f"{parts[0]} {parts[1][0]}.{parts[2][0]}."
+    if len(parts) == 2:
+        return f"{parts[0]} {parts[1][0]}."
+    return full_name
+
+
 FUEL_LABELS = {
     "diesel_summer": "Дизельное топливо летнее (ДТ-Л)",
     "diesel_winter": "Дизельное топливо зимнее (ДТ-З)",
@@ -70,9 +107,6 @@ FUEL_LABELS = {
     "petrol_95":     "Бензин АИ-95",
     "fuel_oil":      "Топочный мазут М-100",
 }
-
-# Базовые цены (₽/л) — берутся из payment_service; дублируем для документов
-from app.services.payment_service import BASE_FUEL_PRICES, BASE_DELIVERY_PRICE_PER_LITER
 
 
 # ── Jinja2 env ────────────────────────────────────────────────────────────────
@@ -99,20 +133,42 @@ def _get_jinja_env() -> Environment:
 
 # ── Document numbering ────────────────────────────────────────────────────────
 
+_INVOICE_DOC_TYPE_VALUES = {"invoice", "invoice_preliminary", "invoice_final"}
+
+# Сквозной счётчик-ключ для счётов (без года) — клиент хочет простые 4-значные
+# номера ("0145", "0146"...), а не "INV-2026-000069". TTN/УПД/доверенность —
+# нумерация по-прежнему по (префикс, год), без изменений.
+_INVOICE_COUNTER_KEY = "INV"
+
+
 async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
-    """Сгенерировать номер документа: TTN-2026-000001 / UPD-2026-000001 / INV-2026-000001.
+    """Сгенерировать номер документа.
+
+    Счета (invoice/invoice_preliminary/invoice_final) — сквозной 4-значный номер
+    вида "0145" (без года, без префикса), отдельный счётчик с prefix_key="INV".
+    ТТН/УПД/доверенность — прежняя схема "TTN-2026-000001" по (префикс, год).
 
     Атомарно через DocNumberCounter (INSERT ... ON CONFLICT DO UPDATE ... RETURNING) —
     как нумерация заказов/договоров. Прежний COUNT(*)+1 давал гонки: две одновременные
     доставки получали один номер → IntegrityError на flush внутри транзакции перехода.
     """
+    if doc_type.value in _INVOICE_DOC_TYPE_VALUES:
+        stmt = (
+            pg_insert(DocNumberCounter)
+            .values(prefix_key=_INVOICE_COUNTER_KEY, last_seq=1)
+            .on_conflict_do_update(
+                index_elements=["prefix_key"],
+                set_={"last_seq": DocNumberCounter.last_seq + 1},
+            )
+            .returning(DocNumberCounter.last_seq)
+        )
+        seq: int = (await db.execute(stmt)).scalar_one()
+        return f"{seq:04d}"
+
     prefix = {
         "ttn": "TTN",
         "upd": "UPD",
         "poa": "POA",
-        "invoice": "INV",
-        "invoice_preliminary": "INV",
-        "invoice_final": "INV",
     }[doc_type.value]
     year = datetime.now(timezone.utc).year
     prefix_key = f"{prefix}-{year}"
@@ -125,8 +181,8 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
         )
         .returning(DocNumberCounter.last_seq)
     )
-    seq: int = (await db.execute(stmt)).scalar_one()
-    return f"{prefix}-{year}-{seq:06d}"
+    seq2: int = (await db.execute(stmt)).scalar_one()
+    return f"{prefix}-{year}-{seq2:06d}"
 
 
 async def _existing_document(
@@ -177,18 +233,20 @@ def _fuel_name(order: Order) -> str:
     return FUEL_LABELS.get(fuel_val, fuel_val)
 
 
-def _calc_unit_price(order: Order, volume: float) -> float:
-    fuel_val = order.fuel_type.value if hasattr(order.fuel_type, "value") else str(order.fuel_type)
-    fuel_price = BASE_FUEL_PRICES.get(fuel_val, 50.0)
-    return round(fuel_price + BASE_DELIVERY_PRICE_PER_LITER, 2)
+def _order_amount(order: Order) -> float:
+    """Сумма заявки для документа — из тарифных полей (final/expected_amount).
 
-
-def _order_amount(order: Order, volume: float) -> float:
+    Эти суммы рассчитываются по тарифу клиента при создании/доставке. Если тариф
+    не настроен и сумма не рассчитана — документ не формируется (fail loud),
+    чтобы не выпустить документ с неверной ценой."""
     if order.final_amount is not None:
         return float(order.final_amount)
     if order.expected_amount is not None:
         return float(order.expected_amount)
-    return round(volume * _calc_unit_price(order, volume), 2)
+    raise ValidationError(
+        "Сумма заявки не рассчитана — не настроен тариф для этого вида топлива "
+        "или клиента. Документ не может быть сформирован с неверной суммой."
+    )
 
 
 # ── Invoice context (по образцу заказчика) ────────────────────────────────────
@@ -227,6 +285,9 @@ def _build_invoice_ctx(
         "vat_amount":      vat_amount,
         "total":           total,         # с НДС = total_amount (то, что платит клиент)
         "amount_in_words": amount_to_words_ru(total),
+        "seller_signature": seller_signature_data_uri(),
+        "seller_stamp":      seller_stamp_data_uri(),
+        "seller_sign_name":  _short_sign_name((seller or {}).get("director_name")),
         # Legacy переменные на случай если шаблон откатится:
         "fuel_name":        _fuel_name(order),
         "order_number":     order.order_number,
@@ -337,10 +398,15 @@ async def _fetch_buyer_snapshot(order: Order) -> dict:
     from app.config import settings as _settings
     base = _settings.auth_service_url.rstrip("/")
     headers = {"X-Internal-Secret": _settings.internal_api_secret}
+    # Для заявки от организации — реквизиты организации, иначе физлица.
+    params = (
+        {"organization_id": str(order.organization_id)} if order.organization_id else None
+    )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
                 f"{base}/api/v1/internal/clients/{order.client_id}/buyer-snapshot",
+                params=params,
                 headers=headers,
             )
             r.raise_for_status()
@@ -386,14 +452,23 @@ async def _fetch_driver_profile(driver_id: uuid.UUID | None) -> dict:
 # ── Основание счёта ───────────────────────────────────────────────────────────
 
 async def _invoice_basis(db: AsyncSession, order: Order, doc_type: DocumentType) -> str:
-    """«Основание» счёта: «Договор о поставке Нефтепродуктов от «дд.мм.гггг»».
+    """«Основание» счёта: «Договор о поставке Нефтепродуктов № {N} от «дд.мм.гггг»».
 
-    Источник даты (решение 2026-06-05):
+    Номер и дата договора — из активного договора клиента/организации (если есть).
+    Источник даты для договора — дата его подписания (signed_at). Если активного
+    договора нет — fallback на прежнее поведение (только дата, без номера):
       - предварительный счёт → дата создания заявки;
       - финальный счёт → дата последней проведённой оплаты (fallback — текущий
         момент, т.е. дата доставки: финальный счёт выпускается при переходе
         в DELIVERED).
     """
+    from app.services.contract_service import get_active_contract  # локальный импорт — без цикла
+
+    contract = await get_active_contract(db, order.client_id, order.organization_id)
+    if contract is not None and contract.signed_at:
+        date_str = contract.signed_at.strftime("%d.%m.%Y")
+        return f"Договор о поставке Нефтепродуктов № {contract.contract_number} от «{date_str}»"
+
     if doc_type == DocumentType.INVOICE_FINAL:
         result = await db.execute(
             select(Payment.paid_at)
@@ -422,7 +497,7 @@ async def generate_ttn(
 ) -> Document:
     """Сформировать ТТН по факту доставки (DELIVERED)."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.TTN)
@@ -487,7 +562,7 @@ async def generate_poa(
     если не заполнен/водитель не назначен — в PDF прочерк, в логе warning.
     """
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     driver = await _fetch_driver_profile(order.driver_id)
@@ -564,7 +639,7 @@ async def generate_upd(
 ) -> Document:
     """Сформировать УПД при закрытии заявки."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.UPD)
@@ -612,7 +687,7 @@ async def generate_invoice_preliminary(
 ) -> Document:
     """Предварительный счёт — выпускается при создании prepaid-заявки."""
     volume = float(order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.INVOICE_PRELIMINARY)
@@ -662,7 +737,7 @@ async def generate_invoice_final(
 ) -> Document:
     """Финальный счёт — выпускается при переходе в DELIVERED."""
     volume = float(order.volume_delivered or order.volume_requested)
-    amount = _order_amount(order, volume)
+    amount = _order_amount(order)
     seller = await get_seller_snapshot(db)
     buyer  = await _fetch_buyer_snapshot(order)
     existing = await _existing_document(db, order.id, DocumentType.INVOICE_FINAL)
@@ -703,6 +778,107 @@ async def generate_invoice_final(
     db.add(doc)
     await db.flush()
     return doc
+
+
+async def generate_invoice(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Единый счёт по заявке (Д4 2026-06-23: один счёт вместо предв./финального).
+
+    Идемпотентно: если активный счёт уже выпущен — возвращаем его. Для обновления
+    сумм/объёма после правок используйте regenerate_invoice (тот же номер)."""
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE)
+    if existing:
+        return existing
+
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order)
+    seller = await get_seller_snapshot(db)
+    buyer  = await _fetch_buyer_snapshot(order)
+    doc_number = await _next_doc_number(db, DocumentType.INVOICE)
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%d.%m.%Y")
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE)
+    ctx = _build_invoice_ctx(
+        doc_number=doc_number, issued_at=now_str,
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=basis,
+    )
+
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
+        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice PDF render failed for order %s: %s", order.id, exc)
+        file_path = None
+        status = DocumentStatus.DRAFT
+
+    doc = Document(
+        order_id=order.id,
+        doc_type=DocumentType.INVOICE,
+        doc_number=doc_number,
+        status=status,
+        seller_snapshot=seller,
+        buyer_snapshot=buyer,
+        issued_at=now,
+        total_amount=amount,
+        volume=volume,
+        file_path=file_path,
+        created_by_id=actor.id,
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def regenerate_invoice(
+    db: AsyncSession,
+    order: Order,
+    actor: TokenUser,
+) -> Document:
+    """Перевыпустить единый счёт с актуальными суммами/объёмом, СОХРАНИВ номер.
+
+    Вызывается после правок заявки админом (объём, стоимость доставки, сумма)
+    и при доставке (фактический объём). Если счёта ещё нет — создаёт новый.
+    Снимок реквизитов обновляется на текущий, PDF перерисовывается на месте.
+    """
+    existing = await _existing_document(db, order.id, DocumentType.INVOICE)
+    if existing is None:
+        return await generate_invoice(db, order, actor)
+
+    volume = float(order.volume_delivered or order.volume_requested)
+    amount = _order_amount(order)
+    seller = await get_seller_snapshot(db)
+    buyer  = await _fetch_buyer_snapshot(order)
+    issued_at = existing.issued_at or datetime.now(timezone.utc)
+    basis = await _invoice_basis(db, order, DocumentType.INVOICE)
+    ctx = _build_invoice_ctx(
+        doc_number=existing.doc_number,
+        issued_at=issued_at.strftime("%d.%m.%Y"),
+        seller=seller, buyer=buyer, order=order,
+        volume=volume, total_amount=amount,
+        basis=basis,
+    )
+
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
+        file_path = _save_pdf(order.id, existing.doc_number, pdf_bytes)
+        existing.file_path = file_path
+        existing.status = DocumentStatus.READY
+    except Exception as exc:
+        log.error("Invoice PDF re-render failed for order %s: %s", order.id, exc)
+        # Оставляем прежний файл/статус — лучше старый корректный PDF, чем пустой.
+
+    existing.seller_snapshot = seller
+    existing.buyer_snapshot = buyer
+    existing.total_amount = amount
+    existing.volume = volume
+    await db.flush()
+    return existing
 
 
 async def build_export_ctx(db: AsyncSession, doc: Document, order: Order) -> dict:
@@ -787,3 +963,154 @@ async def list_for_order(db: AsyncSession, order_id: uuid.UUID) -> list[Document
         .order_by(Document.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+# ── Отправка документа клиенту (чат/email) ──────────────────────────────────────
+# Вынесено из routers/documents.py (правка 2026-06-24), чтобы переиспользовать
+# из автоматики (счёт ≤3000 л для юрлица при создании заявки) и из ручных
+# эндпоинтов send/send-email без дублирования логики.
+
+_DOC_TYPE_LABELS_RU = {
+    "invoice": "Счёт",
+    "invoice_preliminary": "Счёт",
+    "invoice_final": "Счёт",
+    "ttn": "ТТН",
+    "upd": "УПД",
+}
+
+
+async def send_document_to_chat(
+    db: AsyncSession, order: Order, doc: Document, actor_token: str,
+) -> dict:
+    """Отправить документ в чат по заявке (диалог клиент↔менеджер).
+
+    Находит или создаёт диалог заявки, отправляет сообщение типа 'document',
+    обновляет статус документа на SENT. `actor_token` — JWT вызывающего
+    (менеджера/админа или служебный токен) для авторизации в chat_service.
+    """
+    if doc.status == DocumentStatus.DRAFT:
+        raise ValidationError("PDF ещё не сгенерирован (статус DRAFT). Дождитесь генерации.")
+
+    base = settings.chat_service_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {actor_token}"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{base}/api/v1/conversations",
+            params={"order_id": str(order.id)},
+            headers=headers,
+        )
+        r.raise_for_status()
+        convs = r.json()
+
+        if convs:
+            conv_id = convs[0]["id"]
+        else:
+            r2 = await client.post(
+                f"{base}/api/v1/conversations/ensure-client-manager",
+                json={"client_id": str(order.client_id)},
+                headers=headers,
+            )
+            r2.raise_for_status()
+            conv_id = r2.json()["id"]
+
+        doc_type_value = doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type
+        doc_type_label = _DOC_TYPE_LABELS_RU.get(doc_type_value, "Документ")
+        msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
+
+        r3 = await client.post(
+            f"{base}/api/v1/conversations/{conv_id}/messages",
+            json={
+                "text": msg_text,
+                "msg_type": "document",
+                "metadata": {
+                    "document_id": str(doc.id),
+                    "doc_number": doc.doc_number,
+                    "doc_type": doc_type_value,
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "download_path": f"/api/v1/orders/{order.id}/documents/{doc.id}/download",
+                },
+            },
+            headers=headers,
+        )
+        r3.raise_for_status()
+
+    doc.status = DocumentStatus.SENT
+    await db.flush()
+
+    return {"ok": True, "conv_id": conv_id}
+
+
+async def send_document_by_email(db: AsyncSession, order: Order, doc: Document) -> dict:
+    """Отправить PDF документа клиенту на email.
+
+    Адрес получателя берётся ТОЛЬКО из профиля клиента заявки (billing_email
+    или user.email через auth_service) — без override снаружи, чтобы документы
+    нельзя было отправить на произвольный адрес.
+    """
+    if doc.status not in (DocumentStatus.READY, DocumentStatus.SENT):
+        raise ValidationError("document not ready")
+    if not doc.file_path:
+        raise NotFoundError("document file missing")
+
+    full_path = resolve_media_path(MEDIA_ROOT, doc.file_path)
+    if not full_path.exists():
+        raise NotFoundError("document file missing")
+
+    auth_base = settings.auth_service_url.rstrip("/")
+    internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
+            headers=internal_headers,
+        )
+        r.raise_for_status()
+        recipient = r.json().get("email")
+
+    if not recipient:
+        raise ValidationError("recipient has no email")
+
+    pdf_bytes = full_path.read_bytes()
+    content_b64 = base64.b64encode(pdf_bytes).decode()
+
+    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
+    body_text = (
+        "Здравствуйте,\n\n"
+        "Во вложении документ по вашей заявке.\n\n"
+        "— СЗТК"
+    )
+    filename = f"{doc.doc_number}.pdf"
+
+    notif_base = settings.notification_service_url.rstrip("/")
+    sent = False
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.post(
+            f"{notif_base}/internal/email/send-with-attachment",
+            json={
+                "to": recipient,
+                "subject": subject,
+                "body": body_text,
+                "attachment": {
+                    "filename": filename,
+                    "content_base64": content_b64,
+                    "mime_type": "application/pdf",
+                },
+            },
+            headers=internal_headers,
+        )
+        r.raise_for_status()
+        sent = r.json().get("sent", False)
+
+    if not sent:
+        raise ValidationError("email service unavailable")
+
+    doc.status = DocumentStatus.SENT
+    await db.flush()
+
+    log.info(
+        "document.sent_email action document_id=%s order_id=%s to=%s filename=%s",
+        doc.id, order.id, recipient, filename,
+    )
+
+    return {"ok": True, "to": recipient}

@@ -14,7 +14,8 @@ from app.core.dependencies import get_current_user, TokenUser
 from app.core.redis_dep import get_redis
 from app.core.exceptions import ForbiddenError
 from app.schemas.conversation import (
-    ConversationResponse, ConversationListResponse, EnsureClientManagerRequest,
+    ConversationResponse, ConversationListResponse, ConversationMember,
+    EnsureClientManagerRequest,
 )
 from app.schemas.message import MessageResponse, SendMessageRequest
 from app.services import conversation_service, message_service, auth_client
@@ -139,10 +140,11 @@ async def ensure_client_accountant(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    """Чат клиента-юрлица с бухгалтерией (правки 2026-06-11).
+    """Чат клиента с бухгалтерией.
 
-    Клиент-юрлицо создаёт/открывает свой; менеджер/админ — для любого клиента.
-    Для физлиц — 400.
+    Доступен клиенту, у которого есть хотя бы одна организация (единая модель).
+    Клиент открывает свой; менеджер/админ — для любого клиента.
+    Клиенту без организаций — 400.
     """
     if actor.role in ("manager", "admin"):
         if not body.client_id:
@@ -153,11 +155,13 @@ async def ensure_client_accountant(
     else:
         raise ForbiddenError("Недоступно для этой роли")
 
-    card = await auth_client.get_contact(client_id)
-    if not card or card.get("client_type") != "company":
+    # Чат с бухгалтерией доступен клиенту, у которого есть хотя бы одна
+    # организация (единая модель: «юрлицо» = наличие организаций, а не client_type).
+    org_ids = await auth_client.get_organization_ids(client_id)
+    if not org_ids:
         raise HTTPException(
             status_code=400,
-            detail="Чат с бухгалтером доступен только клиентам-юридическим лицам",
+            detail="Чат с бухгалтером доступен клиентам, у которых есть организация",
         )
 
     conv = await conversation_service.ensure_client_accountant(db, client_id)
@@ -176,6 +180,67 @@ async def ensure_client_accountant(
         last_message=None,
         updated_at=conv.updated_at,
     )
+
+
+class StaffGroupRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=80)
+    member_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class StaffGroupMembersRequest(BaseModel):
+    member_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+def _conv_list_response(conv) -> ConversationListResponse:
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+    )
+
+
+@router.post("/staff-group", response_model=ConversationListResponse, status_code=201)
+async def create_staff_group(
+    body: StaffGroupRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Создать приватный групповой чат сотрудников (например «СЗТК»).
+
+    Доступ к чату — только у явно добавленных участников (создатель + выбранные).
+    Прочие менеджеры/админы чат НЕ видят. Только staff (admin/manager).
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Создавать групповые чаты может менеджер или администратор")
+    conv = await conversation_service.create_private_group(
+        db, actor, body.title, body.member_ids
+    )
+    await db.commit()
+    return _conv_list_response(conv)
+
+
+@router.put("/staff-group/{conv_id}/members", response_model=ConversationListResponse)
+async def update_staff_group_members(
+    conv_id: uuid.UUID,
+    body: StaffGroupMembersRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Заменить состав участников приватной группы (доступно участникам-staff)."""
+    conv = await conversation_service.set_private_group_members(
+        db, actor, conv_id, body.member_ids
+    )
+    await db.commit()
+    return _conv_list_response(conv)
 
 
 class PinRequest(BaseModel):
@@ -204,6 +269,22 @@ async def get_conversation(
     if actor.role == "client" and await auth_client.is_messenger_blocked(redis, actor.id):
         raise HTTPException(status_code=403, detail="Доступ ограничен")
     return await conversation_service.get_conversation(db, conv_id, actor)
+
+
+@router.get("/{conv_id}/members", response_model=list[ConversationMember])
+async def get_conversation_members(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Состав группового чата (задача: явно показать «состав» в UI).
+
+    Для преднастроенных staff-групп (work/accounting) состав вычисляется
+    по ролям (driver/manager/admin) на лету; для прочих чатов — список
+    реальных участников (ConversationParticipant).
+    """
+    rows = await conversation_service.get_conversation_members(db, conv_id, actor)
+    return [ConversationMember(**r) for r in rows]
 
 
 @router.post("/{conv_id}/read", status_code=204)
@@ -247,7 +328,61 @@ async def get_messages(
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
 ):
-    return await message_service.get_messages(db, conv_id, actor, limit, before_id)
+    msgs = await message_service.get_messages(db, conv_id, actor, limit, before_id)
+    previews = await message_service.load_reply_previews(db, msgs)
+    out = []
+    for m in msgs:
+        resp = MessageResponse.model_validate(m)
+        preview = previews.get(m.id)
+        if preview:
+            resp.reply_preview = preview
+        out.append(resp)
+    return out
+
+
+@router.get("/{conv_id}/pinned", response_model=list[MessageResponse])
+async def get_pinned_messages(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Список закреплённых сообщений диалога, новые сверху (правки 2026-06-24)."""
+    msgs = await message_service.get_pinned_messages(db, conv_id, actor)
+    previews = await message_service.load_reply_previews(db, msgs)
+    out = []
+    for m in msgs:
+        resp = MessageResponse.model_validate(m)
+        preview = previews.get(m.id)
+        if preview:
+            resp.reply_preview = preview
+        out.append(resp)
+    return out
+
+
+@router.post("/{conv_id}/messages/{message_id}/pin", response_model=MessageResponse)
+async def pin_message(
+    conv_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Закрепить сообщение для всех участников диалога (правки 2026-06-24)."""
+    msg = await message_service.set_message_pinned(db, conv_id, message_id, actor, True, redis)
+    return MessageResponse.model_validate(msg)
+
+
+@router.post("/{conv_id}/messages/{message_id}/unpin", response_model=MessageResponse)
+async def unpin_message(
+    conv_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Открепить сообщение (правки 2026-06-24)."""
+    msg = await message_service.set_message_pinned(db, conv_id, message_id, actor, False, redis)
+    return MessageResponse.model_validate(msg)
 
 
 @router.post("/{conv_id}/messages", response_model=MessageResponse, status_code=201)
@@ -262,7 +397,12 @@ async def send_message(
         db, conv_id, data.text, actor, redis,
         msg_type=data.msg_type,
         metadata=data.metadata,
+        reply_to_id=data.reply_to_id,
     )
+    # reply_preview для realtime-доставки (батч из одного сообщения — не страшно).
+    previews = await message_service.load_reply_previews(db, [msg])
+    reply_preview = previews.get(msg.id)
+
     # Realtime-доставка REST-сообщений в открытые WS других участников
     # (раньше публиковал только WS-путь; вложения идут только через REST).
     try:
@@ -276,10 +416,16 @@ async def send_message(
             "text": msg.text,
             "metadata": msg.msg_metadata,
             "created_at": msg.created_at.isoformat(),
+            "reply_to_id": str(msg.reply_to_id) if msg.reply_to_id else None,
+            "is_pinned": msg.is_pinned,
+            "reply_preview": reply_preview,
         }))
     except Exception:
         pass
-    return msg
+    resp = MessageResponse.model_validate(msg)
+    if reply_preview:
+        resp.reply_preview = reply_preview
+    return resp
 
 
 # ── Вложения: фото/видео в чате (правки 2026-06-11) ──────────────────────────

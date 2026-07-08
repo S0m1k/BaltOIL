@@ -18,6 +18,26 @@ from app.core.phone import normalize_phone, normalized_phone_column
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.client_profile import ClientProfile
+from app.models.organization import Organization, OrganizationMember, MemberStatus, MemberRole
+
+
+async def _load_member_org(
+    db: AsyncSession, client_id: uuid.UUID, organization_id: uuid.UUID
+) -> Organization:
+    """Загрузить организацию, проверив активное членство клиента. 404 иначе."""
+    res = await db.execute(
+        select(Organization)
+        .join(OrganizationMember, OrganizationMember.organization_id == Organization.id)
+        .where(
+            Organization.id == organization_id,
+            OrganizationMember.user_id == client_id,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+        )
+    )
+    org = res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found or not a member")
+    return org
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 settings = get_settings()
@@ -48,8 +68,25 @@ class ClientContextResponse(BaseModel):
 async def get_client_context(
     client_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
+    organization_id: uuid.UUID | None = Query(None),
 ) -> ClientContextResponse:
-    """Return client_type, credit_allowed, tariff_id for order_service pricing checks."""
+    """Коммерческий контекст для проверок ценообразования в order_service.
+
+    Если передан organization_id — берём тариф/кредит организации (с проверкой
+    членства клиента), иначе — из профиля физлица (заявка «как физлицо»).
+    """
+    if organization_id is not None:
+        org = await _load_member_org(db, client_id, organization_id)
+        return ClientContextResponse(
+            user_id=client_id,
+            client_type="company",
+            credit_allowed=org.credit_allowed,
+            tariff_id=org.tariff_id,
+            credit_limit=org.credit_limit,
+            fuel_coefficient=float(org.fuel_coefficient),
+            delivery_coefficient=float(org.delivery_coefficient),
+        )
+
     result = await db.execute(
         select(ClientProfile).where(ClientProfile.user_id == client_id)
     )
@@ -66,6 +103,32 @@ async def get_client_context(
         fuel_coefficient=float(profile.fuel_coefficient),
         delivery_coefficient=float(profile.delivery_coefficient),
     )
+
+
+@router.get(
+    "/users/{user_id}/organization-ids",
+    response_model=list[uuid.UUID],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_user_organization_ids(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[uuid.UUID]:
+    """ID организаций, в которых пользователь — активный участник.
+
+    Используется order_service для видимости: member видит все заявки своих
+    организаций. Архивные организации исключаем.
+    """
+    res = await db.execute(
+        select(OrganizationMember.organization_id)
+        .join(Organization, Organization.id == OrganizationMember.organization_id)
+        .where(
+            OrganizationMember.user_id == user_id,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+            Organization.is_archived == False,  # noqa: E712
+        )
+    )
+    return [row[0] for row in res.all()]
 
 
 class BuyerSnapshotResponse(BaseModel):
@@ -87,12 +150,29 @@ class BuyerSnapshotResponse(BaseModel):
 async def get_buyer_snapshot(
     client_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
+    organization_id: uuid.UUID | None = Query(None),
 ) -> BuyerSnapshotResponse:
-    """Реквизиты клиента для документов (счёт/ТТН/УПД)."""
+    """Реквизиты покупателя для документов (счёт/ТТН/УПД).
+
+    Если передан organization_id — реквизиты организации, иначе — физлица.
+    """
     user_result = await db.execute(select(User).where(User.id == client_id))
     user = user_result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if organization_id is not None:
+        org = await _load_member_org(db, client_id, organization_id)
+        return BuyerSnapshotResponse(
+            name=org.company_name,
+            inn=org.inn,
+            kpp=org.kpp,
+            ogrn=org.ogrn,
+            legal_address=org.legal_address or org.delivery_address,
+            director_name=org.director_name,
+            delivery_address=org.delivery_address,
+        )
+
     profile_result = await db.execute(
         select(ClientProfile).where(ClientProfile.user_id == client_id)
     )
@@ -113,6 +193,119 @@ async def get_buyer_snapshot(
         legal_address=profile.delivery_address if profile else None,
         director_name=None,
         delivery_address=profile.delivery_address if profile else None,
+    )
+
+
+class BuyerNameItem(BaseModel):
+    client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+
+
+class BuyerNamesRequest(BaseModel):
+    items: list[BuyerNameItem]
+
+
+class BuyerNameResult(BaseModel):
+    client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    name: str | None = None
+
+
+@router.post(
+    "/orders/buyer-names",
+    response_model=list[BuyerNameResult],
+    dependencies=[Depends(_require_internal)],
+)
+async def get_buyer_names(
+    body: BuyerNamesRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[BuyerNameResult]:
+    """Батч-резолв имени покупателя для заявок: организация (по organization_id)
+    иначе ФИО/название клиента-физлица. Используется order_service для вывода
+    «кто сделал заявку» в списке и карточке (правки 2026-06-23).
+
+    N запросов сводятся к 3 батч-выборкам (orgs / users / profiles) — без N+1.
+    """
+    if not body.items:
+        return []
+
+    org_ids = {i.organization_id for i in body.items if i.organization_id}
+    client_ids = {i.client_id for i in body.items}
+
+    orgs: dict[uuid.UUID, Organization] = {}
+    if org_ids:
+        res = await db.execute(select(Organization).where(Organization.id.in_(org_ids)))
+        orgs = {o.id: o for o in res.scalars().all()}
+
+    users_res = await db.execute(select(User).where(User.id.in_(client_ids)))
+    users = {u.id: u for u in users_res.scalars().all()}
+
+    prof_res = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id.in_(client_ids))
+    )
+    profiles = {p.user_id: p for p in prof_res.scalars().all()}
+
+    def _resolve(item: BuyerNameItem) -> str | None:
+        if item.organization_id and item.organization_id in orgs:
+            return orgs[item.organization_id].company_name
+        prof = profiles.get(item.client_id)
+        user = users.get(item.client_id)
+        if prof and prof.client_type.value == "company" and prof.company_name:
+            return prof.company_name
+        return user.full_name if user else None
+
+    return [
+        BuyerNameResult(
+            client_id=i.client_id,
+            organization_id=i.organization_id,
+            name=_resolve(i),
+        )
+        for i in body.items
+    ]
+
+
+class ContractTargetResponse(BaseModel):
+    organization_id: uuid.UUID
+    owner_client_id: uuid.UUID | None   # под кого оформлять/искать договор
+    company_name: str
+    billing_email: str | None
+    member_ids: list[uuid.UUID]         # активные участники (для проверки доступа клиента)
+
+
+@router.get(
+    "/organizations/{org_id}/contract-target",
+    response_model=ContractTargetResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def get_contract_target(
+    org_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ContractTargetResponse:
+    """Кому принадлежит договор организации: владелец (OWNER, иначе любой активный
+    участник), почта для отправки и список участников. Используется order_service
+    для кнопки «Договор» на карточке юрлица (правки 2026-06-23)."""
+    org_res = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = org_res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    mem_res = await db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.organization_id == org_id,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+            OrganizationMember.user_id.isnot(None),
+        )
+    )
+    members = list(mem_res.scalars().all())
+    owner = next((m for m in members if m.member_role == MemberRole.OWNER), None)
+    owner_id = owner.user_id if owner else (members[0].user_id if members else None)
+
+    return ContractTargetResponse(
+        organization_id=org_id,
+        owner_client_id=owner_id,
+        company_name=org.company_name,
+        billing_email=org.billing_email,
+        member_ids=[m.user_id for m in members if m.user_id],
     )
 
 
@@ -194,16 +387,37 @@ class LegalProfileResponse(BaseModel):
 async def get_user_legal_profile(
     user_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
+    organization_id: uuid.UUID | None = Query(None),
 ) -> LegalProfileResponse:
-    """Реквизиты клиента-юрлица для генерации договора.
+    """Реквизиты юрлица для генерации договора.
 
-    404 если клиент физлицо или у профиля не заполнены юр-данные (нет ИНН) —
-    вызывающая сторона трактует как «нельзя сформировать договор».
+    Если передан organization_id — реквизиты организации. Иначе legacy-режим:
+    company-профиль клиента. 404 если юр-данных нет (нельзя сформировать договор).
     """
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if organization_id is not None:
+        org = await _load_member_org(db, user_id, organization_id)
+        if not org.inn:
+            raise HTTPException(status_code=404, detail="Organization has no legal data")
+        return LegalProfileResponse(
+            name=org.company_name,
+            inn=org.inn,
+            kpp=org.kpp,
+            ogrn=org.ogrn,
+            okpo=org.okpo,
+            legal_address=org.legal_address or org.delivery_address,
+            bank_name=org.bank_name,
+            bik=org.bik,
+            checking_account=org.bank_account,
+            correspondent_account=org.correspondent_account,
+            director_name=org.director_name,
+            phone=None,
+            email=org.billing_email or user.email,
+        )
 
     profile_result = await db.execute(
         select(ClientProfile).where(ClientProfile.user_id == user_id)

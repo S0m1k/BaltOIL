@@ -12,6 +12,7 @@ from app.core.dependencies import CurrentUser
 from app.schemas.report import DriverReportResponse
 from app.services import report_service
 from app.services.excel_service import driver_report_xlsx
+from app.services.fuel_catalog import get_fuel_labels
 from app.routers.downloads import store_file
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -27,7 +28,7 @@ async def get_driver_report(
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
 ):
     """
-    Отчёт по рейсам водителя за период.
+    Отчёт водителя за период: заявки, которые он доставил (список + литраж).
     Водитель может получить только свой. Менеджер/Админ — любого.
     """
     return await report_service.driver_report(
@@ -46,7 +47,7 @@ async def request_driver_report_xlsx(
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
 ):
-    """Сформировать XLSX-отчёт по рейсам и отправить уведомление со ссылкой."""
+    """Сформировать XLSX-отчёт по доставленным заявкам и отправить уведомление со ссылкой."""
     rpt = await report_service.driver_report(
         db, current_user,
         driver_id=driver_id,
@@ -55,6 +56,10 @@ async def request_driver_report_xlsx(
     )
 
     rpt_dict = rpt.model_dump(mode="json")
+    # Подставляем человекочитаемые метки топлива (order_service отдаёт коды)
+    fuel_labels = await get_fuel_labels()
+    for o in rpt_dict.get("orders", []):
+        o["fuel_label"] = fuel_labels.get(o.get("fuel_type"), o.get("fuel_type"))
     # openpyxl is CPU-bound — run in thread pool to avoid blocking the event loop
     xlsx_bytes = await asyncio.to_thread(driver_report_xlsx, rpt_dict)
 
@@ -66,10 +71,11 @@ async def request_driver_report_xlsx(
 
     await _notify(
         user_id=current_user.id,
-        title="Отчёт по рейсам готов",
+        title="Отчёт водителя готов",
         body=(
             f"Период: {date_from.strftime('%d.%m.%Y')} — {date_to.strftime('%d.%m.%Y')}. "
-            f"Рейсов: {rpt_dict['total_trips']}, завершено: {rpt_dict['completed_trips']}.\n"
+            f"Заявок доставлено: {rpt_dict['total_orders']}, "
+            f"объём: {rpt_dict['total_volume_delivered']:.0f} л.\n"
             f"[Скачать XLSX]({download_url})"
         ),
         entity_type="xlsx_download",

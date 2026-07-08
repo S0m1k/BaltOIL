@@ -7,6 +7,7 @@ from .document import Document, DocumentType, DocumentStatus
 from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier
 from .fuel_type_catalog import FuelTypeCatalog
 from .idempotency_key import IdempotencyKey
+from .client_object import ClientObject
 
 __all__ = [
     "Order", "OrderStatus", "OrderKind", "PaymentType",
@@ -18,4 +19,5 @@ __all__ = [
     "Tariff", "TariffFuelPrice", "TariffVolumeTier",
     "FuelTypeCatalog",
     "IdempotencyKey",
+    "ClientObject",
 ]
