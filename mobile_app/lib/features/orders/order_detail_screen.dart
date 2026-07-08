@@ -20,10 +20,11 @@ const _kPaymentLabels = <String, String>{
   'debt': 'В долг',
 };
 
+// Единый счёт (веб 4710): исторические preliminary/final тоже показываем «Счёт».
 const _kDocTypeLabels = <String, String>{
   'invoice': 'Счёт',
-  'invoice_preliminary': 'Предварительный счёт',
-  'invoice_final': 'Финальный счёт',
+  'invoice_preliminary': 'Счёт',
+  'invoice_final': 'Счёт',
   'ttn': 'ТТН',
   'upd': 'УПД',
   'poa': 'Доверенность',
@@ -561,6 +562,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       }
     }
 
+    // Заказчик — имя организации/клиента, как на вебе (d29807a).
+    if (order.buyerName != null || _isStaff) {
+      rows.add(_DetailRow(
+        label: 'Заказчик',
+        text: order.buyerName ?? 'Физлицо',
+      ));
+    }
+
     rows.add(_DetailRow(
       label: 'Топливо',
       text: FuelCatalog.label(order.fuelType),
@@ -1085,28 +1094,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Generate invoice bar
+              // Generate invoice bar — единый счёт как на вебе (059de77):
+              // вместо предварительного/финального одна кнопка doc_type=invoice.
               Row(
                 children: [
-                  Text(
-                    'Выставить счёт:',
-                    style: TextStyle(fontSize: 11, color: c.text3),
-                  ),
-                  const SizedBox(width: 8),
                   _SmallBtn(
-                    label: 'Предварительный',
+                    label: 'Выставить счёт',
                     onTap: _busy
                         ? null
-                        : () => _generateInvoice(
-                            order.id, 'invoice_preliminary'),
-                  ),
-                  const SizedBox(width: 6),
-                  _SmallBtn(
-                    label: 'Финальный',
-                    onTap: _busy
-                        ? null
-                        : () => _generateInvoice(
-                            order.id, 'invoice_final'),
+                        : () => _generateInvoice(order.id, 'invoice'),
                   ),
                 ],
               ),

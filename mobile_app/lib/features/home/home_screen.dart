@@ -13,6 +13,7 @@ import '../notifications/notifications_screen.dart';
 import '../orders/driver_orders_screen.dart';
 import '../orders/order_create_screen.dart';
 import '../orders/orders_screen.dart';
+import '../organizations/organizations_screen.dart';
 import '../profile/profile_screen.dart';
 import '../report/report_screen.dart';
 import '../requisites/requisites_screen.dart';
@@ -27,6 +28,7 @@ import '../zones/zones_screen.dart';
 enum _Dest {
   orders,
   createOrder,
+  orgs,
   trips,
   finance,
   inventory,
@@ -55,6 +57,8 @@ bool _allowed(String role, _Dest dest) => switch (dest) {
       _Dest.orders => true,
       _Dest.createOrder =>
         role == 'client' || role == 'manager' || role == 'admin',
+      // Организации — все кроме водителя (веб: show role !== 'driver')
+      _Dest.orgs => role != 'driver',
       _Dest.trips =>
         role == 'admin' || role == 'manager' || role == 'driver',
       _Dest.finance => role == 'admin' || role == 'manager',
@@ -72,9 +76,12 @@ bool _allowed(String role, _Dest dest) => switch (dest) {
       _Dest.profile => true,
     };
 
-String _destLabel(_Dest dest) => switch (dest) {
+String _destLabel(_Dest dest, [String? role]) => switch (dest) {
       _Dest.orders => 'Заявки',
       _Dest.createOrder => 'Создать заявку',
+      // Как на вебе: клиенту — «Мои организации», staff — «Организации»
+      _Dest.orgs =>
+        role == 'client' ? 'Мои организации' : 'Организации',
       _Dest.trips => 'Рейсы',
       _Dest.finance => 'Финансы',
       _Dest.inventory => 'Склад',
@@ -92,6 +99,7 @@ String _destLabel(_Dest dest) => switch (dest) {
 IconData _destIcon(_Dest dest) => switch (dest) {
       _Dest.orders => Icons.local_shipping,
       _Dest.createOrder => Icons.add_box,
+      _Dest.orgs => Icons.business_center,
       _Dest.trips => Icons.route,
       _Dest.finance => Icons.payments,
       _Dest.inventory => Icons.inventory_2,
@@ -191,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
               user: user,
             ),
       _Dest.createOrder => const Center(child: CircularProgressIndicator()),
+      _Dest.orgs => OrganizationsScreen(user: user),
       _Dest.trips => TripsScreen(user: user),
       _Dest.finance => FinanceScreen(user: user),
       _Dest.inventory => InventoryScreen(user: user),
@@ -213,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_dest == _Dest.orders) {
       return _user?.role == 'driver' ? 'Заявки на доставку' : 'Мои заявки';
     }
-    return _destLabel(_dest);
+    return _destLabel(_dest, _user?.role);
   }
 
   // -------------------------------------------------------------------------
@@ -342,6 +351,7 @@ class _AppDrawer extends StatelessWidget {
                           unread: d == _Dest.notifications ? unread : 0,
                           onTap: () => onSelect(d),
                           colors: colors,
+                          role: role,
                         ))
                     .toList(),
               ),
@@ -369,6 +379,7 @@ class _DrawerTile extends StatelessWidget {
     required this.unread,
     required this.onTap,
     required this.colors,
+    this.role,
   });
 
   final _Dest dest;
@@ -376,6 +387,7 @@ class _DrawerTile extends StatelessWidget {
   final int unread;
   final VoidCallback onTap;
   final AppColors colors;
+  final String? role;
 
   @override
   Widget build(BuildContext context) {
@@ -399,7 +411,7 @@ class _DrawerTile extends StatelessWidget {
         tileColor: bgColor,
         leading: icon,
         title: Text(
-          _destLabel(dest),
+          _destLabel(dest, role),
           style: TextStyle(
             color: textColor,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
@@ -427,7 +439,7 @@ class _GradientWordmark extends StatelessWidget {
         colors: [colors.primary, colors.accent],
       ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
       child: const Text(
-        'BALTOIL',
+        'СЗТК',
         style: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,

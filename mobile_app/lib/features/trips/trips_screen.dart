@@ -11,10 +11,12 @@ import 'trips_repository.dart';
 // Status-filter definition (mirrors web pane-trips filter options).
 // ---------------------------------------------------------------------------
 
+// Порядок и дефолт — как на вебе (081b2e3): «Рейсы» открываются журналом
+// завершённых, активные — вторым фильтром.
 const _kFilters = <({TripStatus? status, String label})>[
+  (status: TripStatus.completed, label: 'Завершённые'),
   (status: TripStatus.inTransit, label: 'Активные (в пути)'),
   (status: null, label: 'Все рейсы'),
-  (status: TripStatus.completed, label: 'Завершённые'),
   (status: TripStatus.cancelled, label: 'Отменённые'),
 ];
 
@@ -32,7 +34,7 @@ class TripsScreen extends StatefulWidget {
 }
 
 class _TripsScreenState extends State<TripsScreen> {
-  int _filterIndex = 0; // default: in_transit
+  int _filterIndex = 0; // default: completed (журнал закрытых рейсов, как на вебе)
   late Future<List<Trip>> _future;
 
   @override

@@ -251,8 +251,21 @@ class _OrderTile extends StatelessWidget {
               ),
       title: Text('№${order.orderNumber} — ${FuelCatalog.label(order.fuelType)}, '
           '${order.volumeRequested.toStringAsFixed(0)} л'),
-      subtitle: Text(order.deliveryAddress,
-          maxLines: 1, overflow: TextOverflow.ellipsis),
+      // Как на вебе (d29807a): имя организации/клиента жирным перед адресом.
+      subtitle: order.buyerName == null
+          ? Text(order.deliveryAddress,
+              maxLines: 1, overflow: TextOverflow.ellipsis)
+          : Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                  text: order.buyerName,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(text: ' · ${order.deliveryAddress}'),
+              ]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
       trailing: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisAlignment: MainAxisAlignment.center,

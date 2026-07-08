@@ -235,6 +235,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 20),
 
+          // ── Паспортные данные — для всех ролей (веб 8479ab0) ────
+          _SectionCard(
+            colors: colors,
+            title: 'Паспортные данные',
+            children: [
+              _InfoRow(
+                label: 'Паспорт (серия номер)',
+                value: [
+                  profile['passport_series'] as String?,
+                  profile['passport_number'] as String?,
+                ].whereType<String>().join(' ').trim().isEmpty
+                    ? '—'
+                    : [
+                        profile['passport_series'] as String?,
+                        profile['passport_number'] as String?,
+                      ].whereType<String>().join(' '),
+                colors: colors,
+              ),
+              _InfoRow(
+                label: 'Кем выдан',
+                value: (profile['passport_issued_by'] as String?)
+                            ?.isNotEmpty ==
+                        true
+                    ? profile['passport_issued_by'] as String
+                    : '—',
+                colors: colors,
+              ),
+              _InfoRow(
+                label: 'Дата выдачи',
+                value: _fmtDateRu(profile['passport_issued_at'] as String?),
+                colors: colors,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
           // ── Карточка профиля клиента ───────────────────────────
           if (isClient && cp != null) ...[
             _SectionCard(
@@ -1005,3 +1041,11 @@ String _roleLabel(String role) => switch (role) {
       'client' => 'Клиент',
       _ => role,
     };
+
+/// ISO-дата → «дд.мм.гггг» (как fmtDate на вебе); null/пусто → «—».
+String _fmtDateRu(String? iso) {
+  if (iso == null || iso.isEmpty) return '—';
+  final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(iso);
+  if (m == null) return '—';
+  return '${m.group(3)}.${m.group(2)}.${m.group(1)}';
+}

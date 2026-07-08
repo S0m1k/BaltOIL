@@ -14,34 +14,27 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          // Логотип как на вебе: BALTOIL градиентом голубой→зелёный.
-          title: ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFF0EA5E9), Color(0xFF10B981)],
-            ).createShader(bounds),
-            child: const Text(
-              'BALTOIL',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 3,
-              ),
+    // Вход по SMS скрыт как на вебе (d89ff92) — только пароль, без вкладок.
+    // _SmsLoginTab сохранён в файле: чтобы вернуть, снова обернуть в
+    // DefaultTabController(length: 2) + TabBar/TabBarView.
+    return Scaffold(
+      appBar: AppBar(
+        // Логотип как на вебе: СЗТК градиентом голубой→зелёный.
+        title: ShaderMask(
+          shaderCallback: (bounds) => const LinearGradient(
+            colors: [Color(0xFF0EA5E9), Color(0xFF10B981)],
+          ).createShader(bounds),
+          child: const Text(
+            'СЗТК',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 3,
             ),
           ),
-          bottom: const TabBar(tabs: [
-            Tab(text: 'По паролю'),
-            Tab(text: 'По SMS-коду'),
-          ]),
         ),
-        body: const TabBarView(children: [
-          _PasswordLoginTab(),
-          _SmsLoginTab(),
-        ]),
       ),
+      body: const _PasswordLoginTab(),
     );
   }
 }

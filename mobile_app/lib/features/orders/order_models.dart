@@ -17,6 +17,7 @@ class Order {
     this.createdAt,
     this.clientComment,
     this.managerComment,
+    this.buyerName,
   });
 
   final String id;
@@ -35,6 +36,9 @@ class Order {
   final DateTime? createdAt;
   final String? clientComment;
   final String? managerComment;
+
+  /// Имя организации или клиента-заказчика (веб d29807a) — null у физлица.
+  final String? buyerName;
 
   bool get isIndividual => orderKind == 'individual';
 
@@ -63,6 +67,7 @@ class Order {
             : DateTime.tryParse(json['created_at'] as String),
         clientComment: json['client_comment'] as String?,
         managerComment: json['manager_comment'] as String?,
+        buyerName: json['buyer_name'] as String?,
       );
 }
 
@@ -113,6 +118,7 @@ class OrderDetail extends Order {
     super.createdAt,
     super.clientComment,
     super.managerComment,
+    super.buyerName,
     this.clientId,
     this.managerId,
     this.volumeDelivered,
@@ -175,6 +181,7 @@ class OrderDetail extends Order {
             : DateTime.tryParse(json['created_at'] as String),
         clientComment: json['client_comment'] as String?,
         managerComment: json['manager_comment'] as String?,
+        buyerName: json['buyer_name'] as String?,
         clientId: json['client_id'] as String?,
         managerId: json['manager_id'] as String?,
         volumeDelivered: json['volume_delivered'] == null

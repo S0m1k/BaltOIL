@@ -14,9 +14,40 @@ class ConversationsScreen extends StatefulWidget {
   State<ConversationsScreen> createState() => _ConversationsScreenState();
 }
 
+/// Папки диалогов — 1:1 с вебом (CONV_FOLDERS, правки 2026-06-11).
+const _kConvFolders = <({String key, String label})>[
+  (key: 'all', label: 'Все'),
+  (key: 'work', label: 'Рабочие'),
+  (key: 'orders', label: 'Заявки'),
+  (key: 'clients', label: 'Клиенты'),
+  (key: 'accounting', label: 'Бухгалтерия'),
+  (key: 'personal', label: 'Личные'),
+];
+
+/// Папка диалога по kind — зеркало web convFolderOf().
+String _convFolderOf(Conversation c, String role) {
+  switch (c.kind) {
+    case 'staff_group':
+      return 'work';
+    case 'client_driver_order':
+      return 'orders';
+    // Клиент↔бухгалтерия — отдельная папка для staff (F6, 2026-06-24);
+    // клиенту такие чаты остаются в «Рабочие».
+    case 'client_accountant':
+      return role == 'client' ? 'work' : 'accounting';
+    case 'client_manager':
+      return role == 'client' ? 'work' : 'clients';
+    case 'direct':
+      return 'personal';
+    default:
+      return 'work';
+  }
+}
+
 class _ConversationsScreenState extends State<ConversationsScreen> {
   late Future<List<Conversation>> _future;
   CurrentUser? _user;
+  String _folder = 'all';
 
   @override
   void initState() {
@@ -134,6 +165,32 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               ),
             ),
           const SizedBox(height: 8),
+          // Чипы папок — как на вебе: клиент видит только «Все» и «Личные».
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final f in isClient
+                      ? _kConvFolders.where(
+                          (f) => f.key == 'all' || f.key == 'personal')
+                      : _kConvFolders)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(f.label,
+                            style: const TextStyle(fontSize: 12)),
+                        selected: _folder == f.key,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) =>
+                            setState(() => _folder = f.key),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => _load(),
@@ -149,14 +206,19 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         onRetry: _load);
                   }
                   final convs = snap.data ?? const [];
-                  if (convs.isEmpty) {
+                  final visible = _folder == 'all'
+                      ? convs
+                      : convs
+                          .where((c) => _convFolderOf(c, role) == _folder)
+                          .toList();
+                  if (visible.isEmpty) {
                     return ListView(children: const [
                       SizedBox(height: 120),
-                      Center(child: Text('Диалогов пока нет')),
+                      Center(child: Text('Нет диалогов')),
                     ]);
                   }
                   // Закреплённые — первыми
-                  final sorted = [...convs]..sort((a, b) {
+                  final sorted = [...visible]..sort((a, b) {
                       if (a.isPinned == b.isPinned) {
                         return b.updatedAt.compareTo(a.updatedAt);
                       }

@@ -42,7 +42,7 @@ class BaltOilApp extends StatelessWidget {
       valueListenable: ThemeController.instance.mode,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'BALTOIL',
+          title: 'СЗТК',
           navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
           theme: buildLightTheme(),
