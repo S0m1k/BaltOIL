@@ -308,13 +308,15 @@ class FuelCatalog {
 }
 
 class FuelType {
-  FuelType({required this.code, required this.label});
+  FuelType({required this.code, required this.label, this.isWinter = false});
 
   final String code;
   final String label;
+  final bool isWinter;
 
   factory FuelType.fromJson(Map<String, dynamic> json) => FuelType(
         code: json['code'] as String,
         label: json['label'] as String,
+        isWinter: (json['is_winter'] ?? false) as bool,
       );
 }

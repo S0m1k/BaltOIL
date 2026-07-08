@@ -13,7 +13,9 @@ import '../notifications/notifications_screen.dart';
 import '../orders/driver_orders_screen.dart';
 import '../orders/order_create_screen.dart';
 import '../orders/orders_screen.dart';
+import '../fuels/fuels_screen.dart';
 import '../organizations/organizations_screen.dart';
+import '../vehicles/vehicles_screen.dart';
 import '../profile/profile_screen.dart';
 import '../report/report_screen.dart';
 import '../requisites/requisites_screen.dart';
@@ -29,9 +31,11 @@ enum _Dest {
   orders,
   createOrder,
   orgs,
+  vehicles,
   trips,
   finance,
   inventory,
+  fuels,
   tariffs,
   report,
   clients,
@@ -59,11 +63,15 @@ bool _allowed(String role, _Dest dest) => switch (dest) {
         role == 'client' || role == 'manager' || role == 'admin',
       // Организации — все кроме водителя (веб: show role !== 'driver')
       _Dest.orgs => role != 'driver',
+      // ТС — все кроме клиента (веб: show role !== 'client')
+      _Dest.vehicles => role != 'client',
       _Dest.trips =>
         role == 'admin' || role == 'manager' || role == 'driver',
       _Dest.finance => role == 'admin' || role == 'manager',
       _Dest.inventory =>
         role == 'admin' || role == 'manager' || role == 'driver',
+      // Топливо — справочник, виден всем (веб: show true)
+      _Dest.fuels => true,
       _Dest.tariffs => role == 'admin' || role == 'manager',
       _Dest.report =>
         role == 'admin' || role == 'manager' || role == 'driver',
@@ -82,9 +90,11 @@ String _destLabel(_Dest dest, [String? role]) => switch (dest) {
       // Как на вебе: клиенту — «Мои организации», staff — «Организации»
       _Dest.orgs =>
         role == 'client' ? 'Мои организации' : 'Организации',
+      _Dest.vehicles => 'ТС',
       _Dest.trips => 'Рейсы',
       _Dest.finance => 'Финансы',
       _Dest.inventory => 'Склад',
+      _Dest.fuels => 'Топливо',
       _Dest.tariffs => 'Тарифы',
       _Dest.report => 'Отчёт',
       _Dest.clients => 'Клиенты',
@@ -100,9 +110,11 @@ IconData _destIcon(_Dest dest) => switch (dest) {
       _Dest.orders => Icons.local_shipping,
       _Dest.createOrder => Icons.add_box,
       _Dest.orgs => Icons.business_center,
+      _Dest.vehicles => Icons.local_shipping_outlined,
       _Dest.trips => Icons.route,
       _Dest.finance => Icons.payments,
       _Dest.inventory => Icons.inventory_2,
+      _Dest.fuels => Icons.local_gas_station,
       _Dest.tariffs => Icons.request_quote,
       _Dest.report => Icons.assessment,
       _Dest.clients => Icons.groups,
@@ -200,9 +212,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
       _Dest.createOrder => const Center(child: CircularProgressIndicator()),
       _Dest.orgs => OrganizationsScreen(user: user),
+      _Dest.vehicles => VehiclesScreen(user: user),
       _Dest.trips => TripsScreen(user: user),
       _Dest.finance => FinanceScreen(user: user),
       _Dest.inventory => InventoryScreen(user: user),
+      _Dest.fuels => const FuelsScreen(),
       _Dest.tariffs => TariffsScreen(user: user),
       _Dest.report => ReportScreen(user: user),
       _Dest.clients => ClientsScreen(user: user),
