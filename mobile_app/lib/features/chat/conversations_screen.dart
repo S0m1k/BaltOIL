@@ -71,9 +71,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   void _openChat(Conversation conv) {
     Navigator.of(context)
-        .push(MaterialPageRoute(
-          builder: (_) => ChatScreen(conversation: conv),
-        ))
+        .push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)))
         .then((_) => _load()); // обновить список после возврата (прочитано)
   }
 
@@ -92,24 +90,128 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Отмена')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Начать')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Начать'),
+          ),
         ],
       ),
     );
     if (confirmed != true || ctrl.text.trim().isEmpty) return;
     try {
-      final conv =
-          await ChatRepository.instance.startByPhone(ctrl.text.trim());
+      final conv = await ChatRepository.instance.startByPhone(ctrl.text.trim());
       if (mounted) _openChat(conv);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(apiErrorMessage(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
+  /// Приватная staff-группа (веб promptCreateStaffGroup): название +
+  /// участники из manager/admin; создатель добавляется автоматически.
+  Future<void> _createStaffGroup() async {
+    List<UserBrief> staff;
+    try {
+      final results = await Future.wait([
+        AuthRepository.instance.listByRole('manager'),
+        AuthRepository.instance.listByRole('admin'),
+      ]);
+      staff = [...results[0], ...results[1]]
+        ..removeWhere((u) => u.id == _user?.id);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final titleCtrl = TextEditingController();
+    final selected = <String>{};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Новый групповой чат'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Приватная группа сотрудников. Видна только выбранным '
+                  'участникам. Вы добавляетесь автоматически.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                TextField(
+                  controller: titleCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Название',
+                    hintText: 'Например: СЗТК',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final u in staff)
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: selected.contains(u.id),
+                          onChanged: (v) => setD(
+                            () => v == true
+                                ? selected.add(u.id)
+                                : selected.remove(u.id),
+                          ),
+                          title: Text(u.label, overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Создать'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Укажите название группы')));
+      return;
+    }
+    try {
+      final conv = await ChatRepository.instance.createStaffGroup(
+        titleCtrl.text.trim(),
+        selected.toList(),
+      );
+      if (mounted) _openChat(conv);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
       }
     }
   }
@@ -121,9 +223,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       if (mounted) _openChat(conv);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(apiErrorMessage(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
       }
     }
   }
@@ -135,7 +237,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final isClient = role == 'client';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Чаты')),
+      appBar: AppBar(
+        title: const Text('Чаты'),
+        actions: [
+          // Групповой staff-чат (веб btn-new-staff-group)
+          if (isStaff)
+            IconButton(
+              tooltip: 'Новая группа',
+              icon: const Icon(Icons.group_add_outlined),
+              onPressed: _createStaffGroup,
+            ),
+        ],
+      ),
       // FAB с меню: у staff — start-by-phone; у клиентов-юрлиц — бухгалтер.
       // У всех — start-by-phone (сервер сам проверит роль/блокировку).
       floatingActionButton: FloatingActionButton(
@@ -172,19 +285,22 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  for (final f in isClient
-                      ? _kConvFolders.where(
-                          (f) => f.key == 'all' || f.key == 'personal')
-                      : _kConvFolders)
+                  for (final f
+                      in isClient
+                          ? _kConvFolders.where(
+                              (f) => f.key == 'all' || f.key == 'personal',
+                            )
+                          : _kConvFolders)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: ChoiceChip(
-                        label: Text(f.label,
-                            style: const TextStyle(fontSize: 12)),
+                        label: Text(
+                          f.label,
+                          style: const TextStyle(fontSize: 12),
+                        ),
                         selected: _folder == f.key,
                         visualDensity: VisualDensity.compact,
-                        onSelected: (_) =>
-                            setState(() => _folder = f.key),
+                        onSelected: (_) => setState(() => _folder = f.key),
                       ),
                     ),
                 ],
@@ -202,23 +318,27 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
                   if (snap.hasError) {
                     return _ErrorRetry(
-                        message: apiErrorMessage(snap.error!),
-                        onRetry: _load);
+                      message: apiErrorMessage(snap.error!),
+                      onRetry: _load,
+                    );
                   }
                   final convs = snap.data ?? const [];
                   final visible = _folder == 'all'
                       ? convs
                       : convs
-                          .where((c) => _convFolderOf(c, role) == _folder)
-                          .toList();
+                            .where((c) => _convFolderOf(c, role) == _folder)
+                            .toList();
                   if (visible.isEmpty) {
-                    return ListView(children: const [
-                      SizedBox(height: 120),
-                      Center(child: Text('Нет диалогов')),
-                    ]);
+                    return ListView(
+                      children: const [
+                        SizedBox(height: 120),
+                        Center(child: Text('Нет диалогов')),
+                      ],
+                    );
                   }
                   // Закреплённые — первыми
-                  final sorted = [...visible]..sort((a, b) {
+                  final sorted = [...visible]
+                    ..sort((a, b) {
                       if (a.isPinned == b.isPinned) {
                         return b.updatedAt.compareTo(a.updatedAt);
                       }
@@ -255,7 +375,9 @@ class _ConvTile extends StatelessWidget {
       leading: CircleAvatar(
         backgroundColor: theme.colorScheme.primaryContainer,
         child: Text(
-          conv.displayTitle.isNotEmpty ? conv.displayTitle[0].toUpperCase() : '?',
+          conv.displayTitle.isNotEmpty
+              ? conv.displayTitle[0].toUpperCase()
+              : '?',
           style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
         ),
       ),
@@ -264,21 +386,28 @@ class _ConvTile extends StatelessWidget {
           if (conv.isPinned)
             Padding(
               padding: const EdgeInsets.only(right: 4),
-              child: Icon(Icons.push_pin, size: 14,
-                  color: theme.colorScheme.primary),
+              child: Icon(
+                Icons.push_pin,
+                size: 14,
+                color: theme.colorScheme.primary,
+              ),
             ),
           Expanded(
-            child: Text(conv.displayTitle,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
+            child: Text(
+              conv.displayTitle,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
       subtitle: subtitle.isNotEmpty
-          ? Text(subtitle,
+          ? Text(
+              subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall)
+              style: theme.textTheme.bodySmall,
+            )
           : null,
       trailing: conv.unreadCount > 0
           ? Badge(
@@ -301,11 +430,14 @@ class _ErrorRetry extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(message, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          ElevatedButton(onPressed: onRetry, child: const Text('Повторить')),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: onRetry, child: const Text('Повторить')),
+          ],
+        ),
       ),
     );
   }

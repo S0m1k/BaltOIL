@@ -19,8 +19,10 @@ class ChatRepository {
   }
 
   /// История последних [limit] сообщений. Бэк принимает limit и before_id.
-  Future<List<ChatMessage>> fetchHistory(String convId,
-      {int limit = 50}) async {
+  Future<List<ChatMessage>> fetchHistory(
+    String convId, {
+    int limit = 50,
+  }) async {
     final resp = await _dio.get(
       '$_base/conversations/$convId/messages',
       queryParameters: {'limit': limit},
@@ -35,12 +37,46 @@ class ChatRepository {
   }
 
   /// Отправить текстовое сообщение через REST (fallback).
-  Future<ChatMessage> sendTextRest(String convId, String text) async {
+  /// [replyToId] — ответ на сообщение (правки 2026-06-24, F7).
+  Future<ChatMessage> sendTextRest(
+    String convId,
+    String text, {
+    String? replyToId,
+  }) async {
     final resp = await _dio.post(
       '$_base/conversations/$convId/messages',
-      data: {'text': text, 'msg_type': 'text'},
+      data: {
+        'text': text,
+        'msg_type': 'text',
+        if (replyToId != null) 'reply_to_id': replyToId,
+      },
     );
     return ChatMessage.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Закреп/откреп сообщения (правки 2026-06-24).
+  Future<void> pinMessage(
+    String convId,
+    String messageId, {
+    required bool pin,
+  }) async {
+    await _dio.post(
+      '$_base/conversations/$convId/messages/$messageId/'
+      '${pin ? 'pin' : 'unpin'}',
+    );
+  }
+
+  /// Приватная staff-группа (веб promptCreateStaffGroup, группа «СЗТК»):
+  /// видна только выбранным участникам; создатель добавляется сам.
+  Future<Conversation> createStaffGroup(
+    String title,
+    List<String> memberIds,
+  ) async {
+    final resp = await _dio.post(
+      '$_base/conversations/staff-group',
+      data: {'title': title, 'member_ids': memberIds},
+    );
+    return Conversation.fromJson(resp.data as Map<String, dynamic>);
   }
 
   /// Загрузить файл вложения, получить metadata, затем отправить сообщение.
@@ -70,11 +106,7 @@ class ChatRepository {
     // 2. Отправить сообщение с metadata вложения
     final msgResp = await _dio.post(
       '$_base/conversations/$convId/messages',
-      data: {
-        'text': originalName,
-        'msg_type': msgType,
-        'metadata': meta,
-      },
+      data: {'text': originalName, 'msg_type': msgType, 'metadata': meta},
     );
     return ChatMessage.fromJson(msgResp.data as Map<String, dynamic>);
   }

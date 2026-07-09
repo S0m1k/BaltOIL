@@ -11,6 +11,9 @@ class ChatMessage {
     required this.text,
     required this.createdAt,
     this.metadata,
+    this.replyToId,
+    this.isPinned = false,
+    this.replyPreview,
   });
 
   final String id;
@@ -27,22 +30,32 @@ class ChatMessage {
   /// Для photo/video: {path, mime, size, original_name}
   final Map<String, dynamic>? metadata;
 
+  // Ответ + закреп (правки 2026-06-24)
+  final String? replyToId;
+  final bool isPinned;
+  final ReplyPreview? replyPreview;
+
   bool get isPhoto => msgType == 'photo';
   bool get isVideo => msgType == 'video';
   bool get isDocument => msgType == 'document';
   bool get isText => msgType == 'text';
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
-        id: json['id'] as String,
-        conversationId: json['conversation_id'] as String,
-        senderId: json['sender_id'] as String,
-        senderRole: json['sender_role'] as String,
-        senderName: json['sender_name'] as String,
-        msgType: (json['msg_type'] ?? 'text') as String,
-        text: (json['text'] ?? '') as String,
-        createdAt: DateTime.parse(json['created_at'] as String),
-        metadata: json['metadata'] as Map<String, dynamic>?,
-      );
+    id: json['id'] as String,
+    conversationId: json['conversation_id'] as String,
+    senderId: json['sender_id'] as String,
+    senderRole: json['sender_role'] as String,
+    senderName: json['sender_name'] as String,
+    msgType: (json['msg_type'] ?? 'text') as String,
+    text: (json['text'] ?? '') as String,
+    createdAt: DateTime.parse(json['created_at'] as String),
+    metadata: json['metadata'] as Map<String, dynamic>?,
+    replyToId: json['reply_to_id']?.toString(),
+    isPinned: (json['is_pinned'] ?? false) as bool,
+    replyPreview: json['reply_preview'] == null
+        ? null
+        : ReplyPreview.fromJson(json['reply_preview'] as Map<String, dynamic>),
+  );
 
   /// Строит URL вложения для скачивания через бэк.
   String attachmentUrl(String chatBase) {
@@ -50,6 +63,25 @@ class ChatMessage {
     if (path == null) return '';
     return '$chatBase/conversations/$conversationId/attachments/$path';
   }
+}
+
+/// Снимок родительского сообщения для отрисовки «ответа» (ReplyPreview).
+class ReplyPreview {
+  ReplyPreview({
+    required this.id,
+    required this.senderName,
+    required this.text,
+  });
+
+  final String id;
+  final String senderName;
+  final String text;
+
+  factory ReplyPreview.fromJson(Map<String, dynamic> json) => ReplyPreview(
+    id: (json['id'] as Object).toString(),
+    senderName: (json['sender_name'] ?? '') as String,
+    text: (json['text'] ?? '') as String,
+  );
 }
 
 class Conversation {
@@ -116,8 +148,9 @@ class Conversation {
       createdById: json['created_by_id'] as String,
       createdByRole: json['created_by_role'] as String,
       unreadCount: (json['unread_count'] ?? 0) as int,
-      lastMessage:
-          lm != null ? ChatMessage.fromJson(lm as Map<String, dynamic>) : null,
+      lastMessage: lm != null
+          ? ChatMessage.fromJson(lm as Map<String, dynamic>)
+          : null,
       updatedAt: DateTime.parse(json['updated_at'] as String),
       peerName: json['peer_name'] as String?,
       peerPhone: json['peer_phone'] as String?,

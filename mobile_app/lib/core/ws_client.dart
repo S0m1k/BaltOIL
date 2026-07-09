@@ -82,20 +82,13 @@ class ChatWsClient {
         httpClient = HttpClient()
           ..badCertificateCallback = (cert, host, port) => true;
       }
-      final channel = IOWebSocketChannel.connect(
-        uri,
-        customClient: httpClient,
-      );
+      final channel = IOWebSocketChannel.connect(uri, customClient: httpClient);
       _channel = channel;
 
       // Первый фрейм — авторизация токеном
       channel.sink.add(jsonEncode({'token': token}));
 
-      _sub = channel.stream.listen(
-        _onData,
-        onError: _onError,
-        onDone: _onDone,
-      );
+      _sub = channel.stream.listen(_onData, onError: _onError, onDone: _onDone);
     } catch (e) {
       // Synchronous setup errors (e.g. URI parse failure) — schedule reconnect.
       developer.log('ChatWsClient: connect error: $e', name: 'ws');
@@ -106,6 +99,12 @@ class ChatWsClient {
   /// Отправить текстовое сообщение (raw string, не JSON — таков протокол).
   void send(String text) {
     _channel?.sink.add(text);
+  }
+
+  /// Ответ на сообщение: сервер принимает JSON {"text","reply_to_id"}
+  /// (chat_service websocket.py, правки 2026-06-24).
+  void sendReply(String text, String replyToId) {
+    _channel?.sink.add(jsonEncode({'text': text, 'reply_to_id': replyToId}));
   }
 
   void _onData(dynamic raw) {

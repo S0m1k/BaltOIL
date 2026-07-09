@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../auth/auth_repository.dart';
+import '../contracts/contract_sheet.dart';
 import 'organizations_repository.dart';
 
 /// Организации — «Мои организации» у клиента, «Организации» у staff
@@ -36,8 +37,9 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
 
   void _load() {
     setState(() {
-      _future = OrganizationsRepository.instance
-          .list(search: _isStaff ? _searchCtrl.text.trim() : null);
+      _future = OrganizationsRepository.instance.list(
+        search: _isStaff ? _searchCtrl.text.trim() : null,
+      );
     });
   }
 
@@ -49,6 +51,24 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
     );
   }
 
+  // Договор организации (веб openOrgContract) — видят staff и клиент-участник.
+  void _openContract(Organization org) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => ContractSheet(orgId: org.id, isStaff: _isStaff),
+    );
+  }
+
+  void _openRegistry() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const ContractsRegistrySheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -57,14 +77,26 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
         if (_isStaff)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Поиск по названию или ИНН',
-                isDense: true,
-              ),
-              onSubmitted: (_) => _load(),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Поиск по названию или ИНН',
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => _load(),
+                  ),
+                ),
+                // Реестр договоров (веб contracts-registry-btn, staff)
+                IconButton(
+                  tooltip: 'Реестр договоров',
+                  icon: const Icon(Icons.receipt_long),
+                  onPressed: _openRegistry,
+                ),
+              ],
             ),
           ),
         Expanded(
@@ -77,35 +109,39 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snap.hasError) {
-                  return ListView(children: [
-                    const SizedBox(height: 100),
-                    Center(child: Text(apiErrorMessage(snap.error!))),
-                    Center(
-                      child: TextButton(
+                  return ListView(
+                    children: [
+                      const SizedBox(height: 100),
+                      Center(child: Text(apiErrorMessage(snap.error!))),
+                      Center(
+                        child: TextButton(
                           onPressed: _load,
-                          child: const Text('Повторить')),
-                    ),
-                  ]);
+                          child: const Text('Повторить'),
+                        ),
+                      ),
+                    ],
+                  );
                 }
                 final orgs = snap.data ?? const [];
                 if (orgs.isEmpty) {
-                  return ListView(children: [
-                    const SizedBox(height: 100),
-                    Center(
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          _isStaff
-                              ? 'Организаций не найдено.'
-                              : 'У вас пока нет организаций. Добавьте юрлицо '
-                                  'по ИНН в личном кабинете на сайте, чтобы '
-                                  'оформлять заявки от его имени.',
-                          textAlign: TextAlign.center,
+                  return ListView(
+                    children: [
+                      const SizedBox(height: 100),
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            _isStaff
+                                ? 'Организаций не найдено.'
+                                : 'У вас пока нет организаций. Добавьте юрлицо '
+                                      'по ИНН в личном кабинете на сайте, чтобы '
+                                      'оформлять заявки от его имени.',
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    ),
-                  ]);
+                    ],
+                  );
                 }
                 return ListView.builder(
                   padding: const EdgeInsets.all(12),
@@ -114,6 +150,7 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
                     org: orgs[i],
                     isStaff: _isStaff,
                     onMembers: () => _openMembers(orgs[i]),
+                    onContract: () => _openContract(orgs[i]),
                   ),
                 );
               },
@@ -130,17 +167,20 @@ class _OrgCard extends StatelessWidget {
     required this.org,
     required this.isStaff,
     required this.onMembers,
+    required this.onContract,
   });
 
   final Organization org;
   final bool isStaff;
   final VoidCallback onMembers;
+  final VoidCallback onContract;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.textTheme.bodySmall
-        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final req = [
       if (org.inn != null) 'ИНН ${org.inn}',
       if (org.kpp != null) 'КПП ${org.kpp}',
@@ -157,13 +197,16 @@ class _OrgCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(org.companyName,
-                      style:
-                          const TextStyle(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    org.companyName,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
                 // Номер как на вебе: O-00001
-                Text('O-${org.orgNumber.toString().padLeft(5, '0')}',
-                    style: muted),
+                Text(
+                  'O-${org.orgNumber.toString().padLeft(5, '0')}',
+                  style: muted,
+                ),
               ],
             ),
             if (req.isNotEmpty)
@@ -191,8 +234,17 @@ class _OrgCard extends StatelessWidget {
                 OutlinedButton(
                   onPressed: onMembers,
                   style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact),
+                    visualDensity: VisualDensity.compact,
+                  ),
                   child: const Text('Сотрудники'),
+                ),
+                // Договор — staff и клиент-участник (веб, правки 2026-06-23)
+                OutlinedButton(
+                  onPressed: onContract,
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Договор'),
                 ),
               ],
             ),
@@ -217,8 +269,9 @@ class _MembersSheet extends StatelessWidget {
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const SizedBox(
-                height: 200,
-                child: Center(child: CircularProgressIndicator()));
+              height: 200,
+              child: Center(child: CircularProgressIndicator()),
+            );
           }
           if (snap.hasError) {
             return SizedBox(
@@ -231,22 +284,26 @@ class _MembersSheet extends StatelessWidget {
             shrinkWrap: true,
             padding: const EdgeInsets.all(16),
             children: [
-              Text('Сотрудники — ${org.companyName}',
-                  style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Сотрудники — ${org.companyName}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               if (members.isEmpty) const Text('Участников нет'),
               for (final m in members)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(m.memberRole == 'owner'
-                      ? Icons.star
-                      : Icons.person_outline),
+                  leading: Icon(
+                    m.memberRole == 'owner' ? Icons.star : Icons.person_outline,
+                  ),
                   title: Text(m.fullName ?? m.invitePhone ?? '—'),
-                  subtitle: Text([
-                    if (m.memberRole == 'owner') 'владелец',
-                    if (m.phone != null) m.phone!,
-                    if (m.status != null && m.status != 'active') m.status!,
-                  ].join(' · ')),
+                  subtitle: Text(
+                    [
+                      if (m.memberRole == 'owner') 'владелец',
+                      if (m.phone != null) m.phone!,
+                      if (m.status != null && m.status != 'active') m.status!,
+                    ].join(' · '),
+                  ),
                 ),
             ],
           );

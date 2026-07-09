@@ -20,8 +20,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen>
-    with WidgetsBindingObserver {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _textCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _picker = ImagePicker();
@@ -54,8 +53,10 @@ class _ChatScreenState extends State<ChatScreen>
 
   Future<void> _loadHistory() async {
     try {
-      final msgs = await ChatRepository.instance
-          .fetchHistory(widget.conversation.id, limit: 50);
+      final msgs = await ChatRepository.instance.fetchHistory(
+        widget.conversation.id,
+        limit: 50,
+      );
       // История приходит от старых к новым — порядок уже верный для ListView
       if (mounted) {
         setState(() {
@@ -65,13 +66,15 @@ class _ChatScreenState extends State<ChatScreen>
         });
       }
       // Отметить прочитанными в фоне — некритично
-      ChatRepository.instance.markRead(widget.conversation.id).catchError((_) {});
+      ChatRepository.instance
+          .markRead(widget.conversation.id)
+          .catchError((_) {});
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(apiErrorMessage(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
       }
     }
     _scrollToBottom();
@@ -84,8 +87,9 @@ class _ChatScreenState extends State<ChatScreen>
       // 4401 обрабатывается самим ChatWsClient (refresh + reconnect).
       // Для прочих ошибок — показываем снекбар.
       if (!err.contains('token expired')) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(err)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(err)));
       }
       return;
     }
@@ -110,12 +114,67 @@ class _ChatScreenState extends State<ChatScreen>
     });
   }
 
+  // Ответ на сообщение (веб _replyToId, правки 2026-06-24).
+  ChatMessage? _replyTo;
+
   Future<void> _sendText() async {
     final text = _textCtrl.text.trim();
     if (text.isEmpty || _sending) return;
     _textCtrl.clear();
+    final reply = _replyTo;
+    setState(() => _replyTo = null);
     // Отправка через WS — сервер сам сбродкастит нам обратно и мы добавим через _onWsFrame.
-    _ws.send(text);
+    if (reply != null) {
+      _ws.sendReply(text, reply.id);
+    } else {
+      _ws.send(text);
+    }
+  }
+
+  // Долгое нажатие на сообщение: ответить / закрепить (веб msg-action-btn).
+  void _showMessageActions(ChatMessage m) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: const Text('Ответить'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _replyTo = m);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                m.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              ),
+              title: Text(m.isPinned ? 'Открепить' : 'Закрепить'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  await ChatRepository.instance.pinMessage(
+                    widget.conversation.id,
+                    m.id,
+                    pin: !m.isPinned,
+                  );
+                  await _loadHistory();
+                } on Object catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAndSendMedia(ImageSource source) async {
@@ -145,9 +204,9 @@ class _ChatScreenState extends State<ChatScreen>
       // Сообщение придёт по WS broadcast — добавится через _onWsFrame.
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(apiErrorMessage(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -158,18 +217,21 @@ class _ChatScreenState extends State<ChatScreen>
     return showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.image),
-            title: const Text('Фото'),
-            onTap: () => Navigator.pop(ctx, 'photo'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.videocam),
-            title: const Text('Видео'),
-            onTap: () => Navigator.pop(ctx, 'video'),
-          ),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image),
+              title: const Text('Фото'),
+              onTap: () => Navigator.pop(ctx, 'photo'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam),
+              title: const Text('Видео'),
+              onTap: () => Navigator.pop(ctx, 'video'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -178,24 +240,27 @@ class _ChatScreenState extends State<ChatScreen>
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.photo_library),
-            title: const Text('Галерея'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _pickAndSendMedia(ImageSource.gallery);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.camera_alt),
-            title: const Text('Камера'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _pickAndSendMedia(ImageSource.camera);
-            },
-          ),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Галерея'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndSendMedia(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Камера'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndSendMedia(ImageSource.camera);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -221,12 +286,39 @@ class _ChatScreenState extends State<ChatScreen>
                 : ListView.builder(
                     controller: _scrollCtrl,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     itemCount: _messages.length,
-                    itemBuilder: (context, i) =>
-                        _MessageBubble(msg: _messages[i]),
+                    itemBuilder: (context, i) => GestureDetector(
+                      onLongPress: () => _showMessageActions(_messages[i]),
+                      child: _MessageBubble(msg: _messages[i]),
+                    ),
                   ),
           ),
+          if (_replyTo != null)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              child: Row(
+                children: [
+                  const Icon(Icons.reply, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Ответ: ${_replyTo!.senderName} — ${_replyTo!.text}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: () => setState(() => _replyTo = null),
+                  ),
+                ],
+              ),
+            ),
           _ComposeBar(
             controller: _textCtrl,
             onSend: _sendText,
@@ -255,8 +347,9 @@ class _MessageBubble extends StatelessWidget {
         children: [
           Text(
             '${msg.senderName} · ${_fmtTime(msg.createdAt)}',
-            style: theme.textTheme.labelSmall
-                ?.copyWith(color: theme.colorScheme.outline),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
           const SizedBox(height: 2),
           Container(
@@ -265,8 +358,71 @@ class _MessageBubble extends StatelessWidget {
               color: theme.colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: _buildContent(context),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Цитата-ответ (reply_preview, правки 2026-06-24)
+                if (msg.replyPreview != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(
+                          width: 3,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      color: theme.colorScheme.surfaceContainerHigh,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg.replyPreview!.senderName,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        Text(
+                          msg.replyPreview!.text,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                _buildContent(context),
+              ],
+            ),
           ),
+          if (msg.isPinned)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.push_pin,
+                    size: 12,
+                    color: theme.colorScheme.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'закреплено',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -301,8 +457,7 @@ class _PhotoContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _AuthImage(url: url),
-        if (msg.text.isNotEmpty &&
-            msg.metadata?['original_name'] != msg.text)
+        if (msg.text.isNotEmpty && msg.metadata?['original_name'] != msg.text)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(msg.text, style: const TextStyle(fontSize: 12)),
@@ -328,15 +483,16 @@ class _VideoContent extends StatelessWidget {
           child: InkWell(
             onTap: () {
               // Открыть во внешнем плеере — для v1 достаточно
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Видео: $url')),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text('Видео: $url')));
             },
             child: Text(
               msg.metadata?['original_name'] as String? ?? msg.text,
               style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  decoration: TextDecoration.underline),
+                color: Theme.of(context).colorScheme.primary,
+                decoration: TextDecoration.underline,
+              ),
             ),
           ),
         ),
@@ -357,9 +513,7 @@ class _DocumentContent extends StatelessWidget {
         const Icon(Icons.insert_drive_file_outlined, size: 32),
         const SizedBox(width: 8),
         Flexible(
-          child: Text(
-            msg.metadata?['original_name'] as String? ?? msg.text,
-          ),
+          child: Text(msg.metadata?['original_name'] as String? ?? msg.text),
         ),
       ],
     );
@@ -400,9 +554,17 @@ class _AuthImageState extends State<_AuthImage> {
       final name = widget.url.split('/').last;
       final file = File('${tmpDir.path}/$name');
       await file.writeAsBytes(resp.data!);
-      if (mounted) setState(() { _file = file; _loading = false; });
+      if (mounted)
+        setState(() {
+          _file = file;
+          _loading = false;
+        });
     } catch (_) {
-      if (mounted) setState(() { _loading = false; _error = true; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = true;
+        });
     }
   }
 
@@ -410,7 +572,8 @@ class _AuthImageState extends State<_AuthImage> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const SizedBox(
-        width: 200, height: 120,
+        width: 200,
+        height: 120,
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -461,8 +624,10 @@ class _ComposeBar extends StatelessWidget {
                 decoration: const InputDecoration(
                   hintText: 'Сообщение…',
                   border: OutlineInputBorder(),
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   counterText: '',
                 ),
               ),
@@ -472,9 +637,10 @@ class _ComposeBar extends StatelessWidget {
                 ? const Padding(
                     padding: EdgeInsets.all(12),
                     child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2)),
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   )
                 : IconButton(
                     icon: const Icon(Icons.send),
