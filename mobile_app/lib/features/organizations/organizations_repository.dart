@@ -23,6 +23,8 @@ class Organization {
     this.fnsStatus,
     this.directorName,
     this.creditAllowed = false,
+    this.creditLimit,
+    this.tariffId,
   });
 
   final String id;
@@ -42,26 +44,57 @@ class Organization {
   final String? fnsStatus;
   final String? directorName;
   final bool creditAllowed;
+  final double? creditLimit;
+  final String? tariffId;
 
   factory Organization.fromJson(Map<String, dynamic> json) => Organization(
-        id: (json['id'] as Object).toString(),
-        orgNumber: (json['org_number'] ?? 0) as int,
-        companyName: (json['company_name'] ?? '') as String,
-        inn: json['inn'] as String?,
-        kpp: json['kpp'] as String?,
-        ogrn: json['ogrn'] as String?,
-        legalAddress: json['legal_address'] as String?,
-        deliveryAddress: json['delivery_address'] as String?,
-        bankName: json['bank_name'] as String?,
-        bik: json['bik'] as String?,
-        bankAccount: json['bank_account'] as String?,
-        correspondentAccount: json['correspondent_account'] as String?,
-        contractNumber: json['contract_number'] as String?,
-        billingEmail: json['billing_email'] as String?,
-        fnsStatus: json['fns_status'] as String?,
-        directorName: json['director_name'] as String?,
-        creditAllowed: (json['credit_allowed'] ?? false) as bool,
-      );
+    id: (json['id'] as Object).toString(),
+    orgNumber: (json['org_number'] ?? 0) as int,
+    companyName: (json['company_name'] ?? '') as String,
+    inn: json['inn'] as String?,
+    kpp: json['kpp'] as String?,
+    ogrn: json['ogrn'] as String?,
+    legalAddress: json['legal_address'] as String?,
+    deliveryAddress: json['delivery_address'] as String?,
+    bankName: json['bank_name'] as String?,
+    bik: json['bik'] as String?,
+    bankAccount: json['bank_account'] as String?,
+    correspondentAccount: json['correspondent_account'] as String?,
+    contractNumber: json['contract_number'] as String?,
+    billingEmail: json['billing_email'] as String?,
+    fnsStatus: json['fns_status'] as String?,
+    directorName: json['director_name'] as String?,
+    creditAllowed: (json['credit_allowed'] ?? false) as bool,
+    creditLimit: json['credit_limit'] == null
+        ? null
+        : double.tryParse(json['credit_limit'].toString()),
+    tariffId: json['tariff_id']?.toString(),
+  );
+}
+
+/// Реквизиты из DaData по ИНН (веб lookup/inn).
+class InnLookup {
+  const InnLookup({
+    this.companyName,
+    this.kpp,
+    this.ogrn,
+    this.legalAddress,
+    this.directorName,
+  });
+
+  final String? companyName;
+  final String? kpp;
+  final String? ogrn;
+  final String? legalAddress;
+  final String? directorName;
+
+  factory InnLookup.fromJson(Map<String, dynamic> json) => InnLookup(
+    companyName: json['company_name'] as String?,
+    kpp: json['kpp'] as String?,
+    ogrn: json['ogrn'] as String?,
+    legalAddress: json['legal_address'] as String?,
+    directorName: json['director_name'] as String?,
+  );
 }
 
 /// Участник организации (OrganizationMemberResponse).
@@ -128,5 +161,53 @@ class OrganizationsRepository {
     return (resp.data as List)
         .map((e) => OrganizationMember.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Поиск реквизитов по ИНН через DaData (веб lookup/inn). Без авторизации,
+  /// но проходит через тот же dio. Возвращает null, если не найдено/ключа нет.
+  Future<InnLookup?> lookupInn(String inn) async {
+    final resp = await _dio.get(
+      '$_base/auth/lookup/inn',
+      queryParameters: {'inn': inn},
+    );
+    final data = resp.data as Map<String, dynamic>;
+    if (data['found'] != true || data['data'] == null) return null;
+    return InnLookup.fromJson(data['data'] as Map<String, dynamic>);
+  }
+
+  /// Создать организацию (клиент становится владельцем, веб promptCreateOrg).
+  /// ИНН обязателен; остальные поля можно дозаполнить.
+  Future<Organization> create(Map<String, dynamic> body) async {
+    final resp = await _dio.post('$_base/organizations', data: body);
+    return Organization.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Правка реквизитов (owner/admin, веб UpdateOrganizationRequest).
+  Future<Organization> update(String orgId, Map<String, dynamic> body) async {
+    final resp = await _dio.patch('$_base/organizations/$orgId', data: body);
+    return Organization.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Тариф/кредит (admin, веб submitOrgCommercial).
+  Future<Organization> updateCommercial(
+    String orgId, {
+    String? tariffId,
+    required bool creditAllowed,
+    double? creditLimit,
+  }) async {
+    final resp = await _dio.patch(
+      '$_base/organizations/$orgId/commercial',
+      data: {
+        'tariff_id': tariffId,
+        'credit_allowed': creditAllowed,
+        'credit_limit': creditLimit,
+      },
+    );
+    return Organization.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Архивировать организацию (owner/admin, веб archiveOrg).
+  Future<void> archive(String orgId) async {
+    await _dio.delete('$_base/organizations/$orgId');
   }
 }

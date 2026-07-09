@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../auth/auth_repository.dart';
 import '../contracts/contract_sheet.dart';
+import '../tariffs/tariffs_repository.dart';
 import 'organizations_repository.dart';
 
 /// Организации — «Мои организации» у клиента, «Организации» у staff
@@ -69,6 +70,352 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
     );
   }
 
+  bool get _isAdmin => widget.user.role == 'admin';
+  bool get _isClient => widget.user.role == 'client';
+
+  void _err(Object e) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+    }
+  }
+
+  /// Создание организации по ИНН с автозаполнением из DaData (веб promptCreateOrg).
+  Future<void> _createOrg() async {
+    final inn = TextEditingController();
+    final name = TextEditingController();
+    final kpp = TextEditingController();
+    final address = TextEditingController();
+    final bik = TextEditingController();
+    final account = TextEditingController();
+    bool looking = false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Новая организация'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: inn,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'ИНН *',
+                      helperText: 'Введите ИНН — реквизиты подтянутся из ФНС',
+                      suffixIcon: looking
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : IconButton(
+                              icon: const Icon(Icons.search),
+                              onPressed: () async {
+                                final v = inn.text.trim();
+                                if (v.length < 10) return;
+                                setD(() => looking = true);
+                                try {
+                                  final r = await OrganizationsRepository
+                                      .instance
+                                      .lookupInn(v);
+                                  if (r != null) {
+                                    name.text = r.companyName ?? name.text;
+                                    kpp.text = r.kpp ?? kpp.text;
+                                    address.text =
+                                        r.legalAddress ?? address.text;
+                                  } else if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Не найдено — заполните вручную',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                } on Object catch (e) {
+                                  _err(e);
+                                } finally {
+                                  setD(() => looking = false);
+                                }
+                              },
+                            ),
+                    ),
+                  ),
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Название'),
+                  ),
+                  TextField(
+                    controller: kpp,
+                    decoration: const InputDecoration(labelText: 'КПП'),
+                  ),
+                  TextField(
+                    controller: address,
+                    decoration: const InputDecoration(labelText: 'Юр. адрес'),
+                  ),
+                  TextField(
+                    controller: bik,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'БИК'),
+                  ),
+                  TextField(
+                    controller: account,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Расчётный счёт',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Создать'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (inn.text.trim().length < 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ИНН обязателен (10–12 цифр)')),
+      );
+      return;
+    }
+    String? orNull(TextEditingController c) =>
+        c.text.trim().isEmpty ? null : c.text.trim();
+    try {
+      await OrganizationsRepository.instance.create({
+        'inn': inn.text.trim(),
+        if (orNull(name) != null) 'company_name': orNull(name),
+        if (orNull(kpp) != null) 'kpp': orNull(kpp),
+        if (orNull(address) != null) 'legal_address': orNull(address),
+        if (orNull(bik) != null) 'bik': orNull(bik),
+        if (orNull(account) != null) 'bank_account': orNull(account),
+      });
+      _load();
+    } on Object catch (e) {
+      _err(e);
+    }
+  }
+
+  /// Правка реквизитов (owner/admin, веб UpdateOrganizationRequest).
+  Future<void> _editOrg(Organization o) async {
+    final name = TextEditingController(text: o.companyName);
+    final address = TextEditingController(text: o.legalAddress ?? '');
+    final bik = TextEditingController(text: o.bik ?? '');
+    final account = TextEditingController(text: o.bankAccount ?? '');
+    final email = TextEditingController(text: o.billingEmail ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Реквизиты организации'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Название'),
+                ),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'Юр. адрес'),
+                ),
+                TextField(
+                  controller: bik,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'БИК'),
+                ),
+                TextField(
+                  controller: account,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Расчётный счёт',
+                  ),
+                ),
+                TextField(
+                  controller: email,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email для счетов',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    String? orNull(TextEditingController c) =>
+        c.text.trim().isEmpty ? null : c.text.trim();
+    try {
+      await OrganizationsRepository.instance.update(o.id, {
+        'company_name': orNull(name),
+        'legal_address': orNull(address),
+        'bik': orNull(bik),
+        'bank_account': orNull(account),
+        'billing_email': orNull(email),
+      });
+      _load();
+    } on Object catch (e) {
+      _err(e);
+    }
+  }
+
+  /// Тариф/кредит (admin, веб submitOrgCommercial).
+  Future<void> _commercial(Organization o) async {
+    List<Tariff> tariffs = const [];
+    try {
+      tariffs = (await TariffsRepository.instance.list())
+          .where((t) => !t.isArchived)
+          .toList();
+    } on Object catch (_) {}
+    if (!mounted) return;
+    String? tariffId = o.tariffId;
+    bool credit = o.creditAllowed;
+    final limit = TextEditingController(
+      text: o.creditLimit?.toStringAsFixed(0) ?? '',
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Тариф / кредит — ${o.companyName}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String?>(
+                  initialValue: tariffs.any((t) => t.id == tariffId)
+                      ? tariffId
+                      : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Тариф'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('— базовый —'),
+                    ),
+                    for (final t in tariffs)
+                      DropdownMenuItem<String?>(
+                        value: t.id,
+                        child: Text(
+                          t.isDefault ? '${t.name} (базовый)' : t.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setD(() => tariffId = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: credit,
+                  onChanged: (v) => setD(() => credit = v),
+                  title: const Text('Разрешить оплату «В долг»'),
+                ),
+                TextField(
+                  controller: limit,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Кредитный лимит, ₽',
+                    hintText: 'пусто = без лимита',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await OrganizationsRepository.instance.updateCommercial(
+        o.id,
+        tariffId: tariffId,
+        creditAllowed: credit,
+        creditLimit: limit.text.trim().isEmpty
+            ? null
+            : double.tryParse(limit.text.trim().replaceAll(',', '.')),
+      );
+      _load();
+    } on Object catch (e) {
+      _err(e);
+    }
+  }
+
+  Future<void> _archive(Organization o) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Архивировать организацию?'),
+        content: Text(
+          'Организация «${o.companyName}» будет скрыта. Исторические '
+          'заявки и документы сохранятся.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('В архив'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await OrganizationsRepository.instance.archive(o.id);
+      _load();
+    } on Object catch (e) {
+      _err(e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -97,6 +444,19 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
                   onPressed: _openRegistry,
                 ),
               ],
+            ),
+          ),
+        // Клиент сам заводит организацию по ИНН (веб «+», promptCreateOrg).
+        if (_isClient)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _createOrg,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Добавить организацию'),
+              ),
             ),
           ),
         Expanded(
@@ -149,8 +509,12 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
                   itemBuilder: (context, i) => _OrgCard(
                     org: orgs[i],
                     isStaff: _isStaff,
+                    isAdmin: _isAdmin,
                     onMembers: () => _openMembers(orgs[i]),
                     onContract: () => _openContract(orgs[i]),
+                    onEdit: () => _editOrg(orgs[i]),
+                    onCommercial: _isAdmin ? () => _commercial(orgs[i]) : null,
+                    onArchive: () => _archive(orgs[i]),
                   ),
                 );
               },
@@ -166,14 +530,22 @@ class _OrgCard extends StatelessWidget {
   const _OrgCard({
     required this.org,
     required this.isStaff,
+    required this.isAdmin,
     required this.onMembers,
     required this.onContract,
+    required this.onEdit,
+    required this.onArchive,
+    this.onCommercial,
   });
 
   final Organization org;
   final bool isStaff;
+  final bool isAdmin;
   final VoidCallback onMembers;
   final VoidCallback onContract;
+  final VoidCallback onEdit;
+  final VoidCallback onArchive;
+  final VoidCallback? onCommercial;
 
   @override
   Widget build(BuildContext context) {
@@ -223,13 +595,17 @@ class _OrgCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  org.creditAllowed ? '✓ кредит разрешён' : 'без кредита',
+                  (org.creditAllowed ? '✓ кредит разрешён' : 'без кредита') +
+                      (org.creditLimit != null
+                          ? ' · лимит ${org.creditLimit!.toStringAsFixed(0)} ₽'
+                          : ''),
                   style: muted,
                 ),
               ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
+              runSpacing: 4,
               children: [
                 OutlinedButton(
                   onPressed: onMembers,
@@ -245,6 +621,32 @@ class _OrgCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                   ),
                   child: const Text('Договор'),
+                ),
+                // Реквизиты — owner/admin (веб UpdateOrganizationRequest)
+                OutlinedButton(
+                  onPressed: onEdit,
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Реквизиты'),
+                ),
+                // Тариф/кредит — только admin (веб submitOrgCommercial)
+                if (onCommercial != null)
+                  OutlinedButton(
+                    onPressed: onCommercial,
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text('Тариф/кредит'),
+                  ),
+                // Архивировать — owner/admin (веб archiveOrg)
+                TextButton(
+                  onPressed: onArchive,
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: theme.colorScheme.error,
+                  ),
+                  child: const Text('Архив'),
                 ),
               ],
             ),
