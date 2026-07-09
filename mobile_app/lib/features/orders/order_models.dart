@@ -43,32 +43,32 @@ class Order {
   bool get isIndividual => orderKind == 'individual';
 
   factory Order.fromJson(Map<String, dynamic> json) => Order(
-        id: json['id'] as String,
-        orderNumber: json['order_number'] as String,
-        orderKind: (json['order_kind'] ?? '') as String,
-        fuelType: json['fuel_type'] as String,
-        volumeRequested: (json['volume_requested'] as num).toDouble(),
-        deliveryAddress: json['delivery_address'] as String,
-        status: json['status'] as String,
-        paymentStatus: (json['payment_status'] ?? '') as String,
-        pendingDriverAck: (json['pending_driver_ack'] ?? false) as bool,
-        driverId: json['driver_id'] as String?,
-        expectedAmount: json['expected_amount'] == null
-            ? null
-            : double.tryParse(json['expected_amount'].toString()),
-        finalAmount: json['final_amount'] == null
-            ? null
-            : double.tryParse(json['final_amount'].toString()),
-        desiredDate: json['desired_date'] == null
-            ? null
-            : DateTime.tryParse(json['desired_date'] as String),
-        createdAt: json['created_at'] == null
-            ? null
-            : DateTime.tryParse(json['created_at'] as String),
-        clientComment: json['client_comment'] as String?,
-        managerComment: json['manager_comment'] as String?,
-        buyerName: json['buyer_name'] as String?,
-      );
+    id: json['id'] as String,
+    orderNumber: json['order_number'] as String,
+    orderKind: (json['order_kind'] ?? '') as String,
+    fuelType: json['fuel_type'] as String,
+    volumeRequested: (json['volume_requested'] as num).toDouble(),
+    deliveryAddress: json['delivery_address'] as String,
+    status: json['status'] as String,
+    paymentStatus: (json['payment_status'] ?? '') as String,
+    pendingDriverAck: (json['pending_driver_ack'] ?? false) as bool,
+    driverId: json['driver_id'] as String?,
+    expectedAmount: json['expected_amount'] == null
+        ? null
+        : double.tryParse(json['expected_amount'].toString()),
+    finalAmount: json['final_amount'] == null
+        ? null
+        : double.tryParse(json['final_amount'].toString()),
+    desiredDate: json['desired_date'] == null
+        ? null
+        : DateTime.tryParse(json['desired_date'] as String),
+    createdAt: json['created_at'] == null
+        ? null
+        : DateTime.tryParse(json['created_at'] as String),
+    clientComment: json['client_comment'] as String?,
+    managerComment: json['manager_comment'] as String?,
+    buyerName: json['buyer_name'] as String?,
+  );
 }
 
 /// Статусы — подписи и цвета 1:1 с вебом (STATUS_LABELS + --s-* переменные
@@ -121,6 +121,7 @@ class OrderDetail extends Order {
     super.buyerName,
     this.clientId,
     this.managerId,
+    this.organizationId,
     this.volumeDelivered,
     this.contactPersonName,
     this.contactPersonPhone,
@@ -139,6 +140,7 @@ class OrderDetail extends Order {
 
   final String? clientId;
   final String? managerId;
+  final String? organizationId; // заказчик-юрлицо (смена заказчика)
   final double? volumeDelivered;
   final String? contactPersonName;
   final String? contactPersonPhone;
@@ -155,62 +157,57 @@ class OrderDetail extends Order {
   final List<String> pendingChangedFields;
 
   factory OrderDetail.fromJson(Map<String, dynamic> json) => OrderDetail(
-        id: json['id'] as String,
-        orderNumber: json['order_number'] as String,
-        orderKind: (json['order_kind'] ?? '') as String,
-        fuelType: json['fuel_type'] as String,
-        volumeRequested:
-            (json['volume_requested'] as num).toDouble(),
-        deliveryAddress: json['delivery_address'] as String,
-        status: json['status'] as String,
-        paymentStatus: (json['payment_status'] ?? '') as String,
-        pendingDriverAck:
-            (json['pending_driver_ack'] ?? false) as bool,
-        driverId: json['driver_id'] as String?,
-        expectedAmount: json['expected_amount'] == null
-            ? null
-            : double.tryParse(json['expected_amount'].toString()),
-        finalAmount: json['final_amount'] == null
-            ? null
-            : double.tryParse(json['final_amount'].toString()),
-        desiredDate: json['desired_date'] == null
-            ? null
-            : DateTime.tryParse(json['desired_date'] as String),
-        createdAt: json['created_at'] == null
-            ? null
-            : DateTime.tryParse(json['created_at'] as String),
-        clientComment: json['client_comment'] as String?,
-        managerComment: json['manager_comment'] as String?,
-        buyerName: json['buyer_name'] as String?,
-        clientId: json['client_id'] as String?,
-        managerId: json['manager_id'] as String?,
-        volumeDelivered: json['volume_delivered'] == null
-            ? null
-            : (json['volume_delivered'] as num).toDouble(),
-        contactPersonName: json['contact_person_name'] as String?,
-        contactPersonPhone: json['contact_person_phone'] as String?,
-        ttnNumber: json['ttn_number'] as String?,
-        paymentType: json['payment_type'] as String?,
-        rejectionReason: json['rejection_reason'] as String?,
-        deliveryZoneName: json['delivery_zone_name'] as String?,
-        deliveryCost: json['delivery_cost'] == null
-            ? null
-            : double.tryParse(json['delivery_cost'].toString()),
-        paidTotal: (json['paid_total'] as num? ?? 0).toDouble(),
-        debtAmount: (json['debt_amount'] as num? ?? 0).toDouble(),
-        allowDeliveryUnpaid:
-            (json['allow_delivery_unpaid'] ?? false) as bool,
-        pricingWarning:
-            (json['pricing_warning'] ?? false) as bool,
-        statusLogs: (json['status_logs'] as List? ?? [])
-            .map((e) =>
-                OrderStatusLog.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        pendingChangedFields:
-            (json['pending_changed_fields'] as List? ?? [])
-                .map((e) => e as String)
-                .toList(),
-      );
+    id: json['id'] as String,
+    orderNumber: json['order_number'] as String,
+    orderKind: (json['order_kind'] ?? '') as String,
+    fuelType: json['fuel_type'] as String,
+    volumeRequested: (json['volume_requested'] as num).toDouble(),
+    deliveryAddress: json['delivery_address'] as String,
+    status: json['status'] as String,
+    paymentStatus: (json['payment_status'] ?? '') as String,
+    pendingDriverAck: (json['pending_driver_ack'] ?? false) as bool,
+    driverId: json['driver_id'] as String?,
+    expectedAmount: json['expected_amount'] == null
+        ? null
+        : double.tryParse(json['expected_amount'].toString()),
+    finalAmount: json['final_amount'] == null
+        ? null
+        : double.tryParse(json['final_amount'].toString()),
+    desiredDate: json['desired_date'] == null
+        ? null
+        : DateTime.tryParse(json['desired_date'] as String),
+    createdAt: json['created_at'] == null
+        ? null
+        : DateTime.tryParse(json['created_at'] as String),
+    clientComment: json['client_comment'] as String?,
+    managerComment: json['manager_comment'] as String?,
+    buyerName: json['buyer_name'] as String?,
+    clientId: json['client_id'] as String?,
+    managerId: json['manager_id'] as String?,
+    organizationId: json['organization_id'] as String?,
+    volumeDelivered: json['volume_delivered'] == null
+        ? null
+        : (json['volume_delivered'] as num).toDouble(),
+    contactPersonName: json['contact_person_name'] as String?,
+    contactPersonPhone: json['contact_person_phone'] as String?,
+    ttnNumber: json['ttn_number'] as String?,
+    paymentType: json['payment_type'] as String?,
+    rejectionReason: json['rejection_reason'] as String?,
+    deliveryZoneName: json['delivery_zone_name'] as String?,
+    deliveryCost: json['delivery_cost'] == null
+        ? null
+        : double.tryParse(json['delivery_cost'].toString()),
+    paidTotal: (json['paid_total'] as num? ?? 0).toDouble(),
+    debtAmount: (json['debt_amount'] as num? ?? 0).toDouble(),
+    allowDeliveryUnpaid: (json['allow_delivery_unpaid'] ?? false) as bool,
+    pricingWarning: (json['pricing_warning'] ?? false) as bool,
+    statusLogs: (json['status_logs'] as List? ?? [])
+        .map((e) => OrderStatusLog.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    pendingChangedFields: (json['pending_changed_fields'] as List? ?? [])
+        .map((e) => e as String)
+        .toList(),
+  );
 }
 
 /// Запись журнала смены статуса (OrderStatusLogResponse).
@@ -231,17 +228,16 @@ class OrderStatusLog {
   final String? comment;
   final DateTime? createdAt;
 
-  factory OrderStatusLog.fromJson(Map<String, dynamic> json) =>
-      OrderStatusLog(
-        id: json['id'] as String,
-        fromStatus: json['from_status'] as String?,
-        toStatus: json['to_status'] as String,
-        changedByRole: json['changed_by_role'] as String?,
-        comment: json['comment'] as String?,
-        createdAt: json['created_at'] == null
-            ? null
-            : DateTime.tryParse(json['created_at'] as String),
-      );
+  factory OrderStatusLog.fromJson(Map<String, dynamic> json) => OrderStatusLog(
+    id: json['id'] as String,
+    fromStatus: json['from_status'] as String?,
+    toStatus: json['to_status'] as String,
+    changedByRole: json['changed_by_role'] as String?,
+    comment: json['comment'] as String?,
+    createdAt: json['created_at'] == null
+        ? null
+        : DateTime.tryParse(json['created_at'] as String),
+  );
 }
 
 /// Документ по заявке (DocumentResponse).
@@ -266,23 +262,20 @@ class OrderDocument {
   final double? volume;
   final DateTime? issuedAt;
 
-  factory OrderDocument.fromJson(Map<String, dynamic> json) =>
-      OrderDocument(
-        id: json['id'] as String,
-        orderId: json['order_id'] as String,
-        docType: json['doc_type'] as String,
-        docNumber: json['doc_number'] as String,
-        status: json['status'] as String,
-        totalAmount: json['total_amount'] == null
-            ? null
-            : (json['total_amount'] as num).toDouble(),
-        volume: json['volume'] == null
-            ? null
-            : (json['volume'] as num).toDouble(),
-        issuedAt: json['issued_at'] == null
-            ? null
-            : DateTime.tryParse(json['issued_at'] as String),
-      );
+  factory OrderDocument.fromJson(Map<String, dynamic> json) => OrderDocument(
+    id: json['id'] as String,
+    orderId: json['order_id'] as String,
+    docType: json['doc_type'] as String,
+    docNumber: json['doc_number'] as String,
+    status: json['status'] as String,
+    totalAmount: json['total_amount'] == null
+        ? null
+        : (json['total_amount'] as num).toDouble(),
+    volume: json['volume'] == null ? null : (json['volume'] as num).toDouble(),
+    issuedAt: json['issued_at'] == null
+        ? null
+        : DateTime.tryParse(json['issued_at'] as String),
+  );
 }
 
 /// Кэш каталога топлива: code → label («ДТ-Л К5» вместо diesel_summer).
@@ -315,8 +308,8 @@ class FuelType {
   final bool isWinter;
 
   factory FuelType.fromJson(Map<String, dynamic> json) => FuelType(
-        code: json['code'] as String,
-        label: json['label'] as String,
-        isWinter: (json['is_winter'] ?? false) as bool,
-      );
+    code: json['code'] as String,
+    label: json['label'] as String,
+    isWinter: (json['is_winter'] ?? false) as bool,
+  );
 }

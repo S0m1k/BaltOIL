@@ -5,6 +5,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../common/copyable_phone.dart';
+import '../organizations/organizations_repository.dart';
 import 'order_create_screen.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
@@ -80,6 +81,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   bool get _isStaff =>
       widget.user.role == 'manager' || widget.user.role == 'admin';
+  bool get _isClient => widget.user.role == 'client';
+
+  // Документы видны staff и клиенту, но только для НЕ-физлиц (веб 4662):
+  // order_kind != 'individual'. Загружаются после получения детали.
+  bool _docsAllowed(OrderDetail o) =>
+      (_isStaff || _isClient) && o.orderKind != 'individual';
 
   @override
   void initState() {
@@ -91,19 +98,28 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final f = OrdersRepository.instance.getDetail(widget.orderId);
     setState(() {
       _future = f;
-      if (_isStaff) {
-        _docsFuture =
-            OrdersRepository.instance.listDocuments(widget.orderId);
-      }
     });
+    // Документы грузим после детали — их видимость зависит от order_kind.
+    f
+        .then((order) {
+          if (mounted && _docsAllowed(order)) {
+            setState(() {
+              _docsFuture = OrdersRepository.instance.listDocuments(
+                widget.orderId,
+              );
+            });
+          }
+        })
+        .catchError((_) {});
   }
 
   void _reload() => _load();
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -121,13 +137,251 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   Future<void> _approve(OrderDetail order) => _run(() async {
-        await OrdersRepository.instance.transition(
-          order.id,
-          'new',
-          comment: 'Заявка согласована менеджером',
-        );
+    await OrdersRepository.instance.transition(
+      order.id,
+      'new',
+      comment: 'Заявка согласована менеджером',
+    );
+    _reload();
+  });
+
+  // ── Inline-правки staff (веб _editPencilStaff / promptEditOrderField) ──────
+  // Доступно только для статусов new/awaiting_manager/accepted.
+  bool _staffEditable(OrderDetail o) =>
+      _isStaff &&
+      const ['new', 'awaiting_manager', 'accepted'].contains(o.status);
+
+  Future<void> _patchAndReload(String id, Map<String, dynamic> body) =>
+      _run(() async {
+        await OrdersRepository.instance.patch(id, body);
+        _snack('Заявка обновлена');
         _reload();
       });
+
+  /// Правка простого числового/текстового поля (объём, адрес, стоимость).
+  Future<void> _editField(
+    OrderDetail o, {
+    required String title,
+    required String field,
+    required String initial,
+    bool number = false,
+    String? hint,
+  }) async {
+    final ctrl = TextEditingController(text: initial);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: number
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.text,
+          decoration: InputDecoration(hintText: hint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final raw = ctrl.text.trim();
+    dynamic value;
+    if (number) {
+      final v = double.tryParse(raw.replaceAll(',', '.'));
+      if (v == null || v < 0) {
+        _snack('Некорректное число');
+        return;
+      }
+      if (field == 'volume_requested' && v <= 0) {
+        _snack('Укажите объём');
+        return;
+      }
+      value = v;
+    } else {
+      if (raw.isEmpty) {
+        _snack('Укажите значение');
+        return;
+      }
+      value = raw;
+    }
+    await _patchAndReload(o.id, {field: value});
+  }
+
+  /// Правка стоимости топлива: бэк хранит бандл expected_amount = топливо+доставка.
+  Future<void> _editFuelCost(OrderDetail o) async {
+    final fuel = o.expectedAmount == null
+        ? ''
+        : (o.expectedAmount! - (o.deliveryCost ?? 0)).toStringAsFixed(0);
+    final ctrl = TextEditingController(text: fuel);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Стоимость топлива'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            hintText: '0',
+            helperText:
+                'Без доставки (${_fmtNum(o.deliveryCost ?? 0)} ₽). Счёт '
+                'перевыпустится с тем же номером.',
+            helperMaxLines: 3,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final v = double.tryParse(ctrl.text.trim().replaceAll(',', '.'));
+    if (v == null || v < 0) {
+      _snack('Некорректное число');
+      return;
+    }
+    await _patchAndReload(o.id, {'expected_amount': v + (o.deliveryCost ?? 0)});
+  }
+
+  Future<void> _editDesiredDate(OrderDetail o) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: o.desiredDate ?? DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (picked == null) return;
+    await _patchAndReload(o.id, {
+      'desired_date': picked.toIso8601String().substring(0, 10),
+    });
+  }
+
+  Future<void> _editFuelType(OrderDetail o) async {
+    List<FuelType> fuels;
+    try {
+      fuels = await OrdersRepository.instance.fuelTypes();
+    } on Object catch (e) {
+      _snack(apiErrorMessage(e));
+      return;
+    }
+    if (!mounted) return;
+    String sel = o.fuelType;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Изменить вид топлива'),
+          content: DropdownButtonFormField<String>(
+            initialValue: fuels.any((f) => f.code == sel) ? sel : null,
+            isExpanded: true,
+            items: [
+              for (final f in fuels)
+                DropdownMenuItem(value: f.code, child: Text(f.label)),
+            ],
+            onChanged: (v) => setD(() => sel = v ?? sel),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await _patchAndReload(o.id, {'fuel_type': sel});
+  }
+
+  /// Смена заказчика (веб promptEditOrderOrganization): организации клиента.
+  Future<void> _changeCustomer(OrderDetail o) async {
+    if (o.clientId == null) return;
+    List<Organization> orgs;
+    try {
+      orgs = await OrganizationsRepository.instance.list(
+        userId: _isStaff ? o.clientId : null,
+      );
+    } on Object catch (e) {
+      _snack(apiErrorMessage(e));
+      return;
+    }
+    if (!mounted) return;
+    String? sel = o.organizationId;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Сменить заказчика · ${o.orderNumber}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String?>(
+                initialValue: orgs.any((org) => org.id == sel) ? sel : null,
+                isExpanded: true,
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Физлицо'),
+                  ),
+                  for (final org in orgs)
+                    DropdownMenuItem<String?>(
+                      value: org.id,
+                      child: Text(
+                        org.inn == null
+                            ? org.companyName
+                            : '${org.companyName} (ИНН ${org.inn})',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (v) => setD(() => sel = v),
+              ),
+              if (orgs.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'У клиента нет организаций — доступно только «Физлицо».',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await _patchAndReload(o.id, {'organization_id': sel});
+  }
 
   Future<void> _cancelOrder(OrderDetail order) async {
     final commentCtrl = TextEditingController();
@@ -159,8 +413,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       await OrdersRepository.instance.transition(
         order.id,
         'cancelled',
-        comment:
-            commentCtrl.text.isNotEmpty ? commentCtrl.text : null,
+        comment: commentCtrl.text.isNotEmpty ? commentCtrl.text : null,
       );
       _reload();
     });
@@ -178,16 +431,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
     if (picked == null) return;
     await _run(() async {
-      await OrdersRepository.instance
-          .reschedule(order.id, desiredDate: picked);
+      await OrdersRepository.instance.reschedule(order.id, desiredDate: picked);
       _reload();
     });
   }
 
   Future<void> _recordPaymentManager(OrderDetail order) async {
     final debtAmount = order.debtAmount;
-    final amountCtrl =
-        TextEditingController(text: debtAmount.toStringAsFixed(0));
+    final amountCtrl = TextEditingController(
+      text: debtAmount.toStringAsFixed(0),
+    );
     String method = 'cash';
     const methodLabels = {
       'cash': 'Наличные',
@@ -209,8 +462,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   padding: const EdgeInsets.all(10),
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                    color:
-                        const Color(0xFFD97706).withValues(alpha: 0.12),
+                    color: const Color(0xFFD97706).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -235,13 +487,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 initialValue: method,
                 items: [
                   for (final e in methodLabels.entries)
-                    DropdownMenuItem(
-                      value: e.key,
-                      child: Text(e.value),
-                    ),
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
                 ],
-                onChanged: (v) =>
-                    setDialogState(() => method = v ?? 'cash'),
+                onChanged: (v) => setDialogState(() => method = v ?? 'cash'),
                 decoration: const InputDecoration(
                   labelText: 'Метод оплаты *',
                   border: OutlineInputBorder(),
@@ -263,8 +511,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       ),
     );
     if (confirmed != true) return;
-    final amount =
-        double.tryParse(amountCtrl.text.replaceAll(',', '.'));
+    final amount = double.tryParse(amountCtrl.text.replaceAll(',', '.'));
     if (amount == null || amount <= 0) {
       _snack('Некорректная сумма — оплата не записана');
       return;
@@ -283,22 +530,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   // Driver actions (reusing same repo calls as driver_orders_screen)
 
   Future<void> _driverClaim(OrderDetail order) => _run(() async {
-        await OrdersRepository.instance.claim(order.id);
-        _snack('Заявка №${order.orderNumber} принята');
-        _reload();
-      });
+    await OrdersRepository.instance.claim(order.id);
+    _snack('Заявка №${order.orderNumber} принята');
+    _reload();
+  });
 
   Future<void> _driverAccept(OrderDetail order) => _run(() async {
-        await OrdersRepository.instance.accept(order.id);
-        _snack('Заявка принята');
-        _reload();
-      });
+    await OrdersRepository.instance.accept(order.id);
+    _snack('Заявка принята');
+    _reload();
+  });
 
   Future<void> _driverAck(OrderDetail order) => _run(() async {
-        await OrdersRepository.instance.ackChanges(order.id);
-        _snack('Изменения подтверждены');
-        _reload();
-      });
+    await OrdersRepository.instance.ackChanges(order.id);
+    _snack('Изменения подтверждены');
+    _reload();
+  });
 
   Future<void> _driverDeliver(OrderDetail order) async {
     final confirmed = await showDialog<bool>(
@@ -323,8 +570,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
     if (confirmed != true) return;
     await _run(() async {
-      final delivered =
-          await OrdersRepository.instance.markDelivered(order.id);
+      final delivered = await OrdersRepository.instance.markDelivered(order.id);
       if (!mounted) return;
       _snack('Статус изменён → Доставлена');
       if (delivered.isIndividual) {
@@ -336,8 +582,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   Future<void> _showDriverPaymentDialog(Order order) async {
     final expected = order.finalAmount ?? order.expectedAmount ?? 0;
-    final amountCtrl =
-        TextEditingController(text: expected.toStringAsFixed(0));
+    final amountCtrl = TextEditingController(text: expected.toStringAsFixed(0));
     String method = 'cash';
     const methodLabels = {
       'cash': 'Наличные',
@@ -383,13 +628,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 initialValue: method,
                 items: [
                   for (final e in methodLabels.entries)
-                    DropdownMenuItem(
-                      value: e.key,
-                      child: Text(e.value),
-                    ),
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
                 ],
-                onChanged: (v) =>
-                    setDialogState(() => method = v ?? 'cash'),
+                onChanged: (v) => setDialogState(() => method = v ?? 'cash'),
                 decoration: const InputDecoration(
                   labelText: 'Метод оплаты *',
                   border: OutlineInputBorder(),
@@ -411,8 +652,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       ),
     );
     if (confirmed != true) return;
-    final amount =
-        double.tryParse(amountCtrl.text.replaceAll(',', '.'));
+    final amount = double.tryParse(amountCtrl.text.replaceAll(',', '.'));
     if (amount == null || amount <= 0) {
       _snack('Некорректная сумма — оплата не записана');
       return;
@@ -482,11 +722,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  Widget _buildBody(
-    BuildContext context,
-    OrderDetail order,
-    AppColors c,
-  ) {
+  Widget _buildBody(BuildContext context, OrderDetail order, AppColors c) {
     return RefreshIndicator(
       onRefresh: () async => _reload(),
       child: ListView(
@@ -501,7 +737,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           _buildActionBar(context, order, c),
           const SizedBox(height: 16),
           _buildTimeline(context, order, c),
-          if (_isStaff) ...[
+          if (_docsAllowed(order)) ...[
             const SizedBox(height: 16),
             _buildDocuments(context, order, c),
           ],
@@ -512,11 +748,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   // ── Header (order number + status chip) ──────────────────────────────────
 
-  Widget _buildHeader(
-    BuildContext context,
-    OrderDetail order,
-    AppColors c,
-  ) {
+  Widget _buildHeader(BuildContext context, OrderDetail order, AppColors c) {
     final statusColor = c.statusColor(order.status);
     final label = kStatusLabels[order.status] ?? order.status;
     return Row(
@@ -544,163 +776,213 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     AppColors c,
   ) {
     final isDriver = widget.user.role == 'driver';
-    final driverHidesMoney =
-        isDriver && order.orderKind != 'individual';
+    final driverHidesMoney = isDriver && order.orderKind != 'individual';
 
     final rows = <_DetailRow>[];
 
     if (_isStaff) {
-      rows.add(_DetailRow(
-        label: 'ID заявки',
-        child: _UuidCell(value: order.id, onSnack: _snack),
-      ));
+      rows.add(
+        _DetailRow(
+          label: 'ID заявки',
+          child: _UuidCell(value: order.id, onSnack: _snack),
+        ),
+      );
       if (order.clientId != null) {
-        rows.add(_DetailRow(
-          label: 'Клиент (ID)',
-          child:
-              _UuidCell(value: order.clientId!, onSnack: _snack),
-        ));
+        rows.add(
+          _DetailRow(
+            label: 'Клиент (ID)',
+            child: _UuidCell(value: order.clientId!, onSnack: _snack),
+          ),
+        );
       }
     }
 
+    final canEdit = _staffEditable(order);
+
     // Заказчик — имя организации/клиента, как на вебе (d29807a).
     if (order.buyerName != null || _isStaff) {
-      rows.add(_DetailRow(
-        label: 'Заказчик',
-        text: order.buyerName ?? 'Физлицо',
-      ));
+      rows.add(
+        _DetailRow(
+          label: 'Заказчик',
+          text: order.buyerName ?? 'Физлицо',
+          onEdit: canEdit ? () => _changeCustomer(order) : null,
+        ),
+      );
     }
 
-    rows.add(_DetailRow(
-      label: 'Топливо',
-      text: FuelCatalog.label(order.fuelType),
-    ));
+    rows.add(
+      _DetailRow(
+        label: 'Топливо',
+        text: FuelCatalog.label(order.fuelType),
+        onEdit: canEdit ? () => _editFuelType(order) : null,
+      ),
+    );
 
-    rows.add(_DetailRow(
-      label: 'Объём заказан',
-      text:
-          '${_fmtNum(order.volumeRequested)} л',
-    ));
+    rows.add(
+      _DetailRow(
+        label: 'Объём заказан',
+        text: '${_fmtNum(order.volumeRequested)} л',
+        onEdit: canEdit
+            ? () => _editField(
+                order,
+                title: 'Изменить объём',
+                field: 'volume_requested',
+                initial: order.volumeRequested.toStringAsFixed(0),
+                number: true,
+                hint: 'литры',
+              )
+            : null,
+      ),
+    );
 
     if (order.volumeDelivered != null) {
-      rows.add(_DetailRow(
-        label: 'Объём доставлен',
-        text: '${_fmtNum(order.volumeDelivered!)} л',
-      ));
-    }
-
-    rows.add(_DetailRow(
-      label: 'Адрес доставки',
-      text: order.deliveryAddress,
-    ));
-
-    if (order.deliveryZoneName != null &&
-        order.deliveryZoneName!.isNotEmpty) {
-      rows.add(_DetailRow(
-        label: 'Зона доставки',
-        text: order.deliveryZoneName!,
-      ));
-    }
-
-    if (order.deliveryCost != null) {
-      rows.add(_DetailRow(
-        label: 'Стоимость доставки',
-        text: '${_fmtNum(order.deliveryCost!)} ₽',
-      ));
-    }
-
-    rows.add(_DetailRow(
-      label: 'Желаемая дата',
-      text: order.desiredDate != null
-          ? _fmtDate(order.desiredDate!)
-          : '—',
-    ));
-
-    if (order.contactPersonName != null ||
-        order.contactPersonPhone != null) {
-      rows.add(_DetailRow(
-        label: 'Контакт для приёмки',
-        child: _ContactCell(
-          name: order.contactPersonName,
-          phone: order.contactPersonPhone,
-          accentColor: c.accent,
-          onSnack: _snack,
+      rows.add(
+        _DetailRow(
+          label: 'Объём доставлен',
+          text: '${_fmtNum(order.volumeDelivered!)} л',
         ),
-      ));
+      );
+    }
+
+    rows.add(
+      _DetailRow(
+        label: 'Адрес доставки',
+        text: order.deliveryAddress,
+        onEdit: canEdit
+            ? () => _editField(
+                order,
+                title: 'Изменить адрес доставки',
+                field: 'delivery_address',
+                initial: order.deliveryAddress,
+              )
+            : null,
+      ),
+    );
+
+    if (order.deliveryZoneName != null && order.deliveryZoneName!.isNotEmpty) {
+      rows.add(
+        _DetailRow(label: 'Зона доставки', text: order.deliveryZoneName!),
+      );
+    }
+
+    // Стоимость доставки: staff видит/правит даже когда пусто (веб _editPencilStaff).
+    if (order.deliveryCost != null || canEdit) {
+      rows.add(
+        _DetailRow(
+          label: 'Стоимость доставки',
+          text: order.deliveryCost != null
+              ? '${_fmtNum(order.deliveryCost!)} ₽'
+              : '—',
+          onEdit: canEdit
+              ? () => _editField(
+                  order,
+                  title: 'Изменить стоимость доставки',
+                  field: 'delivery_cost',
+                  initial: order.deliveryCost?.toStringAsFixed(0) ?? '',
+                  number: true,
+                  hint: '₽ (например, при переадресации на 2 адреса)',
+                )
+              : null,
+        ),
+      );
+    }
+
+    rows.add(
+      _DetailRow(
+        label: 'Желаемая дата',
+        text: order.desiredDate != null ? _fmtDate(order.desiredDate!) : '—',
+        onEdit: canEdit ? () => _editDesiredDate(order) : null,
+      ),
+    );
+
+    if (order.contactPersonName != null || order.contactPersonPhone != null) {
+      rows.add(
+        _DetailRow(
+          label: 'Контакт для приёмки',
+          child: _ContactCell(
+            name: order.contactPersonName,
+            phone: order.contactPersonPhone,
+            accentColor: c.accent,
+            onSnack: _snack,
+          ),
+        ),
+      );
     }
 
     if (_isStaff && order.ttnNumber != null) {
-      rows.add(_DetailRow(
-        label: 'Номер ТТН',
-        child: Text(
-          order.ttnNumber!,
-          style: const TextStyle(fontFamily: 'monospace'),
+      rows.add(
+        _DetailRow(
+          label: 'Номер ТТН',
+          child: Text(
+            order.ttnNumber!,
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
         ),
-      ));
+      );
     }
 
     if (!driverHidesMoney && order.paymentType != null) {
-      rows.add(_DetailRow(
-        label: 'Оплата',
-        text: _kPaymentLabels[order.paymentType!] ??
-            order.paymentType!,
-      ));
+      rows.add(
+        _DetailRow(
+          label: 'Оплата',
+          text: _kPaymentLabels[order.paymentType!] ?? order.paymentType!,
+        ),
+      );
     }
 
     if (!driverHidesMoney &&
         (order.expectedAmount != null || order.finalAmount != null)) {
       final parts = <String>[];
       if (order.expectedAmount != null) {
-        parts.add(
-            'Ожидалось: ${_fmtMoney(order.expectedAmount!)} ₽');
+        parts.add('Ожидалось: ${_fmtMoney(order.expectedAmount!)} ₽');
       }
       if (order.finalAmount != null) {
         parts.add('Факт: ${_fmtMoney(order.finalAmount!)} ₽');
       }
-      rows.add(_DetailRow(
-        label: 'Суммы',
-        text: parts.join('  '),
-      ));
+      rows.add(
+        _DetailRow(
+          label: 'Суммы',
+          text: parts.join('  '),
+          // Правка стоимости топлива (без доставки) — например скидка клиенту.
+          onEdit: canEdit ? () => _editFuelCost(order) : null,
+        ),
+      );
     }
 
     if (_isStaff && order.driverId != null) {
-      rows.add(_DetailRow(
-        label: 'Водитель (ID)',
-        child:
-            _UuidCell(value: order.driverId!, onSnack: _snack),
-      ));
+      rows.add(
+        _DetailRow(
+          label: 'Водитель (ID)',
+          child: _UuidCell(value: order.driverId!, onSnack: _snack),
+        ),
+      );
     }
 
     if (order.clientComment?.isNotEmpty == true) {
-      rows.add(_DetailRow(
-        label: 'Комментарий клиента',
-        text: order.clientComment!,
-      ));
+      rows.add(
+        _DetailRow(label: 'Комментарий клиента', text: order.clientComment!),
+      );
     }
 
     if (order.managerComment?.isNotEmpty == true) {
-      rows.add(_DetailRow(
-        label: 'Комментарий менеджера',
-        text: order.managerComment!,
-      ));
+      rows.add(
+        _DetailRow(label: 'Комментарий менеджера', text: order.managerComment!),
+      );
     }
 
     if (order.rejectionReason?.isNotEmpty == true) {
-      rows.add(_DetailRow(
-        label: 'Причина отклонения',
-        child: Text(
-          order.rejectionReason!,
-          style: TextStyle(color: c.red),
+      rows.add(
+        _DetailRow(
+          label: 'Причина отклонения',
+          child: Text(order.rejectionReason!, style: TextStyle(color: c.red)),
         ),
-      ));
+      );
     }
 
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: rows
-            .map((r) => _DetailsGridRow(row: r, colors: c))
-            .toList(),
+        children: rows.map((r) => _DetailsGridRow(row: r, colors: c)).toList(),
       ),
     );
   }
@@ -726,7 +1008,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final psColor = isPaid ? c.green : c.red;
 
     final isClient = widget.user.role == 'client';
-    final showUnpaidAlert = isClient &&
+    final showUnpaidAlert =
+        isClient &&
         !isPaid &&
         !order.allowDeliveryUnpaid &&
         order.orderKind != 'ttn_l' &&
@@ -745,9 +1028,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   children: [
                     _MoneyChip(
                       label: 'Ожидается',
-                      value: target != null
-                          ? '${_fmtMoney(target)} ₽'
-                          : '—',
+                      value: target != null ? '${_fmtMoney(target)} ₽' : '—',
                       colors: c,
                     ),
                     _MoneyChip(
@@ -767,8 +1048,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(color: psColor),
                   borderRadius: BorderRadius.circular(12),
@@ -841,11 +1124,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   // ── Action bar ───────────────────────────────────────────────────────────
 
-  Widget _buildActionBar(
-    BuildContext context,
-    OrderDetail order,
-    AppColors c,
-  ) {
+  Widget _buildActionBar(BuildContext context, OrderDetail order, AppColors c) {
     final role = widget.user.role;
     final s = order.status;
     final btns = <Widget>[];
@@ -888,113 +1167,132 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // Manager / admin buttons
     if (role == 'manager' || role == 'admin') {
       if (s == 'awaiting_manager') {
-        btns.add(_ActionBtn(
-          label: 'Согласовать',
-          icon: Icons.check,
-          color: c.green,
-          onTap: _busy ? null : () => _approve(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Согласовать',
+            icon: Icons.check,
+            color: c.green,
+            onTap: _busy ? null : () => _approve(order),
+          ),
+        );
       }
       if (s == 'new' || s == 'accepted' || s == 'awaiting_manager') {
-        btns.add(_ActionBtn(
-          label: 'Отменить',
-          icon: Icons.close,
-          color: c.red,
-          onTap: _busy ? null : () => _cancelOrder(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Отменить',
+            icon: Icons.close,
+            color: c.red,
+            onTap: _busy ? null : () => _cancelOrder(order),
+          ),
+        );
       }
       if (s == 'new' || s == 'accepted') {
-        btns.add(_ActionBtn(
-          label: 'Перенести',
-          icon: Icons.calendar_month,
-          color: c.text2,
-          onTap: _busy ? null : () => _reschedule(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Перенести',
+            icon: Icons.calendar_month,
+            color: c.text2,
+            onTap: _busy ? null : () => _reschedule(order),
+          ),
+        );
       }
       final ps = order.paymentStatus;
       final isPaid = ps == 'paid' || ps == 'overpaid';
       if (s != 'cancelled' && !isPaid) {
-        btns.add(_ActionBtn(
-          label: 'Зафиксировать оплату',
-          icon: Icons.account_balance_wallet_outlined,
-          color: c.green,
-          onTap: _busy
-              ? null
-              : () => _recordPaymentManager(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Зафиксировать оплату',
+            icon: Icons.account_balance_wallet_outlined,
+            color: c.green,
+            onTap: _busy ? null : () => _recordPaymentManager(order),
+          ),
+        );
       }
       // Дублировать (веб F1, 2026-06-24): открыть форму создания с
       // предзаполненными полями — например, разбить заявку >3000 л на две.
-      btns.add(_ActionBtn(
-        label: 'Дублировать',
-        icon: Icons.copy,
-        color: c.text2,
-        onTap: _busy
-            ? null
-            : () async {
-                final created = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => OrderCreateScreen(
-                        user: widget.user, duplicateFrom: order),
-                  ),
-                );
-                if (created == true && mounted) _reload();
-              },
-      ));
+      btns.add(
+        _ActionBtn(
+          label: 'Дублировать',
+          icon: Icons.copy,
+          color: c.text2,
+          onTap: _busy
+              ? null
+              : () async {
+                  final created = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => OrderCreateScreen(
+                        user: widget.user,
+                        duplicateFrom: order,
+                      ),
+                    ),
+                  );
+                  if (created == true && mounted) _reload();
+                },
+        ),
+      );
     }
 
     // Driver buttons
     if (role == 'driver') {
       if (s == 'new' && order.driverId == null) {
-        btns.add(_ActionBtn(
-          label: 'Взять заявку',
-          icon: Icons.front_hand,
-          color: c.accent,
-          onTap: _busy ? null : () => _driverClaim(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Взять заявку',
+            icon: Icons.front_hand,
+            color: c.accent,
+            onTap: _busy ? null : () => _driverClaim(order),
+          ),
+        );
       }
       if (s == 'new' && order.driverId == widget.user.id) {
-        btns.add(_ActionBtn(
-          label: 'Принять',
-          icon: Icons.check,
-          color: c.accent,
-          onTap: _busy ? null : () => _driverAccept(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Принять',
+            icon: Icons.check,
+            color: c.accent,
+            onTap: _busy ? null : () => _driverAccept(order),
+          ),
+        );
       }
       if (s == 'accepted' && order.driverId == widget.user.id) {
-        btns.add(_ActionBtn(
-          label: 'Доставлена',
-          icon: Icons.local_shipping,
-          color: c.primary,
-          onTap: _busy ? null : () => _driverDeliver(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Доставлена',
+            icon: Icons.local_shipping,
+            color: c.primary,
+            onTap: _busy ? null : () => _driverDeliver(order),
+          ),
+        );
       }
       if (s == 'new' || s == 'accepted') {
-        btns.add(_ActionBtn(
-          label: 'Перенести дату',
-          icon: Icons.calendar_month,
-          color: c.text2,
-          onTap: _busy ? null : () => _reschedule(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Перенести дату',
+            icon: Icons.calendar_month,
+            color: c.text2,
+            onTap: _busy ? null : () => _reschedule(order),
+          ),
+        );
       }
       // Individual: can-deliver hint
-      if (order.orderKind == 'individual' &&
-          (s == 'new' || s == 'accepted')) {
+      if (order.orderKind == 'individual' && (s == 'new' || s == 'accepted')) {
         final ps = order.paymentStatus;
-        final canDeliver = (ps == 'paid' || ps == 'overpaid') ||
-            order.allowDeliveryUnpaid;
+        final canDeliver =
+            (ps == 'paid' || ps == 'overpaid') || order.allowDeliveryUnpaid;
         if (canDeliver) {
-          btns.add(Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.check_circle_outline, size: 14, color: c.green),
-              const SizedBox(width: 4),
-              Text(
-                'Можно доставлять',
-                style: TextStyle(fontSize: 12, color: c.green),
-              ),
-            ],
-          ));
+          btns.add(
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_outline, size: 14, color: c.green),
+                const SizedBox(width: 4),
+                Text(
+                  'Можно доставлять',
+                  style: TextStyle(fontSize: 12, color: c.green),
+                ),
+              ],
+            ),
+          );
         }
       }
     }
@@ -1002,35 +1300,41 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // Client buttons
     if (role == 'client') {
       if (s == 'awaiting_manager') {
-        btns.add(Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.access_time, size: 13, color: c.primary),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                'Объём ≥ 3000 л — на согласовании',
-                style: TextStyle(fontSize: 12, color: c.primary),
+        btns.add(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.access_time, size: 13, color: c.primary),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  'Объём ≥ 3000 л — на согласовании',
+                  style: TextStyle(fontSize: 12, color: c.primary),
+                ),
               ),
-            ),
-          ],
-        ));
+            ],
+          ),
+        );
       }
       if (s == 'new' || s == 'accepted' || s == 'awaiting_manager') {
-        btns.add(_ActionBtn(
-          label: 'Перенести дату',
-          icon: Icons.calendar_month,
-          color: c.text2,
-          onTap: _busy ? null : () => _reschedule(order),
-        ));
+        btns.add(
+          _ActionBtn(
+            label: 'Перенести дату',
+            icon: Icons.calendar_month,
+            color: c.text2,
+            onTap: _busy ? null : () => _reschedule(order),
+          ),
+        );
       }
-      btns.add(_ActionBtn(
-        label: 'Написать менеджеру',
-        icon: Icons.chat_bubble_outline,
-        color: c.primary,
-        onTap: () => _snack('TODO: открыть чат с менеджером'),
-        outlined: true,
-      ));
+      btns.add(
+        _ActionBtn(
+          label: 'Написать менеджеру',
+          icon: Icons.chat_bubble_outline,
+          color: c.primary,
+          onTap: () => _snack('TODO: открыть чат с менеджером'),
+          outlined: true,
+        ),
+      );
     }
 
     if (ackBanner == null && btns.isEmpty) {
@@ -1041,23 +1345,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (ackBanner != null) ackBanner,
-        if (btns.isNotEmpty)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: btns,
-          ),
+        if (btns.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: btns),
       ],
     );
   }
 
   // ── Status timeline ───────────────────────────────────────────────────────
 
-  Widget _buildTimeline(
-    BuildContext context,
-    OrderDetail order,
-    AppColors c,
-  ) {
+  Widget _buildTimeline(BuildContext context, OrderDetail order, AppColors c) {
     final logs = List<OrderStatusLog>.from(order.statusLogs)
       ..sort((a, b) {
         final ta = a.createdAt;
@@ -1072,10 +1367,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       title: 'История статусов',
       colors: c,
       child: logs.isEmpty
-          ? Text(
-              'Нет записей',
-              style: TextStyle(fontSize: 12, color: c.text3),
-            )
+          ? Text('Нет записей', style: TextStyle(fontSize: 12, color: c.text3))
           : Column(
               children: logs
                   .map((l) => _TimelineItem(log: l, colors: c))
@@ -1086,11 +1378,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   // ── Documents (staff only) ────────────────────────────────────────────────
 
-  Widget _buildDocuments(
-    BuildContext context,
-    OrderDetail order,
-    AppColors c,
-  ) {
+  Widget _buildDocuments(BuildContext context, OrderDetail order, AppColors c) {
     return _Section(
       title: 'Документы',
       colors: c,
@@ -1153,29 +1441,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  Future<void> _generateInvoice(
-    String orderId,
-    String docType,
-  ) =>
+  Future<void> _generateInvoice(String orderId, String docType) =>
       _run(() async {
-        await OrdersRepository.instance
-            .generateInvoice(orderId, docType);
+        await OrdersRepository.instance.generateInvoice(orderId, docType);
         _snack('Счёт выставлен');
         setState(() {
-          _docsFuture =
-              OrdersRepository.instance.listDocuments(orderId);
+          _docsFuture = OrdersRepository.instance.listDocuments(orderId);
         });
       });
 
-  Future<void> _sendDocToChat(String orderId, String docId) =>
-      _run(() async {
-        await OrdersRepository.instance.sendDocToChat(orderId, docId);
-        _snack('Документ отправлен в чат');
-        setState(() {
-          _docsFuture =
-              OrdersRepository.instance.listDocuments(orderId);
-        });
-      });
+  Future<void> _sendDocToChat(String orderId, String docId) => _run(() async {
+    await OrdersRepository.instance.sendDocToChat(orderId, docId);
+    _snack('Документ отправлен в чат');
+    setState(() {
+      _docsFuture = OrdersRepository.instance.listDocuments(orderId);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1187,19 +1468,16 @@ String _fmtDate(DateTime dt) =>
 
 String _fmtNum(double v) {
   if (v == v.truncateToDouble()) {
-    return v.toStringAsFixed(0).replaceAllMapped(
-          RegExp(r'(\d)(?=(\d{3})+$)'),
-          (m) => '${m[1]} ',
-        );
+    return v
+        .toStringAsFixed(0)
+        .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]} ');
   }
   return v.toString();
 }
 
-String _fmtMoney(double v) =>
-    v.toStringAsFixed(2).replaceAllMapped(
-      RegExp(r'(\d)(?=(\d{3})+(?=\.))'),
-      (m) => '${m[1]} ',
-    );
+String _fmtMoney(double v) => v
+    .toStringAsFixed(2)
+    .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?=\.))'), (m) => '${m[1]} ');
 
 // ---------------------------------------------------------------------------
 // Private reusable widgets
@@ -1262,15 +1540,15 @@ class _Section extends StatelessWidget {
 
 // Detail grid row model
 class _DetailRow {
-  const _DetailRow({required this.label, this.text, this.child})
-      : assert(
-          text != null || child != null,
-          'Provide text or child',
-        );
+  const _DetailRow({required this.label, this.text, this.child, this.onEdit})
+    : assert(text != null || child != null, 'Provide text or child');
 
   final String label;
   final String? text;
   final Widget? child;
+
+  /// Карандаш-правка (staff): веб _editPencilStaff / _orgEditPencil.
+  final VoidCallback? onEdit;
 }
 
 class _DetailsGridRow extends StatelessWidget {
@@ -1295,7 +1573,8 @@ class _DetailsGridRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: row.child ??
+            child:
+                row.child ??
                 Text(
                   row.text!,
                   style: TextStyle(
@@ -1305,6 +1584,14 @@ class _DetailsGridRow extends StatelessWidget {
                   ),
                 ),
           ),
+          if (row.onEdit != null)
+            InkWell(
+              onTap: row.onEdit,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.edit, size: 15, color: colors.text3),
+              ),
+            ),
         ],
       ),
     );
@@ -1396,10 +1683,7 @@ class _ContactCell extends StatelessWidget {
         if (phone != null && phone!.isNotEmpty)
           CopyablePhone(
             phone,
-            style: TextStyle(
-              fontSize: 13,
-              color: accentColor,
-            ),
+            style: TextStyle(fontSize: 13, color: accentColor),
           ),
       ],
     );
@@ -1467,10 +1751,8 @@ class _ActionBtn extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
           side: BorderSide(color: color),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          textStyle: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           shape: const StadiumBorder(),
         ),
       );
@@ -1482,10 +1764,8 @@ class _ActionBtn extends StatelessWidget {
       style: FilledButton.styleFrom(
         backgroundColor: color,
         foregroundColor: Colors.white,
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        textStyle:
-            const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         shape: const StadiumBorder(),
       ),
     );
@@ -1503,15 +1783,11 @@ class _SmallBtn extends StatelessWidget {
     return OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        textStyle:
-            const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       ),
       child: Text(label),
     );
@@ -1526,13 +1802,11 @@ class _TimelineItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fromLabel =
-        kStatusLabels[log.fromStatus] ?? log.fromStatus ?? '';
+    final fromLabel = kStatusLabels[log.fromStatus] ?? log.fromStatus ?? '';
     final toLabel = kStatusLabels[log.toStatus] ?? log.toStatus;
     final toColor = colors.statusColor(log.toStatus);
-    final roleLabel = _kRoleLabels[log.changedByRole] ??
-        log.changedByRole ??
-        '';
+    final roleLabel =
+        _kRoleLabels[log.changedByRole] ?? log.changedByRole ?? '';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1544,14 +1818,10 @@ class _TimelineItem extends StatelessWidget {
             child: Text(
               log.createdAt != null
                   ? '${_fmtDate(log.createdAt!)}\n'
-                    '${log.createdAt!.hour.toString().padLeft(2, '0')}:'
-                    '${log.createdAt!.minute.toString().padLeft(2, '0')}'
+                        '${log.createdAt!.hour.toString().padLeft(2, '0')}:'
+                        '${log.createdAt!.minute.toString().padLeft(2, '0')}'
                   : '',
-              style: TextStyle(
-                fontSize: 10,
-                color: colors.text3,
-                height: 1.4,
-              ),
+              style: TextStyle(fontSize: 10, color: colors.text3, height: 1.4),
             ),
           ),
           const SizedBox(width: 8),
@@ -1566,13 +1836,9 @@ class _TimelineItem extends StatelessWidget {
                     if (fromLabel.isNotEmpty) ...[
                       Text(
                         fromLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colors.text3,
-                        ),
+                        style: TextStyle(fontSize: 11, color: colors.text3),
                       ),
-                      const Text('→',
-                          style: TextStyle(fontSize: 11)),
+                      const Text('→', style: TextStyle(fontSize: 11)),
                     ],
                     _StatusBadge(label: toLabel, color: toColor),
                   ],
@@ -1581,10 +1847,7 @@ class _TimelineItem extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     log.comment!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: colors.text2,
-                    ),
+                    style: TextStyle(fontSize: 11, color: colors.text2),
                   ),
                 ],
               ],
@@ -1619,30 +1882,24 @@ class _DocumentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final typeLabel =
-        _kDocTypeLabels[doc.docType] ?? doc.docType;
-    final statusLabel =
-        _kDocStatusLabels[doc.status] ?? doc.status;
+    final typeLabel = _kDocTypeLabels[doc.docType] ?? doc.docType;
+    final statusLabel = _kDocStatusLabels[doc.status] ?? doc.status;
     final statusColor = switch (doc.status) {
       'ready' => colors.green,
       'sent' => colors.primary,
       'cancelled' => colors.red,
       _ => colors.text3,
     };
-    final canDownload =
-        doc.status == 'ready' || doc.status == 'sent';
+    final canDownload = doc.status == 'ready' || doc.status == 'sent';
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: colors.border),
-        ),
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
       child: Row(
         children: [
-          Icon(Icons.description_outlined,
-              size: 20, color: colors.text3),
+          Icon(Icons.description_outlined, size: 20, color: colors.text3),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

@@ -17,14 +17,23 @@ class OrdersRepository {
   String get _base => AppConfig.orderBase;
 
   Future<List<Order>> list({int offset = 0, int limit = 50}) async {
-    final resp = await _dio.get('$_base/orders',
-        queryParameters: {'offset': offset, 'limit': limit});
+    final resp = await _dio.get(
+      '$_base/orders',
+      queryParameters: {'offset': offset, 'limit': limit},
+    );
     return (resp.data as List)
         .map((e) => Order.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   /// Полная карточка заявки (OrderResponse — включает status_logs).
+  /// Частичное обновление заявки (веб orderPatch): смена заказчика,
+  /// правка объёма/адреса/даты/топлива/стоимости staff'ом.
+  Future<OrderDetail> patch(String orderId, Map<String, dynamic> body) async {
+    final resp = await _dio.patch('$_base/orders/$orderId', data: body);
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
   Future<OrderDetail> getDetail(String orderId) async {
     final resp = await _dio.get('$_base/orders/$orderId');
     return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
@@ -32,8 +41,7 @@ class OrdersRepository {
 
   /// Список документов по заявке (staff: manager/admin; client тоже видит).
   Future<List<OrderDocument>> listDocuments(String orderId) async {
-    final resp =
-        await _dio.get('$_base/orders/$orderId/documents');
+    final resp = await _dio.get('$_base/orders/$orderId/documents');
     return (resp.data as List)
         .map((e) => OrderDocument.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -45,10 +53,13 @@ class OrdersRepository {
     DateTime? desiredDate,
     String? driverId,
   }) async {
-    final resp = await _dio.post('$_base/orders/$orderId/reschedule', data: {
-      if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
-      if (driverId != null) 'driver_id': driverId,
-    });
+    final resp = await _dio.post(
+      '$_base/orders/$orderId/reschedule',
+      data: {
+        if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
+        if (driverId != null) 'driver_id': driverId,
+      },
+    );
     return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
   }
 
@@ -58,10 +69,10 @@ class OrdersRepository {
     String toStatus, {
     String? comment,
   }) async {
-    final resp = await _dio.post('$_base/orders/$orderId/transition', data: {
-      'to_status': toStatus,
-      if (comment != null) 'comment': comment,
-    });
+    final resp = await _dio.post(
+      '$_base/orders/$orderId/transition',
+      data: {'to_status': toStatus, if (comment != null) 'comment': comment},
+    );
     return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
   }
 
@@ -81,12 +92,15 @@ class OrdersRepository {
     required String method,
     String? notes,
   }) async {
-    await _dio.post('$_base/payments/record', data: {
-      'order_id': orderId,
-      'amount': amount,
-      'method': method,
-      if (notes != null) 'notes': notes,
-    });
+    await _dio.post(
+      '$_base/payments/record',
+      data: {
+        'order_id': orderId,
+        'amount': amount,
+        'method': method,
+        if (notes != null) 'notes': notes,
+      },
+    );
   }
 
   /// Клиенту бэк отдаёт только топливо в наличии (Д2).
@@ -115,16 +129,18 @@ class OrdersRepository {
   Future<Order> markDelivered(String orderId) async {
     final key = _uuid.v4();
     final payload = <String, dynamic>{'to_status': 'delivered'};
-    await OutboxDb.instance.enqueue(OutboxEntry(
-      id: 0, // заполняется базой
-      idempotencyKey: key,
-      operation: 'transition',
-      orderId: orderId,
-      payload: payload,
-      clientTs: DateTime.now(),
-      status: 'pending',
-      createdAt: DateTime.now(),
-    ));
+    await OutboxDb.instance.enqueue(
+      OutboxEntry(
+        id: 0, // заполняется базой
+        idempotencyKey: key,
+        operation: 'transition',
+        orderId: orderId,
+        payload: payload,
+        clientTs: DateTime.now(),
+        status: 'pending',
+        createdAt: DateTime.now(),
+      ),
+    );
 
     // Немедленная попытка отправки (если есть сеть — уйдёт синхронно).
     try {
@@ -141,8 +157,10 @@ class OrdersRepository {
       final status = e.response?.statusCode;
       if (status != null && status >= 400 && status < 500) {
         // 4xx сразу — помечаем conflict, не оставляем в pending.
-        await _markConflictByKey(key,
-            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        await _markConflictByKey(
+          key,
+          'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}',
+        );
         rethrow; // пробрасываем — _run() покажет snackbar
       }
       // Сеть недоступна / 5xx — оставляем pending, sync_service подберёт.
@@ -159,26 +177,32 @@ class OrdersRepository {
   Future<void> ackChanges(String orderId) async {
     final key = _uuid.v4();
     final payload = <String, dynamic>{};
-    await OutboxDb.instance.enqueue(OutboxEntry(
-      id: 0,
-      idempotencyKey: key,
-      operation: 'ack_changes',
-      orderId: orderId,
-      payload: payload,
-      clientTs: DateTime.now(),
-      status: 'pending',
-      createdAt: DateTime.now(),
-    ));
+    await OutboxDb.instance.enqueue(
+      OutboxEntry(
+        id: 0,
+        idempotencyKey: key,
+        operation: 'ack_changes',
+        orderId: orderId,
+        payload: payload,
+        clientTs: DateTime.now(),
+        status: 'pending',
+        createdAt: DateTime.now(),
+      ),
+    );
 
     try {
-      await _dio.post('$_base/orders/$orderId/ack-changes',
-          data: {...payload, 'idempotency_key': key});
+      await _dio.post(
+        '$_base/orders/$orderId/ack-changes',
+        data: {...payload, 'idempotency_key': key},
+      );
       await _markSyncedByKey(key);
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status != null && status >= 400 && status < 500) {
-        await _markConflictByKey(key,
-            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        await _markConflictByKey(
+          key,
+          'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}',
+        );
         rethrow;
       }
       SyncService.instance.flushNow();
@@ -202,26 +226,32 @@ class OrdersRepository {
       'method': method,
       if (notes != null) 'notes': notes,
     };
-    await OutboxDb.instance.enqueue(OutboxEntry(
-      id: 0,
-      idempotencyKey: key,
-      operation: 'payment_record',
-      orderId: orderId,
-      payload: payload,
-      clientTs: DateTime.now(),
-      status: 'pending',
-      createdAt: DateTime.now(),
-    ));
+    await OutboxDb.instance.enqueue(
+      OutboxEntry(
+        id: 0,
+        idempotencyKey: key,
+        operation: 'payment_record',
+        orderId: orderId,
+        payload: payload,
+        clientTs: DateTime.now(),
+        status: 'pending',
+        createdAt: DateTime.now(),
+      ),
+    );
 
     try {
-      await _dio.post('$_base/payments/record',
-          data: {...payload, 'idempotency_key': key});
+      await _dio.post(
+        '$_base/payments/record',
+        data: {...payload, 'idempotency_key': key},
+      );
       await _markSyncedByKey(key);
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status != null && status >= 400 && status < 500) {
-        await _markConflictByKey(key,
-            'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}');
+        await _markConflictByKey(
+          key,
+          'HTTP $status: ${e.response?.data?['detail'] ?? 'ошибка'}',
+        );
         rethrow;
       }
       SyncService.instance.flushNow();
@@ -275,16 +305,16 @@ class OrdersRepository {
   /// со статусом delivered. orderKind = '' → isIndividual=false, чтобы НЕ
   /// показывать диалог оплаты немедленно (водитель добавит оплату онлайн).
   Order _optimisticDelivered(String orderId) => Order(
-        id: orderId,
-        orderNumber: '—',
-        orderKind: '', // не individual — диалог оплаты не появится офлайн
-        fuelType: '',
-        volumeRequested: 0,
-        deliveryAddress: '',
-        status: 'delivered',
-        paymentStatus: 'unpaid',
-        pendingDriverAck: false,
-      );
+    id: orderId,
+    orderNumber: '—',
+    orderKind: '', // не individual — диалог оплаты не появится офлайн
+    fuelType: '',
+    volumeRequested: 0,
+    deliveryAddress: '',
+    status: 'delivered',
+    paymentStatus: 'unpaid',
+    pendingDriverAck: false,
+  );
 
   Future<Order> create({
     required String fuelType,
@@ -303,35 +333,40 @@ class OrdersRepository {
     bool allowDeliveryUnpaid = false,
     String? organizationId,
   }) async {
-    final resp = await _dio.post('$_base/orders', data: {
-      'fuel_type': fuelType,
-      'volume_requested': volume,
-      'delivery_address': address,
-      'payment_type': paymentType,
-      if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
-      if (comment != null && comment.isNotEmpty) 'client_comment': comment,
-      if (contactName != null && contactName.isNotEmpty)
-        'contact_person_name': contactName,
-      if (contactPhone != null && contactPhone.isNotEmpty)
-        'contact_person_phone': contactPhone,
-      if (clientId != null) 'client_id': clientId,
-      if (managerComment != null && managerComment.isNotEmpty)
-        'manager_comment': managerComment,
-      if (driverId != null) 'driver_id': driverId,
-      if (isTtnL) 'is_ttn_l': true,
-      if (allowDeliveryUnpaid) 'allow_delivery_unpaid': true,
-      // «Оформить от имени» — организация клиента (веб: c-organization)
-      if (organizationId != null) 'organization_id': organizationId,
-    });
+    final resp = await _dio.post(
+      '$_base/orders',
+      data: {
+        'fuel_type': fuelType,
+        'volume_requested': volume,
+        'delivery_address': address,
+        'payment_type': paymentType,
+        if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
+        if (comment != null && comment.isNotEmpty) 'client_comment': comment,
+        if (contactName != null && contactName.isNotEmpty)
+          'contact_person_name': contactName,
+        if (contactPhone != null && contactPhone.isNotEmpty)
+          'contact_person_phone': contactPhone,
+        if (clientId != null) 'client_id': clientId,
+        if (managerComment != null && managerComment.isNotEmpty)
+          'manager_comment': managerComment,
+        if (driverId != null) 'driver_id': driverId,
+        if (isTtnL) 'is_ttn_l': true,
+        if (allowDeliveryUnpaid) 'allow_delivery_unpaid': true,
+        // «Оформить от имени» — организация клиента (веб: c-organization)
+        if (organizationId != null) 'organization_id': organizationId,
+      },
+    );
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }
 
   /// Доступные типы оплаты клиента (веб renderPaymentRadios):
   /// GET /tariffs/clients/{id}/payment-options.
   Future<({String clientType, List<String> types})> paymentOptions(
-      String clientId) async {
-    final resp =
-        await _dio.get('$_base/tariffs/clients/$clientId/payment-options');
+    String clientId,
+  ) async {
+    final resp = await _dio.get(
+      '$_base/tariffs/clients/$clientId/payment-options',
+    );
     final data = resp.data as Map<String, dynamic>;
     return (
       clientType: (data['client_type'] ?? '') as String,
@@ -374,8 +409,8 @@ class ClientObject {
       name == null ? deliveryAddress : '$name — $deliveryAddress';
 
   factory ClientObject.fromJson(Map<String, dynamic> json) => ClientObject(
-        id: (json['id'] as Object).toString(),
-        deliveryAddress: (json['delivery_address'] ?? '') as String,
-        name: json['name'] as String?,
-      );
+    id: (json['id'] as Object).toString(),
+    deliveryAddress: (json['delivery_address'] ?? '') as String,
+    name: json['name'] as String?,
+  );
 }
