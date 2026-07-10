@@ -5210,7 +5210,8 @@ async function promptEditOrderField(orderId, field) {
         // Бэкенд хранит бандл expected_amount = топливо + доставка
         body.expected_amount = v + (order.delivery_cost || 0);
       } else if (field === 'desired_date') {
-        body[field] = new Date(raw + 'T00:00:00').toISOString();
+        // Полдень UTC — не даёт дате «съехать» на день назад при toISOString() (см. форму создания).
+        body[field] = new Date(raw + 'T12:00:00Z').toISOString();
       } else {
         body[field] = raw.trim();
       }
@@ -5460,7 +5461,8 @@ function promptReschedule(orderId, orderNumber) {
     async () => {
       const dateVal = document.getElementById('modal-reschedule-date').value;
       if (!dateVal) { toast('Укажите новую дату', 'error'); return; }
-      const desired_date = new Date(dateVal + 'T00:00:00').toISOString();
+      // Полдень UTC — не даёт дате «съехать» на день назад при toISOString() (см. форму создания).
+      const desired_date = new Date(dateVal + 'T12:00:00Z').toISOString();
       closeModal();
       try {
         await orderPost(`/orders/${orderId}/reschedule`, { desired_date });
@@ -6241,7 +6243,11 @@ async function doCreateOrder() {
     volume_requested: parseFloat(document.getElementById('c-volume').value),
     delivery_address: resolvedAddress,
     desired_date:     document.getElementById('c-date').value
-                        ? new Date(document.getElementById('c-date').value + 'T00:00:00').toISOString()
+                        // Полдень UTC, а не локальная полночь: иначе toISOString()
+                        // в МСК (+3) уводит дату на день назад, и заявка «на сегодня»
+                        // показывается как просроченная. Полдень UTC сохраняет
+                        // календарный день в любой реальной таймзоне (±11ч).
+                        ? new Date(document.getElementById('c-date').value + 'T12:00:00Z').toISOString()
                         : undefined,
     payment_type:     document.querySelector('input[name="payment"]:checked').value,
     client_comment:   document.getElementById('c-comment').value.trim() || undefined,
