@@ -369,10 +369,12 @@ async def create_order(
             credit_allowed=ctx.credit_allowed,
         )
 
-    # Дата доставки не может быть в прошлом
+    # Дата доставки не может быть в прошлом. Сравниваем календарные дни,
+    # а не моменты времени: заявка «на сегодня» валидна весь день, даже если
+    # присланный timestamp (полдень UTC от фронта) уже позади текущего момента.
     if data.desired_date:
         desired_utc = data.desired_date if data.desired_date.tzinfo else data.desired_date.replace(tzinfo=timezone.utc)
-        if desired_utc < datetime.now(timezone.utc):
+        if desired_utc.date() < datetime.now(timezone.utc).date():
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     # Валидация вида топлива по каталогу (hard-fail: неизвестный/неактивный код → 422)
@@ -659,9 +661,10 @@ async def update_order(
     if data.fuel_type is not None:
         await fuel_type_service.validate_active(db, data.fuel_type)
     if data.desired_date is not None:
+        # Сравнение по календарным дням — «на сегодня» валидно весь день (см. создание заявки)
         desired_utc = (data.desired_date if data.desired_date.tzinfo
                        else data.desired_date.replace(tzinfo=timezone.utc))
-        if desired_utc < datetime.now(timezone.utc):
+        if desired_utc.date() < datetime.now(timezone.utc).date():
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     # Смена заказчика (правка 2026-06-24): organization_id=<uuid> — переключить на

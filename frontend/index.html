@@ -1926,6 +1926,9 @@
         <button class="btn btn-sm btn-ghost" onclick="loadOrders()" style="margin-left:4px">
           ↻ Обновить
         </button>
+        <button class="btn btn-sm btn-ghost" id="base-tariffs-btn" onclick="showBaseTariffsModal()" style="display:none">
+          ₽ Базовые тарифы
+        </button>
       </div>
       <button id="orders-new-btn" class="btn btn-primary"
         style="width:100%;margin:4px 0 14px;font-size:15px;padding:14px;display:none"
@@ -3753,6 +3756,11 @@ async function initApp() {
   // Вкладка «На согласовании» — водители такие заявки не видят
   const awaitingBtn = document.getElementById('tab-awaiting-btn');
   if (awaitingBtn) awaitingBtn.style.display = role === 'driver' ? 'none' : '';
+
+  // Кнопка «Базовые тарифы» на экране заявок — водители, менеджеры, админы
+  const baseTariffsBtn = document.getElementById('base-tariffs-btn');
+  if (baseTariffsBtn) baseTariffsBtn.style.display =
+    (role === 'driver' || role === 'manager' || role === 'admin') ? '' : 'none';
 
   // Vehicles — admin/manager see all; driver sees their own
   document.getElementById('tab-vehicles-btn').style.display =
@@ -6606,6 +6614,61 @@ async function openProfileSelfEdit() {
       }
     }
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// БАЗОВЫЕ ТАРИФЫ (модал на экране заявок: водители/менеджеры/админы)
+// ═══════════════════════════════════════════════════════════════
+async function showBaseTariffsModal() {
+  openModal('Базовые тарифы', '<div class="loading"></div>', null);
+  let tariffs;
+  try {
+    tariffs = await orderGet('/tariffs/defaults');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message)}</div>`;
+    return;
+  }
+  const ind = tariffs.find(t => t.client_type === 'individual')
+           || tariffs.find(t => t.client_type == null);
+  const com = tariffs.find(t => t.client_type === 'company')
+           || tariffs.find(t => t.client_type == null);
+  if (!ind && !com) {
+    document.getElementById('modal-body').innerHTML =
+      '<div class="empty-state" style="padding:20px">Базовые тарифы не настроены</div>';
+    return;
+  }
+  const price = (t, code) => {
+    const fp = (t?.fuel_prices || []).find(p => p.fuel_type === code);
+    return fp ? Number(fp.price_per_liter).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽/л' : '—';
+  };
+  // Все виды топлива, встречающиеся в обоих тарифах
+  const codes = [...new Set([...(ind?.fuel_prices || []), ...(com?.fuel_prices || [])].map(p => p.fuel_type))];
+  const rows = codes.map(code => `
+    <tr>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${escHtml(FUEL_LABELS[code] || code)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:monospace">${price(ind, code)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:monospace">${price(com, code)}</td>
+    </tr>`).join('');
+  const fmtDelivery = t => t ? Number(t.base_delivery_cost).toLocaleString('ru-RU') + ' ₽' : '—';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr>
+            <th style="padding:6px 10px;text-align:left;color:var(--text3);border-bottom:1px solid var(--border2)">Топливо</th>
+            <th style="padding:6px 10px;text-align:right;color:var(--text3);border-bottom:1px solid var(--border2)">Физлицо</th>
+            <th style="padding:6px 10px;text-align:right;color:var(--text3);border-bottom:1px solid var(--border2)">Юрлицо (с НДС)</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.7">
+      <div>Цена для физлица — по столбцу «Физлицо» <strong>+ доставка</strong> (база ${fmtDelivery(ind)})</div>
+      <div>Цена для юрлица — по столбцу «Юрлицо (с НДС)» <strong>+ доставка</strong> (база ${fmtDelivery(com)})</div>
+      <div style="color:var(--text3);margin-top:4px">Стоимость доставки умножается на коэффициент зоны доставки.</div>
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════

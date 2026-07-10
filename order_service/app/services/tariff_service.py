@@ -93,6 +93,21 @@ async def get_default_tariff(db: AsyncSession, actor: TokenUser) -> Tariff:
     return tariff
 
 
+async def list_default_tariffs(db: AsyncSession, actor: TokenUser) -> list[Tariff]:
+    """Public: базовые (default) тарифы по всем типам клиентов — для модала
+    «Базовые тарифы» на экране заявок (водители, менеджеры, админы)."""
+    result = await db.execute(
+        select(Tariff)
+        .options(
+            selectinload(Tariff.fuel_prices),
+            selectinload(Tariff.volume_tiers),
+        )
+        .where(Tariff.is_default == True, Tariff.is_archived == False)  # noqa: E712
+        .order_by(Tariff.client_type)
+    )
+    return list(result.scalars().all())
+
+
 def _validate_fuel_prices(fuel_prices: list[dict]) -> None:
     """Ensure all FuelType values are covered and prices are positive."""
     provided = {fp["fuel_type"].upper() for fp in fuel_prices}
