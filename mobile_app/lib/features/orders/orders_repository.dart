@@ -7,6 +7,14 @@ import '../../core/outbox_db.dart';
 import '../../core/sync_service.dart';
 import 'order_models.dart';
 
+/// Полдень UTC выбранного календарного дня (без сдвига через таймзоны).
+/// showDatePicker отдаёт локальную дату; если слать её как есть, при чтении
+/// из другой TZ день может «съехать» и заявка «на сегодня» покажется
+/// просроченной. Полдень UTC сохраняет календарный день в любой зоне (±11ч).
+/// Зеркалит веб-фикс (T12:00:00Z).
+String _desiredDateIso(DateTime d) =>
+    DateTime.utc(d.year, d.month, d.day, 12).toIso8601String();
+
 class OrdersRepository {
   OrdersRepository._();
   static final OrdersRepository instance = OrdersRepository._();
@@ -56,7 +64,7 @@ class OrdersRepository {
     final resp = await _dio.post(
       '$_base/orders/$orderId/reschedule',
       data: {
-        if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
+        if (desiredDate != null) 'desired_date': _desiredDateIso(desiredDate),
         if (driverId != null) 'driver_id': driverId,
       },
     );
@@ -340,7 +348,7 @@ class OrdersRepository {
         'volume_requested': volume,
         'delivery_address': address,
         'payment_type': paymentType,
-        if (desiredDate != null) 'desired_date': desiredDate.toIso8601String(),
+        if (desiredDate != null) 'desired_date': _desiredDateIso(desiredDate),
         if (comment != null && comment.isNotEmpty) 'client_comment': comment,
         if (contactName != null && contactName.isNotEmpty)
           'contact_person_name': contactName,
