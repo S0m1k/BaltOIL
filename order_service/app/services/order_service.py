@@ -216,6 +216,23 @@ async def count_orders_by_status(
     return {status.value: count for status, count in result.all()}
 
 
+async def last_delivery_by_client(
+    db: AsyncSession,
+    actor: TokenUser,
+) -> dict[str, str]:
+    """{client_id: ISO-дата последней доставки} — по фактическому моменту перехода
+    заявки в DELIVERED (история статусов). База разовых клиентов, правки 2026-07-11."""
+    if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
+        raise ForbiddenError()
+    result = await db.execute(
+        select(Order.client_id, func.max(OrderStatusLog.created_at))
+        .join(OrderStatusLog, OrderStatusLog.order_id == Order.id)
+        .where(OrderStatusLog.to_status == OrderStatus.DELIVERED)
+        .group_by(Order.client_id)
+    )
+    return {str(client_id): dt.isoformat() for client_id, dt in result.all()}
+
+
 async def list_orders(
     db: AsyncSession,
     actor: TokenUser,
@@ -258,12 +275,17 @@ async def preview_price(
     from decimal import Decimal as _Decimal
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
 
-    if is_staff and data.client_id:
-        client_id = data.client_id
+    if is_staff and not data.client_id:
+        # Менеджер без выбранного клиента (напр. разовый клиент ещё не создан):
+        # у самого менеджера client_profile нет — считаем по default-тарифу физлица.
+        from app.services.client_context import ClientContext
+        ctx = ClientContext(
+            user_id=actor.id, client_type="individual", credit_allowed=False,
+            tariff_id=None, credit_limit=None,
+        )
     else:
-        client_id = actor.id
-
-    ctx = await get_client_context(client_id, data.organization_id)
+        client_id = data.client_id if (is_staff and data.client_id) else actor.id
+        ctx = await get_client_context(client_id, data.organization_id)
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None

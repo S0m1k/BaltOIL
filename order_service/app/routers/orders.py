@@ -41,6 +41,18 @@ async def count_orders(
     return await order_service.count_orders_by_status(db, current_user)
 
 
+@router.get("/last-delivery-by-client", response_model=dict[str, str])
+async def last_delivery_by_client(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Дата последней доставки по каждому клиенту: {client_id: ISO-дата}.
+
+    Для базы разовых клиентов (правки 2026-07-11). Только менеджер/админ.
+    """
+    return await order_service.last_delivery_by_client(db, current_user)
+
+
 @router.post("/preview-price", response_model=PricePreviewResponse)
 async def preview_price(
     data: PricePreviewRequest,

@@ -25,6 +25,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 AdminOnly = Annotated[object, Depends(require_roles(UserRole.ADMIN))]
 AdminOrManager = Annotated[object, Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))]
+# Разовых клиентов может заводить и водитель (создание заявки в мобильном приложении)
+StaffOrDriver = Annotated[object, Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.DRIVER))]
 
 
 @router.get("", response_model=list[UserShortResponse])
@@ -36,6 +38,7 @@ async def list_users(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     client_number: int | None = Query(None, description="Найти клиента по короткому номеру"),
+    one_off: bool | None = Query(None, description="Только разовые клиенты (true) / только обычные (false)"),
 ):
     users = await user_service.list_users(
         db,
@@ -44,6 +47,7 @@ async def list_users(
         offset=offset,
         limit=limit,
         client_number=client_number,
+        one_off=one_off,
     )
     result = []
     for u in users:
@@ -52,6 +56,7 @@ async def list_users(
         profile = u.__dict__.get("client_profile")
         if profile is not None:
             entry.client_number = profile.client_number
+            entry.is_one_off = profile.is_one_off
         result.append(entry)
     return result
 
@@ -81,6 +86,40 @@ async def users_directory(
     return await user_service.list_users(
         db, role=role, include_inactive=False, offset=0, limit=limit
     )
+
+
+class OneOffClientRequest(BaseModel):
+    full_name: str
+    phone: str
+
+
+@router.post("/one-off", response_model=UserShortResponse)
+async def create_one_off_client(
+    data: OneOffClientRequest,
+    current_user: CurrentUser,
+    _: StaffOrDriver,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Разовый клиент (правки 2026-07-11): физлицо, обязательны имя и телефон.
+
+    Идемпотентен по телефону: если клиент с таким номером уже есть (разовый или
+    зарегистрированный) — возвращается существующий, дубли не создаются.
+    """
+    meta = get_request_meta(request)
+    user = await user_service.get_or_create_one_off_client(
+        db,
+        full_name=data.full_name,
+        phone=data.phone,
+        actor_id=current_user.id,
+        ip_address=meta["ip_address"],
+    )
+    entry = UserShortResponse.model_validate(user)
+    profile = user.__dict__.get("client_profile")
+    if profile is not None:
+        entry.client_number = profile.client_number
+        entry.is_one_off = profile.is_one_off
+    return entry
 
 
 @router.post("", response_model=UserResponse, status_code=201)

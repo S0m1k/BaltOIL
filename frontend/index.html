@@ -1964,6 +1964,22 @@
               <option value="">— выберите клиента —</option>
             </select>
           </div>
+          <!-- Разовый клиент (правки 2026-07-11): физлицо, обязательны имя и телефон -->
+          <div id="c-oneoff-fields" style="display:none">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Имя разового клиента <span style="color:var(--red)">*</span></label>
+                <input type="text" id="c-oneoff-name" class="form-input" placeholder="Иван Петров">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Телефон <span style="color:var(--red)">*</span></label>
+                <input type="tel" id="c-oneoff-phone" class="form-input" placeholder="+7 999 000 00 00">
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:-4px;margin-bottom:8px">
+              Разовый клиент — всегда физлицо, оплата по факту. Если телефон уже есть в базе — заявка привяжется к существующему клиенту.
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Комментарий менеджера</label>
             <input type="text" id="c-manager-comment" class="form-input" placeholder="...">
@@ -2419,8 +2435,13 @@
     <div class="tab-pane" id="pane-clients">
       <div class="toolbar">
         <div class="toolbar-title">Клиенты</div>
+        <select class="filter-select" id="clients-kind-filter" onchange="loadClients()" style="margin-left:auto">
+          <option value="">Все клиенты</option>
+          <option value="oneoff">⭐ Разовые</option>
+          <option value="regular">Зарегистрированные</option>
+        </select>
         <input type="text" id="clients-search" class="form-input" placeholder="Имя, email, телефон, C-номер..."
-          oninput="filterClients()" style="max-width:280px;margin-left:auto">
+          oninput="filterClients()" style="max-width:280px">
         <button class="btn btn-sm btn-ghost" onclick="loadClients()">↻ Обновить</button>
         <button id="btn-export-clients" class="btn btn-sm btn-ghost" onclick="exportClientsXlsx()" disabled
           style="display:none;gap:5px;align-items:center">
@@ -4396,7 +4417,9 @@ async function _doPricePreview() {
   if (_orderGeo?.lat != null) { body.delivery_lat = _orderGeo.lat; body.delivery_lon = _orderGeo.lon; }
   if (isStaff) {
     const cid = document.getElementById('c-client-id')?.value;
-    if (cid) body.client_id = cid;
+    // Разовый клиент ещё не создан — превью цены считаем без client_id
+    // (бэкенд возьмёт default-тариф физлица по актору-менеджеру).
+    if (cid && cid !== '__oneoff__') body.client_id = cid;
   }
   const orgSel = document.getElementById('c-organization');
   if (orgSel && orgSel.value) body.organization_id = orgSel.value;
@@ -5705,18 +5728,39 @@ async function loadClientSelectForOrder() {
   try {
     const clients = await api(`${AUTH_URL}/users?role=client&limit=200&include_inactive=false`);
     const current = sel.value;
+    // «Разовый клиент» — первым пунктом (правки 2026-07-11): физлицо по имени+телефону
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
-      clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
+      `<option value="__oneoff__"${current === '__oneoff__' ? ' selected' : ''}>⭐ Разовый клиент (имя + телефон)</option>` +
+      clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email || c.phone || '')}</option>`).join('');
     // Reload payment radios, saved objects + organizations when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
-      if (cid) renderPaymentRadios(cid);
+      toggleOneOffFields(cid === '__oneoff__');
+      if (cid && cid !== '__oneoff__') renderPaymentRadios(cid);
       loadSavedObjects();
-      loadOrganizationSelectForOrder(cid || null);
+      loadOrganizationSelectForOrder(cid && cid !== '__oneoff__' ? cid : null);
     };
-    if (current) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
+    toggleOneOffFields(current === '__oneoff__');
+    if (current && current !== '__oneoff__') { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
     loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
+}
+
+// Показ/скрытие полей разового клиента. Для разового скрываем блок оплаты
+// (физлицо всегда платит по факту — бэкенд подставит on_delivery сам).
+function toggleOneOffFields(show) {
+  const fields = document.getElementById('c-oneoff-fields');
+  if (fields) fields.style.display = show ? '' : 'none';
+  if (show) {
+    const payWrapper = document.getElementById('payment-radio-group')?.closest('.form-group');
+    if (payWrapper) payWrapper.style.display = 'none';
+    const container = document.getElementById('payment-radio-group');
+    if (container) container.innerHTML =
+      `<label class="radio-label selected"><input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()"></label>`;
+    // Селектор организации разовому не нужен
+    const orgGroup = document.getElementById('c-org-group');
+    if (orgGroup) orgGroup.style.display = 'none';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5736,6 +5780,7 @@ async function loadSavedObjects() {
   if (isStaff) {
     const clientSel = document.getElementById('c-client-id');
     clientId = clientSel?.value || null;
+    if (clientId === '__oneoff__') clientId = null; // разовый клиент — объектов ещё нет
     if (!clientId) {
       // No client selected yet — hide the selector
       _savedObjects = [];
@@ -6307,10 +6352,34 @@ async function doCreateOrder() {
   }
 
   if (isStaff) {
-    const clientId = document.getElementById('c-client-id').value;
+    let clientId = document.getElementById('c-client-id').value;
     if (!clientId) {
       errEl.innerHTML = '<div class="inline-error">Выберите клиента</div>';
       return;
+    }
+    // Разовый клиент (правки 2026-07-11): создаём/находим по телефону перед заявкой
+    if (clientId === '__oneoff__') {
+      const ooName = document.getElementById('c-oneoff-name')?.value.trim();
+      const ooPhone = document.getElementById('c-oneoff-phone')?.value.trim();
+      if (!ooName) {
+        errEl.innerHTML = '<div class="inline-error">Укажите имя разового клиента</div>';
+        return;
+      }
+      if (!ooPhone) {
+        errEl.innerHTML = '<div class="inline-error">Укажите телефон разового клиента</div>';
+        return;
+      }
+      try {
+        const oo = await authPost('/users/one-off', { full_name: ooName, phone: ooPhone });
+        clientId = oo.id;
+        if (!oo.is_one_off) toast(`Телефон уже в базе — заявка на клиента ${oo.full_name}`);
+      } catch (e) {
+        errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+        return;
+      }
+      // Контакт приёмки по умолчанию — сам разовый клиент
+      if (!body.contact_person_name) body.contact_person_name = ooName;
+      if (!body.contact_person_phone) body.contact_person_phone = ooPhone;
     }
     body.client_id        = clientId;
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
@@ -6393,6 +6462,12 @@ async function doCreateOrder() {
       document.getElementById('c-manager-comment').value = '';
       const debtCb = document.getElementById('c-allow-delivery-unpaid');
       if (debtCb) debtCb.checked = false;
+      // Сброс полей разового клиента
+      const ooName = document.getElementById('c-oneoff-name');
+      const ooPhone = document.getElementById('c-oneoff-phone');
+      if (ooName) ooName.value = '';
+      if (ooPhone) ooPhone.value = '';
+      toggleOneOffFields(false);
     }
     switchTab('orders');
   } catch (e) {
@@ -9075,13 +9150,25 @@ async function doClearConv(convId) {
 let _allClients = [];
 const _selectedClientIds = new Set();
 
+// {client_id: ISO-дата последней доставки} — подгружается вместе со списком клиентов
+let _lastDeliveryByClient = {};
+
 async function loadClients() {
   const el = document.getElementById('clients-grid');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   _selectedClientIds.clear();
   _updateExportBtn();
+  const kind = document.getElementById('clients-kind-filter')?.value || '';
+  let url = '/users?role=client&limit=200&include_inactive=false';
+  if (kind === 'oneoff') url += '&one_off=true';
+  if (kind === 'regular') url += '&one_off=false';
   try {
-    const users = await authGet('/users?role=client&limit=200&include_inactive=false');
+    // Дата последней доставки — не блокирует список при недоступности order_service
+    const [users, lastMap] = await Promise.all([
+      authGet(url),
+      orderGet('/orders/last-delivery-by-client').catch(() => ({})),
+    ]);
+    _lastDeliveryByClient = lastMap || {};
     _allClients = Array.isArray(users) ? users : (users.items || []);
     renderClients(_allClients);
   } catch (e) {
@@ -9149,6 +9236,13 @@ function clientCardHTML(u) {
   const numBadge = u.client_number != null
     ? `<span style="font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.5px">${fmtClientNum(u.client_number)}</span>`
     : '';
+  const oneOffBadge = u.is_one_off
+    ? `<span style="font-size:10px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:1px 5px;white-space:nowrap">⭐ разовый</span>`
+    : '';
+  const lastDelivery = _lastDeliveryByClient[u.id];
+  const lastDeliveryLine = lastDelivery
+    ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">Последняя доставка: ${fmtDate(lastDelivery)}</div>`
+    : '';
   const isChecked = _selectedClientIds.has(u.id);
   return `
   <div class="client-card" style="cursor:pointer" onclick="openClientCard('${u.id}')">
@@ -9157,9 +9251,10 @@ function clientCardHTML(u) {
       onclick="event.stopPropagation();_toggleClientSelect('${u.id}', this.checked)">
     <div class="client-avatar">${escHtml(initials)}</div>
     <div class="client-info">
-      <div class="client-name" style="display:flex;align-items:center;gap:8px">${safeName}${numBadge}</div>
+      <div class="client-name" style="display:flex;align-items:center;gap:8px">${safeName}${numBadge}${oneOffBadge}</div>
       <div class="client-email">${escHtml(u.email)}</div>
       ${u.phone ? `<div class="client-phone">${escHtml(u.phone)}</div>` : ''}
+      ${lastDeliveryLine}
     </div>
     <div class="client-actions">
       <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();copyUUID('${u.id}', this)" title="Скопировать UUID">ID</button>
