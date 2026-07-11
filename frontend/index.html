@@ -3048,7 +3048,14 @@ const _FUEL_LABELS_FALLBACK = {
 function fuelLabel(code) {
   if (!code) return '—';
   const entry = _fuelCatalog.find(f => f.code === code);
-  return entry ? entry.label : (_FUEL_LABELS_FALLBACK[code] || code);
+  if (entry) return entry.label;
+  // Тарифы хранят коды в ВЕРХНЕМ регистре (DIESEL_SUMMER), каталог — в нижнем
+  // (diesel_summer). Сопоставляем без учёта регистра, иначе в модале «Базовые
+  // тарифы» показывался сырой код вместо ДТ-Л-К5 / АИ-92.
+  const lc = String(code).toLowerCase();
+  const entryLc = _fuelCatalog.find(f => f.code.toLowerCase() === lc);
+  if (entryLc) return entryLc.label;
+  return _FUEL_LABELS_FALLBACK[lc] || code;
 }
 
 async function loadFuelCatalog() {
