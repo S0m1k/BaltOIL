@@ -13,5 +13,6 @@ class DriverOrderInfo(BaseModel):
     delivery_address: str
     client_id: uuid.UUID
     delivered_at: datetime
+    comment: str | None = None
 
     model_config = {"from_attributes": True}

@@ -70,13 +70,13 @@ def driver_report_xlsx(report: dict) -> bytes:
     ws.sheet_view.showGridLines = False
 
     # Title
-    ws.merge_cells("A1:E1")
+    ws.merge_cells("A1:F1")
     title_cell = ws["A1"]
     title_cell.value = "Отчёт водителя — доставленные заявки"
     title_cell.font  = _TITLE_FONT
     title_cell.alignment = _CENTER
 
-    ws.merge_cells("A2:E2")
+    ws.merge_cells("A2:F2")
     period = ws["A2"]
     period.value = (
         f"Период: {_fmt(report['period_from'])} — {_fmt(report['period_to'])}"
@@ -93,7 +93,7 @@ def driver_report_xlsx(report: dict) -> bytes:
         ("Доставлено заявок", report["total_orders"]),
         ("Объём, л",          report["total_volume_delivered"]),
     ]
-    ws.merge_cells(f"A{kpi_row}:E{kpi_row}")
+    ws.merge_cells(f"A{kpi_row}:F{kpi_row}")
     hdr = ws[f"A{kpi_row}"]
     hdr.value     = "Итоги"
     hdr.font      = _LABEL_FONT
@@ -104,14 +104,14 @@ def driver_report_xlsx(report: dict) -> bytes:
     for i, (label, value) in enumerate(kpis):
         r = kpi_row + 1 + i
         _cell(ws, r, 1, label, fill=_SUMMARY_FILL, bold=True)
-        ws.merge_cells(f"B{r}:E{r}")
+        ws.merge_cells(f"B{r}:F{r}")
         val_cell = _cell(ws, r, 2, value)
         val_cell.alignment = _LEFT
 
     # Orders table
     orders = report.get("orders", [])
     tbl_start = kpi_row + 1 + len(kpis) + 2
-    ws.merge_cells(f"A{tbl_start}:E{tbl_start}")
+    ws.merge_cells(f"A{tbl_start}:F{tbl_start}")
     hdr2 = ws[f"A{tbl_start}"]
     hdr2.value     = f"Заявки за период ({len(orders)})"
     hdr2.font      = _LABEL_FONT
@@ -120,7 +120,7 @@ def driver_report_xlsx(report: dict) -> bytes:
     hdr2.border    = _THIN_B
 
     col_hdr = tbl_start + 1
-    _header_row(ws, ["Дата доставки", "Заявка №", "Топливо", "Объём (л)", "Адрес"],
+    _header_row(ws, ["Дата доставки", "Заявка №", "Топливо", "Объём (л)", "Адрес", "Комментарий"],
                 row=col_hdr)
 
     for i, o in enumerate(orders, 1):
@@ -131,8 +131,9 @@ def driver_report_xlsx(report: dict) -> bytes:
         _cell(ws, r, 4, float(o["volume_delivered"]) if o.get("volume_delivered") else "—",
               fill=_ARRIVAL_FILL, fmt="#,##0.00")
         _cell(ws, r, 5, o.get("delivery_address", ""), fill=_ARRIVAL_FILL)
+        _cell(ws, r, 6, o.get("comment") or "", fill=_ARRIVAL_FILL)
 
-    _set_col_widths(ws, [18, 16, 18, 14, 44])
+    _set_col_widths(ws, [18, 16, 18, 14, 44, 40])
 
     buf = io.BytesIO()
     wb.save(buf)

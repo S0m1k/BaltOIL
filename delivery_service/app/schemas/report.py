@@ -13,6 +13,7 @@ class DriverOrderItem(BaseModel):
     delivery_address: str
     client_id: uuid.UUID
     delivered_at: datetime
+    comment: str | None = None
 
 
 class DriverReportResponse(BaseModel):
