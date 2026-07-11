@@ -22,16 +22,40 @@ from app.services import conversation_service, message_service, auth_client
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-# ── Вложения чата (фото/видео, правки 2026-06-11) ────────────────────────────
+# ── Вложения чата (фото/видео/файлы, правки 2026-06-11 / 2026-07-11) ──────────
 _ATTACH_MAX_BYTES = 25 * 1024 * 1024  # 25 МБ
 _ATTACH_EXT_MIME = {
+    # Фото
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif",
+    # Видео
     ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    # Документы (правки 2026-07-11): чат «Работа» и др.
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".zip": "application/zip",
+    ".rar": "application/vnd.rar",
+    ".7z": "application/x-7z-compressed",
 }
 _PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+_VIDEO_EXTS = {".mp4", ".mov", ".webm"}
 # Имя сохранённого файла: uuid4hex + разрешённое расширение
-_ATTACH_NAME_RE = re.compile(r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|gif|mp4|mov|webm)$")
+_ATTACH_NAME_RE = re.compile(
+    r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|gif|mp4|mov|webm|pdf|doc|docx|xls|xlsx|csv|txt|zip|rar|7z)$"
+)
+
+
+def _attach_msg_type(ext: str) -> str:
+    if ext in _PHOTO_EXTS:
+        return "photo"
+    if ext in _VIDEO_EXTS:
+        return "video"
+    return "file"
 
 
 class StartByPhoneRequest(BaseModel):
@@ -459,7 +483,7 @@ async def upload_attachment(
     if ext not in _ATTACH_EXT_MIME:
         raise HTTPException(
             status_code=415,
-            detail="Допустимы фото (jpg/png/webp/gif) и видео (mp4/mov/webm)",
+            detail="Допустимы фото, видео и файлы (pdf/doc/xls/csv/txt/zip)",
         )
 
     content = await file.read()
@@ -479,7 +503,7 @@ async def upload_attachment(
         "mime": _ATTACH_EXT_MIME[ext],
         "size": len(content),
         "original_name": file.filename,
-        "msg_type": "photo" if ext in _PHOTO_EXTS else "video",
+        "msg_type": _attach_msg_type(ext),
     }
 
 

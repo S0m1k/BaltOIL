@@ -1413,7 +1413,13 @@
       display: none; flex-direction: column; }
     .chat-sidebar.mobile-visible { display: flex; }
     .chat-main { height: 100%; }
-    .chat-main-header { padding: 10px 12px; }
+    /* Мобильная шапка чата: компактная строка — только «Назад», заголовок и звонок.
+       Подзаголовок, список участников и статус WS скрыты, чтобы не отъедать высоту. */
+    .chat-main-header { padding: 5px 8px; gap: 8px; }
+    .chat-main-title { font-size: 13px; }
+    .chat-main-sub, #chat-conv-members { display: none !important; }
+    #ws-status-badge { display: none !important; }
+    #btn-chat-back { padding: 4px 8px; font-size: 11px; }
     .chat-messages { padding: 10px 12px; }
     .chat-input-area { padding: 8px 10px; }
     .chat-input { font-size: 13px; }
@@ -2636,8 +2642,8 @@
             </div>
             <div class="chat-input-area">
               <input type="file" id="chat-attach-input" style="display:none"
-                accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm" onchange="sendChatAttachment(this)">
-              <button class="btn btn-sm btn-ghost" title="Прикрепить фото или видео"
+                accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z" onchange="sendChatAttachment(this)">
+              <button class="btn btn-sm btn-ghost" title="Прикрепить фото, видео или файл"
                 onclick="document.getElementById('chat-attach-input').click()"
                 style="height:42px;padding:0 12px" id="chat-attach-btn"></button>
               <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение... (Enter — отправить)"
@@ -5410,17 +5416,22 @@ function promptDeliver(orderId) {
       <input type="number" id="md-volume" class="form-input" step="0.01" min="0.01" value="${requestedVolume || ''}" placeholder="Фактический объём">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Сумма заявки будет пересчитана по фактическому объёму. Номер ТТН присваивается автоматически.</div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Комментарий (необязательно)</label>
+      <textarea id="md-comment" class="form-input" rows="2" placeholder="Попадёт в отчёт: недолив, замечания по адресу и т.п."></textarea>
+    </div>
     ${paymentBlock}`,
     async () => {
       const vol = parseFloat(document.getElementById('md-volume').value);
       if (!vol || vol <= 0) { toast('Укажите отгруженный объём', 'error'); return; }
+      const comment = (document.getElementById('md-comment')?.value || '').trim() || undefined;
       const paid = document.getElementById('md-paid')?.checked;
       const payAmount = paid ? parseFloat(document.getElementById('md-pay-amount').value) : null;
       const payMethod = paid ? document.getElementById('md-pay-method').value : null;
       if (paid && (!payAmount || payAmount <= 0)) { toast('Укажите сумму оплаты', 'error'); return; }
       closeModal();
       // ttn_number не передаём — бэкенд присвоит сквозной номер автоматически.
-      await transitionOrder(orderId, 'delivered', { volume_delivered: vol });
+      await transitionOrder(orderId, 'delivered', { volume_delivered: vol, comment });
       if (paid) {
         try {
           await orderPost('/payments/record', { order_id: orderId, amount: payAmount, method: payMethod });
@@ -7121,6 +7132,7 @@ function reportHTML(r) {
     const addr = o.delivery_address ? escHtml(o.delivery_address) : '—';
     const orderRef = escHtml(o.order_number);
     const fuel = o.fuel_type ? fuelLabel(o.fuel_type) : '';
+    const comment = o.comment ? escHtml(o.comment) : '';
     return `
     <div class="trip-card status-completed" style="margin-top:6px">
       <div class="trip-card-head">
@@ -7133,6 +7145,7 @@ function reportHTML(r) {
       <div class="trip-card-body">
         <div class="trip-vol-line">${vol}</div>
         <div class="trip-addr-line">${icon('arrow-right',12,'margin-right:4px;opacity:.5')} ${addr}</div>
+        ${comment ? `<div class="trip-addr-line" style="color:var(--text2);margin-top:4px">${icon('chat-circle',12,'margin-right:4px;opacity:.5')} ${comment}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -7905,6 +7918,7 @@ function _lastMsgPreview(m) {
   if (m.msg_type === 'photo') return '📷 Фото';
   if (m.msg_type === 'video') return '🎬 Видео';
   if (m.msg_type === 'document') return '📄 Документ';
+  if (m.msg_type === 'file') return '📎 ' + ((m.metadata && m.metadata.original_name) || 'Файл');
   return m.text;
 }
 
@@ -8060,6 +8074,22 @@ function msgHTML(m) {
         </div>`;
     }
     setTimeout(() => loadChatMedia(mediaId, m.conversation_id, m.metadata.path), 0);
+  } else if (m.msg_type === 'file' && m.metadata && m.metadata.path) {
+    // Файл-вложение (правки 2026-07-11): скачивается авторизованным fetch.
+    const name = m.metadata.original_name || 'Файл';
+    const sizeKb = m.metadata.size ? Math.max(1, Math.round(m.metadata.size / 1024)) : null;
+    bodyHtml = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:220px;max-width:300px">
+        <div style="font-size:22px;flex-shrink:0">${icon('paperclip',22)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name)}</div>
+          ${sizeKb ? `<div style="font-size:11px;color:var(--text3)">${sizeKb.toLocaleString('ru')} КБ</div>` : ''}
+        </div>
+        <button type="button" onclick="downloadChatFile('${escHtml(m.conversation_id)}','${escHtml(m.metadata.path)}','${escHtml(name)}')"
+           style="font-size:11px;padding:4px 10px;background:var(--amber);color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0">
+          ⬇ Скачать
+        </button>
+      </div>`;
   } else {
     bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
   }
@@ -8512,8 +8542,11 @@ async function sendChatAttachment(input) {
       throw new Error(detail);
     }
     const up = await r.json();
+    const attachText = up.msg_type === 'photo' ? '📷 Фото'
+                     : up.msg_type === 'video' ? '🎬 Видео'
+                     : `📎 ${up.original_name || 'Файл'}`;
     const msg = await chatPost(`/conversations/${activeConvId}/messages`, {
-      text: up.msg_type === 'photo' ? '📷 Фото' : '🎬 Видео',
+      text: attachText,
       msg_type: up.msg_type,
       metadata: { path: up.path, mime: up.mime, size: up.size, original_name: up.original_name },
     });
@@ -8546,6 +8579,28 @@ async function loadChatMedia(elId, convId, path) {
   } catch (_) {
     const wrap = el.closest('.chat-media-wrap');
     if (wrap) wrap.innerHTML = '<span style="font-size:11px;color:var(--red)">Не удалось загрузить вложение</span>';
+  }
+}
+
+// Скачать файл-вложение чата авторизованным fetch (Authorization заголовок нельзя
+// повесить на обычную ссылку) — тянем blob и сохраняем под оригинальным именем.
+async function downloadChatFile(convId, path, name) {
+  try {
+    const token = localStorage.getItem('access_token');
+    const r = await fetch(`${CHAT_URL}/conversations/${convId}/attachments/${encodeURIComponent(path)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name || 'file';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) {
+    toast('Не удалось скачать файл: ' + e.message, 'error');
   }
 }
 
