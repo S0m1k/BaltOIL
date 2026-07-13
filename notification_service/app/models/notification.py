@@ -20,6 +20,22 @@ class NotificationType(str, enum.Enum):
     CHAT_NEW       = "chat_new"
 
 
+class EmailPrefs(Base):
+    """Персональные email-предпочтения (правки 2026-07-11).
+
+    Нет строки — шлём всё (default). Флаги отключают только EMAIL-доставку;
+    in-app уведомления (SSE/колокольчик) не фильтруются.
+    """
+    __tablename__ = "email_prefs"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    order_created: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    order_status: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    chat: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    calls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    report: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 

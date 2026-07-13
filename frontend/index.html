@@ -2207,7 +2207,10 @@
       <div class="inv-pane active" id="inv-pane-stock">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="inv-section-title" style="margin:0;border:none;padding:0">Текущие остатки на складе</div>
-          <button id="reconcile-btn" class="btn btn-sm btn-warn" style="display:none" onclick="doReconcile()" title="Пересчитать остатки по истории транзакций">⟳ Сверка</button>
+          <div style="display:flex;gap:6px">
+            <button id="adjust-btn" class="btn btn-sm btn-ghost" style="display:none" onclick="promptStockAdjustment()" title="Корректировка остатка (± литры с причиной)">± Корректировка</button>
+            <button id="reconcile-btn" class="btn btn-sm btn-warn" style="display:none" onclick="doReconcile()" title="Пересчитать остатки по истории транзакций">⟳ Сверка</button>
+          </div>
         </div>
         <div id="inv-stock-grid" class="stock-grid">
           <div class="empty-state"><div class="loading"></div></div>
@@ -2638,7 +2641,9 @@
               <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
                 <button class="btn btn-sm btn-ghost" id="btn-chat-back"
                   onclick="showChatSidebar()" style="display:none;flex-shrink:0">← Диалоги</button>
-                <div style="min-width:0">
+                <!-- Тап по заголовку открывает участников — на мобилке подзаголовок
+                     с «N уч.» скрыт ради компактной шапки (правки 2026-07-11) -->
+                <div style="min-width:0;cursor:pointer" onclick="showConvParticipants()" title="Показать участников">
                   <div class="chat-main-title" id="chat-conv-title">—</div>
                   <div class="chat-main-sub" id="chat-conv-sub"></div>
                   <div class="chat-main-sub" id="chat-conv-members" style="display:none;flex-wrap:wrap;gap:4px;margin-top:2px"></div>
@@ -4684,7 +4689,9 @@ function orderCardHTML(o) {
        data-order-kind="${escHtml(o.order_kind || '')}"
        data-expected-amount="${o.expected_amount != null ? Number(o.expected_amount) : ''}"
        data-final-amount="${o.final_amount != null ? Number(o.final_amount) : ''}"
-       data-volume-requested="${Number(o.volume_requested)}">
+       data-volume-requested="${Number(o.volume_requested)}"
+       data-delivery-cost="${o.delivery_cost != null ? Number(o.delivery_cost) : ''}"
+       data-payment-status="${escHtml(paymentStatusDisplay(o.payment_status || 'unpaid'))}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
       ${_changedMark(o)}
       ${isStaff ? _payIcon(o) : ''}
@@ -4714,6 +4721,7 @@ function orderCardHTML(o) {
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
         ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
+        ${priceFormulaHTML(o, driverHidesMoney)}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
         ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
@@ -4731,6 +4739,26 @@ function orderCardHTML(o) {
       </div>` : ''}
     </div>
   </div>`;
+}
+
+// Формула расчёта цены в заявке физлица (правки 2026-07-11):
+// «цена/л × литры + доставка = сумма». Цена за литр восстанавливается из
+// суммы заявки: (сумма − доставка) / литры — то же, что видел клиент в превью.
+function priceFormulaHTML(o, driverHidesMoney) {
+  if (o.order_kind !== 'individual' || driverHidesMoney) return '';
+  const amount = o.final_amount != null ? Number(o.final_amount)
+               : o.expected_amount != null ? Number(o.expected_amount) : null;
+  const volume = o.final_amount != null && o.volume_delivered != null
+               ? Number(o.volume_delivered) : Number(o.volume_requested);
+  if (amount == null || !(volume > 0)) return '';
+  const delivery = o.delivery_cost != null ? Number(o.delivery_cost) : 0;
+  const perLiter = (amount - delivery) / volume;
+  if (!(perLiter > 0)) return '';
+  const fmt2 = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const formula = `${fmt2(perLiter)} ₽/л × ${Number(volume).toLocaleString('ru')} л`
+    + (delivery > 0 ? ` + ${Number(delivery).toLocaleString('ru')} ₽ доставка` : '')
+    + ` = <strong>${fmt2(amount)} ₽</strong>`;
+  return `<div class="detail-item"><div class="detail-label">Расчёт цены</div><div class="detail-value">${formula}</div></div>`;
 }
 
 async function toggleCard(orderId) {
@@ -5414,10 +5442,24 @@ function promptDeliver(orderId) {
   const finalAmount = orderEl ? parseFloat(orderEl.dataset.finalAmount || '0') : 0;
   const displayAmount = (finalAmount > 0 ? finalAmount : expectedAmount) || 0;
   const requestedVolume = orderEl ? parseFloat(orderEl.dataset.volumeRequested || '0') : 0;
+  const deliveryCost = orderEl ? (parseFloat(orderEl.dataset.deliveryCost || '0') || 0) : 0;
+  const isPaidAlready = orderEl ? orderEl.dataset.paymentStatus === 'paid' : false;
+  // Цена за литр из суммы заявки — для живой формулы «цена × литры + доставка»
+  const perLiter = (displayAmount > 0 && requestedVolume > 0)
+    ? (displayAmount - deliveryCost) / requestedVolume : 0;
 
-  // Одно окно: фактический объём + (для физлиц) отметка об оплате (правки 2026-06-11)
+  // Одно окно: фактический объём + (для физлиц) отметка об оплате (правки 2026-06-11).
+  // Правки 2026-07-11: если оплата уже принята — показываем «Топливо оплачено»,
+  // иначе формула пересчитывается по фактически слитым литрам.
   const fmt = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2});
-  const paymentBlock = orderKind === 'individual' ? `
+  let paymentBlock = '';
+  if (orderKind === 'individual' && isPaidAlready) {
+    paymentBlock = `
+    <div style="margin-top:10px;padding:10px 12px;background:rgba(20,184,166,.08);border:1px solid var(--s-delivered);border-radius:8px;font-size:13px;color:var(--s-delivered)">
+      ✓ <strong>Топливо оплачено</strong>
+    </div>`;
+  } else if (orderKind === 'individual') {
+    paymentBlock = `
     <div class="form-group" style="margin-top:10px">
       <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="md-paid" onchange="document.getElementById('md-pay-fields').style.display = this.checked ? '' : 'none'">
@@ -5425,6 +5467,7 @@ function promptDeliver(orderId) {
       </label>
     </div>
     <div id="md-pay-fields" style="display:none">
+      <div id="md-pay-formula" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
       <div class="form-group">
         <label class="form-label">Сумма, ₽</label>
         <input type="number" id="md-pay-amount" class="form-input" step="0.01" min="0.01" value="${displayAmount > 0 ? displayAmount : ''}" placeholder="Введите сумму">
@@ -5438,7 +5481,8 @@ function promptDeliver(orderId) {
           <option value="bank_transfer">Банковский перевод</option>
         </select>
       </div>
-    </div>` : '';
+    </div>`;
+  }
 
   openModal('Отметить доставку',
     `<div class="form-group">
@@ -5474,6 +5518,25 @@ function promptDeliver(orderId) {
       }
     }
   );
+
+  // Живая формула (правки 2026-07-11): цена/л × фактические литры + доставка = сумма.
+  // Сумма к оплате подставляется автоматически при изменении объёма.
+  if (perLiter > 0) {
+    const updFormula = () => {
+      const el = document.getElementById('md-pay-formula');
+      if (!el) return;
+      const vol = parseFloat(document.getElementById('md-volume')?.value) || 0;
+      if (!(vol > 0)) { el.innerHTML = ''; return; }
+      const total = perLiter * vol + deliveryCost;
+      el.innerHTML = `${fmt(perLiter)} ₽/л × ${Number(vol).toLocaleString('ru')} л`
+        + (deliveryCost > 0 ? ` + ${Number(deliveryCost).toLocaleString('ru')} ₽ доставка` : '')
+        + ` = <strong>${fmt(total)} ₽</strong>`;
+      const payInput = document.getElementById('md-pay-amount');
+      if (payInput) payInput.value = total.toFixed(2);
+    };
+    document.getElementById('md-volume')?.addEventListener('input', updFormula);
+    updFormula();
+  }
 }
 
 // Driver records payment for an individual order after marking it delivered (SPEC 5.4)
@@ -7767,13 +7830,19 @@ const CONV_FOLDERS = [
 
 function convFolderOf(c) {
   const role = currentUser?.role;
+  const isStaffRole = role === 'admin' || role === 'manager' || role === 'driver';
   if (c.kind === 'staff_group') return 'work';
   if (c.kind === 'client_driver_order') return 'orders';
   // Чат клиент↔бухгалтерия — отдельная папка для staff (F6, правка 2026-06-24);
   // клиенту эта папка не показывается, у него такие чаты остаются в «Рабочие».
   if (c.kind === 'client_accountant') return role === 'client' ? 'work' : 'accounting';
   if (c.kind === 'client_manager') return role === 'client' ? 'work' : 'clients';
-  if (c.kind === 'direct') return 'personal';
+  if (c.kind === 'direct') {
+    // Правки 2026-07-11: личные чаты сотрудника с коллегами живут в «Рабочих»,
+    // с клиентами — в «Личных». У клиента все direct остаются в «Личных».
+    const peerIsStaff = c.peer_role === 'admin' || c.peer_role === 'manager' || c.peer_role === 'driver';
+    return isStaffRole && peerIsStaff ? 'work' : 'personal';
+  }
   return 'work';
 }
 
@@ -7882,6 +7951,36 @@ async function renderConvMembers(convId, el) {
   }
 }
 
+// Адресная книга сотрудников (правки 2026-07-11): в папке «Рабочие» каждый
+// сотрудник видит всех коллег; личный чат создаётся при первом открытии.
+let _staffDirectory = [];
+
+async function loadStaffDirectory() {
+  const role = currentUser?.role;
+  if (!(role === 'admin' || role === 'manager' || role === 'driver')) {
+    _staffDirectory = [];
+    return;
+  }
+  try {
+    const users = await authGet('/users/directory?limit=1000');
+    _staffDirectory = (users || []).filter(u =>
+      (u.role === 'admin' || u.role === 'manager' || u.role === 'driver')
+      && u.id !== currentUser?.id);
+  } catch (_) {
+    _staffDirectory = []; // мягкая деградация: секция просто не показывается
+  }
+}
+
+async function startChatWithUser(userId) {
+  try {
+    const conv = await chatPost('/conversations/start-with-user', { user_id: userId });
+    await loadConversations();
+    openConversation(conv.id);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 async function loadConversations() {
   const el = document.getElementById('conv-list');
   el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
@@ -7896,7 +7995,10 @@ async function loadConversations() {
   }
   await ensureAccountantChat();
   try {
-    const convs = await chatGet('/conversations');
+    const [convs] = await Promise.all([
+      chatGet('/conversations'),
+      loadStaffDirectory(),
+    ]);
     renderConvList(convs);
   } catch (e) {
     el.innerHTML = `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
@@ -7974,7 +8076,30 @@ function renderConvList(convs) {
     ? convs
     : convs.filter(c => convFolderOf(c) === _convFolder);
 
-  if (!visible.length) {
+  // Секция «Сотрудники» в папке «Рабочие» (правки 2026-07-11): коллеги, с которыми
+  // личный чат ещё не начат. Клик — чат создаётся и открывается.
+  let staffSection = '';
+  const isStaffRole = ['admin', 'manager', 'driver'].includes(currentUser?.role);
+  if (_convFolder === 'work' && isStaffRole && _staffDirectory.length) {
+    const havePeer = new Set(convs.filter(c => c.kind === 'direct' && c.peer_id).map(c => String(c.peer_id)));
+    const noChatYet = _staffDirectory.filter(u => !havePeer.has(String(u.id)));
+    if (noChatYet.length) {
+      staffSection = `
+        <div style="padding:8px 12px 2px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Сотрудники</div>` +
+        noChatYet.map(u => `
+        <div class="conv-item" onclick="startChatWithUser('${escHtml(u.id)}')">
+          <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(u.full_name || '—')}</span>
+          </div>
+          <div class="conv-item-meta">
+            <span class="conv-type-chip conv-type-direct">${escHtml(ROLE_LABEL_RU[u.role] || u.role)}</span>
+            <span class="conv-item-last" style="color:var(--text3)">Начать чат</span>
+          </div>
+        </div>`).join('');
+    }
+  }
+
+  if (!visible.length && !staffSection) {
     el.innerHTML = folderChips + '<div class="empty-state" style="padding:30px 16px;font-size:11px">Нет диалогов</div>';
     return;
   }
@@ -7993,7 +8118,7 @@ function renderConvList(convs) {
         ${c.unread_count > 0 ? `<span class="unread-badge">${c.unread_count}</span>` : ''}
         <span class="conv-item-time">${fmtTime(c.updated_at)}</span>
       </div>
-    </div>`).join('');
+    </div>`).join('') + staffSection;
 }
 
 function _lastMsgPreview(m) {
@@ -8046,7 +8171,7 @@ async function openConversation(convId) {
       sub.innerHTML =
         `${escHtml(CONV_KIND_LABELS[conv.kind] || conv.kind || '')}` +
         (conv.order_id ? ` · заявка ${escHtml(conv.order_id.slice(0,8))}…` : '') +
-        ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
+        ` · <a href="#" class="conv-participants-link" onclick="event.preventDefault();event.stopPropagation();showConvParticipants()" title="Показать участников">${conv.participants.length} уч.</a>`;
     }
 
     // Состав группы — для штатных групп «Работа»/«Бухгалтерия» подгружаем список
@@ -8686,6 +8811,14 @@ async function downloadChatFile(convId, path, name) {
   }
 }
 
+// Нормализация телефона как при логине (правки 2026-07-11): последние 10 значащих
+// цифр, +7/8 отбрасываются. Возвращает 10 цифр или null, если номер некорректен.
+function normalizePhoneRu(raw) {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 11 && (digits[0] === '7' || digits[0] === '8')) digits = digits.slice(1);
+  return digits.length === 10 ? digits : null;
+}
+
 // Начать личный чат с любым пользователем по номеру телефона. Доступно всем ролям.
 function startChatByPhone() {
   openModal('Чат по номеру телефона',
@@ -8697,8 +8830,12 @@ function startChatByPhone() {
       <input type="tel" id="sbp-phone" class="form-input" placeholder="+7 999 000 00 00" autocomplete="off">
     </div>`,
     async () => {
-      const phone = (document.getElementById('sbp-phone')?.value || '').trim();
-      if (!phone) { toast('Введите номер телефона', 'error'); return; }
+      const raw = (document.getElementById('sbp-phone')?.value || '').trim();
+      if (!raw) { toast('Введите номер телефона', 'error'); return; }
+      // Та же валидация, что при логине: любые форматы (+7 999…, 8999…, с пробелами),
+      // но после нормализации должно остаться ровно 10 цифр.
+      const phone = normalizePhoneRu(raw);
+      if (!phone) { toast('Некорректный номер: введите 10 цифр (можно с +7 или 8)', 'error'); return; }
       closeModal();
       try {
         const conv = await chatPost('/conversations/start-by-phone', { phone });
@@ -10020,18 +10157,57 @@ function initInventory() {
   document.getElementById('tab-inventory-btn').style.display = isAllowed ? '' : 'none';
   if (!isAllowed) { switchTab('orders'); return; }
 
-  // Водитель видит только остатки — скрываем write-субтабы и кнопки
+  // Правки 2026-07-11: приход топлива доступен и водителям (без права правки —
+  // журнал append-only, ошибки исправляет админ корректировкой).
   const isDriver = role === 'driver';
-  const arrivalTab = document.querySelector('.inv-subtab[data-inv="arrival"]');
   const invreportTab = document.querySelector('.inv-subtab[data-inv="invreport"]');
-  if (arrivalTab) arrivalTab.style.display = isDriver ? 'none' : '';
   if (invreportTab) invreportTab.style.display = isDriver ? 'none' : '';
 
-  // Кнопка сверки — только для admin
+  // Кнопки сверки и корректировки — только для admin
   const reconcileBtn = document.getElementById('reconcile-btn');
   if (reconcileBtn) reconcileBtn.style.display = role === 'admin' ? '' : 'none';
+  const adjustBtn = document.getElementById('adjust-btn');
+  if (adjustBtn) adjustBtn.style.display = role === 'admin' ? '' : 'none';
 
   switchInvTab('stock');
+}
+
+// Корректировка остатка админом (правки 2026-07-11): ± литры + обязательная причина.
+// Пишется отдельной транзакцией — журнал сохраняет и ошибку, и исправление.
+function promptStockAdjustment() {
+  const fuelOpts = _fuelCatalog.length
+    ? _fuelCatalog.filter(f => f.is_active).map(f => `<option value="${escHtml(f.code)}">${escHtml(f.label)}</option>`).join('')
+    : Object.entries(_FUEL_LABELS_FALLBACK).map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
+  openModal('Корректировка остатка',
+    `<div class="form-group">
+      <label class="form-label">Вид топлива</label>
+      <select id="adj-fuel" class="form-input">${fuelOpts}</select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Изменение, литров <span style="color:var(--red)">*</span></label>
+      <input type="number" id="adj-delta" class="form-input" step="0.01" placeholder="Например: -500 или 1200">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Положительное — добавить к остатку, отрицательное — убавить.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Причина <span style="color:var(--red)">*</span></label>
+      <input type="text" id="adj-notes" class="form-input" placeholder="Ошибка ввода прихода, недостача при сверке...">
+    </div>`,
+    async () => {
+      const fuel = document.getElementById('adj-fuel').value;
+      const delta = parseFloat(document.getElementById('adj-delta').value);
+      const notes = document.getElementById('adj-notes').value.trim();
+      if (!delta) { toast('Укажите ненулевое изменение', 'error'); return; }
+      if (!notes) { toast('Укажите причину корректировки', 'error'); return; }
+      closeModal();
+      try {
+        await deliveryPost('/inventory/adjustments', { fuel_type: fuel, delta, notes });
+        toast('Корректировка записана');
+        loadInvStock();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+  );
 }
 
 async function doReconcile() {

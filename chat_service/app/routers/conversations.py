@@ -112,6 +112,54 @@ async def start_by_phone(
     )
 
 
+class StartWithUserRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+@router.post("/start-with-user", response_model=ConversationListResponse)
+async def start_with_user(
+    body: StartWithUserRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Начать (или открыть) личный чат с сотрудником по его id (правки 2026-07-11).
+
+    Для списка сотрудников в папке «Работа»: чат создаётся лениво при первом
+    открытии. Только staff↔staff — клиенты продолжают пользоваться «по номеру».
+    """
+    if actor.role not in ("admin", "manager", "driver"):
+        raise HTTPException(status_code=403, detail="Доступно только сотрудникам")
+    if body.user_id == actor.id:
+        raise HTTPException(status_code=400, detail="Нельзя начать чат с самим собой")
+
+    target = await auth_client.get_contact(body.user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if target.get("role") not in ("admin", "manager", "driver"):
+        raise HTTPException(status_code=403, detail="Личный чат по id — только с сотрудниками")
+
+    conv = await conversation_service.ensure_direct(db, actor.id, body.user_id)
+    await db.commit()
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+        peer_name=target.get("full_name"),
+        peer_phone=target.get("phone"),
+        peer_role=target.get("role"),
+        peer_id=body.user_id,
+    )
+
+
 @router.get("", response_model=list[ConversationListResponse])
 async def list_conversations(
     order_id: uuid.UUID | None = None,

@@ -10,7 +10,7 @@ from app.database import get_db
 from app.config import get_settings
 from app.core.dependencies import TokenUser, require_roles, ROLE_MANAGER, ROLE_ADMIN, ROLE_DRIVER, CurrentUser
 from app.schemas.inventory import (
-    FuelStockResponse, ArrivalRequest,
+    FuelStockResponse, ArrivalRequest, AdjustmentRequest,
     TransactionResponse, InventoryReport,
 )
 from app.services import inventory_service
@@ -40,11 +40,35 @@ async def get_stock(
              summary="Записать приход топлива")
 async def record_arrival(
     data: ArrivalRequest,
-    current_user: ManagerOrAdmin,
+    current_user: ViewAllowed,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Менеджер / администратор фиксирует поступление топлива на склад."""
+    """Приход топлива на склад (правки 2026-07-11: доступно и водителям).
+
+    Транзакции append-only — исправить внесённое нельзя; ошибку правит
+    администратор корректировкой (POST /inventory/adjustments).
+    """
     return await inventory_service.record_arrival(db, data, current_user)
+
+
+@router.post("/adjustments", response_model=TransactionResponse, status_code=201,
+             summary="Корректировка остатка (только admin)")
+async def record_adjustment(
+    data: AdjustmentRequest,
+    current_user: Annotated[TokenUser, Depends(require_roles(ROLE_ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Админ корректирует остаток на ± литры с обязательной причиной.
+
+    Записывается отдельной транзакцией — журнал сохраняет и ошибку, и правку.
+    """
+    return await inventory_service.record_adjustment(
+        db,
+        fuel_type=data.fuel_type,
+        delta=data.delta,
+        notes=data.notes,
+        actor=current_user,
+    )
 
 
 @router.get("/transactions", response_model=list[TransactionResponse],

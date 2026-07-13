@@ -118,8 +118,13 @@ async def record_arrival(
     data: ArrivalRequest,
     actor: TokenUser,
 ) -> TransactionResponse:
-    """Записать приход топлива (ввод оператора)."""
-    _require_manager(actor)
+    """Записать приход топлива (ввод оператора).
+
+    Правки 2026-07-11: приход могут вносить и водители. Править/удалять
+    транзакции нельзя никому (append-only) — ошибку исправляет админ
+    корректировкой (record_adjustment).
+    """
+    _require_view(actor)
     labels = await fuel_catalog.get_fuel_labels()
     if data.fuel_type not in labels:
         raise ValidationError(f"Неизвестный вид топлива: {data.fuel_type!r}")
@@ -144,6 +149,43 @@ async def record_arrival(
     db.add(tx)
     await _upsert_stock(db, data.fuel_type, data.volume)
     return _tx_to_response(tx)
+
+
+async def record_adjustment(
+    db: AsyncSession,
+    *,
+    fuel_type: str,
+    delta: float,
+    notes: str,
+    actor: TokenUser,
+) -> TransactionResponse:
+    """Корректировка остатка админом (правки 2026-07-11).
+
+    Водители вносят приход без права правки — ошибки исправляет админ
+    отдельной транзакцией со знаком (± литры) и обязательной причиной.
+    Журнал остаётся append-only: видно и ошибку, и исправление.
+    """
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError("Корректировка остатков доступна только администратору")
+    labels = await fuel_catalog.get_fuel_labels()
+    if fuel_type not in labels:
+        raise ValidationError(f"Неизвестный вид топлива: {fuel_type!r}")
+    if not delta:
+        raise ValidationError("Укажите ненулевую корректировку (± литры)")
+    if not notes.strip():
+        raise ValidationError("Укажите причину корректировки")
+
+    tx = FuelTransaction(
+        type=TransactionType.ARRIVAL if delta > 0 else TransactionType.DEPARTURE,
+        fuel_type=fuel_type,
+        volume=abs(delta),
+        transaction_date=datetime.now(timezone.utc),
+        notes=f"Корректировка админа: {notes.strip()}",
+        created_by_id=actor.id,
+    )
+    db.add(tx)
+    await _upsert_stock(db, fuel_type, delta)
+    return _tx_to_response(tx, labels)
 
 
 async def record_departure_on_start(

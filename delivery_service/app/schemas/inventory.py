@@ -26,6 +26,13 @@ class ArrivalRequest(BaseModel):
     notes: str | None = Field(None, max_length=2000)
 
 
+class AdjustmentRequest(BaseModel):
+    """Корректировка остатка админом (правки 2026-07-11): ± литры с причиной."""
+    fuel_type: str = Field(..., min_length=1, max_length=50)
+    delta: float = Field(..., ge=-10_000_000, le=10_000_000, description="Изменение остатка в литрах (может быть отрицательным)")
+    notes: str = Field(..., min_length=1, max_length=2000, description="Причина корректировки")
+
+
 class TransactionResponse(BaseModel):
     id: uuid.UUID
     type: str                      # "arrival" | "departure"

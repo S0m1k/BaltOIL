@@ -706,13 +706,18 @@ async def list_conversations(
     output = []
     for conv in conversations:
         last_msg = last_msgs.get(conv.id)
-        peer_name = peer_phone = None
+        peer_name = peer_phone = peer_role = None
+        peer_id_val = None
         if conv.kind == ConversationKind.DIRECT:
             peer_id = conv.driver_id if conv.client_id == actor.id else conv.client_id
+            peer_id_val = peer_id
             card = contacts.get(str(peer_id)) if peer_id else None
             if card:
                 peer_name = card.get("full_name")
                 peer_phone = card.get("phone")
+                # Роль собеседника (правки 2026-07-11): фронт кладёт личные чаты
+                # с сотрудниками в папку «Работа», с клиентами — в «Личные».
+                peer_role = card.get("role")
         output.append({
             "id": conv.id,
             "kind": conv.kind,
@@ -728,6 +733,8 @@ async def list_conversations(
             "updated_at": conv.updated_at,
             "peer_name": peer_name,
             "peer_phone": peer_phone,
+            "peer_role": peer_role,
+            "peer_id": peer_id_val,
             "is_pinned": conv.id in pinned_ids,
         })
 
