@@ -1064,6 +1064,8 @@
   }
   .msg-row.mine .msg-actions { right: 42px; }
   .msg-row:hover .msg-actions { display: flex; }
+  /* Тач-устройства: hover нет — кнопки открываются тапом по сообщению */
+  .msg-row.actions-open .msg-actions { display: flex; }
   .msg-action-btn {
     border: none; background: none; cursor: pointer; padding: 3px 6px;
     font-size: 10px; color: var(--text3); border-radius: 4px; white-space: nowrap;
@@ -2198,6 +2200,7 @@
 
       <div class="inv-subtabs">
         <button class="inv-subtab active" data-inv="stock"        onclick="switchInvTab('stock')">Остатки</button>
+        <button class="inv-subtab"        data-inv="tanks"        onclick="switchInvTab('tanks')">Ёмкости</button>
         <button class="inv-subtab"        data-inv="transactions" onclick="switchInvTab('transactions')">Операции</button>
         <button class="inv-subtab"        data-inv="arrival"      onclick="switchInvTab('arrival')">+ Приход</button>
         <button class="inv-subtab"        data-inv="invreport"    onclick="switchInvTab('invreport')">Отчёт</button>
@@ -2214,6 +2217,41 @@
         </div>
         <div id="inv-stock-grid" class="stock-grid">
           <div class="empty-state"><div class="loading"></div></div>
+        </div>
+      </div>
+
+      <!-- SUB: ЁМКОСТИ (правки 2026-07-14) -->
+      <div class="inv-pane" id="inv-pane-tanks">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div class="inv-section-title" style="margin:0;border:none;padding:0">Ёмкости хранения</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-ghost" onclick="promptTankTransfer()">⇄ Перелив</button>
+            <button id="btn-add-tank" class="btn btn-sm btn-warn" style="display:none" onclick="promptCreateTank()">+ Ёмкость</button>
+          </div>
+        </div>
+        <div id="tanks-grid" class="stocks-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+        <div class="inv-section-title" style="margin-top:20px">Журнал операций по ёмкостям</div>
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Ёмкость</th>
+                <th>Операция</th>
+                <th>Объём (л)</th>
+                <th>Счётчик: было</th>
+                <th>Стало</th>
+                <th>Заявка</th>
+                <th>Кто</th>
+                <th>Примечание</th>
+              </tr>
+            </thead>
+            <tbody id="tank-tx-body">
+              <tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text3)">—</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -2284,6 +2322,13 @@
               <label class="form-label">Объём (литры)</label>
               <input type="number" id="arr-volume" class="form-input" placeholder="10000" min="1" step="100">
             </div>
+          </div>
+          <div class="form-group" id="arr-tank-group" style="display:none">
+            <label class="form-label">Ёмкость <span style="color:var(--red)">*</span></label>
+            <select id="arr-tank" class="form-input">
+              <!-- Ёмкости выбранного вида топлива; заполняется в switchInvTab('arrival') -->
+            </select>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Топливо будет добавлено в выбранную ёмкость.</div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -2395,6 +2440,8 @@
     <div class="tab-pane" id="pane-fuels">
       <div class="toolbar">
         <div class="toolbar-title">Справочник топлива</div>
+        <button class="btn btn-sm btn-warn" id="btn-add-fuel" onclick="promptAddFuelType()"
+          style="display:none;margin-left:auto">+ Добавить вид</button>
       </div>
       <div id="fuel-grid" class="fuel-grid">
         <div class="empty-state"><div class="loading"></div></div>
@@ -3025,6 +3072,8 @@ function buildBurgerMenu() {
     { tab: 'legal-entity', label: 'Реквизиты',         show: role === 'admin' },
     { tab: 'zones',     label: 'Зоны',                show: role === 'admin' },
     { tab: 'chat',      label: 'Чат',                 show: true },
+    // Профиль: на мобиле user-badge скрыт, бургер — единственный путь к нему
+    { tab: 'profile',   label: 'Мой профиль',          show: true },
   ];
 
   document.getElementById('burger-nav').innerHTML = tabs
@@ -3065,7 +3114,9 @@ function fuelLabel(code) {
 
 async function loadFuelCatalog() {
   try {
-    _fuelCatalog = await orderGet('/fuel-types');
+    // include_inactive: лейблы нужны и для скрытых видов (исторические заявки);
+    // селекты сами фильтруют по is_active в _populateFuelSelects.
+    _fuelCatalog = await orderGet('/fuel-types?include_inactive=true');
   } catch (e) {
     // Используем фолбэк; не блокируем старт
     console.warn('loadFuelCatalog failed:', e.message);
@@ -3122,11 +3173,12 @@ function _populateFuelSelects() {
 }
 
 async function populateOrderFuelSelect() {
-  // Загружает только топливо с остатком > 0 и проставляет сезонный дефолт
+  // Все активные виды топлива + сезонный дефолт. Фильтр по остатку склада
+  // убран (правки 2026-07-14): продаём даже при пустом складе.
   const sel = document.getElementById('c-fuel');
   if (!sel) return;
   try {
-    const fuels = await orderGet('/fuel-types?available_only=true');
+    const fuels = await orderGet('/fuel-types');
     sel.innerHTML = '';
     fuels.forEach(f => {
       const o = document.createElement('option');
@@ -4691,6 +4743,8 @@ function orderCardHTML(o) {
        data-final-amount="${o.final_amount != null ? Number(o.final_amount) : ''}"
        data-volume-requested="${Number(o.volume_requested)}"
        data-delivery-cost="${o.delivery_cost != null ? Number(o.delivery_cost) : ''}"
+       data-fuel-type="${escHtml(o.fuel_type || '')}"
+       data-order-number="${escHtml(o.order_number || '')}"
        data-payment-status="${escHtml(paymentStatusDisplay(o.payment_status || 'unpaid'))}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
       ${_changedMark(o)}
@@ -5250,7 +5304,7 @@ async function promptEditOrderField(orderId, field) {
     title = 'Изменить вид топлива';
     let opts = '';
     try {
-      const fuels = await orderGet('/fuel-types?available_only=true');
+      const fuels = await orderGet('/fuel-types');
       opts = fuels.map(f => `<option value="${escHtml(f.code)}" ${f.code === order.fuel_type ? 'selected' : ''}>${escHtml(f.label)}</option>`).join('');
     } catch (_) {
       opts = Object.entries(_FUEL_LABELS_FALLBACK)
@@ -5484,12 +5538,29 @@ function promptDeliver(orderId) {
     </div>`;
   }
 
+  // Ёмкости (правки 2026-07-14): водитель указывает, из какой ёмкости слито,
+  // и вводит новое показание счётчика колонки. Блок появляется после загрузки
+  // списка ёмкостей (если они заведены).
+  const tankBlock = `
+    <div id="md-tank-block" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Из какой ёмкости <span style="color:var(--red)">*</span></label>
+        <select id="md-tank" class="form-input" onchange="_mdTankChanged()"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Счётчик после отгрузки (6 цифр) <span style="color:var(--red)">*</span></label>
+        <input type="number" id="md-counter" class="form-input" min="0" max="999999" step="1" placeholder="230523" oninput="_mdCounterHint()">
+        <div id="md-counter-hint" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+      </div>
+    </div>`;
+
   openModal('Отметить доставку',
     `<div class="form-group">
       <label class="form-label">Отгружено, литров <span style="color:var(--red)">*</span></label>
       <input type="number" id="md-volume" class="form-input" step="0.01" min="0.01" value="${requestedVolume || ''}" placeholder="Фактический объём">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Сумма заявки будет пересчитана по фактическому объёму. Номер ТТН присваивается автоматически.</div>
     </div>
+    ${tankBlock}
     <div class="form-group">
       <label class="form-label">Комментарий (необязательно)</label>
       <textarea id="md-comment" class="form-input" rows="2" placeholder="Попадёт в отчёт: недолив, замечания по адресу и т.п."></textarea>
@@ -5503,9 +5574,36 @@ function promptDeliver(orderId) {
       const payAmount = paid ? parseFloat(document.getElementById('md-pay-amount').value) : null;
       const payMethod = paid ? document.getElementById('md-pay-method').value : null;
       if (paid && (!payAmount || payAmount <= 0)) { toast('Укажите сумму оплаты', 'error'); return; }
+
+      // Ёмкость + счётчик обязательны, если ёмкости заведены
+      const tankVisible = document.getElementById('md-tank-block')?.style.display !== 'none';
+      let tankId = null, counterAfter = null;
+      if (tankVisible) {
+        tankId = document.getElementById('md-tank')?.value || null;
+        counterAfter = parseInt(document.getElementById('md-counter')?.value, 10);
+        if (!tankId) { toast('Выберите ёмкость', 'error'); return; }
+        if (isNaN(counterAfter) || counterAfter < 0 || counterAfter > 999999) {
+          toast('Введите показание счётчика (число до 6 цифр)', 'error'); return;
+        }
+      }
+
       closeModal();
       // ttn_number не передаём — бэкенд присвоит сквозной номер автоматически.
       await transitionOrder(orderId, 'delivered', { volume_delivered: vol, comment });
+      // Списание из ёмкости по счётчику — после успешного перевода статуса.
+      // Ошибка не отменяет доставку: расхождение исправит админ корректировкой.
+      if (tankId) {
+        try {
+          await deliveryPost(`/inventory/tanks/${tankId}/issue`, {
+            counter_after: counterAfter,
+            order_id: orderId,
+            order_number: orderEl?.dataset.orderNumber || undefined,
+            volume_hint: vol,
+          });
+        } catch (te) {
+          toast('Доставка отмечена, но ёмкость не списана: ' + te.message, 'error');
+        }
+      }
       if (paid) {
         try {
           await orderPost('/payments/record', { order_id: orderId, amount: payAmount, method: payMethod });
@@ -5518,6 +5616,25 @@ function promptDeliver(orderId) {
       }
     }
   );
+
+  // Подгружаем ёмкости: сначала подходящие по виду топлива заявки, затем прочие
+  (async () => {
+    let tanks = [];
+    try { tanks = await deliveryGet('/inventory/tanks'); } catch (_) { /* блок останется скрыт */ }
+    tanks = tanks.filter(t => t.is_active);
+    if (!tanks.length) return;
+    const orderFuel = orderEl?.dataset.fuelType || '';
+    tanks.sort((a, b) => (b.fuel_type === orderFuel) - (a.fuel_type === orderFuel));
+    window._mdTanks = tanks;
+    const sel = document.getElementById('md-tank');
+    const block = document.getElementById('md-tank-block');
+    if (!sel || !block) return;
+    sel.innerHTML = tanks.map(t =>
+      `<option value="${t.id}">${escHtml(t.name)} · ${escHtml(t.fuel_label || t.fuel_type)}${t.fuel_type !== orderFuel && orderFuel ? ' ⚠ другое топливо' : ''} · ${Number(t.current_volume).toLocaleString('ru')} л</option>`).join('');
+    block.style.display = '';
+    document.getElementById('md-volume')?.addEventListener('input', _mdCounterHint);
+    _mdTankChanged();
+  })();
 
   // Живая формула (правки 2026-07-11): цена/л × фактические литры + доставка = сумма.
   // Сумма к оплате подставляется автоматически при изменении объёма.
@@ -5537,6 +5654,34 @@ function promptDeliver(orderId) {
     document.getElementById('md-volume')?.addEventListener('input', updFormula);
     updFormula();
   }
+}
+
+// Ёмкость в окне доставки: подсказка «текущее показание» + литры по счётчику
+function _mdTankChanged() {
+  const sel = document.getElementById('md-tank');
+  const t = (window._mdTanks || []).find(x => x.id === sel?.value);
+  const counterInput = document.getElementById('md-counter');
+  if (t && counterInput && !counterInput.value) counterInput.placeholder = String(t.counter).padStart(6, '0');
+  _mdCounterHint();
+}
+
+function _mdCounterHint() {
+  const hint = document.getElementById('md-counter-hint');
+  const sel = document.getElementById('md-tank');
+  const t = (window._mdTanks || []).find(x => x.id === sel?.value);
+  if (!hint || !t) return;
+  const before = Number(t.counter);
+  const afterRaw = document.getElementById('md-counter')?.value;
+  const base = `Текущее показание: <strong style="font-family:monospace">${String(before).padStart(6, '0')}</strong>`;
+  if (!afterRaw) { hint.innerHTML = base; return; }
+  const after = parseInt(afterRaw, 10);
+  if (isNaN(after) || after < 0 || after > 999999) { hint.innerHTML = base; return; }
+  // Переполнение шестизначного счётчика: 999999 → 0
+  const litres = after >= before ? after - before : 1000000 - before + after;
+  const vol = parseFloat(document.getElementById('md-volume')?.value) || 0;
+  const mismatch = vol > 0 && Math.abs(litres - vol) > 0.5
+    ? ` <span style="color:var(--amber)">⚠ не сходится с объёмом (${Number(vol).toLocaleString('ru')} л)</span>` : '';
+  hint.innerHTML = `${base} · по счётчику: <strong>${litres.toLocaleString('ru')} л</strong>${mismatch}`;
 }
 
 // Driver records payment for an individual order after marking it delivered (SPEC 5.4)
@@ -6461,21 +6606,8 @@ async function doCreateOrder() {
     if (allowDebt) body.allow_delivery_unpaid = true;
   }
 
-  // Stock pre-check: warn if insufficient fuel in stock
-  try {
-    const stock = await deliveryGet('/inventory/stock');
-    const item = stock.find(s => s.fuel_type === body.fuel_type);
-    const available = item ? Number(item.current_volume) : 0;
-    if (body.volume_requested > available) {
-      const avlFmt = available.toLocaleString('ru');
-      const reqFmt = Number(body.volume_requested).toLocaleString('ru');
-      errEl.innerHTML = `<div class="inline-error">Недостаточно топлива на складе: запрошено ${reqFmt} л, доступно ${avlFmt} л. Пополните склад или уменьшите объём.</div>`;
-      return;
-    }
-  } catch (_) {
-    // If stock check fails (service unavailable), allow the order to proceed
-    // The hard check will happen when the trip is started
-  }
+  // Проверка остатка склада убрана (правки 2026-07-14): продаём даже при
+  // нулевом остатке — фактический учёт ведётся по ёмкостям при выдаче.
 
   try {
     const order = await orderPost('/orders', body);
@@ -6555,18 +6687,95 @@ async function doCreateOrder() {
 async function loadFuels() {
   const el = document.getElementById('fuel-grid');
   if (!el) return;
+  const isAdmin = currentUser?.role === 'admin';
+  const addBtn = document.getElementById('btn-add-fuel');
+  if (addBtn) addBtn.style.display = isAdmin ? '' : 'none';
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
-    const fuels = await orderGet('/fuel-types');
+    // Админ видит и скрытые виды (глазик), остальные — только активные
+    const fuels = await orderGet(isAdmin ? '/fuel-types?include_inactive=true' : '/fuel-types');
     el.innerHTML = fuels.map(f => `
-      <div class="fuel-card">
+      <div class="fuel-card" style="${f.is_active ? '' : 'opacity:.45'}">
         <div class="fuel-short">${escHtml(f.code)}</div>
-        <div class="fuel-name">${escHtml(f.label)}</div>
-        <div class="fuel-code">${escHtml(f.code)}${f.is_winter ? ' · зимнее' : ''}</div>
+        <div class="fuel-name">${escHtml(f.label)}
+          ${isAdmin ? `<button class="btn btn-sm btn-ghost" title="Переименовать" style="padding:2px 6px"
+            onclick="promptRenameFuelType('${escHtml(f.code)}','${escHtml(f.label)}')">✎</button>` : ''}
+        </div>
+        <div class="fuel-code">${escHtml(f.code)}${f.is_winter ? ' · зимнее' : ''}${f.is_active ? '' : ' · <span style="color:var(--red)">скрыто</span>'}</div>
+        ${isAdmin ? `<button class="btn btn-sm btn-ghost" style="margin-top:6px"
+          title="${f.is_active ? 'Скрыть из заявок и тарифов' : 'Показать снова'}"
+          onclick="toggleFuelTypeVisibility('${escHtml(f.code)}', ${f.is_active})">
+          ${f.is_active ? '👁 Скрыть' : '🚫 Показать'}</button>` : ''}
       </div>`).join('');
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
+}
+
+// ── Управление каталогом топлива (только admin, правки 2026-07-14) ──────────
+
+// Код вида: транслит названия → [a-z0-9_] (бэкенд требует такой паттерн)
+function _fuelCodeFromLabel(label) {
+  const map = {а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',
+    н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',
+    ь:'',э:'e',ю:'yu',я:'ya'};
+  return String(label).toLowerCase()
+    .split('').map(ch => map[ch] !== undefined ? map[ch] : ch).join('')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50) || 'fuel';
+}
+
+function promptAddFuelType() {
+  openModal('Новый вид топлива',
+    `<div class="form-group">
+      <label class="form-label">Название <span style="color:var(--red)">*</span></label>
+      <input type="text" id="ft-label" class="form-input" placeholder="АИ-98" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="ft-winter"><span>Зимнее топливо</span>
+      </label>
+    </div>`,
+    async () => {
+      const label = document.getElementById('ft-label').value.trim();
+      if (!label) { toast('Укажите название', 'error'); return; }
+      const isWinter = document.getElementById('ft-winter').checked;
+      closeModal();
+      try {
+        await orderPost('/fuel-types', { code: _fuelCodeFromLabel(label), label, is_winter: isWinter });
+        toast('Вид топлива добавлен');
+        await loadFuelCatalog();
+        loadFuels();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+function promptRenameFuelType(code, currentLabel) {
+  openModal('Переименовать вид топлива',
+    `<div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="ft-label" class="form-input" value="${escHtml(currentLabel)}" autofocus>
+    </div>
+    <div style="font-size:11px;color:var(--text3)">Код останется ${escHtml(code)} — исторические заявки не пострадают.</div>`,
+    async () => {
+      const label = document.getElementById('ft-label').value.trim();
+      if (!label) { toast('Укажите название', 'error'); return; }
+      closeModal();
+      try {
+        await orderPut(`/fuel-types/${encodeURIComponent(code)}`, { label });
+        toast('Переименовано');
+        await loadFuelCatalog();
+        loadFuels();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+async function toggleFuelTypeVisibility(code, currentlyActive) {
+  try {
+    await orderPut(`/fuel-types/${encodeURIComponent(code)}`, { is_active: !currentlyActive });
+    toast(currentlyActive ? 'Скрыто — не будет в заявках и тарифах' : 'Снова доступно');
+    await loadFuelCatalog();
+    loadFuels();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6798,8 +7007,11 @@ async function showBaseTariffsModal() {
     const fp = (t?.fuel_prices || []).find(p => p.fuel_type === code);
     return fp ? Number(fp.price_per_liter).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽/л' : '—';
   };
-  // Все виды топлива, встречающиеся в обоих тарифах
-  const codes = [...new Set([...(ind?.fuel_prices || []), ...(com?.fuel_prices || [])].map(p => p.fuel_type))];
+  // Все виды топлива, встречающиеся в обоих тарифах. Скрытые админом виды
+  // (глазик в каталоге) не показываем; коды тарифов — в ВЕРХНЕМ регистре.
+  const _hiddenCodes = new Set(_fuelCatalog.filter(f => !f.is_active).map(f => f.code.toLowerCase()));
+  const codes = [...new Set([...(ind?.fuel_prices || []), ...(com?.fuel_prices || [])].map(p => p.fuel_type))]
+    .filter(code => !_hiddenCodes.has(String(code).toLowerCase()));
   const rows = codes.map(code => `
     <tr>
       <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${escHtml(FUEL_LABELS[code] || code)}</td>
@@ -8322,7 +8534,7 @@ function msgHTML(m) {
   return `
   <div class="msg-row ${mine ? 'mine' : ''}${isPinned ? ' pinned' : ''}" id="msg-${m.id}">
     <div class="msg-avatar">${escHtml(initials)}</div>
-    <div class="msg-bubble">
+    <div class="msg-bubble" onclick="toggleMsgActions(event, '${escHtml(m.id)}')">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
       ${replyQuoteHtml}
       ${bodyHtml}
@@ -8330,6 +8542,18 @@ function msgHTML(m) {
     </div>
     ${actionsHtml}
   </div>`;
+}
+
+// Тап по сообщению открывает/закрывает кнопки «Ответить»/«Закрепить» — на
+// тач-устройствах hover недоступен (правки 2026-07-13). Клики по кнопкам,
+// ссылкам и медиа внутри пузыря не трогаем.
+function toggleMsgActions(ev, msgId) {
+  if (ev.target.closest('button, a, img, video, .msg-reply-quote')) return;
+  const row = document.getElementById(`msg-${msgId}`);
+  if (!row) return;
+  const wasOpen = row.classList.contains('actions-open');
+  document.querySelectorAll('.msg-row.actions-open').forEach(r => r.classList.remove('actions-open'));
+  if (!wasOpen) row.classList.add('actions-open');
 }
 
 function escHtml(str) {
@@ -10142,12 +10366,15 @@ function switchInvTab(tab) {
   document.querySelectorAll('.inv-pane').forEach(p =>
     p.classList.toggle('active', p.id === `inv-pane-${tab}`));
   if (tab === 'stock')        loadInvStock();
+  if (tab === 'tanks')        loadTanks();
+  if (tab === 'arrival')      populateArrivalTankSelect();
   if (tab === 'transactions') {} // загрузка по кнопке «Найти»
   if (tab === 'invreport')    {} // загрузка по кнопке «Сформировать»
 }
 
 function loadInventoryActive() {
   if (_invActiveSubtab === 'stock')        loadInvStock();
+  if (_invActiveSubtab === 'tanks')        loadTanks();
   if (_invActiveSubtab === 'transactions') loadTransactions();
 }
 
@@ -10168,8 +10395,281 @@ function initInventory() {
   if (reconcileBtn) reconcileBtn.style.display = role === 'admin' ? '' : 'none';
   const adjustBtn = document.getElementById('adjust-btn');
   if (adjustBtn) adjustBtn.style.display = role === 'admin' ? '' : 'none';
+  // Создание ёмкостей — только admin
+  const addTankBtn = document.getElementById('btn-add-tank');
+  if (addTankBtn) addTankBtn.style.display = role === 'admin' ? '' : 'none';
 
   switchInvTab('stock');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ЁМКОСТИ (правки 2026-07-14): несколько ёмкостей на вид топлива,
+// шестизначный счётчик колонки, журнал было→стало, переливы.
+// ═══════════════════════════════════════════════════════════════
+let _tanks = [];
+
+const TANK_TX_LABELS = {
+  arrival: '▲ Приход', issue: '▼ Выдача',
+  transfer_in: '⇦ Перелив (в)', transfer_out: '⇨ Перелив (из)', adjust: '± Корректировка',
+};
+
+function fmtCounter(v) {
+  return v != null ? String(v).padStart(6, '0') : '—';
+}
+
+async function loadTanks() {
+  const grid = document.getElementById('tanks-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  const isAdmin = currentUser?.role === 'admin';
+  try {
+    _tanks = await deliveryGet(`/inventory/tanks${isAdmin ? '?include_inactive=true' : ''}`);
+    if (!_tanks.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Ёмкостей пока нет${isAdmin ? ' — создайте первую кнопкой «+ Ёмкость»' : ''}</div>`;
+    } else {
+      grid.innerHTML = _tanks.map(t => `
+        <div class="stock-card" style="${t.is_active ? '' : 'opacity:.45'}">
+          <div class="stock-fuel-label" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${escHtml(t.name)}
+            <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px">${escHtml(t.fuel_label || t.fuel_type)}</span>
+            ${t.is_active ? '' : '<span style="font-size:10px;color:var(--red)">скрыта</span>'}
+          </div>
+          <div>
+            <span class="stock-volume" style="${Number(t.current_volume) < 0 ? 'color:var(--red)' : ''}">${Number(t.current_volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</span>
+            <span class="stock-unit">л</span>
+          </div>
+          <div style="font-family:monospace;font-size:13px;color:var(--text2);margin-top:2px" title="Показание счётчика колонки">
+            Счётчик: <strong>${fmtCounter(t.counter)}</strong>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-ghost" onclick="promptTankArrival('${t.id}')">+ Приход</button>
+            ${isAdmin ? `
+              <button class="btn btn-sm btn-ghost" title="Переименовать / сменить топливо" onclick="promptEditTank('${t.id}')">✎</button>
+              <button class="btn btn-sm btn-ghost" title="Задать точный остаток и счётчик" onclick="promptAdjustTank('${t.id}')">±</button>` : ''}
+          </div>
+        </div>`).join('');
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+  loadTankTransactions();
+}
+
+async function loadTankTransactions() {
+  const body = document.getElementById('tank-tx-body');
+  if (!body) return;
+  try {
+    const txs = await deliveryGet('/inventory/tanks/transactions?limit=200');
+    if (!txs.length) {
+      body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text3)">Операций пока нет</td></tr>';
+      return;
+    }
+    body.innerHTML = txs.map(tx => `
+      <tr>
+        <td style="white-space:nowrap">${fmtDate(tx.created_at)}</td>
+        <td>${escHtml(tx.tank_name || '')}${tx.peer_tank_name ? ` <span style="color:var(--text3)">⇄ ${escHtml(tx.peer_tank_name)}</span>` : ''}</td>
+        <td>${TANK_TX_LABELS[tx.kind] || escHtml(tx.kind)}</td>
+        <td style="font-family:monospace">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:2})}</td>
+        <td style="font-family:monospace">${fmtCounter(tx.counter_before)}</td>
+        <td style="font-family:monospace">${fmtCounter(tx.counter_after)}</td>
+        <td>${tx.order_number ? escHtml(tx.order_number) : '—'}</td>
+        <td>${escHtml(tx.actor_name || '')}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${escHtml(tx.notes || '')}</td>
+      </tr>`).join('');
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--red)">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function _tankFuelOpts(selected) {
+  return _fuelCatalog.filter(f => f.is_active)
+    .map(f => `<option value="${escHtml(f.code)}"${f.code === selected ? ' selected' : ''}>${escHtml(f.label)}</option>`)
+    .join('');
+}
+
+function promptCreateTank() {
+  openModal('Новая ёмкость',
+    `<div class="form-group">
+      <label class="form-label">Название <span style="color:var(--red)">*</span></label>
+      <input type="text" id="tk-name" class="form-input" placeholder="Ёмкость №1" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Вид топлива</label>
+      <select id="tk-fuel" class="form-input">${_tankFuelOpts()}</select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Начальный остаток, л</label>
+        <input type="number" id="tk-volume" class="form-input" min="0" step="0.01" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Счётчик (6 цифр)</label>
+        <input type="number" id="tk-counter" class="form-input" min="0" max="999999" step="1" value="0" placeholder="229523">
+      </div>
+    </div>`,
+    async () => {
+      const name = document.getElementById('tk-name').value.trim();
+      if (!name) { toast('Укажите название', 'error'); return; }
+      const fuel = document.getElementById('tk-fuel').value;
+      const vol = parseFloat(document.getElementById('tk-volume').value) || 0;
+      const counter = parseInt(document.getElementById('tk-counter').value, 10) || 0;
+      if (counter < 0 || counter > 999999) { toast('Счётчик — число от 0 до 999999', 'error'); return; }
+      closeModal();
+      try {
+        await deliveryPost('/inventory/tanks', { name, fuel_type: fuel, initial_volume: vol, counter });
+        toast('Ёмкость создана');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+function promptEditTank(tankId) {
+  const t = _tanks.find(x => x.id === tankId);
+  if (!t) return;
+  openModal('Ёмкость: ' + t.name,
+    `<div class="form-group">
+      <label class="form-label">Название</label>
+      <input type="text" id="tk-name" class="form-input" value="${escHtml(t.name)}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Вид топлива</label>
+      <select id="tk-fuel" class="form-input">${_tankFuelOpts(t.fuel_type)}</select>
+    </div>
+    <div class="form-group">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="tk-active" ${t.is_active ? 'checked' : ''}><span>Ёмкость активна (видна в операциях)</span>
+      </label>
+    </div>`,
+    async () => {
+      const name = document.getElementById('tk-name').value.trim();
+      if (!name) { toast('Укажите название', 'error'); return; }
+      const fuel = document.getElementById('tk-fuel').value;
+      const isActive = document.getElementById('tk-active').checked;
+      closeModal();
+      try {
+        await api(`${DELIVERY_URL}/inventory/tanks/${tankId}`, { method: 'PATCH', body: JSON.stringify({ name, fuel_type: fuel, is_active: isActive }) });
+        toast('Сохранено');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+function promptAdjustTank(tankId) {
+  const t = _tanks.find(x => x.id === tankId);
+  if (!t) return;
+  openModal('Корректировка: ' + t.name,
+    `<div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Остаток, л</label>
+        <input type="number" id="tk-volume" class="form-input" step="0.01" value="${Number(t.current_volume)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Счётчик (6 цифр)</label>
+        <input type="number" id="tk-counter" class="form-input" min="0" max="999999" step="1" value="${t.counter}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Причина <span style="color:var(--red)">*</span></label>
+      <input type="text" id="tk-notes" class="form-input" placeholder="Сверка, ошибка ввода...">
+    </div>`,
+    async () => {
+      const vol = parseFloat(document.getElementById('tk-volume').value);
+      const counter = parseInt(document.getElementById('tk-counter').value, 10);
+      const notes = document.getElementById('tk-notes').value.trim();
+      if (!notes) { toast('Укажите причину', 'error'); return; }
+      if (isNaN(counter) || counter < 0 || counter > 999999) { toast('Счётчик — число от 0 до 999999', 'error'); return; }
+      closeModal();
+      try {
+        await deliveryPost(`/inventory/tanks/${tankId}/adjust`, { volume: isNaN(vol) ? null : vol, counter, notes });
+        toast('Корректировка записана');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+function promptTankArrival(tankId) {
+  const t = _tanks.find(x => x.id === tankId);
+  if (!t) return;
+  openModal('Приход в ёмкость: ' + t.name,
+    `<div class="form-group">
+      <label class="form-label">Сколько добавили, л <span style="color:var(--red)">*</span></label>
+      <input type="number" id="tk-volume" class="form-input" min="0.01" step="0.01" placeholder="10000" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечание</label>
+      <input type="text" id="tk-notes" class="form-input" placeholder="Поставщик, накладная...">
+    </div>
+    <div style="font-size:11px;color:var(--text3)">Изменить запись после отправки нельзя — ошибку исправляет администратор корректировкой.</div>`,
+    async () => {
+      const vol = parseFloat(document.getElementById('tk-volume').value);
+      if (!vol || vol <= 0) { toast('Укажите объём', 'error'); return; }
+      const notes = document.getElementById('tk-notes').value.trim() || undefined;
+      closeModal();
+      try {
+        await deliveryPost(`/inventory/tanks/${tankId}/arrival`, { volume: vol, notes });
+        toast('Приход записан');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+function promptTankTransfer() {
+  if (_tanks.filter(t => t.is_active).length < 2) { toast('Нужно минимум две ёмкости', 'error'); return; }
+  const opts = _tanks.filter(t => t.is_active)
+    .map(t => `<option value="${t.id}">${escHtml(t.name)} · ${escHtml(t.fuel_label || t.fuel_type)} · ${Number(t.current_volume).toLocaleString('ru')} л</option>`)
+    .join('');
+  openModal('Перелив между ёмкостями',
+    `<div class="form-group">
+      <label class="form-label">Из ёмкости</label>
+      <select id="tt-from" class="form-input">${opts}</select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">В ёмкость</label>
+      <select id="tt-to" class="form-input">${opts}</select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Объём, л <span style="color:var(--red)">*</span></label>
+      <input type="number" id="tt-volume" class="form-input" min="0.01" step="0.01" placeholder="1000">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечание</label>
+      <input type="text" id="tt-notes" class="form-input" placeholder="...">
+    </div>`,
+    async () => {
+      const from = document.getElementById('tt-from').value;
+      const to = document.getElementById('tt-to').value;
+      const vol = parseFloat(document.getElementById('tt-volume').value);
+      if (from === to) { toast('Выберите две разные ёмкости', 'error'); return; }
+      if (!vol || vol <= 0) { toast('Укажите объём', 'error'); return; }
+      const notes = document.getElementById('tt-notes').value.trim() || undefined;
+      closeModal();
+      try {
+        await deliveryPost('/inventory/tanks/transfer', { from_tank_id: from, to_tank_id: to, volume: vol, notes });
+        toast('Перелив записан');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+// Селект ёмкости в форме прихода склада: ёмкости выбранного вида топлива.
+// Если ёмкости есть — выбор обязателен (приход уходит и в ёмкость).
+async function populateArrivalTankSelect() {
+  const group = document.getElementById('arr-tank-group');
+  const sel = document.getElementById('arr-tank');
+  const fuelSel = document.getElementById('arr-fuel');
+  if (!group || !sel || !fuelSel) return;
+  try {
+    _tanks = await deliveryGet('/inventory/tanks');
+  } catch (_) { _tanks = []; }
+  const render = () => {
+    const matching = _tanks.filter(t => t.is_active && t.fuel_type === fuelSel.value);
+    if (!matching.length) { group.style.display = 'none'; sel.innerHTML = ''; return; }
+    group.style.display = '';
+    sel.innerHTML = matching.map(t =>
+      `<option value="${t.id}">${escHtml(t.name)} · ${Number(t.current_volume).toLocaleString('ru')} л</option>`).join('');
+  };
+  fuelSel.onchange = render;
+  render();
 }
 
 // Корректировка остатка админом (правки 2026-07-11): ± литры + обязательная причина.
@@ -10310,8 +10810,26 @@ async function doRecordArrival() {
     notes: notes || undefined,
   };
 
+  // Ёмкость (правки 2026-07-14): если у вида топлива есть ёмкости — приход
+  // обязательно привязывается к одной из них.
+  const tankGroup = document.getElementById('arr-tank-group');
+  const tankSel = document.getElementById('arr-tank');
+  const tankId = (tankGroup && tankGroup.style.display !== 'none' && tankSel) ? tankSel.value : null;
+  if (tankGroup && tankGroup.style.display !== 'none' && !tankId) {
+    errEl.innerHTML = '<div class="inline-error">Выберите ёмкость</div>';
+    return;
+  }
+
   try {
     await deliveryPost('/inventory/arrivals', body);
+    if (tankId) {
+      // Дублируем приход в ёмкость; ошибка не отменяет складскую запись
+      try {
+        await deliveryPost(`/inventory/tanks/${tankId}/arrival`, { volume, notes: notes || undefined });
+      } catch (te) {
+        toast('Склад оприходован, но ёмкость не обновлена: ' + te.message, 'error');
+      }
+    }
     toast('Приход оприходован');
     // Сбросить форму
     document.getElementById('arr-volume').value = '';

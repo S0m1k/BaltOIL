@@ -56,8 +56,8 @@ async def _upsert_stock(db: AsyncSession, fuel_type: str, delta: float) -> None:
     """Обновить текущий остаток (+delta для прихода, -delta для расхода).
 
     Использует SELECT FOR UPDATE для защиты от race condition
-    при параллельных запросах.
-    При расходе (delta < 0) проверяет, что остаток не уйдёт в минус.
+    при параллельных запросах. Отрицательный остаток разрешён
+    (правки 2026-07-14: продаём даже при пустом складе).
     """
     result = await db.execute(
         select(FuelStock)
@@ -67,15 +67,8 @@ async def _upsert_stock(db: AsyncSession, fuel_type: str, delta: float) -> None:
     stock = result.scalar_one_or_none()
     current = float(stock.current_volume) if stock else 0.0
 
-    if delta < 0:
-        # Расход — проверяем достаточность остатка
-        if current + delta < -0.001:   # допуск на флоат-погрешность
-            fuel_label = FUEL_TYPE_LABELS.get(fuel_type, fuel_type)
-            raise ValidationError(
-                f"Недостаточно топлива «{fuel_label}» на складе. "
-                f"Доступно: {current:.1f} л, требуется: {abs(delta):.1f} л. "
-                f"Сначала оприходуйте топливо через вкладку Склад → Приход."
-            )
+    # Правки 2026-07-14: блокировка отрицательного остатка убрана — продажа
+    # разрешена даже при пустом складе, остаток может уходить в минус.
 
     if stock is None:
         stock = FuelStock(fuel_type=fuel_type, current_volume=0.0)

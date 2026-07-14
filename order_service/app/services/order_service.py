@@ -402,13 +402,8 @@ async def create_order(
     # Валидация вида топлива по каталогу (hard-fail: неизвестный/неактивный код → 422)
     await fuel_type_service.validate_active(db, data.fuel_type)
 
-    # Дополнительная проверка наличия топлива на складе (fail-open: сетевая ошибка не блокирует)
-    in_stock = await fuel_type_service.fetch_in_stock_codes()
-    if in_stock is not None and data.fuel_type not in in_stock:
-        raise ValidationError(
-            f"Топливо «{data.fuel_type}» временно отсутствует на складе. "
-            "Пожалуйста, выберите другой вид топлива или свяжитесь с менеджером."
-        )
+    # Проверка остатка на складе убрана (правки 2026-07-14): продажа разрешена
+    # даже при нулевом/отрицательном остатке — учёт ведётся по ёмкостям.
 
     order_number = await generate_order_number(db, order_kind)
 
