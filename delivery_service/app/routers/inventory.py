@@ -10,7 +10,7 @@ from app.database import get_db
 from app.config import get_settings
 from app.core.dependencies import TokenUser, require_roles, ROLE_MANAGER, ROLE_ADMIN, ROLE_DRIVER, CurrentUser
 from app.schemas.inventory import (
-    FuelStockResponse, ArrivalRequest, AdjustmentRequest,
+    FuelStockResponse, ArrivalRequest, AdjustmentRequest, ExpenseRequest,
     TransactionResponse, InventoryReport,
 )
 from app.services import inventory_service
@@ -49,6 +49,22 @@ async def record_arrival(
     администратор корректировкой (POST /inventory/adjustments).
     """
     return await inventory_service.record_arrival(db, data, current_user)
+
+
+@router.post("/expense", response_model=TransactionResponse, status_code=201,
+             summary="Ручной расход топлива: в бак / иное (водитель+)")
+async def record_expense(
+    data: ExpenseRequest,
+    current_user: ViewAllowed,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Расход не по заявке (правки 2026-07-14): «в бак» или «иное».
+
+    Кол-во литров, опционально ёмкость (и показание счётчика, если лили
+    через колонку), комментарий. Append-only; уходит в общий отчёт склада,
+    «в бак» выносится отдельной строкой.
+    """
+    return await inventory_service.record_expense(db, data, current_user)
 
 
 @router.post("/adjustments", response_model=TransactionResponse, status_code=201,

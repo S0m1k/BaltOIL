@@ -327,6 +327,49 @@ async def record_issue(
     )
 
 
+async def record_expense_from_tank(
+    db: AsyncSession,
+    tank_id: uuid.UUID,
+    *,
+    volume: float,
+    counter_after: int | None,
+    actor: TokenUser,
+    actor_name: str | None,
+    notes: str | None,
+) -> None:
+    """Списание из ёмкости при ручном расходе «в бак / иное» (правки 2026-07-14).
+
+    Если counter_after задан (лили через колонку) — двигаем счётчик и сверяем
+    литры по нему; расхождение фиксируем в примечании. Иначе счётчик не трогаем.
+    Вызывается из inventory_service.record_expense в одной транзакции БД.
+    """
+    tank = await _get_tank_locked(db, tank_id)
+    counter_before = int(tank.counter)
+
+    final_notes = notes
+    if counter_after is not None:
+        by_counter = _counter_delta(counter_before, counter_after)
+        if by_counter <= 0:
+            raise ValidationError("Показание счётчика не изменилось")
+        if abs(by_counter - volume) > 0.5:
+            mismatch = f"Расхождение: по счётчику {by_counter} л, введено {volume:.2f} л"
+            final_notes = f"{final_notes} · {mismatch}" if final_notes else mismatch
+        tank.counter = counter_after
+
+    tank.current_volume = float(tank.current_volume) - volume
+    db.add(TankTransaction(
+        tank_id=tank.id,
+        kind=TankTxKind.EXPENSE,
+        volume=volume,
+        counter_before=counter_before,
+        counter_after=int(tank.counter),
+        actor_id=actor.id,
+        actor_name=actor_name,
+        notes=final_notes,
+    ))
+    await db.flush()
+
+
 async def transfer(
     db: AsyncSession, data: TankTransfer, actor: TokenUser
 ) -> list[TankResponse]:

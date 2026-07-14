@@ -181,7 +181,7 @@ def inventory_report_xlsx(report: dict) -> bytes:
     sh.border    = _THIN_B
 
     row += 1
-    _header_row(ws, ["Вид топлива", "Остаток нач.", "Приход", "Расход", "Остаток кон."],
+    _header_row(ws, ["Вид топлива", "Остаток нач.", "Приход", "Расход", "из них — в бак", "Остаток кон."],
                 row=row)
     for s in report.get("summary", []):
         row += 1
@@ -189,7 +189,27 @@ def inventory_report_xlsx(report: dict) -> bytes:
         _cell(ws, row, 2, s["opening_balance"], fmt="#,##0.00")
         _cell(ws, row, 3, s["total_arrivals"],  fmt="#,##0.00", fill=_ARRIVAL_FILL)
         _cell(ws, row, 4, s["total_departures"], fmt="#,##0.00", fill=_DEPART_FILL)
-        _cell(ws, row, 5, s["closing_balance"],  fmt="#,##0.00")
+        _cell(ws, row, 5, s.get("total_tank_refuel", 0.0), fmt="#,##0.00", fill=_DEPART_FILL)
+        _cell(ws, row, 6, s["closing_balance"],  fmt="#,##0.00")
+
+    # Итоги по водителям (правки 2026-07-14): всего взял / из них в бак
+    drivers = report.get("driver_summary", [])
+    if drivers:
+        row += 2
+        ws.merge_cells(f"A{row}:H{row}")
+        dh0 = ws[f"A{row}"]
+        dh0.value     = "Итоги по водителям"
+        dh0.font      = _LABEL_FONT
+        dh0.fill      = _SUMMARY_FILL
+        dh0.alignment = _LEFT
+        dh0.border    = _THIN_B
+        row += 1
+        _header_row(ws, ["Водитель", "Взял всего (л)", "из них — в бак (л)"], row=row)
+        for d in drivers:
+            row += 1
+            _cell(ws, row, 1, d.get("driver_name") or "—")
+            _cell(ws, row, 2, float(d.get("total_taken", 0)), fmt="#,##0.00")
+            _cell(ws, row, 3, float(d.get("total_tank_refuel", 0)), fmt="#,##0.00", fill=_DEPART_FILL)
 
     # Transactions table
     row += 2
@@ -208,8 +228,13 @@ def inventory_report_xlsx(report: dict) -> bytes:
     for tx in report.get("transactions", []):
         row += 1
         fill = _ARRIVAL_FILL if tx["type"] == "arrival" else _DEPART_FILL
+        tx_label = TX_TYPE_RU.get(tx["type"], tx["type"])
+        if tx.get("expense_kind") == "tank_refuel":
+            tx_label = "Расход — в бак"
+        elif tx.get("expense_kind") == "other":
+            tx_label = "Расход — иное"
         _cell(ws, row, 1, _fmt(tx.get("transaction_date")),   fill=fill)
-        _cell(ws, row, 2, TX_TYPE_RU.get(tx["type"], tx["type"]), fill=fill)
+        _cell(ws, row, 2, tx_label, fill=fill)
         _cell(ws, row, 3, tx.get("fuel_label", tx.get("fuel_type", "")), fill=fill)
         _cell(ws, row, 4, float(tx.get("volume", 0)), fill=fill, fmt="#,##0.00")
         _cell(ws, row, 5, tx.get("order_number") or "—", fill=fill)

@@ -80,6 +80,10 @@
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* iOS Safari «Text autosizing» самовольно раздувает шрифты на мобиле
+     (жалоба 2026-07-14: «всё увеличено»). Фиксируем масштаб текста. */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -2203,6 +2207,7 @@
         <button class="inv-subtab"        data-inv="tanks"        onclick="switchInvTab('tanks')">Ёмкости</button>
         <button class="inv-subtab"        data-inv="transactions" onclick="switchInvTab('transactions')">Операции</button>
         <button class="inv-subtab"        data-inv="arrival"      onclick="switchInvTab('arrival')">+ Приход</button>
+        <button class="inv-subtab"        data-inv="expense"      onclick="switchInvTab('expense')">− Расход</button>
         <button class="inv-subtab"        data-inv="invreport"    onclick="switchInvTab('invreport')">Отчёт</button>
       </div>
 
@@ -2350,6 +2355,48 @@
           </div>
           <div id="arr-error"></div>
           <button class="btn btn-primary" onclick="doRecordArrival()">Оприходовать</button>
+        </div>
+      </div>
+
+      <!-- SUB: РАСХОД (правки 2026-07-14: в бак / иное) -->
+      <div class="inv-pane" id="inv-pane-expense">
+        <div class="form-card" style="max-width:560px">
+          <div class="form-card-title">Списать топливо (не по заявке)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Назначение</label>
+              <select id="exp-kind" class="form-input">
+                <option value="tank_refuel" selected>В бак</option>
+                <option value="other">Иное</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Вид топлива</label>
+              <select id="exp-fuel" class="form-input" onchange="_expFuelChanged()">
+                <!-- Заполняется из каталога при открытии вкладки -->
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Объём (литры) <span style="color:var(--red)">*</span></label>
+            <input type="number" id="exp-volume" class="form-input" placeholder="200" min="0.01" step="0.01">
+          </div>
+          <div class="form-group" id="exp-tank-group" style="display:none">
+            <label class="form-label">Из какой ёмкости <span style="color:var(--red)">*</span></label>
+            <select id="exp-tank" class="form-input" onchange="_expTankChanged()"></select>
+          </div>
+          <div class="form-group" id="exp-counter-group" style="display:none">
+            <label class="form-label">Счётчик после (если лили через колонку)</label>
+            <input type="number" id="exp-counter" class="form-input" min="0" max="999999" step="1" placeholder="не обязательно">
+            <div id="exp-counter-hint" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Комментарий</label>
+            <textarea id="exp-notes" class="form-input" placeholder="Например: заправка бензовоза №2" rows="2"></textarea>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Запись изменить нельзя — ошибку исправляет администратор корректировкой. Расход попадает в общий отчёт; «в бак» выносится отдельной строкой.</div>
+          <div id="exp-error"></div>
+          <button class="btn btn-primary" onclick="doRecordExpense()">Списать</button>
         </div>
       </div>
 
@@ -3055,6 +3102,8 @@ function buildBurgerMenu() {
   if (!currentUser) return;
   const role = currentUser.role;
   const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab || 'orders';
+  // «Только чаты» (правки 2026-07-14): в меню — лишь Чат и Мой профиль
+  const chatsOnly = _isChatsOnly();
 
   const tabs = [
     { tab: 'orders',    label: 'Заявки',               show: true },
@@ -3077,7 +3126,7 @@ function buildBurgerMenu() {
   ];
 
   document.getElementById('burger-nav').innerHTML = tabs
-    .filter(t => t.show)
+    .filter(t => t.show && (!chatsOnly || t.tab === 'chat' || t.tab === 'profile'))
     .map(t => `<button class="burger-nav-item${t.tab === activeTab ? ' active' : ''}"
         data-tab="${t.tab}"
         onclick="closeBurger();switchTab('${t.tab}')">${t.label}</button>`)
@@ -3915,13 +3964,28 @@ async function initApp() {
   document.getElementById('tab-zones-btn').style.display =
     role === 'admin' ? '' : 'none';
 
+  // Режим «только чаты» (правки 2026-07-14): клиенту с флагом остаётся
+  // только мессенджер (+ профиль через бургер/меню) — прочие вкладки скрываем.
+  if (_isChatsOnly()) {
+    document.querySelectorAll('.nav-tab, .nav-sub-tab').forEach(t => {
+      if (t.dataset.tab !== 'chat') t.style.display = 'none';
+    });
+    const caret = document.getElementById('tab-create-caret');
+    if (caret) caret.style.display = 'none';
+  }
+
   initNotifications();
   buildBurgerMenu();
   initAddressAutocomplete();
   initCreateFormListeners();
   // Загружаем каталог топлива однократно — заполняет фильтры/селекты складского раздела
   loadFuelCatalog();
-  switchTab('orders');
+  switchTab(_isChatsOnly() ? 'chat' : 'orders');
+}
+
+// Клиент в режиме «только чаты» (правки 2026-07-14)
+function _isChatsOnly() {
+  return currentUser?.role === 'client' && !!currentUser?.client_profile?.chats_only;
 }
 
 function initCreateFormListeners() {
@@ -3963,6 +4027,8 @@ function toggleCreateSub(e) {
 
 function switchTab(tab) {
   if (tab === 'create' && currentUser?.role === 'driver') { tab = 'orders'; }
+  // «Только чаты»: любые попытки уйти с чата возвращают в чат (профиль разрешён)
+  if (_isChatsOnly() && tab !== 'chat' && tab !== 'profile') { tab = 'chat'; }
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.nav-sub-tab').forEach(t =>
@@ -8184,9 +8250,11 @@ async function loadStaffDirectory() {
 }
 
 async function startChatWithUser(userId) {
+  const seq = _openConvSeq; // guard: за время создания чата пользователь мог открыть другой
   try {
     const conv = await chatPost('/conversations/start-with-user', { user_id: userId });
     await loadConversations();
+    if (seq !== _openConvSeq) return; // уже открыт другой диалог — не перехватываем окно
     openConversation(conv.id);
   } catch (e) {
     toast(e.message, 'error');
@@ -8341,7 +8409,13 @@ function _lastMsgPreview(m) {
   return m.text;
 }
 
+// Guard от гонки открытий (баг 2026-07-14): два быстрых клика по диалогам →
+// поздний ответ сервера перерисовывал окно ЧУЖИМ чатом, а activeConvId
+// оставался от последнего клика — сообщения и звонки уходили не в тот диалог.
+let _openConvSeq = 0;
+
 async function openConversation(convId) {
+  const seq = ++_openConvSeq;
   activeConvId = convId;
   // F7: переключение диалога сбрасывает незавершённый ответ на сообщение
   cancelReplyTo();
@@ -8370,6 +8444,9 @@ async function openConversation(convId) {
 
   try {
     const conv = await chatGet(`/conversations/${convId}`);
+    // Пока грузились — пользователь открыл другой диалог: не трогаем DOM,
+    // иначе окно покажет этот чат, а отправка уйдёт в другой (activeConvId).
+    if (seq !== _openConvSeq) return;
     _currentConv = conv;
     _currentConvParticipants = conv.participants || [];
     document.getElementById('chat-conv-title').textContent = convTitle(conv);
@@ -8413,10 +8490,12 @@ async function openConversation(convId) {
     // Update unread badge in sidebar
     loadConversations();
   } catch (e) {
+    if (seq !== _openConvSeq) return; // устаревший вызов — не показываем ошибку поверх другого чата
     document.getElementById('chat-messages').innerHTML =
       `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
   }
 
+  if (seq !== _openConvSeq) return; // WS/поллинг подключаем только актуальному диалогу
   // Connect WebSocket for real-time delivery from other users
   connectWs(convId);
   // Start polling fallback — catches messages when WS is offline
@@ -10368,6 +10447,7 @@ function switchInvTab(tab) {
   if (tab === 'stock')        loadInvStock();
   if (tab === 'tanks')        loadTanks();
   if (tab === 'arrival')      populateArrivalTankSelect();
+  if (tab === 'expense')      populateExpenseForm();
   if (tab === 'transactions') {} // загрузка по кнопке «Найти»
   if (tab === 'invreport')    {} // загрузка по кнопке «Сформировать»
 }
@@ -10672,6 +10752,83 @@ async function populateArrivalTankSelect() {
   render();
 }
 
+// ── Ручной расход «в бак / иное» (правки 2026-07-14) ─────────────
+async function populateExpenseForm() {
+  const fuelSel = document.getElementById('exp-fuel');
+  if (!fuelSel) return;
+  // Виды топлива из каталога (только активные)
+  fuelSel.innerHTML = _fuelCatalog.filter(f => f.is_active)
+    .map(f => `<option value="${escHtml(f.code)}">${escHtml(f.label)}</option>`).join('');
+  try { _tanks = await deliveryGet('/inventory/tanks'); } catch (_) { _tanks = []; }
+  _expFuelChanged();
+}
+
+function _expFuelChanged() {
+  const fuel = document.getElementById('exp-fuel')?.value;
+  const group = document.getElementById('exp-tank-group');
+  const counterGroup = document.getElementById('exp-counter-group');
+  const sel = document.getElementById('exp-tank');
+  if (!group || !sel) return;
+  const matching = (_tanks || []).filter(t => t.is_active && t.fuel_type === fuel);
+  if (!matching.length) {
+    group.style.display = 'none';
+    if (counterGroup) counterGroup.style.display = 'none';
+    sel.innerHTML = '';
+    return;
+  }
+  group.style.display = '';
+  if (counterGroup) counterGroup.style.display = '';
+  sel.innerHTML = matching.map(t =>
+    `<option value="${t.id}">${escHtml(t.name)} · ${Number(t.current_volume).toLocaleString('ru')} л · счётчик ${String(t.counter).padStart(6,'0')}</option>`).join('');
+  _expTankChanged();
+}
+
+function _expTankChanged() {
+  const sel = document.getElementById('exp-tank');
+  const t = (_tanks || []).find(x => x.id === sel?.value);
+  const hint = document.getElementById('exp-counter-hint');
+  if (hint && t) hint.innerHTML = `Текущее показание: <strong style="font-family:monospace">${String(t.counter).padStart(6,'0')}</strong>. Пусто — счётчик не изменится.`;
+}
+
+async function doRecordExpense() {
+  const errEl = document.getElementById('exp-error');
+  errEl.innerHTML = '';
+  const kind = document.getElementById('exp-kind').value;
+  const fuel = document.getElementById('exp-fuel').value;
+  const volume = parseFloat(document.getElementById('exp-volume').value);
+  if (!volume || volume <= 0) {
+    errEl.innerHTML = '<div class="inline-error">Укажите объём (литры &gt; 0)</div>';
+    return;
+  }
+  const body = { fuel_type: fuel, volume, expense_kind: kind };
+  const tankGroup = document.getElementById('exp-tank-group');
+  if (tankGroup && tankGroup.style.display !== 'none') {
+    const tankId = document.getElementById('exp-tank')?.value;
+    if (!tankId) { errEl.innerHTML = '<div class="inline-error">Выберите ёмкость</div>'; return; }
+    body.tank_id = tankId;
+    const counterRaw = document.getElementById('exp-counter')?.value;
+    if (counterRaw) {
+      const counter = parseInt(counterRaw, 10);
+      if (isNaN(counter) || counter < 0 || counter > 999999) {
+        errEl.innerHTML = '<div class="inline-error">Счётчик — число от 0 до 999999</div>'; return;
+      }
+      body.counter_after = counter;
+    }
+  }
+  const notes = document.getElementById('exp-notes').value.trim();
+  if (notes) body.notes = notes;
+  try {
+    await deliveryPost('/inventory/expense', body);
+    toast(kind === 'tank_refuel' ? 'Расход «в бак» записан' : 'Расход записан');
+    document.getElementById('exp-volume').value = '';
+    document.getElementById('exp-counter').value = '';
+    document.getElementById('exp-notes').value = '';
+    switchInvTab('stock');
+  } catch (e) {
+    errEl.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
 // Корректировка остатка админом (правки 2026-07-11): ± литры + обязательная причина.
 // Пишется отдельной транзакцией — журнал сохраняет и ошибку, и исправление.
 function promptStockAdjustment() {
@@ -10770,7 +10927,10 @@ async function loadTransactions() {
     body.innerHTML = txs.map(tx => `
       <tr>
         <td style="white-space:nowrap">${fmtDate(tx.transaction_date)}</td>
-        <td><span class="tx-type-${tx.type}">${tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
+        <td><span class="tx-type-${tx.type}">${
+          tx.expense_kind === 'tank_refuel' ? '▼ В бак'
+          : tx.expense_kind === 'other' ? '▼ Иное'
+          : tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
         <td>${escHtml(tx.fuel_label)}</td>
         <td style="font-family:monospace;text-align:right">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
         <td style="font-family:monospace;font-size:11px">${tx.order_number ? escHtml(tx.order_number) : (tx.order_id ? uuidCell(tx.order_id) : '—')}</td>
@@ -10898,11 +11058,32 @@ function renderInvReport(rpt, from, to) {
           <span class="summary-label">Расход</span>
           <span class="summary-val amber">−${Number(s.total_departures).toLocaleString('ru-RU')} л</span>
         </div>
+        ${Number(s.total_tank_refuel) > 0 ? `
+        <div class="summary-row">
+          <span class="summary-label" style="padding-left:10px">из них — в бак</span>
+          <span class="summary-val amber">−${Number(s.total_tank_refuel).toLocaleString('ru-RU')} л</span>
+        </div>` : ''}
         <div class="summary-row">
           <span class="summary-label">Остаток на конец</span>
           <span class="summary-val">${Number(s.closing_balance).toLocaleString('ru-RU')} л</span>
         </div>
       </div>`).join('') + `</div>`;
+  }
+
+  // Итоги по водителям (правки 2026-07-14): взял всего / из них в бак
+  if (rpt.driver_summary && rpt.driver_summary.length) {
+    html += `<div class="inv-section-title" style="margin-top:8px">Итоги по водителям</div>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead><tr><th>Водитель</th><th>Взял всего (л)</th><th>из них — в бак (л)</th></tr></thead>
+        <tbody>` +
+      rpt.driver_summary.map(d => `
+        <tr>
+          <td>${escHtml(d.driver_name || '—')}</td>
+          <td style="font-family:monospace;text-align:right">${Number(d.total_taken).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
+          <td style="font-family:monospace;text-align:right">${Number(d.total_tank_refuel).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
+        </tr>`).join('') +
+      `</tbody></table></div>`;
   }
 
   if (hasTxs) {
@@ -10925,7 +11106,10 @@ function renderInvReport(rpt, from, to) {
     rpt.transactions.map(tx => `
           <tr>
             <td style="white-space:nowrap">${fmtDate(tx.transaction_date)}</td>
-            <td><span class="tx-type-${tx.type}">${tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
+            <td><span class="tx-type-${tx.type}">${
+              tx.expense_kind === 'tank_refuel' ? '▼ В бак'
+              : tx.expense_kind === 'other' ? '▼ Иное'
+              : tx.type === 'arrival' ? '▲ Приход' : '▼ Расход'}</span></td>
             <td>${escHtml(tx.fuel_label)}</td>
             <td style="font-family:monospace;text-align:right">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
             <td style="font-size:11px">${tx.order_number ? `<span style="font-family:monospace">${escHtml(tx.order_number)}</span>` : '—'}</td>
@@ -11513,16 +11697,26 @@ async function promptClientSettings(userId, clientName) {
     <div style="font-size:11px;color:var(--text3);margin-top:-6px;margin-bottom:6px">
       Клиент не сможет писать в чаты и не будет находиться по номеру телефона.
       Писать ему смогут только сотрудники. При попытке открыть переписку клиент увидит «Доступ ограничен».
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="cs-chats-only" ${profile.chats_only ? 'checked' : ''}>
+      <label for="cs-chats-only" style="font-size:13px;cursor:pointer">Только чаты</label>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:-6px;margin-bottom:6px">
+      Клиент увидит в системе только мессенджер: без заявок, документов и прочего.
+      Создание заявок таким клиентом запрещено (менеджер может оформить заявку на него).
     </div>`,
     async () => {
       const tariffId = document.getElementById('cs-tariff').value || null;
       const creditAllowed = document.getElementById('cs-credit').checked;
       const messengerBlocked = document.getElementById('cs-msg-block').checked;
+      const chatsOnly = document.getElementById('cs-chats-only').checked;
       try {
         await authPatch(`/users/${userId}/tariff`, {
           tariff_id: tariffId,
           credit_allowed: creditAllowed,
           messenger_blocked: messengerBlocked,
+          chats_only: chatsOnly,
         });
         closeModal();
         toast('Настройки клиента сохранены');

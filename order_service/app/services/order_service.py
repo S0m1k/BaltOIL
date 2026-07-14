@@ -371,6 +371,11 @@ async def create_order(
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
     ctx = await get_client_context(client_id, organization_id)
 
+    # Режим «только чаты» (правки 2026-07-14): клиенту заявки запрещены.
+    # Менеджер/админ может оформить заявку НА такого клиента — блокируем только самообслуживание.
+    if not is_staff and ctx.chats_only:
+        raise ForbiddenError("Ваш доступ ограничен чатами — для заказа свяжитесь с менеджером")
+
     # Определить вид заявки
     if data.is_ttn_l:
         order_kind = OrderKind.TTN_L

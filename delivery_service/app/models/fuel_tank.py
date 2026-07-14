@@ -23,6 +23,7 @@ class TankTxKind(str, enum.Enum):
     TRANSFER_IN = "transfer_in"    # перелив: поступление из другой ёмкости
     TRANSFER_OUT = "transfer_out"  # перелив: уход в другую ёмкость
     ADJUST = "adjust"              # корректировка админом (литры и/или счётчик)
+    EXPENSE = "expense"            # ручной расход не по заявке (в бак / иное)
 
 
 class FuelTank(Base):

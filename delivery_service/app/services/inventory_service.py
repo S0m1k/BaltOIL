@@ -10,7 +10,7 @@ from app.core.dependencies import TokenUser, ROLE_ADMIN, ROLE_MANAGER, ROLE_DRIV
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.schemas.inventory import (
     ArrivalRequest, TransactionResponse,
-    FuelStockResponse, FuelSummary, InventoryReport,
+    FuelStockResponse, FuelSummary, InventoryReport, DriverExpenseSummary,
 )
 from app.services import fuel_catalog
 
@@ -46,6 +46,7 @@ def _tx_to_response(tx: FuelTransaction, labels: dict[str, str] | None = None) -
         driver_name=tx.driver_name,
         supplier_name=tx.supplier_name,
         invoice_number=tx.invoice_number,
+        expense_kind=tx.expense_kind,
         notes=tx.notes,
         created_by_id=tx.created_by_id,
         created_at=tx.created_at,
@@ -178,6 +179,61 @@ async def record_adjustment(
     )
     db.add(tx)
     await _upsert_stock(db, fuel_type, delta)
+    return _tx_to_response(tx, labels)
+
+
+async def record_expense(
+    db: AsyncSession,
+    data,  # ExpenseRequest
+    actor: TokenUser,
+) -> TransactionResponse:
+    """Ручной расход топлива (правки 2026-07-14): «в бак» или «иное».
+
+    Доступен водителям, менеджерам и админам. Append-only, как приход.
+    Если указана ёмкость — списываем и из неё (опц. по счётчику: заправка
+    через колонку двигает счётчик, иначе показания разъедутся с выдачами).
+    Водитель фиксируется в driver_id/driver_name — для итогов по водителям
+    в отчёте («сколько взял всего» / «сколько в бак»).
+    """
+    _require_view(actor)
+    labels = await fuel_catalog.get_fuel_labels()
+    if data.fuel_type not in labels:
+        raise ValidationError(f"Неизвестный вид топлива: {data.fuel_type!r}")
+
+    # Имя актора — для колонки «Водитель» в журнале и отчёте
+    actor_name = None
+    try:
+        from app.services.tank_service import _resolve_actor_name
+        actor_name = await _resolve_actor_name(actor.id)
+    except Exception:
+        pass
+
+    kind_label = "В бак" if data.expense_kind == "tank_refuel" else "Иное"
+    tx = FuelTransaction(
+        type=TransactionType.DEPARTURE,
+        fuel_type=data.fuel_type,
+        volume=data.volume,
+        transaction_date=datetime.now(timezone.utc),
+        driver_id=actor.id if actor.role == "driver" else None,
+        driver_name=actor_name,
+        expense_kind=data.expense_kind,
+        notes=f"{kind_label}" + (f": {data.notes.strip()}" if data.notes and data.notes.strip() else ""),
+        created_by_id=actor.id,
+    )
+    db.add(tx)
+    await _upsert_stock(db, data.fuel_type, -float(data.volume))
+
+    # Списание из ёмкости — той же транзакцией БД
+    if data.tank_id:
+        from app.services import tank_service
+        await tank_service.record_expense_from_tank(
+            db, data.tank_id,
+            volume=float(data.volume),
+            counter_after=data.counter_after,
+            actor=actor,
+            actor_name=actor_name,
+            notes=tx.notes,
+        )
     return _tx_to_response(tx, labels)
 
 
@@ -452,6 +508,26 @@ async def generate_report(
         row.fuel_type: (float(row.arrivals), float(row.departures)) for row in period_result.all()
     }
 
+    # «В бак» за период по видам топлива (правки 2026-07-14)
+    refuel_q = (
+        select(
+            FuelTransaction.fuel_type,
+            sa_func.coalesce(sa_func.sum(FuelTransaction.volume), 0.0).label("refuel"),
+        )
+        .where(
+            and_(
+                FuelTransaction.transaction_date >= date_from,
+                FuelTransaction.transaction_date <= date_to,
+                FuelTransaction.fuel_type.in_(fuel_types_scope),
+                FuelTransaction.expense_kind == "tank_refuel",
+            )
+        )
+        .group_by(FuelTransaction.fuel_type)
+    )
+    refuel_by_ft: dict[str, float] = {
+        row.fuel_type: float(row.refuel) for row in (await db.execute(refuel_q)).all()
+    }
+
     summaries: list[FuelSummary] = []
     for ft in fuel_types_scope:
         opening = opening_by_ft.get(ft, 0.0)
@@ -465,14 +541,49 @@ async def generate_report(
             opening_balance=round(opening, 2),
             total_arrivals=round(arrivals, 2),
             total_departures=round(departures, 2),
+            total_tank_refuel=round(refuel_by_ft.get(ft, 0.0), 2),
             closing_balance=round(closing, 2),
         ))
+
+    # Итоги по водителям (правки 2026-07-14): всего взял (доставки клиентам +
+    # в бак + иное) и отдельно — сколько в бак. Только расходы с водителем.
+    driver_q = (
+        select(
+            FuelTransaction.driver_id,
+            FuelTransaction.driver_name,
+            sa_func.coalesce(sa_func.sum(FuelTransaction.volume), 0.0).label("taken"),
+            sa_func.coalesce(sa_func.sum(case(
+                (FuelTransaction.expense_kind == "tank_refuel", FuelTransaction.volume), else_=0.0
+            )), 0.0).label("refuel"),
+        )
+        .where(
+            and_(
+                FuelTransaction.type == TransactionType.DEPARTURE,
+                FuelTransaction.transaction_date >= date_from,
+                FuelTransaction.transaction_date <= date_to,
+                FuelTransaction.fuel_type.in_(fuel_types_scope),
+                FuelTransaction.driver_name.isnot(None),
+            )
+        )
+        .group_by(FuelTransaction.driver_id, FuelTransaction.driver_name)
+        .order_by(sa_func.sum(FuelTransaction.volume).desc())
+    )
+    driver_summary = [
+        DriverExpenseSummary(
+            driver_id=row.driver_id,
+            driver_name=row.driver_name,
+            total_taken=round(float(row.taken), 2),
+            total_tank_refuel=round(float(row.refuel), 2),
+        )
+        for row in (await db.execute(driver_q)).all()
+    ]
 
     return InventoryReport(
         period_from=date_from,
         period_to=date_to,
         fuel_type_filter=fuel_type,
         summary=summaries,
+        driver_summary=driver_summary,
         transactions=period_txs,
     )
 
