@@ -6519,15 +6519,21 @@ async function renderOrgMembers(orgId) {
   if (!box) return;
   try {
     const members = await authGet(`/organizations/${orgId}/members`);
+    const staff = _isOrgStaff();
     const rows = members.map(m => {
       const role = m.member_role === 'owner' ? 'Владелец' : 'Сотрудник';
       const st   = m.status === 'pending' ? ' · приглашение' : '';
       const name = m.full_name || m.phone || '—';
+      // Staff может назначить владельцем активного участника с аккаунтом (не pending).
+      const mkOwner = (staff && m.member_role !== 'owner' && m.user_id && m.status === 'active')
+        ? `<button class="btn btn-sm btn-primary-outline" style="white-space:nowrap" onclick="makeOrgOwner('${orgId}','${m.id}')">Сделать владельцем</button>`
+        : '';
       const rm = m.member_role === 'owner' ? '' :
         `<button class="btn btn-sm btn-danger" onclick="removeOrgMember('${orgId}','${m.id}')">✕</button>`;
       return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
         <div><div style="font-weight:500">${escHtml(name)}</div>
-        <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>${rm}</div>`;
+        <div style="font-size:11px;color:var(--text3)">${role}${st}${m.phone ? ' · ' + escHtml(m.phone) : ''}</div></div>
+        <div style="display:flex;gap:6px;flex:0 0 auto">${mkOwner}${rm}</div></div>`;
     }).join('');
     box.innerHTML = `${rows || '<div style="color:var(--text3)">Нет сотрудников</div>'}
       <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
@@ -6554,6 +6560,14 @@ async function removeOrgMember(orgId, memberId) {
   try {
     await api(`${AUTH_URL}/organizations/${orgId}/members/${memberId}`, { method: 'DELETE' });
     toast('Сотрудник удалён');
+    renderOrgMembers(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function makeOrgOwner(orgId, memberId) {
+  try {
+    await api(`${AUTH_URL}/organizations/${orgId}/members/${memberId}/make-owner`, { method: 'POST' });
+    toast('Владелец организации изменён');
     renderOrgMembers(orgId);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -7995,9 +8009,16 @@ function toggleNotifPanel() {
 }
 
 async function readNotif(id) {
+  const n = notifList.find(x => x.id === id);
+  // Уведомление о новом сообщении → переход в этот чат (для всех ролей),
+  // как в тосте. Навигацию делаем даже если пометка «прочитано» не удалась.
+  if (n && n.type === 'chat_message' && n.entity_id) {
+    document.getElementById('notif-panel').classList.remove('open');
+    switchTab('chat');
+    openConversation(n.entity_id);
+  }
   try {
     await api(`${NOTIF_URL}/notifications/${id}/read`, { method: 'POST' });
-    const n = notifList.find(x => x.id === id);
     if (n) n.is_read = true;
     renderNotifPanel();
   } catch {}
