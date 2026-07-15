@@ -319,6 +319,42 @@ async def remove_member(
     await db.commit()
 
 
+async def set_owner(
+    db: AsyncSession, org_id: uuid.UUID, member_id: uuid.UUID, actor: User
+) -> None:
+    """Сменить владельца организации. Выбранный участник становится владельцем,
+    прежний(-ие) владелец(-цы) понижаются до сотрудника. Только staff BaltOIL —
+    смена владельца затрагивает права на реквизиты и коммерческие условия."""
+    if actor.role not in _STAFF_ROLES:
+        raise ForbiddenError("Только сотрудник BaltOIL может сменить владельца")
+    await _get_org_or_404(db, org_id)
+    res = await db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.id == member_id,
+            OrganizationMember.organization_id == org_id,
+        )
+    )
+    member = res.scalar_one_or_none()
+    if not member:
+        raise NotFoundError("Участник не найден")
+    if member.status != MemberStatus.ACTIVE or not member.user_id:
+        raise ConflictError("Владельцем можно назначить только активного участника с аккаунтом")
+    if member.member_role == MemberRole.OWNER:
+        return  # уже владелец — идемпотентно
+
+    cur = await db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.organization_id == org_id,
+            OrganizationMember.member_role == MemberRole.OWNER,
+            OrganizationMember.status == MemberStatus.ACTIVE,
+        )
+    )
+    for prev in cur.scalars().all():
+        prev.member_role = MemberRole.MEMBER
+    member.member_role = MemberRole.OWNER
+    await db.commit()
+
+
 async def link_pending_invites(db: AsyncSession, user: User) -> int:
     """Привязать pending-приглашения по телефону к новому пользователю.
     Вызывается при регистрации. Возвращает число привязанных приглашений."""
