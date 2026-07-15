@@ -515,17 +515,22 @@ async def upload_attachment(
     if actor.role == "client" and await auth_client.is_messenger_blocked(redis, actor.id):
         raise HTTPException(status_code=403, detail="Доступ ограничен")
 
-    # Доступ к диалогу — та же проверка, что и при отправке сообщения
+    # Доступ к диалогу — та же проверка, что и при отправке сообщения.
+    # Участники грузятся заранее (selectinload): для приватных групп _check_access
+    # без member_ids всегда падает «приватный групповой чат».
     from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
     from app.models.conversation import Conversation as _Conv
     res = await db.execute(
-        _select(_Conv).where(_Conv.id == conv_id, _Conv.is_archived == False)  # noqa: E712
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id, _Conv.is_archived == False)  # noqa: E712
     )
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Диалог не найден")
     from app.services.conversation_service import _check_access
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in _ATTACH_EXT_MIME:
@@ -567,13 +572,18 @@ async def download_attachment(
         raise HTTPException(status_code=404, detail="Файл не найден")
 
     from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
     from app.models.conversation import Conversation as _Conv
-    res = await db.execute(_select(_Conv).where(_Conv.id == conv_id))
+    res = await db.execute(
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id)
+    )
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Диалог не найден")
     from app.services.conversation_service import _check_access
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     fpath = os.path.join(settings.media_root, "chat", str(conv_id), file_name)
     if not os.path.isfile(fpath):
