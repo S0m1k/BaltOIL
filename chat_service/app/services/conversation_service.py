@@ -33,18 +33,15 @@ _SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 # Преднастроенные групповые чаты сотрудников:
 #   work       — «Работа»: водители + менеджеры + админы
 #   accounting — «Бухгалтерия»: менеджеры + админы
-#   sztk       — «СЗТК»: только админы (правки 2026-06-24 — заказчик: «я и Александр
-#                без Екатерины», Екатерина не админ)
-STAFF_GROUPS = ("work", "accounting", "sztk")
+STAFF_GROUPS = ("work", "accounting")
 STAFF_GROUP_TITLES = {
     "work": "Работа",
     "accounting": "Бухгалтерия",
-    "sztk": "СЗТК",
 }
-# Видимость предустановленных групп по роли — admin видит все три, manager видит
-# work + accounting (НЕ sztk), driver только work (правки 2026-06-24, ред. 2 + sztk).
+# Видимость предустановленных групп по роли — admin/manager видят work + accounting,
+# driver только work.
 STAFF_GROUP_ACCESS = {
-    "admin":   {"work", "accounting", "sztk"},
+    "admin":   {"work", "accounting"},
     "manager": {"work", "accounting"},
     "driver":  {"work"},
 }
@@ -54,11 +51,9 @@ DRIVER_STAFF_GROUPS = ("work",)
 # Роли, формирующие состав преднастроенных групп (для эндпоинта /members):
 #   work       — водители + менеджеры + админы
 #   accounting — менеджеры + админы
-#   sztk       — только админы
 STAFF_GROUP_MEMBER_ROLES = {
     "work": ("driver", "manager", "admin"),
     "accounting": ("manager", "admin"),
-    "sztk": ("admin",),
 }
 # Порядок ролей в выдаче состава (админы выше менеджеров выше водителей).
 _ROLE_SORT_ORDER = {"admin": 0, "manager": 1, "driver": 2}
