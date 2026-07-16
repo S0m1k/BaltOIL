@@ -81,6 +81,9 @@ class ClientProfile {
     this.billingEmail,
     this.creditAllowed = false,
     this.creditLimit,
+    this.tariffId,
+    this.messengerBlocked = false,
+    this.chatsOnly = false,
   });
 
   final String? clientType; // 'individual' | 'company'
@@ -95,6 +98,9 @@ class ClientProfile {
   final String? billingEmail;
   final bool creditAllowed;
   final double? creditLimit;
+  final String? tariffId;
+  final bool messengerBlocked;
+  final bool chatsOnly;
 
   factory ClientProfile.fromJson(Map<String, dynamic> json) => ClientProfile(
         clientType: json['client_type'] as String?,
@@ -109,6 +115,9 @@ class ClientProfile {
         billingEmail: json['billing_email'] as String?,
         creditAllowed: (json['credit_allowed'] ?? false) as bool,
         creditLimit: (json['credit_limit'] as num?)?.toDouble(),
+        tariffId: json['tariff_id']?.toString(),
+        messengerBlocked: (json['messenger_blocked'] ?? false) as bool,
+        chatsOnly: (json['chats_only'] ?? false) as bool,
       );
 }
 
@@ -141,5 +150,25 @@ class ClientsRepository {
   Future<ClientDetail> getDetail(String userId) async {
     final resp = await _dio.get('$_base/users/$userId');
     return ClientDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Настройки клиента staff'ом (веб promptClientSettings):
+  /// тариф, «В долг», ВЫКЛ мессенджер, «Только чаты» (правки 2026-07-14).
+  Future<void> updateSettings(
+    String userId, {
+    String? tariffId,
+    required bool creditAllowed,
+    required bool messengerBlocked,
+    required bool chatsOnly,
+  }) async {
+    await _dio.patch(
+      '$_base/users/$userId/tariff',
+      data: {
+        'tariff_id': tariffId,
+        'credit_allowed': creditAllowed,
+        'messenger_blocked': messengerBlocked,
+        'chats_only': chatsOnly,
+      },
+    );
   }
 }

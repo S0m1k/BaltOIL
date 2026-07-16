@@ -48,7 +48,7 @@ class _OrganizationsScreenState extends State<OrganizationsScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (_) => _MembersSheet(org: org),
+      builder: (_) => _MembersSheet(org: org, isStaff: _isStaff),
     );
   }
 
@@ -658,16 +658,78 @@ class _OrgCard extends StatelessWidget {
 }
 
 /// Участники организации — bottom sheet (веб: openOrgMembers).
-class _MembersSheet extends StatelessWidget {
-  const _MembersSheet({required this.org});
+/// Staff может назначить владельцем активного участника с аккаунтом
+/// (веб makeOrgOwner, 2026-07-15) — прежний владелец станет сотрудником.
+class _MembersSheet extends StatefulWidget {
+  const _MembersSheet({required this.org, required this.isStaff});
 
   final Organization org;
+  final bool isStaff;
+
+  @override
+  State<_MembersSheet> createState() => _MembersSheetState();
+}
+
+class _MembersSheetState extends State<_MembersSheet> {
+  late Future<List<OrganizationMember>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    setState(() {
+      _future = OrganizationsRepository.instance.members(widget.org.id);
+    });
+  }
+
+  Future<void> _makeOwner(OrganizationMember m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Сменить владельца?'),
+        content: Text(
+          '${m.fullName ?? m.phone ?? 'Участник'} станет владельцем '
+          'организации, прежний владелец — сотрудником. Смена владельца '
+          'затрагивает права на реквизиты и коммерческие условия.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Сделать владельцем'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await OrganizationsRepository.instance
+          .makeOwner(widget.org.id, m.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Владелец организации изменён')),
+      );
+      _reload();
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(apiErrorMessage(e)),
+        backgroundColor: Colors.red.shade700,
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: FutureBuilder<List<OrganizationMember>>(
-        future: OrganizationsRepository.instance.members(org.id),
+        future: _future,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const SizedBox(
@@ -687,7 +749,7 @@ class _MembersSheet extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               Text(
-                'Сотрудники — ${org.companyName}',
+                'Сотрудники — ${widget.org.companyName}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
@@ -706,6 +768,17 @@ class _MembersSheet extends StatelessWidget {
                       if (m.status != null && m.status != 'active') m.status!,
                     ].join(' · '),
                   ),
+                  // Как на вебе: активный участник с аккаунтом, не владелец.
+                  trailing: widget.isStaff &&
+                          m.memberRole != 'owner' &&
+                          m.userId != null &&
+                          m.status == 'active'
+                      ? TextButton(
+                          onPressed: () => _makeOwner(m),
+                          child: const Text('Владельцем',
+                              style: TextStyle(fontSize: 12)),
+                        )
+                      : null,
                 ),
             ],
           );

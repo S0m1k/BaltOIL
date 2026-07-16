@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../chat/chat_repository.dart';
+import '../chat/chat_screen.dart';
 import 'notifications_repository.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -30,6 +32,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _markAllRead() async {
     await NotificationsRepository.instance.markAllRead();
     _reload();
+  }
+
+  /// Тап по уведомлению: пометить прочитанным; уведомление о сообщении
+  /// дополнительно открывает этот чат (веб readNotif, 2026-07-15) —
+  /// навигация даже если пометка «прочитано» не удалась.
+  Future<void> _onTap(AppNotification n) async {
+    if (n.type == 'chat_message' && (n.entityId ?? '').isNotEmpty) {
+      try {
+        final convs = await ChatRepository.instance.listConversations();
+        final conv = convs.where((c) => c.id == n.entityId).firstOrNull;
+        if (conv != null && mounted) {
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ChatScreen(conversation: conv),
+          ));
+        }
+      } on Object {
+        // Чат недоступен — остаёмся в списке уведомлений.
+      }
+    }
+    if (!n.isRead) {
+      try {
+        await NotificationsRepository.instance.markRead(n.id);
+      } on Object {
+        // Пометка не удалась — список просто не обновится.
+      }
+      _reload();
+    }
   }
 
   @override
@@ -85,12 +114,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           fontWeight:
                               n.isRead ? FontWeight.normal : FontWeight.w600)),
                   subtitle: Text(n.body),
-                  onTap: n.isRead
+                  trailing: n.type == 'chat_message' &&
+                          (n.entityId ?? '').isNotEmpty
+                      ? const Icon(Icons.chevron_right, size: 20)
+                      : null,
+                  onTap: n.isRead &&
+                          !(n.type == 'chat_message' &&
+                              (n.entityId ?? '').isNotEmpty)
                       ? null
-                      : () async {
-                          await NotificationsRepository.instance.markRead(n.id);
-                          _reload();
-                        },
+                      : () => _onTap(n),
                 );
               },
             );

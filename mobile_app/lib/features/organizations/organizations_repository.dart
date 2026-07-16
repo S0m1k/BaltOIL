@@ -163,6 +163,13 @@ class OrganizationsRepository {
         .toList();
   }
 
+  /// Staff: сменить владельца организации (веб makeOrgOwner, 2026-07-15).
+  /// Выбранный активный участник — владелец, прежний — сотрудник.
+  Future<void> makeOwner(String orgId, String memberId) async {
+    await _dio
+        .post('$_base/organizations/$orgId/members/$memberId/make-owner');
+  }
+
   /// Поиск реквизитов по ИНН через DaData (веб lookup/inn). Без авторизации,
   /// но проходит через тот же dio. Возвращает null, если не найдено/ключа нет.
   Future<InnLookup?> lookupInn(String inn) async {

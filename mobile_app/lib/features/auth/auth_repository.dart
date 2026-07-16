@@ -6,16 +6,28 @@ import '../../core/token_storage.dart';
 import '../../push/push_registrar.dart';
 
 class CurrentUser {
-  CurrentUser({required this.id, required this.role, required this.fullName});
+  CurrentUser({
+    required this.id,
+    required this.role,
+    required this.fullName,
+    this.chatsOnly = false,
+  });
 
   final String id;
   final String role; // client | driver | manager | admin
   final String fullName;
 
+  /// Режим «только чаты» (правки 2026-07-14): клиент видит в системе
+  /// только мессенджер (+профиль), создание заявок запрещено.
+  final bool chatsOnly;
+
   factory CurrentUser.fromJson(Map<String, dynamic> json) => CurrentUser(
         id: json['id'] as String,
         role: json['role'] as String,
         fullName: (json['full_name'] ?? '') as String,
+        chatsOnly: ((json['client_profile']
+                as Map<String, dynamic>?)?['chats_only'] ??
+            false) as bool,
       );
 }
 

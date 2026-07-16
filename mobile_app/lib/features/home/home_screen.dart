@@ -57,7 +57,16 @@ const _roleLabels = {
   'client': 'Клиент',
 };
 
-bool _allowed(String role, _Dest dest) => switch (dest) {
+bool _allowed(CurrentUser user, _Dest dest) {
+  // Клиент в режиме «только чаты» (правки 2026-07-14): только мессенджер
+  // и профиль — без заявок, документов и прочего (веб _isChatsOnly).
+  if (user.role == 'client' && user.chatsOnly) {
+    return dest == _Dest.chat || dest == _Dest.profile;
+  }
+  return _allowedByRole(user.role, dest);
+}
+
+bool _allowedByRole(String role, _Dest dest) => switch (dest) {
       _Dest.orders => true,
       _Dest.createOrder =>
         role == 'client' || role == 'manager' || role == 'admin',
@@ -160,7 +169,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadUser() async {
     try {
       final user = await AuthRepository.instance.me();
-      if (mounted) setState(() => _user = user);
+      if (mounted) {
+        setState(() {
+          _user = user;
+          // «Только чаты»: стартуем сразу в мессенджере (веб _isChatsOnly).
+          if (user.role == 'client' && user.chatsOnly) _dest = _Dest.chat;
+        });
+      }
     } on Exception {
       // 401 обработает интерцептор.
     }
@@ -177,6 +192,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _select(_Dest dest) {
     Navigator.of(context).pop(); // close drawer
+    // «Только чаты»: любые попытки уйти с чата возвращают в чат
+    // (профиль разрешён) — зеркало switchTab веба.
+    final user = _user;
+    if (user != null &&
+        user.role == 'client' &&
+        user.chatsOnly &&
+        dest != _Dest.chat &&
+        dest != _Dest.profile) {
+      dest = _Dest.chat;
+    }
     if (dest == _Dest.createOrder) {
       final user = _user;
       if (user == null) return; // профиль ещё грузится
@@ -358,7 +383,8 @@ class _AppDrawer extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: _Dest.values
-                    .where((d) => _allowed(role, d))
+                    .where((d) =>
+                        user == null || _allowed(user!, d))
                     .map((d) => _DrawerTile(
                           dest: d,
                           isSelected: d == selected,

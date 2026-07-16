@@ -284,12 +284,18 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                   TextFormField(
                     controller: _volume,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                        labelText: 'Объём (литры, min 300)'),
+                    // Staff не ограничен 300 л (веб-фикс 1980084) —
+                    // минимум остаётся клиентам и водителям.
+                    decoration: InputDecoration(
+                        labelText: _isStaff
+                            ? 'Объём (литры)'
+                            : 'Объём (литры, min 300)'),
                     validator: (v) {
                       final n = double.tryParse((v ?? '').replaceAll(',', '.'));
-                      if (n == null) return 'Укажите объём';
-                      if (n < 300) return 'Минимальный объём — 300 литров';
+                      if (n == null || n <= 0) return 'Укажите объём';
+                      if (!_isStaff && n < 300) {
+                        return 'Минимальный объём — 300 литров';
+                      }
                       return null;
                     },
                   ),

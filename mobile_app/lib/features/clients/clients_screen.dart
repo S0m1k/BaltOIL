@@ -4,6 +4,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../common/copyable_phone.dart';
+import '../tariffs/tariffs_repository.dart';
 import 'clients_repository.dart';
 
 class ClientsScreen extends StatefulWidget {
@@ -289,12 +290,153 @@ class _ClientDetailPageState extends State<_ClientDetailPage> {
     }
   }
 
+  /// Настройки клиента staff'ом (веб promptClientSettings): тариф,
+  /// «В долг», ВЫКЛ мессенджер, «Только чаты» (правки 2026-07-14).
+  Future<void> _openSettings() async {
+    final detail = _detail;
+    if (detail == null) return;
+    List<Tariff> tariffs = const [];
+    try {
+      tariffs = (await TariffsRepository.instance.list())
+          .where((t) => !t.isArchived)
+          .toList();
+    } on Object {
+      // Селект тарифа останется с одним пунктом «базовый».
+    }
+    if (!mounted) return;
+    final p = detail.profile;
+    String? tariffId = p?.tariffId;
+    if (tariffId != null && !tariffs.any((t) => t.id == tariffId)) {
+      tariffId = null;
+    }
+    bool credit = p?.creditAllowed ?? false;
+    bool msgBlocked = p?.messengerBlocked ?? false;
+    bool chatsOnly = p?.chatsOnly ?? false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Настройки клиента: ${detail.fullName}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String?>(
+                  initialValue: tariffId,
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem<String?>(
+                        value: null, child: Text('— базовый —')),
+                    for (final t in tariffs)
+                      DropdownMenuItem<String?>(
+                        value: t.id,
+                        child: Text(
+                          '${t.name}${t.isDefault ? ' (базовый)' : ''}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setDialogState(() => tariffId = v),
+                  decoration: const InputDecoration(
+                    labelText: 'Тариф',
+                    helperText: 'Пустое значение = базовый тариф',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  value: credit,
+                  onChanged: (v) =>
+                      setDialogState(() => credit = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Разрешить тип оплаты «В долг»',
+                      style: TextStyle(fontSize: 14)),
+                ),
+                CheckboxListTile(
+                  value: msgBlocked,
+                  onChanged: (v) =>
+                      setDialogState(() => msgBlocked = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('ВЫКЛ мессенджер (доступ ограничен)',
+                      style: TextStyle(fontSize: 14)),
+                  subtitle: const Text(
+                    'Клиент не сможет писать в чаты и не будет находиться '
+                    'по номеру телефона. Писать ему смогут только сотрудники.',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+                CheckboxListTile(
+                  value: chatsOnly,
+                  onChanged: (v) =>
+                      setDialogState(() => chatsOnly = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Только чаты',
+                      style: TextStyle(fontSize: 14)),
+                  subtitle: const Text(
+                    'Клиент увидит в системе только мессенджер: без заявок, '
+                    'документов и прочего. Создание заявок таким клиентом '
+                    'запрещено (менеджер может оформить заявку на него).',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ClientsRepository.instance.updateSettings(
+        widget.clientId,
+        tariffId: tariffId,
+        creditAllowed: credit,
+        messengerBlocked: msgBlocked,
+        chatsOnly: chatsOnly,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Настройки клиента сохранены')),
+      );
+      _load();
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(apiErrorMessage(e)),
+        backgroundColor: Colors.red.shade700,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_detail != null)
+            IconButton(
+              tooltip: 'Настройки клиента',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: _openSettings,
+            ),
+        ],
+      ),
       body: _loading
           ? Center(child: CircularProgressIndicator(color: colors.primary))
           : _error != null

@@ -10,6 +10,7 @@ class AppNotification {
     required this.title,
     required this.body,
     required this.isRead,
+    this.entityId,
     this.createdAt,
   });
 
@@ -18,6 +19,7 @@ class AppNotification {
   final String title;
   final String body;
   final bool isRead;
+  final String? entityId; // chat_message → conversation_id
   final DateTime? createdAt;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
@@ -27,6 +29,7 @@ class AppNotification {
         title: json['title'] as String,
         body: json['body'] as String,
         isRead: (json['is_read'] ?? false) as bool,
+        entityId: json['entity_id']?.toString(),
         createdAt: json['created_at'] == null
             ? null
             : DateTime.tryParse(json['created_at'] as String),
