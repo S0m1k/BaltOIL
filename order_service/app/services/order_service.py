@@ -678,8 +678,14 @@ async def update_order(
         if order.status not in _EDITABLE_STATUSES:
             raise ValidationError("Заявку в этом статусе редактировать нельзя")
 
-    if data.volume_requested is not None and data.volume_requested < 300:
-        raise ValidationError("Минимальный объём заказа — 300 литров")
+    # Минимальный объём — только клиентам и водителям; менеджер/админ правит на
+    # любой объём (правка заказчика 2026-07-16), как и при создании заявки.
+    if (
+        not is_staff
+        and data.volume_requested is not None
+        and data.volume_requested < MIN_VOLUME_L
+    ):
+        raise ValidationError(f"Минимальный объём заказа — {MIN_VOLUME_L} литров")
     if data.fuel_type is not None:
         await fuel_type_service.validate_active(db, data.fuel_type)
     if data.desired_date is not None:
