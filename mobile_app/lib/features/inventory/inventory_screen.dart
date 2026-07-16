@@ -4,7 +4,10 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../orders/order_models.dart';
+import '../orders/orders_repository.dart';
+import 'expense_tab.dart';
 import 'inventory_repository.dart';
+import 'tanks_tab.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key, required this.user});
@@ -19,13 +22,14 @@ class _InventoryScreenState extends State<InventoryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
 
-  // driver sees only 2 tabs: Остатки + Операции
-  bool get _isDriver => widget.user.role == 'driver';
+  bool get _isAdmin => widget.user.role == 'admin';
 
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: _isDriver ? 2 : 3, vsync: this);
+    // Правки 2026-07-11/14: приход и расход доступны и водителям —
+    // журнал append-only, ошибки исправляет админ корректировкой.
+    _tab = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -43,13 +47,17 @@ class _InventoryScreenState extends State<InventoryScreen>
           color: colors.bg2,
           child: TabBar(
             controller: _tab,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             labelColor: colors.primary,
             unselectedLabelColor: colors.text3,
             indicatorColor: colors.primary,
-            tabs: [
-              const Tab(text: 'Остатки'),
-              const Tab(text: 'Операции'),
-              if (!_isDriver) const Tab(text: 'Приход'),
+            tabs: const [
+              Tab(text: 'Остатки'),
+              Tab(text: 'Ёмкости'),
+              Tab(text: 'Операции'),
+              Tab(text: 'Приход'),
+              Tab(text: '− Расход'),
             ],
           ),
         ),
@@ -58,8 +66,10 @@ class _InventoryScreenState extends State<InventoryScreen>
             controller: _tab,
             children: [
               _StockTab(colors: colors),
+              TanksTab(isAdmin: _isAdmin),
               _TransactionsTab(colors: colors),
-              if (!_isDriver) _ArrivalTab(colors: colors),
+              _ArrivalTab(colors: colors),
+              const ExpenseTab(),
             ],
           ),
         ),
@@ -476,6 +486,7 @@ class _ArrivalTabState extends State<_ArrivalTab>
   // Form state
   final _formKey = GlobalKey<FormState>();
   String? _fuelType;
+  String? _tankId;
   final _volumeCtrl = TextEditingController();
   final _supplierCtrl = TextEditingController();
   final _invoiceCtrl = TextEditingController();
@@ -485,13 +496,58 @@ class _ArrivalTabState extends State<_ArrivalTab>
   String? _errorMsg;
   bool _success = false;
 
-  static const _fuelOptions = [
+  // Каталог топлива + ёмкости (правки 2026-07-14): если у вида топлива
+  // есть ёмкости — приход обязательно привязывается к одной из них.
+  List<(String, String)> _fuelOptions = const [
     ('diesel_summer', 'ДТ-Л К5'),
     ('diesel_winter', 'ДТ-З К5'),
     ('petrol_92', 'АИ-92'),
     ('petrol_95', 'АИ-95'),
     ('fuel_oil', 'М-100'),
   ];
+  List<Tank> _tanks = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCatalogAndTanks();
+  }
+
+  Future<void> _loadCatalogAndTanks() async {
+    try {
+      final fuels = await OrdersRepository.instance.fuelTypes();
+      if (fuels.isNotEmpty && mounted) {
+        setState(() {
+          _fuelOptions = [for (final f in fuels) (f.code, f.label)];
+        });
+      }
+    } on Object {
+      // Останется fallback-список — как _FUEL_LABELS_FALLBACK на вебе.
+    }
+    try {
+      final tanks = await InventoryRepository.instance.listTanks();
+      if (mounted) {
+        setState(() {
+          _tanks = tanks.where((t) => t.isActive).toList();
+          _syncTankToFuel();
+        });
+      }
+    } on Object {
+      // Ёмкостей нет / сервис недоступен — блок просто скрыт.
+    }
+  }
+
+  List<Tank> get _matchingTanks =>
+      _tanks.where((t) => t.fuelType == _fuelType).toList();
+
+  void _syncTankToFuel() {
+    final matching = _matchingTanks;
+    if (matching.isEmpty) {
+      _tankId = null;
+    } else if (!matching.any((t) => t.id == _tankId)) {
+      _tankId = matching.first.id;
+    }
+  }
 
   @override
   void dispose() {
@@ -522,20 +578,43 @@ class _ArrivalTabState extends State<_ArrivalTab>
       setState(() => _errorMsg = 'Выберите вид топлива');
       return;
     }
+    final hasTanks = _matchingTanks.isNotEmpty;
+    if (hasTanks && _tankId == null) {
+      setState(() => _errorMsg = 'Выберите ёмкость');
+      return;
+    }
     setState(() {
       _submitting = true;
       _errorMsg = null;
       _success = false;
     });
     try {
+      final volume = double.parse(_volumeCtrl.text.replaceAll(',', '.'));
+      final notes = _notesCtrl.text.trim();
       await InventoryRepository.instance.recordArrival(
         fuelType: _fuelType!,
-        volume: double.parse(_volumeCtrl.text.replaceAll(',', '.')),
+        volume: volume,
         transactionDate: _txDate,
         supplierName: _supplierCtrl.text.trim(),
         invoiceNumber: _invoiceCtrl.text.trim(),
-        notes: _notesCtrl.text.trim(),
+        notes: notes,
       );
+      // Дублируем приход в ёмкость; ошибка не отменяет складскую запись
+      // (зеркало doRecordArrival веба).
+      if (hasTanks && _tankId != null) {
+        try {
+          await InventoryRepository.instance
+              .tankArrival(_tankId!, volume: volume, notes: notes);
+        } on Object catch (te) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'Склад оприходован, но ёмкость не обновлена: ${apiErrorMessage(te)}'),
+              backgroundColor: Colors.red.shade700,
+            ));
+          }
+        }
+      }
       _volumeCtrl.clear();
       _supplierCtrl.clear();
       _invoiceCtrl.clear();
@@ -543,10 +622,13 @@ class _ArrivalTabState extends State<_ArrivalTab>
       if (mounted) {
         setState(() {
           _fuelType = null;
+          _tankId = null;
           _txDate = null;
           _success = true;
           _submitting = false;
         });
+        // Обновить остатки ёмкостей после прихода.
+        await _loadCatalogAndTanks();
       }
     } on Object catch (e) {
       if (mounted) {
@@ -604,7 +686,10 @@ class _ArrivalTabState extends State<_ArrivalTab>
                                 style: TextStyle(color: colors.text)),
                           ))
                       .toList(),
-                  onChanged: (v) => setState(() => _fuelType = v),
+                  onChanged: (v) => setState(() {
+                    _fuelType = v;
+                    _syncTankToFuel();
+                  }),
                   dropdownColor: colors.bg2,
                   iconEnabledColor: colors.text3,
                 ),
@@ -634,6 +719,29 @@ class _ArrivalTabState extends State<_ArrivalTab>
               },
             ),
             const SizedBox(height: 12),
+
+            // Ёмкость (правки 2026-07-14): обязательна, если у вида
+            // топлива заведены ёмкости — приход уходит и в ёмкость.
+            if (_matchingTanks.isNotEmpty) ...[
+              DropdownButtonFormField<String>(
+                initialValue: _tankId,
+                isExpanded: true,
+                items: [
+                  for (final t in _matchingTanks)
+                    DropdownMenuItem(
+                      value: t.id,
+                      child: Text(
+                        '${t.name} · ${t.currentVolume.toStringAsFixed(0)} л',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _tankId = v),
+                decoration:
+                    const InputDecoration(labelText: 'В какую ёмкость *'),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // Date picker
             GestureDetector(

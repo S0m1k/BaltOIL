@@ -5,7 +5,9 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../common/copyable_phone.dart';
+import '../inventory/inventory_repository.dart';
 import '../organizations/organizations_repository.dart';
+import 'delivery_dialog.dart';
 import 'order_create_screen.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
@@ -548,31 +550,40 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   });
 
   Future<void> _driverDeliver(OrderDetail order) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Отметить доставку'),
-        content: const Text(
-          'Подтвердите доставку. '
-          'Номер ТТН будет присвоен автоматически.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('ОК'),
-          ),
-        ],
-      ),
+    // Как на вебе (правки 2026-07-14): фактический объём, комментарий
+    // в отчёт, ёмкость + счётчик колонки (если ёмкости заведены).
+    final input = await showDeliveryDialog(
+      context,
+      requestedVolume: order.volumeRequested,
+      fuelType: order.fuelType,
     );
-    if (confirmed != true) return;
+    if (input == null) return;
     await _run(() async {
-      final delivered = await OrdersRepository.instance.markDelivered(order.id);
+      final delivered = await OrdersRepository.instance.markDelivered(
+        order.id,
+        volumeDelivered: input.volume,
+        comment: input.comment,
+      );
       if (!mounted) return;
       _snack('Статус изменён → Доставлена');
+      // Списание из ёмкости — после успешного перевода статуса; ошибка
+      // не отменяет доставку (исправит админ корректировкой).
+      if (input.tankId != null && input.counterAfter != null) {
+        try {
+          await InventoryRepository.instance.tankIssue(
+            input.tankId!,
+            counterAfter: input.counterAfter!,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            volumeHint: input.volume,
+          );
+        } on Object catch (te) {
+          if (mounted) {
+            _snack(
+                'Доставка отмечена, но ёмкость не списана: ${apiErrorMessage(te)}');
+          }
+        }
+      }
       if (delivered.isIndividual) {
         await _showDriverPaymentDialog(delivered);
       }

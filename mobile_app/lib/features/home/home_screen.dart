@@ -216,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _Dest.trips => TripsScreen(user: user),
       _Dest.finance => FinanceScreen(user: user),
       _Dest.inventory => InventoryScreen(user: user),
-      _Dest.fuels => const FuelsScreen(),
+      _Dest.fuels => FuelsScreen(user: user),
       _Dest.tariffs => TariffsScreen(user: user),
       _Dest.report => ReportScreen(user: user),
       _Dest.clients => ClientsScreen(user: user),

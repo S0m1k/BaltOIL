@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/outbox_db.dart';
 import '../../core/sync_service.dart';
+import '../inventory/inventory_repository.dart';
+import 'delivery_dialog.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -121,31 +123,41 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
       });
 
   Future<void> _deliver(Order order) async {
-    // Как на вебе: сначала модалка подтверждения «Отметить доставку».
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Отметить доставку'),
-        content: const Text(
-            'Подтвердите доставку. Номер ТТН будет присвоен автоматически.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('ОК'),
-          ),
-        ],
-      ),
+    // Как на вебе (правки 2026-07-14): фактический объём, комментарий
+    // в отчёт, ёмкость + счётчик колонки (если ёмкости заведены).
+    final input = await showDeliveryDialog(
+      context,
+      requestedVolume: order.volumeRequested,
+      fuelType: order.fuelType,
     );
-    if (confirmed != true) return;
+    if (input == null) return;
 
     await _run(() async {
-      final delivered = await OrdersRepository.instance.markDelivered(order.id);
+      final delivered = await OrdersRepository.instance.markDelivered(
+        order.id,
+        volumeDelivered: input.volume,
+        comment: input.comment,
+      );
       if (!mounted) return;
       _snack('Статус изменён → Доставлена');
+      // Списание из ёмкости по счётчику — после успешного перевода статуса.
+      // Ошибка не отменяет доставку: расхождение исправит админ корректировкой.
+      if (input.tankId != null && input.counterAfter != null) {
+        try {
+          await InventoryRepository.instance.tankIssue(
+            input.tankId!,
+            counterAfter: input.counterAfter!,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            volumeHint: input.volume,
+          );
+        } on Object catch (te) {
+          if (mounted) {
+            _snack(
+                'Доставка отмечена, но ёмкость не списана: ${apiErrorMessage(te)}');
+          }
+        }
+      }
       // Д5: фиксация оплаты — только у физлиц; у юрлиц водитель денег не видит.
       if (delivered.isIndividual) {
         await _showPaymentDialog(delivered);

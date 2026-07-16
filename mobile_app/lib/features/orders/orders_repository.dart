@@ -113,13 +113,46 @@ class OrdersRepository {
 
   /// Клиенту бэк отдаёт только топливо в наличии (Д2).
   /// Попутно обновляет кэш подписей FuelCatalog (code → label).
-  Future<List<FuelType>> fuelTypes() async {
-    final resp = await _dio.get('$_base/fuel-types');
+  /// includeInactive — admin-каталог со скрытыми видами (правки 2026-07-14).
+  Future<List<FuelType>> fuelTypes({bool includeInactive = false}) async {
+    final resp = await _dio.get(
+      '$_base/fuel-types',
+      queryParameters: {if (includeInactive) 'include_inactive': true},
+    );
     final types = (resp.data as List)
         .map((e) => FuelType.fromJson(e as Map<String, dynamic>))
         .toList();
     FuelCatalog.update(types);
     return types;
+  }
+
+  /// Admin: добавить вид топлива в каталог (правки 2026-07-14).
+  Future<FuelType> createFuelType({
+    required String code,
+    required String label,
+    bool isWinter = false,
+  }) async {
+    final resp = await _dio.post(
+      '$_base/fuel-types',
+      data: {'code': code, 'label': label, 'is_winter': isWinter},
+    );
+    return FuelType.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Admin: переименовать / скрыть-показать вид топлива (глазик веба).
+  Future<FuelType> updateFuelType(
+    String code, {
+    String? label,
+    bool? isActive,
+  }) async {
+    final resp = await _dio.put(
+      '$_base/fuel-types/${Uri.encodeComponent(code)}',
+      data: {
+        if (label != null) 'label': label,
+        if (isActive != null) 'is_active': isActive,
+      },
+    );
+    return FuelType.fromJson(resp.data as Map<String, dynamic>);
   }
 
   /// Водитель: взять свободную заявку из пула (new → accepted).
@@ -134,9 +167,17 @@ class OrdersRepository {
   /// немедленно отправляется, если есть сеть. Возвращает обновлённый Order
   /// только при успешной немедленной синхронизации; при офлайне возвращает
   /// оптимистично обновлённую копию (status = delivered).
-  Future<Order> markDelivered(String orderId) async {
+  Future<Order> markDelivered(
+    String orderId, {
+    double? volumeDelivered,
+    String? comment,
+  }) async {
     final key = _uuid.v4();
-    final payload = <String, dynamic>{'to_status': 'delivered'};
+    final payload = <String, dynamic>{
+      'to_status': 'delivered',
+      if (volumeDelivered != null) 'volume_delivered': volumeDelivered,
+      if (comment != null && comment.isNotEmpty) 'comment': comment,
+    };
     await OutboxDb.instance.enqueue(
       OutboxEntry(
         id: 0, // заполняется базой
