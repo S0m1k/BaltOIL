@@ -25,4 +25,8 @@ class AppConfig {
   static String get wsBase => 'wss://$apiHost:8004';
   static String get notificationBase => 'https://$apiHost:8005/api/v1';
   static String get deliveryBase => 'https://$apiHost:8003/api/v1';
+
+  /// call_service (звонки): маршруты в корне, без /api/v1 —
+  /// как CALL_URL='/api/call' на вебе (nginx срезает префикс).
+  static String get callBase => 'https://$apiHost:8006';
 }

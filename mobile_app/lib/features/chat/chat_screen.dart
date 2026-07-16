@@ -1,13 +1,19 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart' show Options, ResponseType;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/api_client.dart';
 import '../../core/app_config.dart';
 import '../../core/token_storage.dart';
 import '../../core/ws_client.dart';
+import '../calls/call_repository.dart';
+import '../calls/call_screen.dart';
+import '../calls/incoming_call_watcher.dart';
 import 'chat_models.dart';
 import 'chat_repository.dart';
 
@@ -259,10 +265,86 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 _pickAndSendMedia(ImageSource.camera);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.attach_file),
+              title: const Text('Файл'),
+              subtitle: const Text('pdf, doc, xls, csv, txt, zip — до 25 МБ',
+                  style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndSendFile();
+              },
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// Вложение-файл (правки 2026-07-11): типы и лимит — как на бэке
+  /// (_ATTACH_EXT_MIME, 25 МБ).
+  static const _kFileMaxBytes = 25 * 1024 * 1024;
+  static const _kFileExtensions = [
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip', 'rar', '7z',
+  ];
+
+  Future<void> _pickAndSendFile() async {
+    setState(() => _sending = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: _kFileExtensions,
+      );
+      final file = result?.files.singleOrNull;
+      final path = file?.path;
+      if (file == null || path == null) {
+        setState(() => _sending = false);
+        return;
+      }
+      if (file.size > _kFileMaxBytes) {
+        setState(() => _sending = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Файл больше 25 МБ')));
+        }
+        return;
+      }
+      await ChatRepository.instance.sendAttachment(
+        convId: widget.conversation.id,
+        filePath: path,
+        fileName: file.name,
+      );
+      // Сообщение придёт по WS broadcast — добавится через _onWsFrame.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Позвонить участникам диалога (веб startCallFromChat): /calls/start
+  /// возвращает токен LiveKit — сразу входим в комнату.
+  Future<void> _startCall() async {
+    try {
+      final token =
+          await CallRepository.instance.start(widget.conversation.id);
+      if (!mounted) return;
+      await IncomingCallWatcher.instance.withInCall(() =>
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => CallScreen(
+              token: token,
+              remoteName: widget.conversation.displayTitle,
+            ),
+          )));
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
   }
 
   @override
@@ -277,7 +359,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.conversation.displayTitle)),
+      appBar: AppBar(
+        title: Text(widget.conversation.displayTitle),
+        actions: [
+          IconButton(
+            tooltip: 'Позвонить',
+            icon: const Icon(Icons.call_outlined),
+            onPressed: _startCall,
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
@@ -432,6 +523,7 @@ class _MessageBubble extends StatelessWidget {
     if (msg.isPhoto) return _PhotoContent(msg: msg);
     if (msg.isVideo) return _VideoContent(msg: msg);
     if (msg.isDocument) return _DocumentContent(msg: msg);
+    if (msg.isFile) return _FileContent(msg: msg);
     return Text(msg.text);
   }
 
@@ -463,6 +555,82 @@ class _PhotoContent extends StatelessWidget {
             child: Text(msg.text, style: const TextStyle(fontSize: 12)),
           ),
       ],
+    );
+  }
+}
+
+/// Файл-вложение pdf/doc/xls/zip (правки 2026-07-11): пузырь с иконкой
+/// и именем, тап скачивает во временную папку и открывает системным
+/// приложением (open_filex).
+class _FileContent extends StatefulWidget {
+  const _FileContent({required this.msg});
+  final ChatMessage msg;
+
+  @override
+  State<_FileContent> createState() => _FileContentState();
+}
+
+class _FileContentState extends State<_FileContent> {
+  bool _downloading = false;
+
+  Future<void> _openFile() async {
+    if (_downloading) return;
+    final msg = widget.msg;
+    final url = msg.attachmentUrl(AppConfig.chatBase);
+    if (url.isEmpty) return;
+    setState(() => _downloading = true);
+    try {
+      final name = (msg.metadata?['original_name'] as String?) ??
+          (msg.text.isNotEmpty ? msg.text : 'file');
+      final dir = await getTemporaryDirectory();
+      // Имя из сообщения могло содержать разделители — оставляем безопасное.
+      final safeName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final path = '${dir.path}/$safeName';
+      await ApiClient.instance.dio.download(url, path);
+      final result = await OpenFilex.open(path);
+      if (result.type != ResultType.done && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Не удалось открыть файл: ${result.message}')));
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final msg = widget.msg;
+    final name =
+        msg.metadata?['original_name'] as String? ?? msg.text;
+    return InkWell(
+      onTap: _openFile,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _downloading
+              ? const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.insert_drive_file_outlined, size: 28),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              name,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -4,6 +4,7 @@ import '../../core/theme.dart';
 import '../../core/theme_controller.dart';
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
+import '../calls/incoming_call_watcher.dart';
 import '../chat/conversations_screen.dart';
 import '../clients/clients_screen.dart';
 import '../finance/finance_screen.dart';
@@ -175,6 +176,8 @@ class _HomeScreenState extends State<HomeScreen> {
           // «Только чаты»: стартуем сразу в мессенджере (веб _isChatsOnly).
           if (user.role == 'client' && user.chatsOnly) _dest = _Dest.chat;
         });
+        // Входящие звонки — поллинг как startCallPolling на вебе.
+        IncomingCallWatcher.instance.start(userId: user.id);
       }
     } on Exception {
       // 401 обработает интерцептор.
@@ -182,6 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _logout() async {
+    IncomingCallWatcher.instance.stop();
     await AuthRepository.instance.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

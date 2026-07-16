@@ -6,6 +6,7 @@ import 'core/theme.dart';
 import 'core/theme_controller.dart';
 import 'core/token_storage.dart';
 import 'features/auth/login_screen.dart';
+import 'features/calls/incoming_call_watcher.dart';
 import 'features/home/home_screen.dart';
 import 'push/push_registrar.dart';
 
@@ -14,6 +15,7 @@ final navigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   PushRegistrar.instance.navigatorKey = navigatorKey;
+  IncomingCallWatcher.instance.navigatorKey = navigatorKey;
   await PushRegistrar.instance.init();
   // Офлайн-очередь водителя: fire-and-forget до runApp (flush идёт фоново).
   // ignore: unawaited_futures

@@ -38,6 +38,7 @@ class ChatMessage {
   bool get isPhoto => msgType == 'photo';
   bool get isVideo => msgType == 'video';
   bool get isDocument => msgType == 'document';
+  bool get isFile => msgType == 'file'; // pdf/doc/xls/zip (правки 2026-07-11)
   bool get isText => msgType == 'text';
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(

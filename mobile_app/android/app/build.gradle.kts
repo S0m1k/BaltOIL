@@ -5,6 +5,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// FCM-пуши: плагин применяется только когда рядом лежит google-services.json
+// (файл из консоли Firebase, в git не коммитится). Без него сборка работает,
+// пуши тихо выключены (см. PushRegistrar). Версия — в settings.gradle.kts.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "ru.baltoil.baltoil_mobile"
     compileSdk = flutter.compileSdkVersion
