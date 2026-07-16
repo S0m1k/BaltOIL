@@ -29,6 +29,15 @@ async def list_tariffs(
     return await tariff_service.list_tariffs(db, actor, include_archived=include_archived)
 
 
+@router.get("/defaults", response_model=list[TariffResponse])
+async def list_default_tariffs(
+    actor: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Базовые тарифы по типам клиентов (физ/юр) — доступно всем авторизованным."""
+    return await tariff_service.list_default_tariffs(db, actor)
+
+
 @router.get("/default", response_model=TariffResponse)
 async def get_default_tariff(
     actor: CurrentUser,

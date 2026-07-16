@@ -115,3 +115,15 @@ async def remove_member(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await svc.remove_member(db, org_id, member_id, current_user)
+
+
+@router.post("/{org_id}/members/{member_id}/make-owner", status_code=204)
+async def make_owner(
+    org_id: uuid.UUID,
+    member_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Сменить владельца организации (только staff): выбранный участник —
+    владелец, прежний — сотрудник."""
+    await svc.set_owner(db, org_id, member_id, current_user)

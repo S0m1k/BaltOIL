@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -325,6 +326,73 @@ async def create_user_by_admin(
     return await get_user_by_id(db, user.id)
 
 
+async def get_or_create_one_off_client(
+    db: AsyncSession,
+    *,
+    full_name: str,
+    phone: str,
+    actor_id,
+    ip_address: str | None = None,
+) -> User:
+    """Разовый клиент (правки 2026-07-11): менеджер/водитель создаёт заявку на
+    физлицо, указав только имя и телефон. Без email и пароля (вход невозможен —
+    пароль случайный). Телефон — ключ дедупликации: повторная заявка на тот же
+    номер возвращает существующего клиента, чтобы история копилась по одному ID.
+    """
+    full_name = (full_name or "").strip()
+    phone = (phone or "").strip()
+    if not full_name:
+        raise ConflictError("Укажите имя разового клиента")
+    norm = normalize_phone(phone)
+    if len(norm) != 10:
+        raise ConflictError("Укажите корректный номер телефона (10 цифр после +7)")
+
+    # Ищем существующего пользователя по нормализованному номеру
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.client_profile))
+        .where(
+            User.phone.isnot(None),
+            normalized_phone_column(User.phone) == norm,
+            User.is_archived == False,  # noqa: E712
+        )
+    )
+    existing = result.scalars().first()
+    if existing:
+        if existing.role != UserRole.CLIENT:
+            raise ConflictError("Этот номер принадлежит сотруднику — оформить на него разового клиента нельзя")
+        # Уже есть клиент (разовый или зарегистрированный) — переиспользуем.
+        return existing
+
+    user = User(
+        email=None,
+        phone=phone,
+        # Случайный пароль: разовый клиент в систему не входит.
+        hashed_password=hash_password(secrets.token_urlsafe(24)),
+        full_name=full_name,
+        role=UserRole.CLIENT,
+    )
+    db.add(user)
+    await db.flush()
+    profile = ClientProfile(
+        user_id=user.id,
+        client_type=ClientType.INDIVIDUAL,
+        is_one_off=True,
+    )
+    db.add(profile)
+
+    await log_action(
+        db,
+        action="user.one_off_created",
+        actor_id=actor_id,
+        entity_type="user",
+        entity_id=user.id,
+        details={"full_name": full_name, "phone": phone},
+        ip_address=ip_address,
+    )
+    return await get_user_by_id(db, user.id)
+
+
 async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User:
     result = await db.execute(
         select(User)
@@ -346,6 +414,7 @@ async def list_users(
     offset: int = 0,
     limit: int = 50,
     client_number: int | None = None,
+    one_off: bool | None = None,
 ) -> list[User]:
     conditions = [User.is_archived == False]  # noqa: E712
     if role:
@@ -364,10 +433,12 @@ async def list_users(
         .order_by(User.full_name)  # детерминированный порядок для LIMIT
     )
 
+    if client_number is not None or one_off is not None:
+        query = query.join(ClientProfile, ClientProfile.user_id == User.id)
     if client_number is not None:
-        query = query.join(ClientProfile, ClientProfile.user_id == User.id).where(
-            ClientProfile.client_number == client_number
-        )
+        query = query.where(ClientProfile.client_number == client_number)
+    if one_off is not None:
+        query = query.where(ClientProfile.is_one_off == one_off)  # noqa: E712
 
     result = await db.execute(query.offset(offset).limit(limit))
     return list(result.scalars().all())

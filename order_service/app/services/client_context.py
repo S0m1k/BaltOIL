@@ -29,6 +29,7 @@ class ClientContext:
     credit_limit: Decimal | None  # None → no credit limit configured
     fuel_coefficient: float = 1.0      # multiplier for fuel price
     delivery_coefficient: float = 1.0  # multiplier for delivery cost
+    chats_only: bool = False           # «только чаты» — заявки запрещены (2026-07-14)
 
 
 _COEF_MIN = 0.0
@@ -108,6 +109,7 @@ async def get_client_context(
             credit_limit=Decimal(str(data["credit_limit"])) if data.get("credit_limit") is not None else None,
             fuel_coefficient=_clamp_coef(data.get("fuel_coefficient"), "fuel", client_id),
             delivery_coefficient=_clamp_coef(data.get("delivery_coefficient"), "delivery", client_id),
+            chats_only=bool(data.get("chats_only", False)),
         )
     except HTTPException:
         raise

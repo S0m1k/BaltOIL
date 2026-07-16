@@ -58,6 +58,8 @@ class ClientContextResponse(BaseModel):
     credit_limit: Decimal | None  # None → no credit limit configured
     fuel_coefficient: float     # multiplier for fuel price (default 1.0)
     delivery_coefficient: float  # multiplier for delivery cost (default 1.0)
+    # Режим «только чаты» (правки 2026-07-14): order_service запрещает заявки
+    chats_only: bool = False
 
 
 @router.get(
@@ -102,6 +104,7 @@ async def get_client_context(
         credit_limit=profile.credit_limit,
         fuel_coefficient=float(profile.fuel_coefficient),
         delivery_coefficient=float(profile.delivery_coefficient),
+        chats_only=bool(profile.chats_only),
     )
 
 

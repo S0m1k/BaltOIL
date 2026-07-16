@@ -13,7 +13,9 @@ rtc:
   port_range_end: 50100
   # In Docker on a public-IP server set use_external_ip: true.
   # For local dev with browser on the same host, leave false.
-  use_external_ip: false
+  # 2026-07-13: включено — на проде за docker-NAT LiveKit анонсировал внутренний
+  # IP контейнера в ICE-кандидатах, и медиа не проходило.
+  use_external_ip: true
 
 # API keys: the call_service signs tokens with this same key/secret pair.
 # Must match LIVEKIT_API_KEY / LIVEKIT_API_SECRET in call_service/.env.

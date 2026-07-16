@@ -41,20 +41,25 @@ logger = logging.getLogger(__name__)
 CHANNELS = ["events:orders", "events:chat", "events:calls"]
 
 
-async def _fetch_staff_ids() -> list[uuid.UUID]:
-    """Get all active manager + admin user IDs from auth_service."""
+async def _fetch_ids_by_roles(roles: str) -> list[uuid.UUID]:
+    """Get active user IDs for the given comma-separated roles from auth_service."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 f"{settings.auth_service_url}/internal/users-by-role",
-                params={"roles": "manager,admin"},
+                params={"roles": roles},
                 headers={"X-Internal-Secret": settings.internal_api_secret},
             )
             resp.raise_for_status()
             return [uuid.UUID(uid) for uid in resp.json()]
     except Exception:
-        logger.warning("Could not fetch staff IDs from auth_service", exc_info=True)
+        logger.warning("Could not fetch %s IDs from auth_service", roles, exc_info=True)
         return []
+
+
+async def _fetch_staff_ids() -> list[uuid.UUID]:
+    """Get all active manager + admin user IDs from auth_service."""
+    return await _fetch_ids_by_roles("manager,admin")
 
 
 async def _build_order_request(payload: dict) -> PublishRequest | None:
@@ -69,9 +74,9 @@ async def _build_order_request(payload: dict) -> PublishRequest | None:
         # Notify client who placed the order
         if client_id:
             recipients.append(uuid.UUID(client_id))
-        # Notify all managers and admins
-        staff_ids = await _fetch_staff_ids()
-        recipients.extend(staff_ids)
+        # Notify all managers, admins and drivers (правки 2026-07-11: водители
+        # просили письма о новых заявках; персональный фильтр — в email_prefs)
+        recipients.extend(await _fetch_ids_by_roles("manager,admin,driver"))
     elif event == "order_status":
         notif_type = NotificationType.ORDER_STATUS
         if client_id:

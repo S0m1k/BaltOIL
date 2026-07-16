@@ -53,6 +53,15 @@ class ClientProfile(Base):
     # писать в чаты, не находится по номеру; писать ему могут только сотрудники.
     messenger_blocked: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Режим «только чаты» (правки 2026-07-14, admin-only): клиент видит в CRM
+    # только мессенджер, создание заявок запрещено (проверяется в order_service).
+    chats_only: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # Разовый клиент (правки 2026-07-11): заведён сотрудником прямо из формы заявки
+    # по имени+телефону, без email/пароля. Всегда физлицо. Повторная заявка на тот же
+    # телефон переиспользует существующую запись (история копится по одному ID).
+    is_one_off: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     # Расширенные реквизиты из DaData (ФНС / банковский справочник).
     # Заполняются при регистрации и при ресинке POST /users/{id}/fns-resync.
     okved: Mapped[str | None] = mapped_column(String(20), nullable=True)

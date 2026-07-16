@@ -6,8 +6,9 @@ from typing import Literal
 
 class SendMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
-    # photo/video — вложения (правки 2026-06-11); metadata: {path, mime, size, original_name}
-    msg_type: Literal["text", "document", "photo", "video"] = "text"
+    # photo/video/file — вложения (правки 2026-06-11 / 2026-07-11);
+    # metadata: {path, mime, size, original_name}
+    msg_type: Literal["text", "document", "photo", "video", "file"] = "text"
     metadata: dict | None = None
     # Ответ на сообщение (правки 2026-06-24) — id сообщения в том же диалоге.
     reply_to_id: uuid.UUID | None = None

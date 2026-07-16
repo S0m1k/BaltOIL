@@ -31,13 +31,21 @@ async def list_fuel_types(
         False,
         description="Если true — вернуть только виды топлива с остатком > 0 на складе",
     ),
+    include_inactive: bool = Query(
+        False,
+        description="Вернуть и скрытые виды — для лейблов исторических заявок и admin-каталога",
+    ),
 ):
-    """Список активных видов топлива из каталога.
+    """Список видов топлива из каталога (по умолчанию — только активные).
 
     При available_only=true дополнительно фильтрует по остаткам из delivery_service.
     Если delivery_service недоступен, фильтрация по остаткам пропускается (fail-open).
     """
-    entries = await fuel_type_service.list_active(db)
+    entries = (
+        await fuel_type_service.list_all(db)
+        if include_inactive
+        else await fuel_type_service.list_active(db)
+    )
 
     if available_only:
         in_stock = await fuel_type_service.fetch_in_stock_codes()

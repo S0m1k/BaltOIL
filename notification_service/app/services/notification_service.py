@@ -12,7 +12,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.notification import Notification, NotificationType
+from app.database import AsyncSessionLocal
+from app.models.notification import EmailPrefs, Notification, NotificationType
 from app.schemas.notification import PublishRequest
 from app.services.email_service import send_email
 
@@ -66,6 +67,42 @@ _EMAIL_TEMPLATES: dict[NotificationType, tuple[str, str]] = {
     NotificationType.CHAT_NEW:       ("chat_message.txt",    "Новое сообщение"),
     NotificationType.CALL_MISSED:    ("call_missed.txt",     "Пропущенный звонок"),
 }
+
+# Категория email-предпочтений для каждого типа уведомления (правки 2026-07-11).
+# Тип вне карты — считаем «прочее» и шлём всегда (сейчас таких с шаблонами нет).
+_PREF_FIELD_BY_TYPE: dict[NotificationType, str] = {
+    NotificationType.ORDER_CREATED:  "order_created",
+    NotificationType.ORDER_STATUS:   "order_status",
+    NotificationType.CHAT_MESSAGE:   "chat",
+    NotificationType.CHAT_NEW:       "chat",
+    NotificationType.CALL_MISSED:    "calls",
+    NotificationType.CALL_INITIATED: "calls",
+    NotificationType.CALL_ENDED:     "calls",
+    NotificationType.REPORT_READY:   "report",
+}
+
+
+async def _email_allowed_by_prefs(notification: Notification) -> bool:
+    """Проверить персональные email-предпочтения получателя.
+
+    Нет строки в email_prefs → default: слать всё. Ошибка БД → fail-open
+    (лучше лишнее письмо, чем молча потерянное уведомление).
+    """
+    field = _PREF_FIELD_BY_TYPE.get(notification.type)
+    if field is None:
+        return True
+    try:
+        async with AsyncSessionLocal() as session:
+            prefs = await session.get(EmailPrefs, notification.user_id)
+        if prefs is None:
+            return True
+        return bool(getattr(prefs, field, True))
+    except Exception:
+        logger.warning(
+            "Could not read email_prefs for user %s", notification.user_id, exc_info=True,
+        )
+        return True
+
 
 # order_claimed / order_delivered are signalled via ORDER_STATUS in the current
 # notification model; dedicated templates exist for future use when the event
@@ -137,6 +174,10 @@ async def _schedule_email(notification: Notification) -> None:
     tmpl_info = _EMAIL_TEMPLATES.get(notification.type)
     if tmpl_info is None:
         return  # no email configured for this notification type
+
+    # Персональные предпочтения (правки 2026-07-11): категория выключена — не шлём
+    if not await _email_allowed_by_prefs(notification):
+        return
 
     # Online-gate: do not email chat/call notifications to active users
     if notification.type in _ONLINE_GATED_TYPES:

@@ -216,6 +216,23 @@ async def count_orders_by_status(
     return {status.value: count for status, count in result.all()}
 
 
+async def last_delivery_by_client(
+    db: AsyncSession,
+    actor: TokenUser,
+) -> dict[str, str]:
+    """{client_id: ISO-дата последней доставки} — по фактическому моменту перехода
+    заявки в DELIVERED (история статусов). База разовых клиентов, правки 2026-07-11."""
+    if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
+        raise ForbiddenError()
+    result = await db.execute(
+        select(Order.client_id, func.max(OrderStatusLog.created_at))
+        .join(OrderStatusLog, OrderStatusLog.order_id == Order.id)
+        .where(OrderStatusLog.to_status == OrderStatus.DELIVERED)
+        .group_by(Order.client_id)
+    )
+    return {str(client_id): dt.isoformat() for client_id, dt in result.all()}
+
+
 async def list_orders(
     db: AsyncSession,
     actor: TokenUser,
@@ -258,12 +275,17 @@ async def preview_price(
     from decimal import Decimal as _Decimal
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
 
-    if is_staff and data.client_id:
-        client_id = data.client_id
+    if is_staff and not data.client_id:
+        # Менеджер без выбранного клиента (напр. разовый клиент ещё не создан):
+        # у самого менеджера client_profile нет — считаем по default-тарифу физлица.
+        from app.services.client_context import ClientContext
+        ctx = ClientContext(
+            user_id=actor.id, client_type="individual", credit_allowed=False,
+            tariff_id=None, credit_limit=None,
+        )
     else:
-        client_id = actor.id
-
-    ctx = await get_client_context(client_id, data.organization_id)
+        client_id = data.client_id if (is_staff and data.client_id) else actor.id
+        ctx = await get_client_context(client_id, data.organization_id)
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
@@ -349,6 +371,11 @@ async def create_order(
     # Fails with 503 if auth_service is unreachable — we never silently skip this check.
     ctx = await get_client_context(client_id, organization_id)
 
+    # Режим «только чаты» (правки 2026-07-14): клиенту заявки запрещены.
+    # Менеджер/админ может оформить заявку НА такого клиента — блокируем только самообслуживание.
+    if not is_staff and ctx.chats_only:
+        raise ForbiddenError("Ваш доступ ограничен чатами — для заказа свяжитесь с менеджером")
+
     # Определить вид заявки
     if data.is_ttn_l:
         order_kind = OrderKind.TTN_L
@@ -369,22 +396,19 @@ async def create_order(
             credit_allowed=ctx.credit_allowed,
         )
 
-    # Дата доставки не может быть в прошлом
+    # Дата доставки не может быть в прошлом. Сравниваем календарные дни,
+    # а не моменты времени: заявка «на сегодня» валидна весь день, даже если
+    # присланный timestamp (полдень UTC от фронта) уже позади текущего момента.
     if data.desired_date:
         desired_utc = data.desired_date if data.desired_date.tzinfo else data.desired_date.replace(tzinfo=timezone.utc)
-        if desired_utc < datetime.now(timezone.utc):
+        if desired_utc.date() < datetime.now(timezone.utc).date():
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     # Валидация вида топлива по каталогу (hard-fail: неизвестный/неактивный код → 422)
     await fuel_type_service.validate_active(db, data.fuel_type)
 
-    # Дополнительная проверка наличия топлива на складе (fail-open: сетевая ошибка не блокирует)
-    in_stock = await fuel_type_service.fetch_in_stock_codes()
-    if in_stock is not None and data.fuel_type not in in_stock:
-        raise ValidationError(
-            f"Топливо «{data.fuel_type}» временно отсутствует на складе. "
-            "Пожалуйста, выберите другой вид топлива или свяжитесь с менеджером."
-        )
+    # Проверка остатка на складе убрана (правки 2026-07-14): продажа разрешена
+    # даже при нулевом/отрицательном остатке — учёт ведётся по ёмкостям.
 
     order_number = await generate_order_number(db, order_kind)
 
@@ -654,14 +678,21 @@ async def update_order(
         if order.status not in _EDITABLE_STATUSES:
             raise ValidationError("Заявку в этом статусе редактировать нельзя")
 
-    if data.volume_requested is not None and data.volume_requested < 300:
-        raise ValidationError("Минимальный объём заказа — 300 литров")
+    # Минимальный объём — только клиентам и водителям; менеджер/админ правит на
+    # любой объём (правка заказчика 2026-07-16), как и при создании заявки.
+    if (
+        not is_staff
+        and data.volume_requested is not None
+        and data.volume_requested < MIN_VOLUME_L
+    ):
+        raise ValidationError(f"Минимальный объём заказа — {MIN_VOLUME_L} литров")
     if data.fuel_type is not None:
         await fuel_type_service.validate_active(db, data.fuel_type)
     if data.desired_date is not None:
+        # Сравнение по календарным дням — «на сегодня» валидно весь день (см. создание заявки)
         desired_utc = (data.desired_date if data.desired_date.tzinfo
                        else data.desired_date.replace(tzinfo=timezone.utc))
-        if desired_utc < datetime.now(timezone.utc):
+        if desired_utc.date() < datetime.now(timezone.utc).date():
             raise ValidationError("Желаемая дата доставки не может быть в прошлом")
 
     # Смена заказчика (правка 2026-06-24): organization_id=<uuid> — переключить на

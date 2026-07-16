@@ -55,6 +55,10 @@ class FuelTransaction(Base):
     supplier_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Ручной расход (правки 2026-07-14): 'tank_refuel' (в бак) | 'other' (иное).
+    # NULL — автоматические списания по рейсам и приходы.
+    expense_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 

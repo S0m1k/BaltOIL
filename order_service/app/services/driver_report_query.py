@@ -24,7 +24,11 @@ async def list_driver_delivered_orders(
 ) -> list[DriverOrderInfo]:
     log = OrderStatusLog
     stmt = (
-        select(Order, log.created_at.label("delivered_at"))
+        select(
+            Order,
+            log.created_at.label("delivered_at"),
+            log.comment.label("delivery_comment"),
+        )
         .join(log, log.order_id == Order.id)
         .where(
             Order.driver_id == driver_id,
@@ -48,6 +52,7 @@ async def list_driver_delivered_orders(
             delivery_address=order.delivery_address,
             client_id=order.client_id,
             delivered_at=delivered_at,
+            comment=delivery_comment,
         )
-        for order, delivered_at in rows
+        for order, delivered_at, delivery_comment in rows
     ]

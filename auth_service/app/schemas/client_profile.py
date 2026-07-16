@@ -29,6 +29,7 @@ class ClientProfileResponse(BaseModel):
     contract_number: str | None
     credit_allowed: bool
     messenger_blocked: bool = False
+    chats_only: bool = False
     credit_limit: Decimal | None
     tariff_id: uuid.UUID | None
     fuel_coefficient: float
@@ -88,3 +89,5 @@ class UpdateClientTariffRequest(BaseModel):
     # Блокировка мессенджера клиенту (правки 2026-06-11) — admin-only эндпоинт,
     # поэтому поле здесь, а не в UpdateClientProfileRequest (его клиент правит сам).
     messenger_blocked: bool | None = Field(None)
+    # Режим «только чаты» (правки 2026-07-14) — тот же admin-only эндпоинт.
+    chats_only: bool | None = Field(None)

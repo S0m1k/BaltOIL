@@ -16,6 +16,7 @@ class UserShortResponse(BaseModel):
     role: UserRole
     is_active: bool
     client_number: int | None = None  # set for CLIENT role, None for staff
+    is_one_off: bool = False  # разовый клиент (правки 2026-07-11)
 
     model_config = {"from_attributes": True}
 

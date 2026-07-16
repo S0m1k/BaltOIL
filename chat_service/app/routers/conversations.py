@@ -22,16 +22,40 @@ from app.services import conversation_service, message_service, auth_client
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-# ── Вложения чата (фото/видео, правки 2026-06-11) ────────────────────────────
+# ── Вложения чата (фото/видео/файлы, правки 2026-06-11 / 2026-07-11) ──────────
 _ATTACH_MAX_BYTES = 25 * 1024 * 1024  # 25 МБ
 _ATTACH_EXT_MIME = {
+    # Фото
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif",
+    # Видео
     ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    # Документы (правки 2026-07-11): чат «Работа» и др.
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".zip": "application/zip",
+    ".rar": "application/vnd.rar",
+    ".7z": "application/x-7z-compressed",
 }
 _PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+_VIDEO_EXTS = {".mp4", ".mov", ".webm"}
 # Имя сохранённого файла: uuid4hex + разрешённое расширение
-_ATTACH_NAME_RE = re.compile(r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|gif|mp4|mov|webm)$")
+_ATTACH_NAME_RE = re.compile(
+    r"^[0-9a-f]{32}\.(jpg|jpeg|png|webp|gif|mp4|mov|webm|pdf|doc|docx|xls|xlsx|csv|txt|zip|rar|7z)$"
+)
+
+
+def _attach_msg_type(ext: str) -> str:
+    if ext in _PHOTO_EXTS:
+        return "photo"
+    if ext in _VIDEO_EXTS:
+        return "video"
+    return "file"
 
 
 class StartByPhoneRequest(BaseModel):
@@ -85,6 +109,54 @@ async def start_by_phone(
         updated_at=conv.updated_at,
         peer_name=target.get("full_name"),
         peer_phone=target.get("phone"),
+    )
+
+
+class StartWithUserRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+@router.post("/start-with-user", response_model=ConversationListResponse)
+async def start_with_user(
+    body: StartWithUserRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Начать (или открыть) личный чат с сотрудником по его id (правки 2026-07-11).
+
+    Для списка сотрудников в папке «Работа»: чат создаётся лениво при первом
+    открытии. Только staff↔staff — клиенты продолжают пользоваться «по номеру».
+    """
+    if actor.role not in ("admin", "manager", "driver"):
+        raise HTTPException(status_code=403, detail="Доступно только сотрудникам")
+    if body.user_id == actor.id:
+        raise HTTPException(status_code=400, detail="Нельзя начать чат с самим собой")
+
+    target = await auth_client.get_contact(body.user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if target.get("role") not in ("admin", "manager", "driver"):
+        raise HTTPException(status_code=403, detail="Личный чат по id — только с сотрудниками")
+
+    conv = await conversation_service.ensure_direct(db, actor.id, body.user_id)
+    await db.commit()
+    return ConversationListResponse(
+        id=conv.id,
+        kind=conv.kind,
+        title=conv.title,
+        client_id=conv.client_id,
+        driver_id=conv.driver_id,
+        order_id=conv.order_id,
+        group_code=conv.group_code,
+        created_by_id=conv.created_by_id,
+        created_by_role=conv.created_by_role,
+        unread_count=0,
+        last_message=None,
+        updated_at=conv.updated_at,
+        peer_name=target.get("full_name"),
+        peer_phone=target.get("phone"),
+        peer_role=target.get("role"),
+        peer_id=body.user_id,
     )
 
 
@@ -443,23 +515,28 @@ async def upload_attachment(
     if actor.role == "client" and await auth_client.is_messenger_blocked(redis, actor.id):
         raise HTTPException(status_code=403, detail="Доступ ограничен")
 
-    # Доступ к диалогу — та же проверка, что и при отправке сообщения
+    # Доступ к диалогу — та же проверка, что и при отправке сообщения.
+    # Участники грузятся заранее (selectinload): для приватных групп _check_access
+    # без member_ids всегда падает «приватный групповой чат».
     from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
     from app.models.conversation import Conversation as _Conv
     res = await db.execute(
-        _select(_Conv).where(_Conv.id == conv_id, _Conv.is_archived == False)  # noqa: E712
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id, _Conv.is_archived == False)  # noqa: E712
     )
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Диалог не найден")
     from app.services.conversation_service import _check_access
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in _ATTACH_EXT_MIME:
         raise HTTPException(
             status_code=415,
-            detail="Допустимы фото (jpg/png/webp/gif) и видео (mp4/mov/webm)",
+            detail="Допустимы фото, видео и файлы (pdf/doc/xls/csv/txt/zip)",
         )
 
     content = await file.read()
@@ -479,7 +556,7 @@ async def upload_attachment(
         "mime": _ATTACH_EXT_MIME[ext],
         "size": len(content),
         "original_name": file.filename,
-        "msg_type": "photo" if ext in _PHOTO_EXTS else "video",
+        "msg_type": _attach_msg_type(ext),
     }
 
 
@@ -495,13 +572,18 @@ async def download_attachment(
         raise HTTPException(status_code=404, detail="Файл не найден")
 
     from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
     from app.models.conversation import Conversation as _Conv
-    res = await db.execute(_select(_Conv).where(_Conv.id == conv_id))
+    res = await db.execute(
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id)
+    )
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail="Диалог не найден")
     from app.services.conversation_service import _check_access
-    _check_access(conv, actor)
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
 
     fpath = os.path.join(settings.media_root, "chat", str(conv_id), file_name)
     if not os.path.isfile(fpath):

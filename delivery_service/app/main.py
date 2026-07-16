@@ -8,6 +8,7 @@ from app.database import engine, Base
 from app.routers import vehicles, trips, reports, inventory, downloads
 from app.routers import internal as internal_router
 from app.routers import zones as zones_router
+from app.routers import tanks as tanks_router
 from app.routers.downloads import _purge_loop
 
 settings = get_settings()
@@ -58,6 +59,7 @@ app.add_middleware(
 app.include_router(vehicles.router,   prefix="/api/v1")
 app.include_router(trips.router,      prefix="/api/v1")
 app.include_router(reports.router,    prefix="/api/v1")
+app.include_router(tanks_router.router, prefix="/api/v1")  # до inventory: /inventory/tanks специфичнее
 app.include_router(inventory.router,  prefix="/api/v1")
 app.include_router(downloads.router,     prefix="/api/v1")
 app.include_router(internal_router.router, prefix="/api/v1")
