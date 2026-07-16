@@ -4,6 +4,7 @@ import '../../core/api_client.dart';
 import '../../core/outbox_db.dart';
 import '../../core/sync_service.dart';
 import '../inventory/inventory_repository.dart';
+import '../tariffs/base_tariffs_sheet.dart';
 import 'delivery_dialog.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
@@ -256,6 +257,19 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // «₽ Базовые тарифы» — как кнопка в тулбаре заявок веба (435d822).
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: TextButton.icon(
+              onPressed: () => showBaseTariffsSheet(context),
+              icon: const Icon(Icons.currency_ruble, size: 16),
+              label: const Text('Базовые тарифы',
+                  style: TextStyle(fontSize: 13)),
+            ),
+          ),
+        ),
         // Глобальный индикатор офлайн-очереди (показывается только при наличии).
         if (_totalPending > 0)
           Material(

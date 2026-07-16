@@ -11,6 +11,7 @@ class ClientItem {
     this.phone,
     this.isActive = true,
     this.clientNumber,
+    this.isOneOff = false,
   });
 
   final String id;
@@ -20,6 +21,9 @@ class ClientItem {
   final bool isActive;
   final int? clientNumber;
 
+  /// Разовый клиент (правки 2026-07-11) — создан из формы заявки.
+  final bool isOneOff;
+
   factory ClientItem.fromJson(Map<String, dynamic> json) => ClientItem(
         id: (json['id'] as Object).toString(),
         fullName: (json['full_name'] ?? '') as String,
@@ -27,6 +31,7 @@ class ClientItem {
         phone: json['phone'] as String?,
         isActive: (json['is_active'] ?? true) as bool,
         clientNumber: json['client_number'] as int?,
+        isOneOff: (json['is_one_off'] ?? false) as bool,
       );
 }
 
@@ -130,6 +135,7 @@ class ClientsRepository {
 
   Future<List<ClientItem>> list({
     bool includeInactive = false,
+    bool? oneOff, // true — только разовые, false — только обычные
     int offset = 0,
     int limit = 100,
   }) async {
@@ -138,6 +144,7 @@ class ClientsRepository {
       queryParameters: {
         'role': 'client',
         'include_inactive': includeInactive,
+        if (oneOff != null) 'one_off': oneOff,
         'offset': offset,
         'limit': limit,
       },
@@ -145,6 +152,20 @@ class ClientsRepository {
     return (resp.data as List)
         .map((e) => ClientItem.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Дата последней доставки по клиентам: {client_id: ISO-дата}
+  /// (GET /orders/last-delivery-by-client, staff). Ошибка не критична —
+  /// список клиентов показывается без дат.
+  Future<Map<String, DateTime>> lastDeliveryByClient() async {
+    final resp =
+        await _dio.get('${AppConfig.orderBase}/orders/last-delivery-by-client');
+    final raw = resp.data as Map<String, dynamic>;
+    return {
+      for (final e in raw.entries)
+        if (DateTime.tryParse(e.value.toString()) != null)
+          e.key: DateTime.parse(e.value.toString()),
+    };
   }
 
   Future<ClientDetail> getDetail(String userId) async {

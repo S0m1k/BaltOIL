@@ -57,6 +57,20 @@ class AuthRepository {
   Dio get _dio => ApiClient.instance.dio;
   String get _base => AppConfig.authBase;
 
+  /// Разовый клиент из формы заявки (веб __oneoff__, правки 2026-07-11):
+  /// создаёт физика без email/пароля или находит существующего по телефону.
+  /// Возвращает {id, full_name, is_one_off, ...} (UserShortResponse).
+  Future<Map<String, dynamic>> createOneOffClient({
+    required String fullName,
+    required String phone,
+  }) async {
+    final resp = await _dio.post(
+      '$_base/users/one-off',
+      data: {'full_name': fullName, 'phone': phone},
+    );
+    return resp.data as Map<String, dynamic>;
+  }
+
   /// Список пользователей по роли (client/driver/...) — для форм менеджера.
   Future<List<UserBrief>> listByRole(String role) async {
     final resp = await _dio.get('$_base/users', queryParameters: {'role': role});

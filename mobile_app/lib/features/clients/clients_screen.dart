@@ -22,6 +22,12 @@ class _ClientsScreenState extends State<ClientsScreen> {
   String? _error;
   String _query = '';
 
+  /// Фильтр Все/Разовые/Зарегистрированные (веб clients-kind-filter).
+  bool? _oneOffFilter; // null=все, true=разовые, false=зарегистрированные
+
+  /// Дата последней доставки по клиентам (веб _lastDeliveryByClient).
+  Map<String, DateTime> _lastDelivery = const {};
+
   @override
   void initState() {
     super.initState();
@@ -34,10 +40,19 @@ class _ClientsScreenState extends State<ClientsScreen> {
       _error = null;
     });
     try {
-      final items = await ClientsRepository.instance.list(includeInactive: true);
+      // Дата последней доставки — не блокирует список при недоступности
+      // order_service (как на вебе).
+      final results = await Future.wait([
+        ClientsRepository.instance
+            .list(includeInactive: true, oneOff: _oneOffFilter),
+        ClientsRepository.instance
+            .lastDeliveryByClient()
+            .catchError((Object _) => <String, DateTime>{}),
+      ]);
       if (!mounted) return;
       setState(() {
-        _all = items;
+        _all = results[0] as List<ClientItem>;
+        _lastDelivery = results[1] as Map<String, DateTime>;
         _loading = false;
       });
     } on Object catch (e) {
@@ -111,6 +126,32 @@ class _ClientsScreenState extends State<ClientsScreen> {
             ),
           ),
         ),
+        // Фильтр Все/Разовые/Зарегистрированные (веб clients-kind-filter).
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final (label, value) in const [
+                  ('Все клиенты', null),
+                  ('⭐ Разовые', true),
+                  ('Зарегистрированные', false),
+                ]) ...[
+                  ChoiceChip(
+                    label: Text(label, style: const TextStyle(fontSize: 12)),
+                    selected: _oneOffFilter == value,
+                    onSelected: (_) {
+                      _oneOffFilter = value;
+                      _load();
+                    },
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ],
+            ),
+          ),
+        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
@@ -137,6 +178,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                       final c = _filtered[i];
                       return _ClientCard(
                         client: c,
+                        lastDelivery: _lastDelivery[c.id],
                         onTap: () => _openDetail(context, c),
                       );
                     },
@@ -161,10 +203,18 @@ class _ClientsScreenState extends State<ClientsScreen> {
 // ---------------------------------------------------------------------------
 
 class _ClientCard extends StatelessWidget {
-  const _ClientCard({required this.client, required this.onTap});
+  const _ClientCard({
+    required this.client,
+    required this.onTap,
+    this.lastDelivery,
+  });
 
   final ClientItem client;
   final VoidCallback onTap;
+  final DateTime? lastDelivery;
+
+  String _fmtDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
   @override
   Widget build(BuildContext context) {
@@ -203,6 +253,24 @@ class _ClientCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (client.isOneOff)
+                          Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: const Color(0xFFD97706)),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              '⭐ разовый',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFFD97706),
+                              ),
+                            ),
+                          ),
                         if (client.clientNumber != null)
                           Text(
                             '#${client.clientNumber}',
@@ -225,6 +293,13 @@ class _ClientCard extends StatelessWidget {
                       CopyablePhone(
                         client.phone,
                         style: TextStyle(color: colors.text3, fontSize: 12),
+                      ),
+                    ],
+                    if (lastDelivery != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Последняя доставка: ${_fmtDate(lastDelivery!)}',
+                        style: TextStyle(color: colors.text3, fontSize: 11),
                       ),
                     ],
                   ],

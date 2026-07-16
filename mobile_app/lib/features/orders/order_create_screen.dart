@@ -67,6 +67,13 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   bool _isTtnL = false;
   bool _allowUnpaid = false;
 
+  // Разовый клиент (веб __oneoff__, правки 2026-07-11): имя+телефон,
+  // всегда физлицо с оплатой по факту; дедуп по номеру на бэке.
+  static const _kOneOffClientId = '__oneoff__';
+  final _oneOffName = TextEditingController();
+  final _oneOffPhone = TextEditingController();
+  bool get _isOneOff => _clientId == _kOneOffClientId;
+
   @override
   void initState() {
     super.initState();
@@ -145,6 +152,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     _contactName.dispose();
     _contactPhone.dispose();
     _managerComment.dispose();
+    _oneOffName.dispose();
+    _oneOffPhone.dispose();
     super.dispose();
   }
 
@@ -199,6 +208,28 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       _error = null;
     });
     try {
+      var clientId = _isStaff ? _clientId : null;
+      var contactName = _contactName.text.trim();
+      var contactPhone = _contactPhone.text.trim();
+      // Разовый клиент (веб __oneoff__): создаём/находим по телефону
+      // перед заявкой; контакт приёмки по умолчанию — сам клиент.
+      if (_isStaff && _isOneOff) {
+        final ooName = _oneOffName.text.trim();
+        final ooPhone = _oneOffPhone.text.trim();
+        final oo = await AuthRepository.instance.createOneOffClient(
+          fullName: ooName,
+          phone: ooPhone,
+        );
+        clientId = oo['id'] as String;
+        if (oo['is_one_off'] != true && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Телефон уже в базе — заявка на клиента ${oo['full_name']}'),
+          ));
+        }
+        if (contactName.isEmpty) contactName = ooName;
+        if (contactPhone.isEmpty) contactPhone = ooPhone;
+      }
       await OrdersRepository.instance.create(
         fuelType: _fuelCode!,
         volume: double.parse(_volume.text.replaceAll(',', '.')),
@@ -206,9 +237,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         paymentType: _paymentType,
         desiredDate: _desiredDate,
         comment: _comment.text.trim(),
-        contactName: _contactName.text.trim(),
-        contactPhone: _contactPhone.text.trim(),
-        clientId: _isStaff ? _clientId : null,
+        contactName: contactName,
+        contactPhone: contactPhone,
+        clientId: clientId,
         managerComment: _isStaff ? _managerComment.text.trim() : null,
         driverId: _isStaff ? _driverId : null,
         isTtnL: _isStaff && _isTtnL,
@@ -425,11 +456,15 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
               .titleSmall
               ?.copyWith(fontWeight: FontWeight.w700)),
       const SizedBox(height: 12),
-      // Клиент* — обязателен для staff.
+      // Клиент* — обязателен для staff. Первый пункт — «⭐ Разовый клиент»
+      // (веб __oneoff__): имя+телефон вместо выбора из базы.
       DropdownButtonFormField<String>(
         initialValue: _clientId,
         isExpanded: true,
         items: [
+          const DropdownMenuItem(
+              value: _kOneOffClientId,
+              child: Text('⭐ Разовый клиент (имя + телефон)')),
           for (final c in clients ?? const <UserBrief>[])
             DropdownMenuItem(
                 value: c.id,
@@ -438,10 +473,24 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         onChanged: clients == null
             ? null
             : (v) {
-                setState(() => _clientId = v);
+                setState(() {
+                  _clientId = v;
+                  if (v == _kOneOffClientId) {
+                    // Разовый — всегда физлицо, оплата по факту;
+                    // организаций и объектов у него ещё нет.
+                    _orgs = const [];
+                    _organizationId = null;
+                    _savedObjects = const [];
+                    _paymentChoices = const ['on_delivery'];
+                    _paymentType = 'on_delivery';
+                    _paymentHidden = true;
+                  }
+                });
                 // Подгружаем организации/объекты/типы оплаты выбранного
                 // клиента — как на вебе при смене c-client-id.
-                if (v != null) _loadClientContext(v, isSelf: false);
+                if (v != null && v != _kOneOffClientId) {
+                  _loadClientContext(v, isSelf: false);
+                }
               },
         decoration: InputDecoration(
           labelText: 'Клиент *',
@@ -449,6 +498,38 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         ),
         validator: (v) => (_isStaff && v == null) ? 'Выберите клиента' : null,
       ),
+      if (_isOneOff) ...[
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _oneOffName,
+          decoration: const InputDecoration(
+            labelText: 'Имя разового клиента *',
+            hintText: 'Иван Петров',
+          ),
+          validator: (v) => _isOneOff && (v ?? '').trim().isEmpty
+              ? 'Укажите имя разового клиента'
+              : null,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _oneOffPhone,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Телефон *',
+            hintText: '+7 999 000 00 00',
+          ),
+          validator: (v) => _isOneOff && (v ?? '').trim().isEmpty
+              ? 'Укажите телефон разового клиента'
+              : null,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Разовый клиент — всегда физлицо, оплата по факту. Если телефон '
+          'уже есть в базе — заявка привяжется к существующему клиенту.',
+          style: TextStyle(
+              fontSize: 11, color: Theme.of(context).hintColor),
+        ),
+      ],
       const SizedBox(height: 16),
       TextFormField(
         controller: _managerComment,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
+import '../tariffs/base_tariffs_sheet.dart';
 import 'order_create_screen.dart';
 import 'order_detail_screen.dart';
 import 'order_models.dart';
@@ -110,6 +111,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
           : null,
       body: Column(
         children: [
+          // «₽ Базовые тарифы» — водители/менеджеры/админы (веб 435d822);
+          // клиенту не показывается, как на вебе.
+          if (_user?.role == 'manager' || _user?.role == 'admin')
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: TextButton.icon(
+                  onPressed: () => showBaseTariffsSheet(context),
+                  icon: const Icon(Icons.currency_ruble, size: 16),
+                  label: const Text('Базовые тарифы',
+                      style: TextStyle(fontSize: 13)),
+                ),
+              ),
+            ),
           // ── Status filter row ──────────────────────────────────────────
           _StatusFilterRow(
             tabs: tabs,

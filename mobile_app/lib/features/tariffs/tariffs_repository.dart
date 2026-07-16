@@ -136,6 +136,15 @@ class TariffsRepository {
   String get _base => AppConfig.orderBase;
 
   /// GET /tariffs  — list all (optionally including archived).
+  /// GET /tariffs/defaults — базовые тарифы по типам клиентов,
+  /// доступен любому авторизованному, включая водителей (веб 435d822).
+  Future<List<Tariff>> defaults() async {
+    final resp = await _dio.get('$_base/tariffs/defaults');
+    return (resp.data as List)
+        .map((e) => Tariff.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<List<Tariff>> list({bool includeArchived = false}) async {
     final resp = await _dio.get(
       '$_base/tariffs',
