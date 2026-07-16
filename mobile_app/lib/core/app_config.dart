@@ -21,7 +21,10 @@ class AppConfig {
 
   static String get authBase => 'https://$apiHost:8001/api/v1';
   static String get orderBase => 'https://$apiHost:8002/api/v1';
-  static String get chatBase => 'https://$apiHost:8004/api/v1';
+
+  /// chat_service: роуты в КОРНЕ (без /api/v1) — как CHAT_URL='/api/chat'
+  /// на вебе; nginx на :8004 проксирует / без переписывания пути.
+  static String get chatBase => 'https://$apiHost:8004';
   static String get wsBase => 'wss://$apiHost:8004';
   static String get notificationBase => 'https://$apiHost:8005/api/v1';
   static String get deliveryBase => 'https://$apiHost:8003/api/v1';

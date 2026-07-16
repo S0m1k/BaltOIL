@@ -537,18 +537,29 @@ class _UserChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    // Узкий экран (портрет телефона): полное ФИО не влезает — actions
+    // выталкивали заголовок и налезали на бургер. Показываем только чип роли;
+    // ФИО (обрезанное) — лишь когда места достаточно.
+    final isNarrow = MediaQuery.sizeOf(context).width < 520;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          user.fullName,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: colors.text2,
+        if (!isNarrow) ...[
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              user.fullName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: colors.text2,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
+          const SizedBox(width: 6),
+        ],
         _RoleChip(role: user.role, colors: colors),
       ],
     );
