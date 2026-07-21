@@ -170,7 +170,7 @@ app-проверкой `_check_inn_unique` без фильтра по архив
 
 ---
 
-# Часть 3 — Мобильное приложение: баги звонков (репорт заказчика, TODO)
+# Часть 3 — Мобильное приложение: баги звонков (СДЕЛАНО 2026-07-21 вечером, mobile c9f5313/fdde41e)
 
 ## З1 — Звук пропадает, когда телефон уходит в спящий режим
 
@@ -213,9 +213,39 @@ app-проверкой `_check_inn_unique` без фильтра по архив
 5. iOS полноценно — только через VoIP-пуши (PushKit) + Apple Developer аккаунт
    (его пока нет — см. [FCM/пуши]); Android закрывается пп. 1–3.
 
+## Реализация части 3 (сделано)
+
+**З1:** `wakelock_plus` — WakelockPlus.enable() в initState CallScreen /
+disable() в dispose: экран не гаснет, аудио LiveKit живёт весь звонок.
+
+**З2:** доделана обвязка callkit:
+- `callkit_service.dart` — системный экран входящего (flutter_callkit_incoming),
+  accept → GET /calls/{id} → token → CallScreen; decline → /calls/{id}/end;
+- `push_registrar.dart` — top-level `firebaseBackgroundHandler`
+  (@pragma vm:entry-point): показывает callkit-экран из data-пуша даже при
+  убитом приложении; тот же экран в форграунде (onMessage);
+- `push_service.py` — call_initiated шлётся **data-only + high priority**
+  (хотфикс прода 2026-07-18 закоммичен) + `schedule_pushes(extra_data)`:
+  в data теперь call_id/room_name/initiated_by_name — имя звонящего на экране
+  и подключение без запроса к API (задеплоено, master 4cc1190);
+- поллер `incoming_call_watcher` остаётся страховкой, дедуп по активным
+  callkit-звонкам.
+
+**Бонус (parity части 1, тоже сделано в mobile):**
+- галочки-статусы в чате: sent/delivered/read из `MessageResponse.status` +
+  realtime `read_receipt` по WS + опрос-страховка (5 с);
+- «Удалить» сообщение (long-press bottom-sheet; автор/менеджер/админ) + WS
+  `message_deleted` убирает пузырь у всех;
+- событийные WS-кадры (`message_pinned`/`conversation_deleted`/…) больше не
+  роняют обработчик чата — раньше ChatMessage.fromJson падал на них.
+
+**Проверить на устройстве водителя:** разрешение на уведомления, автозапуск/
+отключение оптимизации батареи (Xiaomi/Huawei), иначе система может резать
+даже high-priority data-пуши. iOS — по-прежнему ждёт Apple Developer (PushKit).
+
 ## Статус спек за 2026-07-21
 - Часть 1 (утро): удаление юзера + галочки — **задеплоено** (master b4adaaa).
 - Часть 2 (вечер): перерегистрация, удаление сообщений, масштаб, новый админ —
   **задеплоено** (master 66b4dee).
-- Часть 3: баги звонков — **описано, ждёт реализации** (в ветке mobile уже есть
-  незакоммиченный задел: callkit_service.dart, правки call_screen/push_registrar).
+- Часть 3: звонки мобилки + parity чата — **сделано** (mobile c9f5313 + fdde41e,
+  бэкенд пушей задеплоен master 4cc1190); нужен новый APK на устройства.
