@@ -1376,8 +1376,15 @@
   /* ── RESPONSIVE / MOBILE ───────────────────────────────────── */
 
   @media (max-width: 768px) {
+    /* «Чуть отдалить» на телефоне (правки 2026-07-21): весь интерфейс масштабируется
+       через zoom. ВАЖНО: zoom не влияет на vh/dvh-единицы, поэтому все полноэкранные
+       высоты ниже компенсируются делением на тот же коэффициент (100vh / 0.85). */
+    body { zoom: 0.85; min-height: calc(100vh / 0.85); }
+    .auth-wrap { min-height: calc(100vh / 0.85); }
+    .burger-drawer { height: calc(100dvh / 0.85); }
+
     /* On mobile: sidebar collapses to a horizontal topbar */
-    #app-screen { flex-direction: column; }
+    #app-screen { flex-direction: column; min-height: calc(100vh / 0.85); }
     .topbar {
       width: 100%; min-width: 0; height: 48px;
       flex-direction: row; align-items: center;
@@ -1419,7 +1426,8 @@
     .btn-sm { padding: 5px 10px; font-size: 11px; }
 
     /* Chat */
-    .chat-shell { grid-template-columns: 1fr; height: calc(100vh - 56px - 56px); }
+    /* Высота компенсирована под body{zoom:.85}: vh не масштабируется зумом */
+    .chat-shell { grid-template-columns: 1fr; height: calc(100vh / 0.85 - 56px - 56px); }
     .chat-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border);
       position: fixed; inset: 56px 0 0 0; z-index: 90; background: var(--bg2);
       display: none; flex-direction: column; }
@@ -8650,10 +8658,16 @@ function msgHTML(m) {
   const isPinned = !!m.is_pinned;
   const pinLabel = isPinned ? 'Открепить' : 'Закрепить';
   const pinAction = isPinned ? 'unpinChatMessage' : 'pinChatMessage';
+  // Удаление сообщения (правки 2026-07-21): автор — своё, менеджер/админ — любое
+  const canDelete = mine || ['admin', 'manager'].includes(currentUser?.role);
+  const deleteBtn = canDelete
+    ? `<button type="button" class="msg-action-btn" style="color:var(--red)" onclick="deleteChatMessage('${escHtml(m.id)}')">Удалить</button>`
+    : '';
   const actionsHtml = `
     <div class="msg-actions">
       <button type="button" class="msg-action-btn" onclick="replyToMessage('${escHtml(m.id)}')">Ответить</button>
       <button type="button" class="msg-action-btn" onclick="${pinAction}('${escHtml(m.id)}')">${pinLabel}</button>
+      ${deleteBtn}
     </div>`;
 
   return `
@@ -8778,6 +8792,13 @@ function connectWs(convId) {
           if (msg.user_id !== currentUser?.id) markMessagesRead(msg.read_at);
           return;
         }
+        // Сообщение удалено (правки 2026-07-21) — убираем его пузырь из открытого чата
+        if (msg.event === 'message_deleted') {
+          const delRow = document.getElementById(`msg-${msg.message_id}`);
+          if (delRow) delRow.remove();
+          loadPinnedMessages(convId).catch(() => {});
+          return;
+        }
         // F8: пин/анпин сообщения другим участником — обновляем бейдж в пузыре и панель закреплённых
         if (msg.event === 'message_pinned' || msg.event === 'message_unpinned') {
           const isPinnedNow = msg.event === 'message_pinned';
@@ -8897,6 +8918,22 @@ async function unpinChatMessage(messageId) {
       const btn = row.querySelector('.msg-actions .msg-action-btn:nth-child(2)');
       if (btn) { btn.textContent = 'Закрепить'; btn.setAttribute('onclick', `pinChatMessage('${messageId}')`); }
     }
+    loadPinnedMessages(activeConvId).catch(() => {});
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// Удаление сообщения (правки 2026-07-21): автор — своё, менеджер/админ — любое.
+// Мягкое удаление на бэке (is_archived), у остальных участников убирается по WS.
+async function deleteChatMessage(messageId) {
+  if (!activeConvId) return;
+  if (!confirm('Удалить сообщение?')) return;
+  try {
+    await chatDelete(`/conversations/${activeConvId}/messages/${messageId}`);
+    const row = document.getElementById(`msg-${messageId}`);
+    if (row) row.remove();
+    // Если удалили закреплённое — обновляем панель закреплённых
     loadPinnedMessages(activeConvId).catch(() => {});
   } catch (e) {
     toast(e.message, 'error');

@@ -69,10 +69,18 @@ async def _check_phone_unique(db: AsyncSession, phone: str | None, exclude_id=No
 
 
 async def _check_inn_unique(db: AsyncSession, inn: str | None, exclude_user_id=None) -> None:
-    """Один ИНН — одно зарегистрированное юрлицо (правки 2026-06-11)."""
+    """Один ИНН — одно зарегистрированное юрлицо (правки 2026-06-11).
+
+    Профили удалённых (архивных) пользователей ИНН не блокируют: юрлицо, чей
+    аккаунт удалили, должно смочь зарегистрироваться заново (правки 2026-07-21).
+    """
     if not inn:
         return
-    q = select(ClientProfile).where(ClientProfile.inn == inn)
+    q = (
+        select(ClientProfile)
+        .join(User, User.id == ClientProfile.user_id)
+        .where(ClientProfile.inn == inn, User.is_archived == False)  # noqa: E712
+    )
     if exclude_user_id:
         q = q.where(ClientProfile.user_id != exclude_user_id)
     result = await db.execute(q)
@@ -540,6 +548,13 @@ async def archive_user(
     if user.is_active:
         raise ForbiddenError("Сначала деактивируйте пользователя, затем удалите")
 
+    # Освобождаем логин-идентификаторы: email/phone под unique-индексами БД,
+    # без этого удалённые данные навсегда блокировали бы повторную регистрацию
+    # с тем же номером/почтой. Оригиналы сохраняются в audit_log (details).
+    freed = {"email": user.email, "phone": user.phone}
+    user.email = None
+    user.phone = None
+
     user.is_archived = True
     user.archived_at = datetime.now(timezone.utc)
     user.is_active = False
@@ -554,6 +569,7 @@ async def archive_user(
         actor_id=actor.id,
         entity_type="user",
         entity_id=user_id,
+        details=freed,  # освобождённые email/phone — для восстановления истории
         ip_address=ip_address,
     )
     return user
