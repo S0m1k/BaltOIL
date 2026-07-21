@@ -372,6 +372,7 @@ async def delete_message(
     db: AsyncSession,
     msg_id: uuid.UUID,
     actor: TokenUser,
+    redis: aioredis.Redis | None = None,
 ) -> None:
     result = await db.execute(
         select(Message).where(Message.id == msg_id, Message.is_archived == False)
@@ -385,4 +386,17 @@ async def delete_message(
         raise ForbiddenError("Cannot delete this message")
 
     msg.is_archived = True
+    conv_id = msg.conversation_id
     await db.commit()
+
+    # Realtime: убрать сообщение из открытых чатов других участников (правки 2026-07-21)
+    if redis is not None:
+        try:
+            await redis.publish(f"chat:{conv_id}", json.dumps({
+                "event": "message_deleted",
+                "conversation_id": str(conv_id),
+                "message_id": str(msg_id),
+                "deleted_by": str(actor.id),
+            }))
+        except Exception:
+            logger.warning("delete_message publish failed for conv %s", conv_id, exc_info=True)

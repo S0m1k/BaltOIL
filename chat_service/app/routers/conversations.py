@@ -608,5 +608,6 @@ async def delete_message(
     msg_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    await message_service.delete_message(db, msg_id, actor)
+    await message_service.delete_message(db, msg_id, actor, redis=redis)
