@@ -40,5 +40,8 @@ class MessageResponse(BaseModel):
     reply_to_id: uuid.UUID | None = None
     is_pinned: bool = False
     reply_preview: ReplyPreview | None = None
+    # Статус доставки для отправителя: "sent" | "delivered" | "read".
+    # Заполняется только для сообщений текущего пользователя; у чужих — None.
+    status: Literal["sent", "delivered", "read"] | None = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}

@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import select, func, and_, delete, or_
+from sqlalchemy import select, func, and_, delete, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, with_loader_criteria
 import redis.asyncio as aioredis
@@ -735,6 +735,15 @@ async def list_conversations(
 
     # Закреплённые — первыми, внутри групп сортировка по updated_at сохраняется
     output.sort(key=lambda r: (not r["is_pinned"],))
+
+    # «Доставлено»: пользователь увидел список чатов с превью последних сообщений —
+    # значит они долетели до его устройства. Поднимаем last_delivered_at по всем его
+    # participant-строкам одним UPDATE (не трогая last_read_at). Best-effort.
+    try:
+        await touch_delivered_bulk(db, conv_ids, actor)
+    except Exception:
+        logger.warning("touch_delivered_bulk failed for actor %s", actor.id, exc_info=True)
+
     return output
 
 
@@ -776,7 +785,13 @@ async def set_pinned(
     await db.commit()
 
 
-async def mark_read(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:
+async def mark_read(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    actor: TokenUser,
+    redis: aioredis.Redis | None = None,
+) -> None:
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(ConversationParticipant).where(
             ConversationParticipant.conversation_id == conv_id,
@@ -785,16 +800,124 @@ async def mark_read(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> N
     )
     participant = result.scalar_one_or_none()
     if participant:
-        participant.last_read_at = datetime.now(timezone.utc)
+        participant.last_read_at = now
+        # Прочитано ⇒ доставлено. Не откатываем более свежий delivered назад.
+        if participant.last_delivered_at is None or participant.last_delivered_at < now:
+            participant.last_delivered_at = now
     else:
         # Auto-enroll and mark read simultaneously
         db.add(ConversationParticipant(
             conversation_id=conv_id,
             user_id=actor.id,
             user_role=actor.role,
-            last_read_at=datetime.now(timezone.utc),
+            last_read_at=now,
+            last_delivered_at=now,
         ))
     await db.commit()
+
+    # Realtime: сообщаем отправителям в диалоге, что их сообщения (created_at <= now)
+    # прочитаны этим участником — их галочки становятся синими без перезагрузки.
+    if redis is not None:
+        try:
+            await redis.publish(f"chat:{conv_id}", json.dumps({
+                "event": "read_receipt",
+                "conversation_id": str(conv_id),
+                "user_id": str(actor.id),
+                "read_at": now.isoformat(),
+            }))
+        except Exception:
+            logger.warning("mark_read publish failed for conv %s", conv_id, exc_info=True)
+
+
+async def touch_delivered(
+    db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser
+) -> None:
+    """Отметить сообщения диалога как «доставленные» этому участнику (now()).
+
+    Вызывается когда участник заведомо получил свежие сообщения на устройство:
+    открыл диалог (get_messages) или подключился по WS. last_read_at не трогаем —
+    доставлено ≠ прочитано.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conv_id,
+            ConversationParticipant.user_id == actor.id,
+        )
+    )
+    participant = result.scalar_one_or_none()
+    if participant:
+        participant.last_delivered_at = now
+    else:
+        db.add(ConversationParticipant(
+            conversation_id=conv_id,
+            user_id=actor.id,
+            user_role=actor.role,
+            last_delivered_at=now,
+        ))
+    await db.commit()
+
+
+async def touch_delivered_bulk(
+    db: AsyncSession, conv_ids: list[uuid.UUID], actor: TokenUser
+) -> None:
+    """Массово поднять last_delivered_at участника по списку диалогов (открыт список чатов).
+
+    Обновляем только существующие participant-строки — отсутствующие не создаём
+    пачкой, чтобы не плодить строки для диалогов, которые пользователь не открывал;
+    delivered появится при первом open/WS через touch_delivered().
+    """
+    if not conv_ids:
+        return
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(ConversationParticipant)
+        .where(
+            ConversationParticipant.conversation_id.in_(conv_ids),
+            ConversationParticipant.user_id == actor.id,
+        )
+        .values(last_delivered_at=now)
+    )
+    await db.commit()
+
+
+async def get_peer_watermarks(
+    db: AsyncSession, conv_id: uuid.UUID, actor_id: uuid.UUID
+) -> tuple[datetime | None, datetime | None]:
+    """Макс. last_read_at / last_delivered_at среди ДРУГИХ участников диалога.
+
+    Отправитель по этим меткам решает статус своих сообщений: created_at <= read →
+    «прочитано», иначе created_at <= delivered → «доставлено», иначе «отправлено».
+    В групповом чате это «хотя бы один участник» — осознанное упрощение.
+    """
+    result = await db.execute(
+        select(
+            func.max(ConversationParticipant.last_read_at),
+            func.max(ConversationParticipant.last_delivered_at),
+        ).where(
+            ConversationParticipant.conversation_id == conv_id,
+            ConversationParticipant.user_id != actor_id,
+        )
+    )
+    row = result.one()
+    return row[0], row[1]
+
+
+def compute_message_status(
+    msg,
+    actor_id: uuid.UUID,
+    peer_read_at: datetime | None,
+    peer_delivered_at: datetime | None,
+) -> str | None:
+    """Статус сообщения для отрисовки галочек. None — если сообщение не наше."""
+    if msg.sender_id != actor_id:
+        return None
+    created = msg.created_at
+    if peer_read_at is not None and created <= peer_read_at:
+        return "read"
+    if peer_delivered_at is not None and created <= peer_delivered_at:
+        return "delivered"
+    return "sent"
 
 
 async def archive_conversation(db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser) -> None:

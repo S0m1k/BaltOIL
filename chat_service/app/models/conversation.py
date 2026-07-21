@@ -75,6 +75,10 @@ class ConversationParticipant(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     user_role: Mapped[str] = mapped_column(String(20), nullable=False)
     last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Момент последней «доставки» сообщений этому участнику (открыл список чатов /
+    # подключился по WS / открыл диалог). Даёт статус «доставлено» у отправителя
+    # ещё до того, как получатель открыл сам диалог (тогда бы обновился last_read_at).
+    last_delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Закрепление чата (правки 2026-06-11) — индивидуально для каждого участника
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

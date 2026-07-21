@@ -1083,6 +1083,12 @@
   .msg-reply-quote .rq-name { color: var(--amber); font-weight: 600; display: block; }
   .msg-reply-quote .rq-text { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
   .msg-row.pinned .msg-bubble { border-color: var(--amber); }
+  /* Галочки-статусы (доставлено/прочитано) — только у своих сообщений */
+  .msg-status {
+    margin-left: 6px; font-size: 11px; line-height: 1; letter-spacing: -2px;
+    color: var(--text3); vertical-align: baseline;
+  }
+  .msg-status.read { color: #34b7f1; }  /* прочитано — синие, как в мессенджерах */
   .chat-pinned-bar {
     display: none; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;
     padding: 8px 20px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.02);
@@ -7815,7 +7821,8 @@ function renderUsersTable(users) {
         <button class="btn btn-sm btn-ghost" onclick="promptDriverPassport('${u.id}')" title="Паспортные данные">Паспорт</button>
         ${u.is_active
           ? `<button class="btn btn-sm btn-danger" onclick="setUserActive('${u.id}',false)">Деактив.</button>`
-          : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>`
+          : `<button class="btn btn-sm btn-success" onclick="setUserActive('${u.id}',true)">Активировать</button>
+             <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}')" title="Удалить пользователя">Удалить</button>`
         }
       </div>` : '—';
     return `<tr>
@@ -7836,6 +7843,20 @@ async function setUserActive(userId, active) {
       body: JSON.stringify({ is_active: active }),
     });
     toast(active ? 'Пользователь активирован' : 'Пользователь деактивирован');
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteUser(userId) {
+  // Удаление доступно только после деактивации (бэкенд это тоже проверяет).
+  // Мягкое удаление: аккаунт архивируется и пропадает из списков, история заявок
+  // сохраняется. Действие необратимо из интерфейса.
+  const u = _allUsers.find(x => x.id === userId);
+  const name = u ? (u.full_name || '') : '';
+  if (!confirm(`Удалить пользователя${name ? ` «${name}»` : ''}?\n\nАккаунт будет удалён из списков без возможности восстановления через интерфейс.`)) return;
+  try {
+    await api(`${AUTH_URL}/users/${userId}`, { method: 'DELETE' });
+    toast('Пользователь удалён');
     loadUsers();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -8636,16 +8657,45 @@ function msgHTML(m) {
     </div>`;
 
   return `
-  <div class="msg-row ${mine ? 'mine' : ''}${isPinned ? ' pinned' : ''}" id="msg-${m.id}">
+  <div class="msg-row ${mine ? 'mine' : ''}${isPinned ? ' pinned' : ''}" id="msg-${m.id}" data-created="${escHtml(m.created_at)}">
     <div class="msg-avatar">${escHtml(initials)}</div>
     <div class="msg-bubble" onclick="toggleMsgActions(event, '${escHtml(m.id)}')">
       ${!mine ? `<div class="msg-meta">${escHtml(m.sender_name)} · <span style="color:var(--text3)">${m.sender_role}</span></div>` : ''}
       ${replyQuoteHtml}
       ${bodyHtml}
-      <div class="msg-time">${fmtTime(m.created_at)}${isPinned ? ` · <span title="Закреплено" style="color:var(--amber)">${icon('push-pin-simple', 11)}</span>` : ''}</div>
+      <div class="msg-time">${fmtTime(m.created_at)}${isPinned ? ` · <span title="Закреплено" style="color:var(--amber)">${icon('push-pin-simple', 11)}</span>` : ''}${mine ? msgStatusHTML(m) : ''}</div>
     </div>
     ${actionsHtml}
   </div>`;
+}
+
+// Галочка статуса своего сообщения: отправлено (✓), доставлено (✓✓), прочитано (синие ✓✓).
+// status приходит с бэкенда в get_messages; при оптимистичной отправке (POST-ответ
+// без метки) считаем «отправлено».
+function msgStatusHTML(m) {
+  const st = m.status || 'sent';
+  const isRead = st === 'read';
+  const mark = (st === 'read' || st === 'delivered') ? '✓✓' : '✓';
+  const title = { sent: 'Отправлено', delivered: 'Доставлено', read: 'Прочитано' }[st] || 'Отправлено';
+  return `<span class="msg-status${isRead ? ' read' : ''}" data-status="${st}" title="${title}">${mark}</span>`;
+}
+
+// Другой участник прочитал диалог до момента readAtIso — красим свои сообщения,
+// отправленные не позже этого момента, в «прочитано» (синие двойные галочки).
+function markMessagesRead(readAtIso) {
+  const readAt = new Date(readAtIso).getTime();
+  if (isNaN(readAt)) return;
+  document.querySelectorAll('#chat-messages .msg-row.mine').forEach(row => {
+    const c = row.getAttribute('data-created');
+    if (!c || new Date(c).getTime() > readAt) return;
+    const s = row.querySelector('.msg-status');
+    if (s && s.getAttribute('data-status') !== 'read') {
+      s.textContent = '✓✓';
+      s.classList.add('read');
+      s.setAttribute('data-status', 'read');
+      s.setAttribute('title', 'Прочитано');
+    }
+  });
 }
 
 // Тап по сообщению открывает/закрывает кнопки «Ответить»/«Закрепить» — на
@@ -8721,6 +8771,11 @@ function connectWs(convId) {
         if (msg.event === 'conversation_cleared') {
           const el = document.getElementById('chat-messages');
           if (el) el.innerHTML = '<div class="empty-state" style="font-size:11px;padding:20px">Сообщений пока нет</div>';
+          return;
+        }
+        // Другой участник прочитал диалог — обновляем галочки своих сообщений в синие.
+        if (msg.event === 'read_receipt') {
+          if (msg.user_id !== currentUser?.id) markMessagesRead(msg.read_at);
           return;
         }
         // F8: пин/анпин сообщения другим участником — обновляем бейдж в пузыре и панель закреплённых
