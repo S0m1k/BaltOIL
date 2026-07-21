@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 import 'call_repository.dart';
 import 'call_screen.dart';
@@ -34,6 +35,26 @@ class IncomingCallWatcher {
     _userId = null;
   }
 
+  /// Немедленный тик — дёргается из пуша call_initiated (форграунд),
+  /// чтобы диалог входящего появился сразу, а не через интервал поллинга.
+  Future<void> pollNow() => _poll();
+
+  /// Открыть входящий звонок по id — тап по пушу call_initiated
+  /// (приложение было в фоне или убито). Если звонок ещё звонит —
+  /// показываем стандартный диалог «Принять / Отклонить».
+  Future<void> openFromPush(String callId) async {
+    if (_inCall || _incomingCallId != null) return;
+    final nav = navigatorKey?.currentState;
+    if (nav == null) return;
+    try {
+      final call = await CallRepository.instance.getCall(callId);
+      if (call.status != 'ringing') return; // уже отвечен/завершён
+      await _showIncoming(nav, call);
+    } on Object {
+      // Звонок мог истечь, пока приложение запускалось.
+    }
+  }
+
   Future<void> _poll() async {
     if (_inCall || _userId == null) return;
     List<CallInfo> list;
@@ -56,9 +77,24 @@ class IncomingCallWatcher {
       return;
     }
 
+    // Если нативный экран звонка (callkit) уже показывает входящий — не дублируем
+    // in-app диалогом. Поллер здесь только страховка на случай непришедшего пуша.
+    Set<String> callkitIds = const {};
+    try {
+      final active = await FlutterCallkitIncoming.activeCalls();
+      callkitIds = {
+        for (final c in active)
+          if ((c.extra?['call_id'] ?? c.id) != null)
+            (c.extra?['call_id'] ?? c.id).toString(),
+      };
+    } on Object {
+      // Плагин мог быть недоступен — игнорируем, покажем обычный диалог.
+    }
+
     for (final c in list) {
       if (c.status != 'ringing') continue;
       if (c.initiatedById == _userId) continue;
+      if (callkitIds.contains(c.id)) continue; // уже показывает callkit
       _showIncoming(nav, c);
       break;
     }

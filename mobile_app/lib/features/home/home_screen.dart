@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../core/theme_controller.dart';
+import '../../push/push_registrar.dart';
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
 import '../calls/incoming_call_watcher.dart';
@@ -179,6 +182,11 @@ class _HomeScreenState extends State<HomeScreen> {
         // Входящие звонки — поллинг как startCallPolling на вебе.
         IncomingCallWatcher.instance.start(userId: user.id);
       }
+      // FCM-токен регистрируется в login(), но при старте с сохранённой
+      // сессией логина не происходит — без этого у уже залогиненных
+      // устройств токен никогда не попадал бы на бэк и пуши не приходили.
+      // Повторный POST /devices идемпотентен (upsert по токену).
+      unawaited(PushRegistrar.instance.registerCurrentToken());
     } on Exception {
       // 401 обработает интерцептор.
     }

@@ -99,6 +99,31 @@ class AuthRepository {
     await _saveTokens(resp.data as Map<String, dynamic>);
   }
 
+  /// Регистрация физлица (веб doRegisterIndividual, /auth/register/individual).
+  /// Бэк после создания сразу логинит — возвращает токены. Юрлица заводит
+  /// администратор, поэтому в приложении регистрируем только физлиц.
+  Future<void> registerIndividual({
+    required String phone,
+    required String password,
+    required String fullName,
+    String? email,
+    String? deliveryAddress,
+  }) async {
+    final resp = await _dio.post(
+      '$_base/auth/register/individual',
+      data: {
+        'phone': phone,
+        'password': password,
+        'full_name': fullName,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (deliveryAddress != null && deliveryAddress.isNotEmpty)
+          'delivery_address': deliveryAddress,
+      },
+      options: Options(extra: {'noAuth': true}),
+    );
+    await _saveTokens(resp.data as Map<String, dynamic>);
+  }
+
   /// Шаг 1 входа по SMS: запросить код.
   Future<void> requestSmsCode(String phone) async {
     await _dio.post(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart' show Options, ResponseType;
@@ -11,6 +12,7 @@ import '../../core/api_client.dart';
 import '../../core/app_config.dart';
 import '../../core/token_storage.dart';
 import '../../core/ws_client.dart';
+import '../auth/auth_repository.dart';
 import '../calls/call_repository.dart';
 import '../calls/call_screen.dart';
 import '../calls/incoming_call_watcher.dart';
@@ -36,6 +38,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _loading = true;
   bool _sending = false;
 
+  // Статусы прочтения (галочки): мой id/роль — чтобы отличить исходящие и
+  // показать «Удалить» менеджеру/админу; горизонт — максимальный last_read_at
+  // собеседников. Realtime-событие read_receipt (2026-07-21) обновляет горизонт
+  // мгновенно, таймер остаётся страховкой.
+  String? _myUserId;
+  String? _myRole;
+  DateTime? _readHorizon;
+  Timer? _readTimer;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +66,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _init() async {
     await _loadHistory();
     await _ws.connect();
+    // Узнаём свой id (для «мои сообщения») и запускаем опрос прочтения.
+    try {
+      final me = await AuthRepository.instance.me();
+      if (mounted) {
+        _myUserId = me.id;
+        _myRole = me.role;
+      }
+    } on Object {
+      // Без id галочки просто не покажутся — не критично.
+    }
+    _refreshReadHorizon();
+    _readTimer = Timer.periodic(
+        const Duration(seconds: 5), (_) => _refreshReadHorizon());
+  }
+
+  /// Подтягивает last_read_at собеседников — для двойных галочек «прочитано».
+  Future<void> _refreshReadHorizon() async {
+    final myId = _myUserId;
+    if (myId == null) return;
+    try {
+      final h = await ChatRepository.instance
+          .othersReadHorizon(widget.conversation.id, myId);
+      if (mounted && h != _readHorizon) setState(() => _readHorizon = h);
+    } on Object {
+      // Сеть могла моргнуть — оставляем прежний горизонт.
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -99,7 +136,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
-    final msg = ChatMessage.fromJson(frame.message!);
+    final raw = frame.message!;
+
+    // Событийные кадры (правки 2026-07-21): у них нет полей сообщения,
+    // ChatMessage.fromJson на них падал бы. Обрабатываем до парсинга.
+    final event = raw['event'] as String?;
+    if (event != null) {
+      switch (event) {
+        case 'read_receipt':
+          // Собеседник прочитал — двигаем горизонт, галочки синеют сразу.
+          if (raw['user_id']?.toString() != _myUserId) {
+            final ts = DateTime.tryParse(raw['read_at']?.toString() ?? '');
+            if (ts != null &&
+                (_readHorizon == null || ts.isAfter(_readHorizon!))) {
+              setState(() => _readHorizon = ts);
+            }
+          }
+        case 'message_deleted':
+          final id = raw['message_id']?.toString();
+          if (id != null) {
+            setState(() => _messages.removeWhere((m) => m.id == id));
+          }
+        case 'message_pinned' || 'message_unpinned':
+          // Пин изменился у другого участника — перечитываем историю.
+          // ignore: discarded_futures
+          _loadHistory();
+        case 'conversation_deleted':
+          if (mounted) Navigator.of(context).maybePop();
+        case 'conversation_cleared':
+          setState(_messages.clear);
+        default:
+          break; // неизвестное событие — молча пропускаем
+      }
+      return;
+    }
+
+    final msg = ChatMessage.fromJson(raw);
     // Дедупликация: если WS-сообщение уже есть в списке (REST fallback) — пропустить
     if (_messages.any((m) => m.id == msg.id)) return;
     setState(() => _messages.add(msg));
@@ -139,6 +211,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   // Долгое нажатие на сообщение: ответить / закрепить (веб msg-action-btn).
   void _showMessageActions(ChatMessage m) {
+    // Удаление (правки 2026-07-21): автор — своё, менеджер/админ — любое
+    // (зеркало прав бэка delete_message).
+    final canDelete = m.senderId == _myUserId ||
+        _myRole == 'admin' ||
+        _myRole == 'manager';
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -177,10 +254,55 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 }
               },
             ),
+            if (canDelete)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title:
+                    const Text('Удалить', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  // ignore: discarded_futures
+                  _deleteMessage(m);
+                },
+              ),
           ],
         ),
       ),
     );
+  }
+
+  /// Удалить сообщение с подтверждением; у остальных участников пузырь
+  /// уберётся по WS-событию message_deleted.
+  Future<void> _deleteMessage(ChatMessage m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Удалить сообщение?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ChatRepository.instance
+          .deleteMessage(widget.conversation.id, m.id);
+      if (mounted) {
+        setState(() => _messages.removeWhere((x) => x.id == m.id));
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
   }
 
   Future<void> _pickAndSendMedia(ImageSource source) async {
@@ -327,7 +449,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Позвонить участникам диалога (веб startCallFromChat): /calls/start
   /// возвращает токен LiveKit — сразу входим в комнату.
+  /// _callBusy — защита от повторных тапов по 📞: каждый лишний тап
+  /// создавал бы новый звонок (сервер дополнительно отсекает Conflict'ом).
+  bool _callBusy = false;
+
   Future<void> _startCall() async {
+    if (_callBusy) return;
+    _callBusy = true;
     try {
       final token =
           await CallRepository.instance.start(widget.conversation.id);
@@ -344,16 +472,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
       }
+    } finally {
+      _callBusy = false;
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _readTimer?.cancel();
     _ws.dispose();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  /// Статус исходящего сообщения для галочек. Для чужих — null (нет галочек).
+  ///
+  /// База — серверный m.status из GET /messages (sent/delivered/read,
+  /// правки 2026-07-21); поверх — живой горизонт прочтения (read_receipt по WS
+  /// или опрос): горизонт может быть свежее статуса, загруженного с историей.
+  _MsgStatus? _statusFor(ChatMessage m) {
+    final myId = _myUserId;
+    if (myId == null || m.senderId != myId) return null;
+    // Оптимистичное сообщение до подтверждения сервером имеет временный id.
+    if (m.id.startsWith('tmp_')) return _MsgStatus.sending;
+    final horizon = _readHorizon;
+    if (m.status == 'read' ||
+        (horizon != null && !m.createdAt.toUtc().isAfter(horizon.toUtc()))) {
+      return _MsgStatus.read;
+    }
+    if (m.status == 'delivered') return _MsgStatus.delivered;
+    return _MsgStatus.sent;
   }
 
   @override
@@ -383,7 +533,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     itemCount: _messages.length,
                     itemBuilder: (context, i) => GestureDetector(
                       onLongPress: () => _showMessageActions(_messages[i]),
-                      child: _MessageBubble(msg: _messages[i]),
+                      child: _MessageBubble(
+                        msg: _messages[i],
+                        status: _statusFor(_messages[i]),
+                      ),
                     ),
                   ),
           ),
@@ -422,11 +575,57 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 }
 
+// ── Статус доставки сообщения (галочки) ──────────────────────────────────────
+
+/// sending — часики (оптимистичное, ещё не подтверждено), sent — одна галочка
+/// (сервер принял), read — две (собеседник открыл чат после этого сообщения).
+enum _MsgStatus { sending, sent, delivered, read }
+
+class _StatusTicks extends StatelessWidget {
+  const _StatusTicks({required this.status, required this.color});
+
+  final _MsgStatus status;
+  final Color color;
+
+  /// Две «слипшиеся» галочки: серые — доставлено, акцентные — прочитано.
+  Widget _doubleTicks(Color c) => SizedBox(
+        width: 18,
+        height: 14,
+        child: Stack(
+          children: [
+            Icon(Icons.check, size: 14, color: c),
+            Positioned(
+              left: 4,
+              child: Icon(Icons.check, size: 14, color: c),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case _MsgStatus.sending:
+        return Icon(Icons.schedule,
+            size: 12, color: Colors.grey.shade500);
+      case _MsgStatus.sent:
+        return Icon(Icons.check, size: 14, color: Colors.grey.shade500);
+      case _MsgStatus.delivered:
+        return _doubleTicks(Colors.grey.shade500);
+      case _MsgStatus.read:
+        return _doubleTicks(color);
+    }
+  }
+}
+
 // ── Пузырь сообщения ──────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.msg});
+  const _MessageBubble({required this.msg, this.status});
   final ChatMessage msg;
+
+  /// Статус доставки для исходящих (null — входящее, без галочек).
+  final _MsgStatus? status;
 
   @override
   Widget build(BuildContext context) {
@@ -436,11 +635,20 @@ class _MessageBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '${msg.senderName} · ${_fmtTime(msg.createdAt)}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${msg.senderName} · ${_fmtTime(msg.createdAt)}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              if (status != null) ...[
+                const SizedBox(width: 4),
+                _StatusTicks(status: status!, color: theme.colorScheme.primary),
+              ],
+            ],
           ),
           const SizedBox(height: 2),
           Container(

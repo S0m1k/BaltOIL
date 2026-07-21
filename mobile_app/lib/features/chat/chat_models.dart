@@ -14,6 +14,7 @@ class ChatMessage {
     this.replyToId,
     this.isPinned = false,
     this.replyPreview,
+    this.status,
   });
 
   final String id;
@@ -34,6 +35,10 @@ class ChatMessage {
   final String? replyToId;
   final bool isPinned;
   final ReplyPreview? replyPreview;
+
+  /// Статус доставки СВОЕГО сообщения (правки 2026-07-21):
+  /// "sent" | "delivered" | "read"; для чужих сообщений — null.
+  final String? status;
 
   bool get isPhoto => msgType == 'photo';
   bool get isVideo => msgType == 'video';
@@ -56,6 +61,7 @@ class ChatMessage {
     replyPreview: json['reply_preview'] == null
         ? null
         : ReplyPreview.fromJson(json['reply_preview'] as Map<String, dynamic>),
+    status: json['status'] as String?,
   );
 
   /// Строит URL вложения для скачивания через бэк.
@@ -102,6 +108,8 @@ class Conversation {
     this.lastMessage,
     this.peerName,
     this.peerPhone,
+    this.peerId,
+    this.peerRole,
   });
 
   final String id;
@@ -118,6 +126,10 @@ class Conversation {
   final DateTime updatedAt;
   final String? peerName;
   final String? peerPhone;
+
+  /// Для kind=direct: id и роль собеседника (папка «Рабочие» у staff↔staff).
+  final String? peerId;
+  final String? peerRole;
   final bool isPinned;
 
   /// Человекочитаемое название диалога (fallback: kind).
@@ -155,6 +167,8 @@ class Conversation {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       peerName: json['peer_name'] as String?,
       peerPhone: json['peer_phone'] as String?,
+      peerId: json['peer_id']?.toString(),
+      peerRole: json['peer_role'] as String?,
       isPinned: (json['is_pinned'] ?? false) as bool,
     );
   }

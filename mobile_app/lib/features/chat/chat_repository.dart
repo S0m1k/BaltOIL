@@ -36,6 +36,35 @@ class ChatRepository {
     await _dio.post('$_base/conversations/$convId/read');
   }
 
+  /// Удалить сообщение (правки 2026-07-21): автор — своё, менеджер/админ —
+  /// любое. Мягкое удаление на бэке; остальным участникам прилетит WS-событие
+  /// message_deleted.
+  Future<void> deleteMessage(String convId, String messageId) async {
+    await _dio.delete('$_base/conversations/$convId/messages/$messageId');
+  }
+
+  /// «Горизонт прочтения» собеседниками — максимальный last_read_at среди
+  /// участников, кроме [myUserId]. Сообщение считается прочитанным, если оно
+  /// моё и его created_at ≤ этого времени. Бэк отдаёт участников с last_read_at
+  /// в GET /conversations/{id}; отдельного broadcast нет, поэтому чат опрашивает
+  /// это периодически. null — никто ещё не прочитал (или данных нет).
+  Future<DateTime?> othersReadHorizon(String convId, String myUserId) async {
+    final resp = await _dio.get('$_base/conversations/$convId');
+    final data = resp.data as Map<String, dynamic>;
+    final parts = (data['participants'] as List?) ?? const [];
+    DateTime? horizon;
+    for (final p in parts) {
+      final m = p as Map<String, dynamic>;
+      if (m['user_id']?.toString() == myUserId) continue;
+      final raw = m['last_read_at'] as String?;
+      if (raw == null) continue;
+      final ts = DateTime.tryParse(raw);
+      if (ts == null) continue;
+      if (horizon == null || ts.isAfter(horizon)) horizon = ts;
+    }
+    return horizon;
+  }
+
   /// Отправить текстовое сообщение через REST (fallback).
   /// [replyToId] — ответ на сообщение (правки 2026-06-24, F7).
   Future<ChatMessage> sendTextRest(

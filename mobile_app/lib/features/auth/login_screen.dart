@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../home/home_screen.dart';
 import 'auth_repository.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -115,6 +116,17 @@ class _PasswordLoginTabState extends State<_PasswordLoginTab> {
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Войти'),
             ),
+          ),
+          const SizedBox(height: 8),
+          // Регистрация физлица (веб switchAuthMode('register')). Юрлицо
+          // заводит администратор, поэтому здесь только физлицо.
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const RegisterScreen(),
+                    )),
+            child: const Text('Нет аккаунта? Зарегистрироваться'),
           ),
         ],
       ),

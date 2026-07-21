@@ -38,7 +38,13 @@ String _convFolderOf(Conversation c, String role) {
     case 'client_manager':
       return role == 'client' ? 'work' : 'clients';
     case 'direct':
-      return 'personal';
+      // Правки 2026-07-11: личные чаты сотрудника с коллегами живут
+      // в «Рабочих», с клиентами — в «Личных». У клиента все direct
+      // остаются в «Личных».
+      const staffRoles = {'admin', 'manager', 'driver'};
+      final isStaff = staffRoles.contains(role);
+      final peerIsStaff = staffRoles.contains(c.peerRole);
+      return isStaff && peerIsStaff ? 'work' : 'personal';
     default:
       return 'work';
   }

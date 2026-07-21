@@ -93,4 +93,11 @@ class CallRepository {
         .map((e) => CallInfo.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  /// Один звонок по id — для открытия входящего из пуша call_initiated
+  /// (в data пуша есть только call_id, room_name добираем отсюда).
+  Future<CallInfo> getCall(String callId) async {
+    final resp = await _dio.get('$_base/calls/$callId');
+    return CallInfo.fromJson(resp.data as Map<String, dynamic>);
+  }
 }

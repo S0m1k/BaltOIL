@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/api_client.dart';
 import 'call_repository.dart';
@@ -32,6 +33,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _connecting = true;
   bool _muted = false;
   bool _speakerOn = false;
+  bool _cameraOn = false;
   String? _error;
   String _statusLabel = 'Соединение…';
   DateTime? _startedAt;
@@ -40,11 +42,17 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void initState() {
     super.initState();
+    // З1 (правки 2026-07-21): экран не гаснет во время звонка — иначе Android
+    // уходит в спящий режим и усыпляет аудиопоток LiveKit до разблокировки.
+    // ignore: discarded_futures
+    WakelockPlus.enable();
     _connect();
   }
 
   @override
   void dispose() {
+    // ignore: discarded_futures
+    WakelockPlus.disable();
     _timer?.cancel();
     _listener?.dispose();
     _room?.dispose();
@@ -70,9 +78,17 @@ class _CallScreenState extends State<CallScreen> {
       ..on<lk.ParticipantConnectedEvent>((_) => _syncState())
       ..on<lk.ParticipantDisconnectedEvent>((_) => _syncState())
       ..on<lk.TrackSubscribedEvent>((_) => _syncState())
+      // Видео (2026-07-17): перестраиваем сетку плиток при публикации
+      // и снятии видеотреков — своих и удалённых.
+      ..on<lk.TrackUnsubscribedEvent>((_) => _syncState())
+      ..on<lk.LocalTrackPublishedEvent>((_) => _syncState())
+      ..on<lk.LocalTrackUnpublishedEvent>((_) => _syncState())
+      ..on<lk.TrackMutedEvent>((_) => _syncState())
+      ..on<lk.TrackUnmutedEvent>((_) => _syncState())
       ..on<lk.RoomDisconnectedEvent>((_) {
-        // Собеседник завершил звонок / комната закрыта.
-        if (mounted) Navigator.of(context).maybePop();
+        // Собеседник завершил звонок / комната закрыта. Явный pop():
+        // maybePop() уважает canPop:false у PopScope и не закрыл бы экран.
+        _leave();
       });
     try {
       await room.connect(widget.token.livekitUrl, widget.token.token);
@@ -146,15 +162,79 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  Future<void> _hangUp() async {
-    // Завершаем на сервере (комната закроется для всех), затем выходим.
+  /// Камера (веб toggleCallCamera): публикуем/снимаем видеотрек.
+  /// По умолчанию фронтальная; собеседник получит его через подписку.
+  Future<void> _toggleCamera() async {
+    final lp = _room?.localParticipant;
+    if (lp == null) return;
     try {
-      await CallRepository.instance.end(widget.token.callId);
+      await lp.setCameraEnabled(!_cameraOn);
+      setState(() => _cameraOn = !_cameraOn);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Не удалось включить камеру: '
+                '${apiErrorMessage(e)}')));
+      }
+    }
+  }
+
+  /// Видеоплитки: свои + удалённые видеотреки (веб conf-tiles).
+  List<({String label, lk.VideoTrack track, bool isLocal})> get _videoTiles {
+    final room = _room;
+    if (room == null) return const [];
+    final tiles = <({String label, lk.VideoTrack track, bool isLocal})>[];
+    final lp = room.localParticipant;
+    if (lp != null) {
+      for (final pub in lp.videoTrackPublications) {
+        final track = pub.track;
+        if (track != null && !pub.muted) {
+          tiles.add((label: 'Вы', track: track, isLocal: true));
+        }
+      }
+    }
+    for (final p in room.remoteParticipants.values) {
+      for (final pub in p.videoTrackPublications) {
+        final track = pub.track;
+        if (track != null && pub.subscribed && !pub.muted) {
+          tiles.add((
+            label: p.name.isNotEmpty ? p.name : p.identity,
+            track: track,
+            isLocal: false,
+          ));
+        }
+      }
+    }
+    return tiles;
+  }
+
+  bool _leaving = false;
+
+  /// Единственная точка выхода с экрана. Navigator.pop() — а не maybePop(),
+  /// который блокируется собственным PopScope(canPop: false).
+  void _leave() {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _hangUp() async {
+    if (_leaving) return;
+    // Завершаем на сервере (комната закроется для всех), затем выходим.
+    // Экран закрываем сразу — сетевые вызовы не должны держать кнопку.
+    final callId = widget.token.callId;
+    final room = _room;
+    _leave();
+    try {
+      await CallRepository.instance.end(callId);
     } on Object {
       // Даже если сервер недоступен — отключаемся локально.
     }
-    await _room?.disconnect();
-    if (mounted) Navigator.of(context).maybePop();
+    try {
+      await room?.disconnect();
+    } on Object {
+      // Комната могла уже закрыться сервером.
+    }
   }
 
   @override
@@ -169,37 +249,60 @@ class _CallScreenState extends State<CallScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              const Spacer(),
-              const CircleAvatar(
-                radius: 44,
-                backgroundColor: Color(0xFF1F2937),
-                child: Icon(Icons.person, size: 48, color: Colors.white70),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                _remoteLabel,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
+              // Сетка видео, когда хоть у кого-то включена камера;
+              // иначе — классический аудио-экран с аватаром.
+              if (_videoTiles.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text(
+                    _error ??
+                        (_startedAt != null
+                            ? '$_remoteLabel · $_elapsed'
+                            : '$_remoteLabel · $_statusLabel'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _error != null
+                          ? Colors.red.shade300
+                          : Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error ??
-                    (_connecting
-                        ? 'Соединение…'
-                        : _startedAt != null
-                            ? '$_statusLabel · $_elapsed'
-                            : _statusLabel),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _error != null ? Colors.red.shade300 : Colors.white60,
-                  fontSize: 14,
+                Expanded(child: _VideoGrid(tiles: _videoTiles)),
+              ] else ...[
+                const Spacer(),
+                const CircleAvatar(
+                  radius: 44,
+                  backgroundColor: Color(0xFF1F2937),
+                  child: Icon(Icons.person, size: 48, color: Colors.white70),
                 ),
-              ),
-              const Spacer(),
+                const SizedBox(height: 20),
+                Text(
+                  _remoteLabel,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _error ??
+                      (_connecting
+                          ? 'Соединение…'
+                          : _startedAt != null
+                              ? '$_statusLabel · $_elapsed'
+                              : _statusLabel),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color:
+                        _error != null ? Colors.red.shade300 : Colors.white60,
+                    fontSize: 14,
+                  ),
+                ),
+                const Spacer(),
+              ],
               Padding(
                 padding: const EdgeInsets.only(bottom: 40),
                 child: Row(
@@ -211,6 +314,16 @@ class _CallScreenState extends State<CallScreen> {
                       background:
                           _muted ? Colors.white24 : const Color(0xFF1F2937),
                       onTap: _toggleMute,
+                    ),
+                    _RoundButton(
+                      icon: _cameraOn
+                          ? Icons.videocam
+                          : Icons.videocam_off_outlined,
+                      label: 'Камера',
+                      background: _cameraOn
+                          ? Colors.white24
+                          : const Color(0xFF1F2937),
+                      onTap: _toggleCamera,
                     ),
                     _RoundButton(
                       icon: Icons.call_end,
@@ -233,6 +346,78 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Сетка видеоплиток (веб conf-tiles): 1 участник — во весь экран,
+/// больше — по 2 в ряд. Локальное превью зеркалится.
+class _VideoGrid extends StatelessWidget {
+  const _VideoGrid({required this.tiles});
+
+  final List<({String label, lk.VideoTrack track, bool isLocal})> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tiles.length == 1) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: _VideoTile(tile: tiles.first),
+      );
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 3 / 4,
+      ),
+      itemCount: tiles.length,
+      itemBuilder: (context, i) => _VideoTile(tile: tiles[i]),
+    );
+  }
+}
+
+class _VideoTile extends StatelessWidget {
+  const _VideoTile({required this.tile});
+
+  final ({String label, lk.VideoTrack track, bool isLocal}) tile;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: const Color(0xFF1F2937)),
+          lk.VideoTrackRenderer(
+            tile.track,
+            fit: lk.VideoViewFit.cover,
+            mirrorMode: tile.isLocal
+                ? lk.VideoViewMirrorMode.mirror
+                : lk.VideoViewMirrorMode.off,
+          ),
+          Positioned(
+            left: 8,
+            bottom: 8,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                tile.label,
+                style:
+                    const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

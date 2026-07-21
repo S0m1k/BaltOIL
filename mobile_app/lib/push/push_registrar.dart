@@ -7,9 +7,28 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../core/app_config.dart';
+import '../features/calls/callkit_service.dart';
+import '../features/calls/incoming_call_watcher.dart';
 import '../features/chat/chat_models.dart';
 import '../features/chat/chat_repository.dart';
 import '../features/chat/chat_screen.dart';
+
+/// Фоновый обработчик FCM (top-level, отдельный изолят). Для data-only пуша
+/// call_initiated показывает нативный экран входящего звонка — работает даже
+/// когда приложение убито. Должен быть top-level с vm:entry-point.
+@pragma('vm:entry-point')
+Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
+  if (message.data['type'] != 'call_initiated') return;
+  final callId = message.data['entity_id'] ?? message.data['call_id'];
+  if (callId == null || (callId as String).isEmpty) return;
+  await CallkitService.showIncoming(
+    callId: callId,
+    roomName: (message.data['room_name'] ?? '') as String,
+    callerName: (message.data['initiated_by_name'] ??
+        message.data['title'] ??
+        'Входящий звонок') as String,
+  );
+}
 
 /// Регистрация FCM-токена устройства на бэке (POST /api/v1/devices).
 ///
@@ -32,6 +51,10 @@ class PushRegistrar {
     try {
       await Firebase.initializeApp();
       _firebaseReady = true;
+
+      // Фоновый обработчик (звонки при свёрнутом/убитом приложении).
+      FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
+
       FirebaseMessaging.instance.onTokenRefresh.listen((token) {
         _lastToken = token;
         _post(token);
@@ -39,6 +62,24 @@ class PushRegistrar {
 
       // Пуш открыт когда приложение было на фоне/убито (tap on notification)
       FirebaseMessaging.onMessageOpenedApp.listen(_handlePushTap);
+
+      // Пуш пришёл при открытом приложении: для звонка показываем нативный
+      // экран входящего (как в фоне) — единый UX. Поллер остаётся страховкой.
+      FirebaseMessaging.onMessage.listen((message) {
+        if (message.data['type'] == 'call_initiated') {
+          final callId =
+              (message.data['entity_id'] ?? message.data['call_id']) as String?;
+          if (callId != null && callId.isNotEmpty) {
+            CallkitService.showIncoming(
+              callId: callId,
+              roomName: (message.data['room_name'] ?? '') as String,
+              callerName: (message.data['initiated_by_name'] ??
+                  message.data['title'] ??
+                  'Входящий звонок') as String,
+            );
+          }
+        }
+      });
 
       // Пуш открыт когда приложение было полностью убито (initial message)
       final initial = await FirebaseMessaging.instance.getInitialMessage();
@@ -97,6 +138,15 @@ class PushRegistrar {
         convId != null &&
         convId.isNotEmpty) {
       _navigateToChat(convId);
+    }
+
+    // Входящий звонок (2026-07-17): в data только call_id (entity_id) —
+    // room_name и статус добираются через GET /calls/{id}.
+    if (type == 'call_initiated' &&
+        entityType == 'call' &&
+        convId != null &&
+        convId.isNotEmpty) {
+      IncomingCallWatcher.instance.openFromPush(convId);
     }
   }
 
