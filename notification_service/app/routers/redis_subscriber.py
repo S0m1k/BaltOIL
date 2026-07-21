@@ -237,7 +237,17 @@ async def _handle(payload: dict, r: aioredis.Redis) -> None:
             await db.commit()
             # Письма/пуши — только после успешного commit (иначе ушли бы за откатанные уведомления).
             schedule_emails(notifications)
-            schedule_pushes(notifications)
+            # Для звонка кладём room_name/имя в data пуша (правки 2026-07-21):
+            # нативный экран входящего показывает звонящего и жмёт «Принять»
+            # без дополнительного запроса к API.
+            push_extra = None
+            if event == "call_initiated":
+                push_extra = {
+                    "call_id": payload.get("call_id") or "",
+                    "room_name": payload.get("room_name") or "",
+                    "initiated_by_name": payload.get("initiated_by_name") or "",
+                }
+            schedule_pushes(notifications, extra_data=push_extra)
             for n in notifications:
                 channel = f"notifs:{n.user_id}"
                 # Для звонков добавим room_name в SSE-пейлоад, чтобы фронт сразу мог подключиться
