@@ -72,16 +72,36 @@ def _fresh_access_token() -> str:
 async def _send_to_token(client: httpx.AsyncClient, access_token: str, fcm_token: str,
                          title: str, body: str, data: dict[str, str]) -> bool:
     """Отправить одно сообщение. False = токен мёртв, надо удалить из БД."""
-    message = {
-        "message": {
-            "token": fcm_token,
-            "notification": {"title": title, "body": body},
-            # data-полезная нагрузка: тип/сущность для навигации по тапу
-            "data": data,
-            "android": {"priority": "high"},
-            "apns": {"headers": {"apns-priority": "10"}},
+    # Входящий звонок — data-only: без notification-блока фоновый обработчик
+    # приложения (onBackgroundMessage) гарантированно запускается и показывает
+    # нативный экран звонка (CallKit/ConnectionService). С notification-блоком
+    # система показала бы обычную «шторку», а обработчик при убитом приложении
+    # не сработал бы. Заголовок/текст кладём в data — их отрисует сам звонок.
+    is_call = data.get("type") == "call_initiated"
+    if is_call:
+        call_data = {**data, "title": title, "body": body}
+        message = {
+            "message": {
+                "token": fcm_token,
+                "data": call_data,
+                "android": {"priority": "high"},
+                "apns": {
+                    "headers": {"apns-priority": "10", "apns-push-type": "voip"},
+                    "payload": {"aps": {"content-available": 1}},
+                },
+            }
         }
-    }
+    else:
+        message = {
+            "message": {
+                "token": fcm_token,
+                "notification": {"title": title, "body": body},
+                # data-полезная нагрузка: тип/сущность для навигации по тапу
+                "data": data,
+                "android": {"priority": "high"},
+                "apns": {"headers": {"apns-priority": "10"}},
+            }
+        }
     url = f"https://fcm.googleapis.com/v1/projects/{_project_id}/messages:send"
     try:
         resp = await client.post(
@@ -102,7 +122,7 @@ async def _send_to_token(client: httpx.AsyncClient, access_token: str, fcm_token
         return True
 
 
-async def _push_one(n: Notification) -> None:
+async def _push_one(n: Notification, extra_data: dict[str, str] | None = None) -> None:
     """Отправить пуш по одному уведомлению на все устройства получателя."""
     if not settings.push_enabled:
         log.debug("push_service: PUSH_ENABLED=false — skipped (user=%s)", n.user_id)
@@ -126,6 +146,7 @@ async def _push_one(n: Notification) -> None:
                 "entity_type": n.entity_type or "",
                 "entity_id": str(n.entity_id) if n.entity_id else "",
                 "notification_id": str(n.id) if n.id else "",
+                **{k: str(v) for k, v in (extra_data or {}).items() if v},
             }
             dead: list[uuid.UUID] = []
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -140,12 +161,19 @@ async def _push_one(n: Notification) -> None:
         log.exception("push_service: unexpected error for user=%s", n.user_id)
 
 
-def schedule_pushes(notifications: list[Notification]) -> None:
+def schedule_pushes(
+    notifications: list[Notification],
+    extra_data: dict[str, str] | None = None,
+) -> None:
     """Запланировать пуши для уже закоммиченных уведомлений.
 
     Как schedule_emails: вызывать ТОЛЬКО после db.commit(), пока сессия ещё
     открыта. Снимаем транзиентные копии полей — фоновая таска не должна
     трогать ORM-объект после закрытия сессии.
+
+    extra_data — дополнительные data-поля FCM (правки 2026-07-21): для
+    call_initiated это room_name/initiated_by_name, чтобы нативный экран
+    входящего звонка показал имя и комнату без запроса к API.
     """
     if not settings.push_enabled:
         return
@@ -159,4 +187,4 @@ def schedule_pushes(notifications: list[Notification]) -> None:
             entity_type=n.entity_type,
             entity_id=n.entity_id,
         )
-        asyncio.create_task(_push_one(snapshot))
+        asyncio.create_task(_push_one(snapshot, extra_data))
