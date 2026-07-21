@@ -9150,7 +9150,7 @@ async function sendChatAttachment(input) {
   const file = input.files && input.files[0];
   input.value = '';
   if (!file || !activeConvId) return;
-  if (file.size > 25 * 1024 * 1024) { toast('Файл больше 25 МБ', 'error'); return; }
+  if (file.size > 1024 * 1024 * 1024) { toast('Файл больше 1 ГБ', 'error'); return; }
 
   const btn = document.getElementById('chat-attach-btn');
   if (btn) btn.disabled = true;
