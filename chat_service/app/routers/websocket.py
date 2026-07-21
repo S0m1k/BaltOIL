@@ -169,6 +169,15 @@ async def websocket_endpoint(
     await _ensure_subscription(redis, conv_key)
     await ws_manager.register(redis, actor.id)
 
+    # Подключение к диалогу = сообщения долетают до устройства в реальном времени →
+    # помечаем «доставлено» для этого участника (галочки у отправителя). Best-effort.
+    try:
+        from app.services import conversation_service
+        async with AsyncSessionLocal() as db:
+            await conversation_service.touch_delivered(db, conv_id, actor)
+    except Exception:
+        log.warning("touch_delivered on WS connect failed for conv %s", conv_id, exc_info=True)
+
     channel = f"chat:{conv_id}"
 
     try:

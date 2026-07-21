@@ -364,8 +364,9 @@ async def mark_read(
     conv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    await conversation_service.mark_read(db, conv_id, actor)
+    await conversation_service.mark_read(db, conv_id, actor, redis=redis)
 
 
 @router.delete("/{conv_id}", status_code=204)
@@ -402,12 +403,21 @@ async def get_messages(
 ):
     msgs = await message_service.get_messages(db, conv_id, actor, limit, before_id)
     previews = await message_service.load_reply_previews(db, msgs)
+    # Открытие диалога = получатель заведомо получил сообщения на устройство.
+    await conversation_service.touch_delivered(db, conv_id, actor)
+    # Статусы своих сообщений считаем по меткам ДРУГИХ участников.
+    peer_read_at, peer_delivered_at = await conversation_service.get_peer_watermarks(
+        db, conv_id, actor.id
+    )
     out = []
     for m in msgs:
         resp = MessageResponse.model_validate(m)
         preview = previews.get(m.id)
         if preview:
             resp.reply_preview = preview
+        resp.status = conversation_service.compute_message_status(
+            m, actor.id, peer_read_at, peer_delivered_at
+        )
         out.append(resp)
     return out
 

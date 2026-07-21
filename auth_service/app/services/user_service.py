@@ -534,6 +534,12 @@ async def archive_user(
     if user.id == actor.id:
         raise ForbiddenError("Нельзя архивировать самого себя")
 
+    # Удаление только после деактивации: активного пользователя сначала
+    # деактивируют (is_active=false), затем можно удалить. Защита от случайного
+    # удаления работающего аккаунта одним кликом.
+    if user.is_active:
+        raise ForbiddenError("Сначала деактивируйте пользователя, затем удалите")
+
     user.is_archived = True
     user.archived_at = datetime.now(timezone.utc)
     user.is_active = False
