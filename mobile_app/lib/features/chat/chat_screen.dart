@@ -390,7 +390,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.attach_file),
               title: const Text('Файл'),
-              subtitle: const Text('pdf, doc, xls, csv, txt, zip — до 25 МБ',
+              subtitle: const Text('pdf, doc, xls, csv, txt, zip — до 1 ГБ',
                   style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(ctx);
@@ -404,8 +404,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Вложение-файл (правки 2026-07-11): типы и лимит — как на бэке
-  /// (_ATTACH_EXT_MIME, 25 МБ).
-  static const _kFileMaxBytes = 25 * 1024 * 1024;
+  /// (_ATTACH_EXT_MIME, 1 ГБ).
+  static const _kFileMaxBytes = 1024 * 1024 * 1024; // 1 ГБ (2026-07-22)
   static const _kFileExtensions = [
     'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip', 'rar', '7z',
   ];
@@ -427,7 +427,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         setState(() => _sending = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Файл больше 25 МБ')));
+              const SnackBar(content: Text('Файл больше 1 ГБ')));
         }
         return;
       }

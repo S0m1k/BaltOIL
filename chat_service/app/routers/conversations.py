@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -23,7 +24,7 @@ from app.services import conversation_service, message_service, auth_client
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 # ── Вложения чата (фото/видео/файлы, правки 2026-06-11 / 2026-07-11) ──────────
-_ATTACH_MAX_BYTES = 25 * 1024 * 1024  # 25 МБ
+_ATTACH_MAX_BYTES = 1024 * 1024 * 1024  # 1 ГБ (правки 2026-07-22, было 25 МБ)
 _ATTACH_EXT_MIME = {
     # Фото
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -549,22 +550,32 @@ async def upload_attachment(
             detail="Допустимы фото, видео и файлы (pdf/doc/xls/csv/txt/zip)",
         )
 
-    content = await file.read()
-    if len(content) > _ATTACH_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Файл больше 25 МБ")
-    if not content:
-        raise HTTPException(status_code=422, detail="Пустой файл")
-
+    # Потоковая запись на диск чанками: файл до 1 ГБ нельзя читать целиком
+    # в память — контейнер бы упал по OOM. При превышении лимита или пустом
+    # файле частично записанное удаляется.
     fname = f"{uuid.uuid4().hex}{ext}"
     dir_path = os.path.join(settings.media_root, "chat", str(conv_id))
     os.makedirs(dir_path, exist_ok=True)
-    with open(os.path.join(dir_path, fname), "wb") as fh:
-        fh.write(content)
+    fpath = os.path.join(dir_path, fname)
+    size = 0
+    try:
+        with open(fpath, "wb") as fh:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > _ATTACH_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail="Файл больше 1 ГБ")
+                fh.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=422, detail="Пустой файл")
+    except HTTPException:
+        with contextlib.suppress(OSError):
+            os.remove(fpath)
+        raise
 
     return {
         "path": fname,
         "mime": _ATTACH_EXT_MIME[ext],
-        "size": len(content),
+        "size": size,
         "original_name": file.filename,
         "msg_type": _attach_msg_type(ext),
     }
