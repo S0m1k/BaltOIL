@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart' show Options, ResponseType;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -184,10 +185,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _scrollToBottom() {
+    // При reverse:true «низ» чата — это offset 0 (правки 2026-07-22).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
+          0,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
@@ -226,6 +228,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Копировать текст (правки 2026-07-22) — только для сообщений с текстом
+            if (m.text.trim().isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Копировать'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await Clipboard.setData(ClipboardData(text: m.text));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Скопировано')));
+                  }
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.reply),
               title: const Text('Ответить'),
@@ -635,18 +651,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
                     controller: _scrollCtrl,
+                    // reverse (правки 2026-07-22): чат открывается сразу на
+                    // последнем сообщении и остаётся прибит к низу — прежний
+                    // animateTo(maxScrollExtent) промахивался, пока грузились
+                    // фото (высота списка росла после расчёта позиции).
+                    reverse: true,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 8,
                     ),
                     itemCount: _messages.length,
-                    itemBuilder: (context, i) => GestureDetector(
-                      onLongPress: () => _showMessageActions(_messages[i]),
-                      child: _MessageBubble(
-                        msg: _messages[i],
-                        status: _statusFor(_messages[i]),
-                      ),
-                    ),
+                    itemBuilder: (context, i) {
+                      final m = _messages[_messages.length - 1 - i];
+                      return GestureDetector(
+                        onLongPress: () => _showMessageActions(m),
+                        child: _MessageBubble(
+                          msg: m,
+                          status: _statusFor(m),
+                        ),
+                      );
+                    },
                   ),
           ),
           if (_replyTo != null)

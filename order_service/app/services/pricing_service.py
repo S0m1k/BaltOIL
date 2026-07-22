@@ -67,26 +67,37 @@ async def get_tariff(db: AsyncSession, tariff_id: uuid.UUID) -> Tariff | None:
     return result.scalar_one_or_none()
 
 
+# Наценка НДС на доставку для юрлиц (правки 2026-07-22): цены зон в рублях
+# заданы для физлиц; юрлицо платит и видит цену ×1.22 (3500 → 4270).
+LEGAL_DELIVERY_VAT = Decimal("1.22")
+
+
 def compute_zone_delivery_cost(
     zone_info: dict,
     rate_per_liter,
     volume: float,
     delivery_coefficient: float = 1.0,
+    client_type: str = "individual",
 ) -> "Decimal | None":
     """Стоимость доставки для найденной зоны (правки 2026-06-11).
 
     Если у зоны задана фиксированная цена delivery_price (₽) — используется она
     (умноженная на клиентский delivery_coefficient). Иначе — legacy-формула
     rate_per_liter × volume × cost_coefficient × delivery_coefficient.
+    Для юрлиц (client_type="company") итог дополнительно ×LEGAL_DELIVERY_VAT.
     """
     price = zone_info.get("delivery_price")
     if price is not None:
-        return (
-            Decimal(str(price)) * Decimal(str(delivery_coefficient))
-        ).quantize(_CENT, rounding=ROUND_HALF_UP)
-    return compute_delivery_cost(
-        rate_per_liter, volume, zone_info["cost_coefficient"], delivery_coefficient
-    )
+        cost = Decimal(str(price)) * Decimal(str(delivery_coefficient))
+    else:
+        cost = compute_delivery_cost(
+            rate_per_liter, volume, zone_info["cost_coefficient"], delivery_coefficient
+        )
+        if cost is None:
+            return None
+    if client_type == "company":
+        cost = cost * LEGAL_DELIVERY_VAT
+    return cost.quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 def compute_delivery_cost(

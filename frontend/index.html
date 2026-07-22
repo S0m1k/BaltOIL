@@ -1915,6 +1915,12 @@
                   onclick="closeUserMenu();switchTab('profile')">
             <span><?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Z"/></svg></span><span>Профиль</span>
           </button>
+          <!-- Ссылка на Android-приложение — только сотрудникам/водителям
+               (правки 2026-07-22); клиентам приложение пока не отправляем -->
+          <a class="user-menu-item" role="menuitem" id="menu-app-link" style="display:none;text-decoration:none"
+             href="/SZTK.apk" download onclick="closeUserMenu()">
+            <span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M176,18H80A26,26,0,0,0,54,44V212a26,26,0,0,0,26,26h96a26,26,0,0,0,26-26V44A26,26,0,0,0,176,18Zm14,194a14,14,0,0,1-14,14H80a14,14,0,0,1-14-14V44A14,14,0,0,1,80,30h96a14,14,0,0,1,14,14ZM138,60a10,10,0,1,1-10-10A10,10,0,0,1,138,60Z"/></svg></span><span>Скачать приложение</span>
+          </a>
           <div class="user-menu-divider"></div>
           <button class="user-menu-item danger" role="menuitem"
                   onclick="closeUserMenu();doLogout()">
@@ -3931,6 +3937,11 @@ async function initApp() {
   document.getElementById('tab-users-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Ссылка «Скачать приложение» (APK) — сотрудники и водители (2026-07-22)
+  const appLink = document.getElementById('menu-app-link');
+  if (appLink) appLink.style.display =
+    (role === 'admin' || role === 'manager' || role === 'driver') ? '' : 'none';
+
   // Inventory (Склад) — admin + manager + driver (driver: read-only)
   document.getElementById('tab-inventory-btn').style.display =
     (role === 'admin' || role === 'manager' || role === 'driver') ? '' : 'none';
@@ -5006,7 +5017,11 @@ async function sendDocEmail(orderId, docId, btn) {
     const res = await orderPost(`/orders/${orderId}/documents/${docId}/send-email`, {});
     toast('Письмо отправлено' + (res.to ? ' на ' + res.to : ''), 'success');
   } catch (e) {
-    if (e.status === 503) {
+    if (e.status === 422) {
+      // Почта не указана при регистрации (правки 2026-07-22) — запрашиваем
+      // здесь, сохраняем получателю и отправляем повторно.
+      promptDocRecipientEmail(orderId, docId);
+    } else if (e.status === 503) {
       toast('SMTP недоступен, попробуйте позже', 'error');
     } else {
       toast('Ошибка: ' + e.message, 'error');
@@ -5015,6 +5030,46 @@ async function sendDocEmail(orderId, docId, btn) {
     btn.disabled = false;
     btn.innerHTML = orig;
   }
+}
+
+// У получателя нет почты: спросить адрес, сохранить (организации — billing_email,
+// физлицу — email профиля) и отправить документ повторно (правки 2026-07-22).
+async function promptDocRecipientEmail(orderId, docId) {
+  let order = null;
+  try { order = await orderGet(`/orders/${orderId}`); } catch (_) {}
+  openModal('Почта для счетов не указана',
+    `<p style="color:var(--text2);font-size:13px;margin-bottom:12px">
+      У ${order?.organization_id ? 'организации' : 'клиента'} не указана почта.
+      Укажите адрес — он сохранится, и счета будут уходить на него.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Email для счетов</label>
+      <input type="email" id="doc-recipient-email" class="form-input" placeholder="buh@company.ru" autocomplete="off">
+    </div>`,
+    async () => {
+      const email = (document.getElementById('doc-recipient-email')?.value || '').trim();
+      if (!email || !email.includes('@')) { toast('Укажите корректный email', 'error'); return; }
+      try {
+        if (order?.organization_id) {
+          await api(`${AUTH_URL}/organizations/${order.organization_id}`, {
+            method: 'PATCH', body: JSON.stringify({ billing_email: email }),
+          });
+        } else if (order?.client_id) {
+          await api(`${AUTH_URL}/users/${order.client_id}`, {
+            method: 'PATCH', body: JSON.stringify({ email }),
+          });
+        } else {
+          toast('Не удалось определить получателя', 'error'); return;
+        }
+        closeModal();
+        toast('Почта сохранена, отправляю…');
+        const res = await orderPost(`/orders/${orderId}/documents/${docId}/send-email`, {});
+        toast('Письмо отправлено' + (res.to ? ' на ' + res.to : ''), 'success');
+      } catch (e2) {
+        toast('Ошибка: ' + e2.message, 'error');
+      }
+    }
+  );
 }
 
 async function generateInvoice(orderId, docType, btn) {
@@ -6041,6 +6096,7 @@ async function loadClientSelectForOrder() {
     };
     toggleOneOffFields(current === '__oneoff__');
     if (current && current !== '__oneoff__') { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
+    else { loadOrganizationSelectForOrder(null); } // staff: все организации, включая «ничейные»
     loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
 }
@@ -6178,11 +6234,13 @@ async function loadOrganizationSelectForOrder(userId) {
   const group = document.getElementById('c-org-group');
   const sel   = document.getElementById('c-organization');
   if (!group || !sel) return;
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   sel.innerHTML = '<option value="">Физлицо (на себя)</option>';
-  if (!userId) { group.style.display = 'none'; return; }
+  // Staff без выбранного клиента видит ВСЕ организации (правки 2026-07-22):
+  // так оформляются заявки на «ничейные» организации, созданные без клиента.
+  if (!userId && !isStaff) { group.style.display = 'none'; return; }
   try {
-    const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-    const path = isStaff ? `/organizations?user_id=${userId}` : '/organizations';
+    const path = isStaff && userId ? `/organizations?user_id=${userId}` : '/organizations';
     const orgs = await authGet(path);
     if (Array.isArray(orgs) && orgs.length) {
       sel.innerHTML += orgs.map(o =>
@@ -6441,9 +6499,10 @@ function openCreateOrgStep2() {
   const note = _orgDraft.found
     ? `<div style="font-size:12px;color:var(--green);margin-bottom:8px">✓ Данные найдены в ФНС — проверьте и дополните</div>`
     : `<div style="font-size:12px;color:var(--orange,#c80);margin-bottom:8px">По ИНН ничего не найдено — заполните реквизиты вручную</div>`;
-  // Staff заводит юрлицо НА клиента — обязательный выбор владельца
+  // Staff заводит юрлицо НА клиента; клиент необязателен (правки 2026-07-22):
+  // без него организация «ничейная», передаётся клиенту через «Сделать владельцем»
   const ownerBlock = staff ? `
-    <div class="form-group"><label class="form-label">Клиент-владелец <span style="color:var(--red)">*</span></label>
+    <div class="form-group"><label class="form-label">Клиент-владелец <span style="color:var(--text3);font-weight:400">(необязательно)</span></label>
       <select id="co-owner-client" class="form-input" onchange="_orgDraft.ownerClientId=this.value">
         <option value="">— загрузка клиентов… —</option></select>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Организация будет привязана к этому клиенту</div></div>` : '';
@@ -6485,7 +6544,7 @@ async function _fillOrgOwnerClients() {
   if (!sel) return;
   try {
     const clients = await api(`${AUTH_URL}/users?role=client&limit=200&include_inactive=false`);
-    sel.innerHTML = '<option value="">— выберите клиента —</option>' +
+    sel.innerHTML = '<option value="">Без клиента (привяжете позже)</option>' +
       clients.map(c => `<option value="${c.id}">${escHtml(c.full_name || c.email)} — ${escHtml(c.email)}</option>`).join('');
     if (_orgDraft.ownerClientId) sel.value = _orgDraft.ownerClientId;
   } catch (_) {
@@ -6496,13 +6555,15 @@ async function _fillOrgOwnerClients() {
 async function submitCreateOrg() {
   const name = document.getElementById('co-name').value.trim();
   if (!name) { toast('Укажите название организации', 'error'); return; }
+  // Клиент-владелец необязателен (правки 2026-07-22): staff может создать
+  // «ничейную» организацию и передать её клиенту позже («Сделать владельцем»).
   let ownerClientId;
   if (_isOrgStaff()) {
     ownerClientId = document.getElementById('co-owner-client')?.value || '';
-    if (!ownerClientId) { toast('Выберите клиента-владельца организации', 'error'); return; }
   }
+  // Почта для счетов тоже необязательна — запросится при первой отправке
+  // счёта «На почту» из заявки.
   const email = (document.getElementById('co-email')?.value || '').trim();
-  if (!email) { toast('Укажите email для счетов', 'error'); return; }
   const v = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : undefined; };
   const body = {
     inn:                   _orgDraft.inn,
@@ -6514,7 +6575,7 @@ async function submitCreateOrg() {
     bik:                   v('co-bik'),
     bank_account:          v('co-acc'),
     correspondent_account: v('co-corr'),
-    billing_email:         email,
+    billing_email:         email || undefined,
   };
   if (ownerClientId) body.owner_client_id = ownerClientId;
   try {
@@ -6666,8 +6727,10 @@ async function doCreateOrder() {
 
   if (isStaff) {
     let clientId = document.getElementById('c-client-id').value;
-    if (!clientId) {
-      errEl.innerHTML = '<div class="inline-error">Выберите клиента</div>';
+    // Клиент необязателен, если заявка оформляется на организацию (правки
+    // 2026-07-22): «ничейные» организации без владельца ведёт сам сотрудник.
+    if (!clientId && !body.organization_id) {
+      errEl.innerHTML = '<div class="inline-error">Выберите клиента или организацию</div>';
       return;
     }
     // Разовый клиент (правки 2026-07-11): создаём/находим по телефону перед заявкой
@@ -6694,7 +6757,7 @@ async function doCreateOrder() {
       if (!body.contact_person_name) body.contact_person_name = ooName;
       if (!body.contact_person_phone) body.contact_person_phone = ooPhone;
     }
-    body.client_id        = clientId;
+    if (clientId) body.client_id = clientId; // пусто = заявка на организацию от сотрудника
     body.manager_comment  = document.getElementById('c-manager-comment').value.trim() || undefined;
     const driverSel = document.getElementById('c-driver-id');
     if (driverSel && driverSel.value) body.driver_id = driverSel.value;

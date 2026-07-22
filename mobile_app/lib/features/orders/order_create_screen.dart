@@ -70,6 +70,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   // Разовый клиент (веб __oneoff__, правки 2026-07-11): имя+телефон,
   // всегда физлицо с оплатой по факту; дедуп по номеру на бэке.
   static const _kOneOffClientId = '__oneoff__';
+
+  /// «Без клиента» (правки 2026-07-22): заявка оформляется на организацию —
+  /// в т.ч. «ничейную», созданную сотрудником без клиента-владельца.
+  static const _kNoClientId = '__none__';
   final _oneOffName = TextEditingController();
   final _oneOffPhone = TextEditingController();
   bool get _isOneOff => _clientId == _kOneOffClientId;
@@ -99,6 +103,22 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         _managerComment.text = src.managerComment ?? '';
         _loadClientContext(src.clientId!, isSelf: false);
       }
+    }
+  }
+
+  /// Все организации для staff без клиента (правки 2026-07-22) — включая
+  /// «ничейные», созданные без клиента-владельца.
+  Future<void> _loadAllOrgsForStaff() async {
+    try {
+      final orgs = await OrganizationsRepository.instance.list();
+      if (mounted) {
+        setState(() {
+          _orgs = orgs;
+          _organizationId = null;
+        });
+      }
+    } on Object catch (_) {
+      if (mounted) setState(() => _orgs = const []);
     }
   }
 
@@ -199,8 +219,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _fuelCode == null) return;
-    if (_isStaff && _clientId == null) {
-      setState(() => _error = 'Выберите клиента');
+    if (_isStaff && (_clientId == null || _clientId == _kNoClientId) &&
+        _organizationId == null) {
+      setState(() => _error = 'Выберите клиента или организацию');
       return;
     }
     setState(() {
@@ -208,7 +229,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       _error = null;
     });
     try {
-      var clientId = _isStaff ? _clientId : null;
+      var clientId =
+          _isStaff && _clientId != _kNoClientId ? _clientId : null;
       var contactName = _contactName.text.trim();
       var contactPhone = _contactPhone.text.trim();
       // Разовый клиент (веб __oneoff__): создаём/находим по телефону
@@ -456,12 +478,16 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
               .titleSmall
               ?.copyWith(fontWeight: FontWeight.w700)),
       const SizedBox(height: 12),
-      // Клиент* — обязателен для staff. Первый пункт — «⭐ Разовый клиент»
-      // (веб __oneoff__): имя+телефон вместо выбора из базы.
+      // Клиент — необязателен, если заявка на организацию (правки 2026-07-22:
+      // «ничейные» организации без владельца ведёт сам сотрудник).
+      // Первый пункт — «⭐ Разовый клиент» (веб __oneoff__).
       DropdownButtonFormField<String>(
         initialValue: _clientId,
         isExpanded: true,
         items: [
+          const DropdownMenuItem(
+              value: _kNoClientId,
+              child: Text('Без клиента (заявка на организацию)')),
           const DropdownMenuItem(
               value: _kOneOffClientId,
               child: Text('⭐ Разовый клиент (имя + телефон)')),
@@ -488,7 +514,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                 });
                 // Подгружаем организации/объекты/типы оплаты выбранного
                 // клиента — как на вебе при смене c-client-id.
-                if (v != null && v != _kOneOffClientId) {
+                if (v == _kNoClientId) {
+                  // Без клиента: все организации (включая «ничейные»)
+                  _loadAllOrgsForStaff();
+                } else if (v != null && v != _kOneOffClientId) {
                   _loadClientContext(v, isSelf: false);
                 }
               },

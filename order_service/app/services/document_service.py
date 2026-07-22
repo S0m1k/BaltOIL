@@ -1060,13 +1060,25 @@ async def send_document_by_email(db: AsyncSession, order: Order, doc: Document) 
 
     auth_base = settings.auth_service_url.rstrip("/")
     internal_headers = {"X-Internal-Secret": settings.internal_api_secret}
+    recipient = None
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(
-            f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
-            headers=internal_headers,
-        )
-        r.raise_for_status()
-        recipient = r.json().get("email")
+        # Заявка на организацию → сначала почта для счетов самой организации
+        # (правки 2026-07-22). Важно для «ничейных» организаций, где
+        # order.client_id — сотрудник, а не клиент.
+        if order.organization_id:
+            r0 = await client.get(
+                f"{auth_base}/api/v1/internal/organizations/{order.organization_id}/contract-target",
+                headers=internal_headers,
+            )
+            if r0.status_code == 200:
+                recipient = r0.json().get("billing_email")
+        if not recipient:
+            r = await client.get(
+                f"{auth_base}/api/v1/internal/users/{order.client_id}/email-target",
+                headers=internal_headers,
+            )
+            r.raise_for_status()
+            recipient = r.json().get("email")
 
     if not recipient:
         raise ValidationError("recipient has no email")
