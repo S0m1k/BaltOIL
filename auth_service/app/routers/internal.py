@@ -24,7 +24,12 @@ from app.models.organization import Organization, OrganizationMember, MemberStat
 async def _load_member_org(
     db: AsyncSession, client_id: uuid.UUID, organization_id: uuid.UUID
 ) -> Organization:
-    """Загрузить организацию, проверив активное членство клиента. 404 иначе."""
+    """Загрузить организацию, проверив активное членство клиента. 404 иначе.
+
+    Для staff (manager/admin) членство не требуется (правки 2026-07-22):
+    сотрудник ведёт заявки по «ничейным» организациям — созданным без
+    клиента-владельца, — не будучи их участником.
+    """
     res = await db.execute(
         select(Organization)
         .join(OrganizationMember, OrganizationMember.organization_id == Organization.id)
@@ -35,9 +40,22 @@ async def _load_member_org(
         )
     )
     org = res.scalar_one_or_none()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found or not a member")
-    return org
+    if org:
+        return org
+
+    user = await db.get(User, client_id)
+    if user is not None and user.role in (UserRole.MANAGER, UserRole.ADMIN):
+        org_res = await db.execute(
+            select(Organization).where(
+                Organization.id == organization_id,
+                Organization.is_archived == False,  # noqa: E712
+            )
+        )
+        org = org_res.scalar_one_or_none()
+        if org:
+            return org
+
+    raise HTTPException(status_code=404, detail="Organization not found or not a member")
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 settings = get_settings()

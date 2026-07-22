@@ -305,6 +305,7 @@ async def preview_price(
                     bd["base_delivery_cost"],
                     data.volume,
                     ctx.delivery_coefficient,
+                    ctx.client_type,
                 )
     except Exception as exc:
         log.warning("preview_price: zone resolution failed (non-fatal): %s", exc)
@@ -434,7 +435,8 @@ async def create_order(
                 if zone_info.get("delivery_price") is not None:
                     # Фиксированная цена доставки по зоне — тариф не нужен
                     delivery_cost = compute_zone_delivery_cost(
-                        zone_info, None, data.volume_requested, ctx.delivery_coefficient,
+                        zone_info, None, data.volume_requested,
+                        ctx.delivery_coefficient, ctx.client_type,
                     )
                 else:
                     # Legacy: ставка тарифа за литр × коэффициент зоны
@@ -449,6 +451,7 @@ async def create_order(
                             tariff.base_delivery_cost,
                             data.volume_requested,
                             ctx.delivery_coefficient,
+                            ctx.client_type,
                         )
                 if delivery_cost is not None:
                     if expected_amount is not None:
@@ -632,6 +635,7 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
                 recalc_delivery = compute_zone_delivery_cost(
                     zone_info, base_rate,
                     float(order.volume_requested), ctx.delivery_coefficient,
+                    ctx.client_type,
                 )
                 if recalc_delivery is not None:
                     delivery_cost = recalc_delivery
