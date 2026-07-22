@@ -5,6 +5,7 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 import 'call_repository.dart';
 import 'call_screen.dart';
+import 'incoming_call_screen.dart';
 
 /// Поллинг входящих звонков (веб startCallPolling, раз в ~3 с):
 /// GET /calls/active → первый RINGING, где мы не инициатор, показывается
@@ -102,26 +103,12 @@ class IncomingCallWatcher {
 
   Future<void> _showIncoming(NavigatorState nav, CallInfo call) async {
     _incomingCallId = call.id;
-    final accepted = await showDialog<bool>(
-      context: nav.context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.phone_in_talk, size: 36),
-        title: Text('${call.initiatedByName} звонит вам'),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Отклонить'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            icon: const Icon(Icons.call, size: 18),
-            label: const Text('Принять'),
-          ),
-        ],
-      ),
-    );
+    // Полноэкранный входящий с зацикленным рингтоном (правки 2026-07-22) —
+    // вместо AlertDialog: как у обычной звонилки, рингтон не обрывается.
+    final accepted = await nav.push<bool>(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => IncomingCallScreen(call: call),
+    ));
     // Диалог мог быть снят поллингом (accepted == null) — звонок уже отбит.
     final wasDismissedByPoll = _incomingCallId == null;
     _incomingCallId = null;

@@ -63,20 +63,17 @@ class PushRegistrar {
       // Пуш открыт когда приложение было на фоне/убито (tap on notification)
       FirebaseMessaging.onMessageOpenedApp.listen(_handlePushTap);
 
-      // Пуш пришёл при открытом приложении: для звонка показываем нативный
-      // экран входящего (как в фоне) — единый UX. Поллер остаётся страховкой.
+      // Пуш пришёл при открытом приложении: показываем СВОЙ полноэкранный
+      // входящий с зацикленным рингтоном (правки 2026-07-22). Callkit-шторку
+      // в форграунде MIUI глушила после одного-двух гудков; callkit остаётся
+      // только для фона/убитого приложения (onBackgroundMessage).
       FirebaseMessaging.onMessage.listen((message) {
         if (message.data['type'] == 'call_initiated') {
           final callId =
               (message.data['entity_id'] ?? message.data['call_id']) as String?;
           if (callId != null && callId.isNotEmpty) {
-            CallkitService.showIncoming(
-              callId: callId,
-              roomName: (message.data['room_name'] ?? '') as String,
-              callerName: (message.data['initiated_by_name'] ??
-                  message.data['title'] ??
-                  'Входящий звонок') as String,
-            );
+            // ignore: discarded_futures
+            IncomingCallWatcher.instance.openFromPush(callId);
           }
         }
       });

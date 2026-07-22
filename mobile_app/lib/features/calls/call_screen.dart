@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -39,6 +40,11 @@ class _CallScreenState extends State<CallScreen> {
   DateTime? _startedAt;
   Timer? _timer;
 
+  // Гудки КПВ звонящему (правки 2026-07-22): играют, пока в комнате нет
+  // собеседника. При принятом входящем инициатор уже в комнате — гудков нет.
+  final _ringback = AudioPlayer();
+  bool _ringbackOn = false;
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +60,8 @@ class _CallScreenState extends State<CallScreen> {
     // ignore: discarded_futures
     WakelockPlus.disable();
     _timer?.cancel();
+    // ignore: discarded_futures
+    _ringback.dispose(); // dispose сам останавливает воспроизведение
     _listener?.dispose();
     _room?.dispose();
     super.dispose();
@@ -111,6 +119,7 @@ class _CallScreenState extends State<CallScreen> {
     final room = _room;
     if (room == null || !mounted) return;
     final remotes = room.remoteParticipants.values.toList();
+    _updateRingback(waiting: remotes.isEmpty);
     setState(() {
       if (remotes.isEmpty) {
         _statusLabel = 'Ожидание ответа…';
@@ -123,6 +132,23 @@ class _CallScreenState extends State<CallScreen> {
         }
       }
     });
+  }
+
+  /// Гудки КПВ: включить в «Ожидание ответа…», выключить когда собеседник
+  /// вошёл (или экран закрывается). Ошибки плеера звонок не ломают.
+  Future<void> _updateRingback({required bool waiting}) async {
+    if (waiting == _ringbackOn) return;
+    _ringbackOn = waiting;
+    try {
+      if (waiting) {
+        await _ringback.setReleaseMode(ReleaseMode.loop);
+        await _ringback.play(AssetSource('sounds/ringback.wav'), volume: 1.0);
+      } else {
+        await _ringback.stop();
+      }
+    } on Object {
+      // Нет плеера/аудиофокуса — просто без гудков.
+    }
   }
 
   String get _remoteLabel {

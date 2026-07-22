@@ -55,6 +55,10 @@ dependencies:
   # Экран не гаснет во время звонка (З1, правки 2026-07-21): без этого Android
   # усыплял устройство вместе с аудиопотоком LiveKit.
   wakelock_plus: ^1.2.8
+  # Звонки (правки 2026-07-22): гудки КПВ звонящему (assets/sounds/ringback.wav)
+  # и зацикленный системный рингтон на полноэкранном входящем.
+  audioplayers: ^6.1.0
+  flutter_ringtone_player: ^4.0.0
 
 dev_dependencies:
   flutter_test:
@@ -80,6 +84,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/sounds/ringback.wav
 
   fonts:
     - family: PlusJakartaSans
