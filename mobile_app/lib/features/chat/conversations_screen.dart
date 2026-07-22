@@ -120,16 +120,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   }
 
   /// Приватная staff-группа (веб promptCreateStaffGroup): название +
-  /// участники из manager/admin; создатель добавляется автоматически.
+  /// участники — сотрудники ВСЕХ ролей (менеджеры, админы, водители,
+  /// бухгалтеры — как веб /users/directory, фикс 2026-07-22; раньше были
+  /// только manager/admin). Создатель добавляется автоматически.
   Future<void> _createStaffGroup() async {
     List<UserBrief> staff;
     try {
-      final results = await Future.wait([
-        AuthRepository.instance.listByRole('manager'),
-        AuthRepository.instance.listByRole('admin'),
-      ]);
-      staff = [...results[0], ...results[1]]
-        ..removeWhere((u) => u.id == _user?.id);
+      final all = await AuthRepository.instance.directory();
+      staff = all
+          .where((u) => u.role != 'client' && u.id != _user?.id)
+          .toList();
     } on Object catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -180,6 +180,12 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                                 : selected.remove(u.id),
                           ),
                           title: Text(u.label, overflow: TextOverflow.ellipsis),
+                          subtitle: u.roleLabel.isEmpty
+                              ? null
+                              : Text(
+                                  u.roleLabel,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
                         ),
                     ],
                   ),

@@ -70,8 +70,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       final me = await AuthRepository.instance.me();
       if (mounted) {
-        _myUserId = me.id;
-        _myRole = me.role;
+        // setState — от роли зависит меню админа в AppBar (2026-07-22).
+        setState(() {
+          _myUserId = me.id;
+          _myRole = me.role;
+        });
       }
     } on Object {
       // Без id галочки просто не покажутся — не критично.
@@ -450,6 +453,78 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Позвонить участникам диалога (веб startCallFromChat): /calls/start
   /// возвращает токен LiveKit — сразу входим в комнату.
   /// _callBusy — защита от повторных тапов по 📞: каждый лишний тап
+  /// Очистить историю сообщений (admin, веб doClearConv, 2026-07-22).
+  Future<void> _clearConversation() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Очистить историю?'),
+        content: const Text(
+          'Все сообщения диалога будут удалены у всех участников. '
+          'Сам диалог останется.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Очистить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ChatRepository.instance
+          .clearConversation(widget.conversation.id);
+      if (mounted) setState(_messages.clear);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
+  /// Удалить диалог полностью (admin, веб doDeleteConv, 2026-07-22).
+  Future<void> _deleteConversation() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Удалить диалог?'),
+        content: const Text(
+          'Диалог и вся его история будут удалены безвозвратно '
+          'у всех участников.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ChatRepository.instance
+          .deleteConversation(widget.conversation.id);
+      // Экран диалога больше не актуален — выходим в список чатов.
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
   /// создавал бы новый звонок (сервер дополнительно отсекает Conflict'ом).
   bool _callBusy = false;
 
@@ -517,6 +592,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.call_outlined),
             onPressed: _startCall,
           ),
+          // Управление диалогом (админ, веб archiveCurrentConv, 2026-07-22):
+          // очистить историю / удалить диалог полностью.
+          if (_myRole == 'admin')
+            PopupMenuButton<String>(
+              tooltip: 'Управление диалогом',
+              onSelected: (v) => switch (v) {
+                'clear' => _clearConversation(),
+                'delete' => _deleteConversation(),
+                _ => null,
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'clear',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.cleaning_services_outlined),
+                    title: Text('Очистить историю'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text(
+                      'Удалить диалог',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       body: Column(

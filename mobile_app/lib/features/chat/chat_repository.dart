@@ -43,6 +43,18 @@ class ChatRepository {
     await _dio.delete('$_base/conversations/$convId/messages/$messageId');
   }
 
+  /// Удалить диалог целиком с историей (admin only, веб doDeleteConv).
+  /// Остальным участникам прилетит WS-событие conversation_deleted.
+  Future<void> deleteConversation(String convId) async {
+    await _dio.delete('$_base/conversations/$convId');
+  }
+
+  /// Очистить историю сообщений диалога (admin only, веб doClearConv).
+  /// Остальным участникам прилетит WS-событие conversation_cleared.
+  Future<void> clearConversation(String convId) async {
+    await _dio.post('$_base/conversations/$convId/clear');
+  }
+
   /// «Горизонт прочтения» собеседниками — максимальный last_read_at среди
   /// участников, кроме [myUserId]. Сообщение считается прочитанным, если оно
   /// моё и его created_at ≤ этого времени. Бэк отдаёт участников с last_read_at

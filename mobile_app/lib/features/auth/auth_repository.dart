@@ -33,21 +33,35 @@ class CurrentUser {
 
 /// Краткая карточка пользователя для выпадающих списков (клиенты/водители).
 class UserBrief {
-  UserBrief({required this.id, required this.fullName, this.phone});
+  UserBrief({required this.id, required this.fullName, this.phone, this.role});
 
   final String id;
   final String fullName;
   final String? phone;
 
+  /// Роль (admin/manager/driver/accountant/client) — отдаётся /users/directory.
+  final String? role;
+
   factory UserBrief.fromJson(Map<String, dynamic> json) => UserBrief(
         id: json['id'] as String,
         fullName: (json['full_name'] ?? '') as String,
         phone: json['phone'] as String?,
+        role: json['role'] as String?,
       );
 
   /// Метка для дропдауна: имя + телефон, если есть.
   String get label =>
       phone != null && phone!.isNotEmpty ? '$fullName · $phone' : fullName;
+
+  /// Роль по-русски для чипа в списке участников.
+  String get roleLabel => switch (role) {
+        'admin' => 'админ',
+        'manager' => 'менеджер',
+        'driver' => 'водитель',
+        'accountant' => 'бухгалтер',
+        'client' => 'клиент',
+        _ => role ?? '',
+      };
 }
 
 class AuthRepository {
@@ -74,6 +88,18 @@ class AuthRepository {
   /// Список пользователей по роли (client/driver/...) — для форм менеджера.
   Future<List<UserBrief>> listByRole(String role) async {
     final resp = await _dio.get('$_base/users', queryParameters: {'role': role});
+    final data = resp.data as List<dynamic>;
+    return data
+        .map((e) => UserBrief.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Полный справочник пользователей (как веб /users/directory) — с ролями.
+  /// Для выбора участников группового чата: сотрудники ВСЕХ ролей, не только
+  /// manager/admin (правки 2026-07-22).
+  Future<List<UserBrief>> directory({int limit = 500}) async {
+    final resp = await _dio
+        .get('$_base/users/directory', queryParameters: {'limit': limit});
     final data = resp.data as List<dynamic>;
     return data
         .map((e) => UserBrief.fromJson(e as Map<String, dynamic>))
