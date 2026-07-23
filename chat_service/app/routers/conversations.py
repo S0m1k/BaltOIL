@@ -1,6 +1,7 @@
 import contextlib
 import json
 import os
+import shutil
 import re
 import uuid
 import redis.asyncio as aioredis
@@ -509,6 +510,97 @@ async def send_message(
     if reply_preview:
         resp.reply_preview = reply_preview
     return resp
+
+
+class ForwardMessageRequest(BaseModel):
+    source_conversation_id: uuid.UUID
+    message_id: uuid.UUID
+
+
+@router.post("/{conv_id}/forward", response_model=MessageResponse, status_code=201)
+async def forward_message(
+    conv_id: uuid.UUID,
+    data: ForwardMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Переслать сообщение в другой диалог (правки 2026-07-22).
+
+    Требует доступа к обоим диалогам. Текст и тип копируются; файл вложения
+    физически копируется в каталог целевого диалога (пути вложений
+    conv-scoped — иначе получатели не смогли бы его скачать). В metadata
+    добавляется forwarded_from — клиенты рисуют пометку «Переслано от».
+    """
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from app.models.conversation import Conversation as _Conv
+    from app.models.message import Message as _Msg
+    from app.services.conversation_service import _check_access
+
+    src_res = await db.execute(
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == data.source_conversation_id, _Conv.is_archived == False)  # noqa: E712
+    )
+    src_conv = src_res.scalar_one_or_none()
+    if not src_conv:
+        raise HTTPException(status_code=404, detail="Исходный диалог не найден")
+    _check_access(src_conv, actor, {p.user_id for p in src_conv.participants})
+
+    msg_res = await db.execute(
+        _select(_Msg).where(
+            _Msg.id == data.message_id,
+            _Msg.conversation_id == data.source_conversation_id,
+            _Msg.is_archived == False,  # noqa: E712
+        )
+    )
+    src_msg = msg_res.scalar_one_or_none()
+    if not src_msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+
+    metadata = dict(src_msg.msg_metadata or {})
+    # Вложение: копируем файл в каталог целевого диалога
+    if metadata.get("path") and _ATTACH_NAME_RE.match(str(metadata["path"])):
+        src_path = os.path.join(
+            settings.media_root, "chat", str(data.source_conversation_id),
+            str(metadata["path"]),
+        )
+        if os.path.isfile(src_path):
+            ext = os.path.splitext(str(metadata["path"]))[1]
+            new_name = f"{uuid.uuid4().hex}{ext}"
+            dst_dir = os.path.join(settings.media_root, "chat", str(conv_id))
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copyfile(src_path, os.path.join(dst_dir, new_name))
+            metadata["path"] = new_name
+        else:
+            raise HTTPException(status_code=404, detail="Файл вложения не найден")
+    metadata["forwarded_from"] = src_msg.sender_name
+
+    # Доступ к целевому диалогу проверит send_message
+    msg = await message_service.send_message(
+        db, conv_id, src_msg.text, actor, redis,
+        msg_type=src_msg.msg_type,
+        metadata=metadata,
+    )
+    try:
+        await redis.publish(f"chat:{conv_id}", json.dumps({
+            "id": str(msg.id),
+            "conversation_id": str(msg.conversation_id),
+            "sender_id": str(msg.sender_id),
+            "sender_role": msg.sender_role,
+            "sender_name": msg.sender_name,
+            "msg_type": msg.msg_type,
+            "text": msg.text,
+            "metadata": msg.msg_metadata,
+            "created_at": msg.created_at.isoformat(),
+            "reply_to_id": None,
+            "is_pinned": False,
+            "reply_preview": None,
+        }))
+    except Exception:
+        pass
+    return MessageResponse.model_validate(msg)
 
 
 # ── Вложения: фото/видео в чате (правки 2026-06-11) ──────────────────────────

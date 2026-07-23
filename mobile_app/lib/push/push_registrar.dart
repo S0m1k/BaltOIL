@@ -21,13 +21,21 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] != 'call_initiated') return;
   final callId = message.data['entity_id'] ?? message.data['call_id'];
   if (callId == null || (callId as String).isEmpty) return;
-  await CallkitService.showIncoming(
-    callId: callId,
-    roomName: (message.data['room_name'] ?? '') as String,
-    callerName: (message.data['initiated_by_name'] ??
-        message.data['title'] ??
-        'Входящий звонок') as String,
-  );
+  // Фоновый изолят: без инициализации биндингов method channel плагина
+  // callkit на части устройств молча не срабатывал («звонок через раз»,
+  // правки 2026-07-22).
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await CallkitService.showIncoming(
+      callId: callId,
+      roomName: (message.data['room_name'] ?? '') as String,
+      callerName: (message.data['initiated_by_name'] ??
+          message.data['title'] ??
+          'Входящий звонок') as String,
+    );
+  } on Object catch (e) {
+    developer.log('bg callkit failed: $e', name: 'push');
+  }
 }
 
 /// Регистрация FCM-токена устройства на бэке (POST /api/v1/devices).

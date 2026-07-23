@@ -250,6 +250,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 setState(() => _replyTo = m);
               },
             ),
+            // Пересылка (правки 2026-07-22): выбор чата → POST /forward
+            ListTile(
+              leading: const Icon(Icons.forward),
+              title: const Text('Переслать'),
+              onTap: () {
+                Navigator.pop(ctx);
+                // ignore: discarded_futures
+                _forwardMessage(m);
+              },
+            ),
             ListTile(
               leading: Icon(
                 m.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
@@ -469,6 +479,84 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Позвонить участникам диалога (веб startCallFromChat): /calls/start
   /// возвращает токен LiveKit — сразу входим в комнату.
   /// _callBusy — защита от повторных тапов по 📞: каждый лишний тап
+  /// Переслать сообщение: bottom-sheet со списком диалогов (кроме текущего),
+  /// тап по чату — POST /forward (правки 2026-07-22).
+  Future<void> _forwardMessage(ChatMessage m) async {
+    List<Conversation> convs;
+    try {
+      convs = await ChatRepository.instance.listConversations();
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+      return;
+    }
+    convs = convs.where((c) => c.id != widget.conversation.id).toList();
+    if (!mounted) return;
+    if (convs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Нет других чатов для пересылки')));
+      return;
+    }
+    final target = await showModalBottomSheet<Conversation>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('Переслать в…',
+                  style: Theme.of(ctx)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: convs.length,
+                itemBuilder: (_, i) {
+                  final c = convs[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      child: Text(c.displayTitle.isNotEmpty
+                          ? c.displayTitle[0].toUpperCase()
+                          : '?'),
+                    ),
+                    title: Text(c.displayTitle,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    onTap: () => Navigator.pop(ctx, c),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    try {
+      await ChatRepository.instance.forwardMessage(
+        targetConvId: target.id,
+        sourceConvId: widget.conversation.id,
+        messageId: m.id,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Переслано в «${target.displayTitle}»')));
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
   /// Очистить историю сообщений (admin, веб doClearConv, 2026-07-22).
   Future<void> _clearConversation() async {
     final ok = await showDialog<bool>(
@@ -793,6 +881,19 @@ class _MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Пометка пересылки (правки 2026-07-22)
+                if (msg.metadata?['forwarded_from'] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '↪ Переслано от ${msg.metadata!['forwarded_from']}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
                 // Цитата-ответ (reply_preview, правки 2026-06-24)
                 if (msg.replyPreview != null)
                   Container(

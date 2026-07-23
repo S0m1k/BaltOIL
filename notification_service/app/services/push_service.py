@@ -84,7 +84,11 @@ async def _send_to_token(client: httpx.AsyncClient, access_token: str, fcm_token
             "message": {
                 "token": fcm_token,
                 "data": call_data,
-                "android": {"priority": "high"},
+                # ttl=45s (правки 2026-07-22): звонок живёт ~45 с — пуш,
+                # который FCM не смог доставить за это время (Doze/MIUI),
+                # НЕ должен приходить позже: пользователь увидел бы звонок,
+                # которого уже нет. Лучше пропущенный, чем фантомный.
+                "android": {"priority": "high", "ttl": "45s"},
                 "apns": {
                     "headers": {"apns-priority": "10", "apns-push-type": "voip"},
                     "payload": {"aps": {"content-available": 1}},

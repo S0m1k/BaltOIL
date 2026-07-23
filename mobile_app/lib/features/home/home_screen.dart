@@ -178,6 +178,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _user = user;
           // «Только чаты»: стартуем сразу в мессенджере (веб _isChatsOnly).
           if (user.role == 'client' && user.chatsOnly) _dest = _Dest.chat;
+          // Сотрудники живут в чатах — стартовый экран для manager/admin
+          // тоже чаты (просьба заказчика, правки 2026-07-22).
+          if (user.role == 'manager' || user.role == 'admin') {
+            _dest = _Dest.chat;
+          }
         });
         // Входящие звонки — поллинг как startCallPolling на вебе.
         IncomingCallWatcher.instance.start(userId: user.id);

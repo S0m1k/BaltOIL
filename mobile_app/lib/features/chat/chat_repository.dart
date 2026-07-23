@@ -43,6 +43,19 @@ class ChatRepository {
     await _dio.delete('$_base/conversations/$convId/messages/$messageId');
   }
 
+  /// Переслать сообщение в другой диалог (правки 2026-07-22): бэкенд копирует
+  /// текст, тип и файл вложения; в metadata ставит forwarded_from.
+  Future<void> forwardMessage({
+    required String targetConvId,
+    required String sourceConvId,
+    required String messageId,
+  }) async {
+    await _dio.post('$_base/conversations/$targetConvId/forward', data: {
+      'source_conversation_id': sourceConvId,
+      'message_id': messageId,
+    });
+  }
+
   /// Удалить диалог целиком с историей (admin only, веб doDeleteConv).
   /// Остальным участникам прилетит WS-событие conversation_deleted.
   Future<void> deleteConversation(String convId) async {
