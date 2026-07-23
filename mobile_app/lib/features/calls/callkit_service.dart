@@ -83,15 +83,28 @@ class CallkitService {
     });
   }
 
+  /// id звонка, вход в который уже идёт (защита от двойного _onAccept:
+  /// живое событие + resumePendingAcceptedCall на старте).
+  String? _joiningCallId;
+
   Future<void> _onAccept(String? callId, String? roomName) async {
-    if (callId == null) return;
-    final nav = navigatorKey?.currentState;
-    if (nav == null) return;
+    if (callId == null || _joiningCallId == callId) return;
+    _joiningCallId = callId;
     try {
+      // Холодный старт (принят с заблокированного экрана при убитом
+      // приложении): событие приходит раньше, чем построен MaterialApp.
+      // Раньше тут был молчаливый return при nav == null — «принял, а звонок
+      // не открылся» (правки 2026-07-22). Теперь ждём навигатор до 15 с.
+      final nav = await _waitForNavigator();
+      if (nav == null) {
+        developer.log('CallKit accept: navigator never appeared', name: 'callkit');
+        return;
+      }
       // room_name из пуша может отсутствовать — добираем через API.
       final room = roomName ??
           (await CallRepository.instance.getCall(callId)).roomName;
       final token = await CallRepository.instance.token(room);
+      await FlutterCallkitIncoming.endCall(callId);
       await IncomingCallWatcher.instance.withInCall(() => nav.push(
             MaterialPageRoute(
               builder: (_) => CallScreen(token: token, remoteName: 'Звонок'),
@@ -99,8 +112,42 @@ class CallkitService {
           ));
     } on Object catch (e) {
       developer.log('CallKit accept failed: $e', name: 'callkit');
-    } finally {
       await FlutterCallkitIncoming.endCall(callId);
+    } finally {
+      _joiningCallId = null;
+    }
+  }
+
+  Future<NavigatorState?> _waitForNavigator() async {
+    for (var i = 0; i < 50; i++) {
+      final nav = navigatorKey?.currentState;
+      if (nav != null) return nav;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    return null;
+  }
+
+  /// Догнать звонок, принятый до готовности Dart-стороны (например, событие
+  /// accept ушло, пока Flutter-движок ещё поднимался, и listen() его не
+  /// застал). Вызывается из HomeScreen после логина: смотрим активные звонки
+  /// callkit с isAccepted и входим в комнату (правки 2026-07-22).
+  Future<void> resumePendingAcceptedCall() async {
+    try {
+      final List<dynamic> active = await FlutterCallkitIncoming.activeCalls();
+      for (final c in active) {
+        final m = (c as Map).cast<String, dynamic>();
+        if (m['isAccepted'] == true) {
+          final extra =
+              (m['extra'] as Map?)?.cast<String, dynamic>() ?? const {};
+          await _onAccept(
+            (extra['call_id'] ?? m['id'])?.toString(),
+            extra['room_name']?.toString(),
+          );
+          return;
+        }
+      }
+    } on Object catch (e) {
+      developer.log('resumePendingAcceptedCall failed: $e', name: 'callkit');
     }
   }
 

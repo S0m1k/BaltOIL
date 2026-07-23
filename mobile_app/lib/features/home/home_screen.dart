@@ -7,6 +7,7 @@ import '../../core/theme_controller.dart';
 import '../../push/push_registrar.dart';
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
+import '../calls/callkit_service.dart';
 import '../calls/incoming_call_watcher.dart';
 import '../chat/conversations_screen.dart';
 import '../clients/clients_screen.dart';
@@ -186,6 +187,9 @@ class _HomeScreenState extends State<HomeScreen> {
         });
         // Входящие звонки — поллинг как startCallPolling на вебе.
         IncomingCallWatcher.instance.start(userId: user.id);
+        // Звонок, принятый с заблокированного экрана до готовности Dart:
+        // событие accept могло уйти в пустоту — догоняем (2026-07-22).
+        unawaited(CallkitService.instance.resumePendingAcceptedCall());
       }
       // FCM-токен регистрируется в login(), но при старте с сохранённой
       // сессией логина не происходит — без этого у уже залогиненных
