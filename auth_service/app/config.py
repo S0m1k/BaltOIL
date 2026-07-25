@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     # access-токен, чтобы сессия не «вылетала» в середине рабочего дня. Клиенты
     # остаются на коротком токене (refresh их продлевает в фоне).
     staff_access_token_expire_minutes: int = 720  # 12 часов
-    refresh_token_expire_days: int = 30
+    # Полгода (правки 2026-07-24): в мобильном приложении логин не должен
+    # слетать. Токен ротируется при каждом обновлении, поэтому у активного
+    # пользователя сессия живёт бессрочно; отзыв — через выход/удаление юзера.
+    refresh_token_expire_days: int = 180
 
     # Redis (for login throttle and rate-limit storage)
     redis_url: str = "redis://redis:6379"
