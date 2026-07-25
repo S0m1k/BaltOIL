@@ -1045,7 +1045,9 @@
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px;
     color: var(--text3); margin-bottom: 4px;
   }
-  .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; }
+  /* pre-wrap (правки 2026-07-24): переносы строк в сообщении сохраняются —
+     иначе многострочный текст (списки карт, реквизиты) схлопывался в абзац. */
+  .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; white-space: pre-wrap; }
   .msg-row.mine .msg-text { color: var(--text); }
   .msg-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
   /* ── System messages (call events) ── */

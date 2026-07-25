@@ -54,8 +54,13 @@ class ApiClient {
               return handler.next(e);
             }
           }
-          await TokenStorage.instance.clear();
-          onSessionExpired?.call();
+          // Выкидываем на экран входа ТОЛЬКО если сервер явно отверг
+          // refresh-токен (правки 2026-07-24). Раньше любая сетевая ошибка
+          // (таймаут, метро, лифт) чистила сессию и требовала логин заново.
+          if (_refreshRejected) {
+            await TokenStorage.instance.clear();
+            onSessionExpired?.call();
+          }
         }
         handler.next(error);
       },
@@ -73,9 +78,30 @@ class ApiClient {
   /// Public wrapper — вызывается ws_client при 4401 (token expired).
   Future<bool> refreshTokenPublic() => _tryRefresh();
 
-  Future<bool> _tryRefresh() async {
+  /// Идущий сейчас refresh. Приложение шлёт запросы пачками (чаты, заявки,
+  /// уведомления, WS), и при истёкшем access_token они получали 401 разом.
+  /// Каждый дёргал refresh со СТАРЫМ токеном; сервер ротирует его при первом
+  /// же обмене, а повторное предъявление считает кражей (reuse detection) и
+  /// сносит всю цепочку сессий — отсюда и «постоянно выкидывает из аккаунта».
+  /// Теперь refresh идёт один на всех: остальные ждут его результат.
+  Future<bool>? _refreshInFlight;
+
+  /// Сервер явно отверг refresh-токен (401/403) — сессия действительно мертва.
+  /// Отличаем от сетевой ошибки, при которой сессию сохраняем.
+  bool _refreshRejected = false;
+
+  Future<bool> _tryRefresh() {
+    return _refreshInFlight ??= _doRefresh().whenComplete(() {
+      _refreshInFlight = null;
+    });
+  }
+
+  Future<bool> _doRefresh() async {
     final refresh = await TokenStorage.instance.refreshToken;
-    if (refresh == null) return false;
+    if (refresh == null) {
+      _refreshRejected = true; // токена нет — это не сетевая проблема
+      return false;
+    }
     try {
       final resp = await _dio.post(
         '${AppConfig.authBase}/auth/refresh',
@@ -86,8 +112,14 @@ class ApiClient {
         access: resp.data['access_token'] as String,
         refresh: resp.data['refresh_token'] as String,
       );
+      _refreshRejected = false;
       return true;
-    } catch (_) {
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      _refreshRejected = code == 401 || code == 403;
+      return false;
+    } on Object {
+      _refreshRejected = false; // непонятная ошибка — сессию не рвём
       return false;
     }
   }
