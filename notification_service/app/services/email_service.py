@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 
 import aiosmtplib
 
@@ -71,9 +72,11 @@ async def send_email(to: str, subject: str, body_text: str) -> bool:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = settings.smtp_from
+    # Имя отправителя (правки 2026-08-04): в почте видно «СЗТК», а не голый
+    # адрес. В Unisender-пути from_name передаётся отдельным полем.
+    msg["From"] = formataddr((settings.email_from_name, settings.smtp_from))
     msg["To"] = to
-    msg["X-BaltOIL-Notification"] = "1"
+    msg["X-SZTK-Notification"] = "1"
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
     # Взаимоисключимо: только один из use_tls / use_starttls. STARTTLS приоритетнее
@@ -138,9 +141,11 @@ async def send_email_with_attachment(
 
     msg = MIMEMultipart()
     msg["Subject"] = subject
-    msg["From"] = settings.smtp_from
+    # Имя отправителя (правки 2026-08-04): в почте видно «СЗТК», а не голый
+    # адрес. В Unisender-пути from_name передаётся отдельным полем.
+    msg["From"] = formataddr((settings.email_from_name, settings.smtp_from))
     msg["To"] = to
-    msg["X-BaltOIL-Notification"] = "1"
+    msg["X-SZTK-Notification"] = "1"
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
     part = MIMEApplication(content_bytes, _subtype=mime_type.split("/")[-1])
