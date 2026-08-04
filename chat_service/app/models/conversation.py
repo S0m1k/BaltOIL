@@ -38,6 +38,8 @@ class Conversation(Base):
 
     # Заголовок (опциональный, иначе генерируется на фронте по kind/group_code)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Аватарка чата (правки 2026-07-25): имя файла в media/chat/{conv_id}/
+    avatar_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_by_role: Mapped[str] = mapped_column(String(20), nullable=False)

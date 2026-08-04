@@ -124,6 +124,17 @@ class Order(Base):
     # выставляется только менеджером/админом
     allow_delivery_unpaid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Перекрытие отгрузки админом (правки 2026-07-25): 'allow' | 'hold' | NULL.
+    # NULL — статус отгрузки считается автоматически (оплата/тип клиента/в долг);
+    # 'allow' — разрешена принудительно; 'hold' — «ждём оплату» принудительно.
+    shipment_override: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    # Водитель подтвердил, что увидел комментарий клиента/менеджера
+    # (правки 2026-07-25). NULL при непустом комментарии — бейдж «!» водителю.
+    driver_comment_ack_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Мягкое удаление
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

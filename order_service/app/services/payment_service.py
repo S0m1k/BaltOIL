@@ -12,7 +12,7 @@ from sqlalchemy import select, and_, func
 
 log = logging.getLogger(__name__)
 
-from app.models.order import Order, OrderStatus, OrderKind
+from app.models.order import Order, OrderStatus, OrderKind, PaymentType
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -128,6 +128,31 @@ def _attach_one(order: Order, paid_total: Decimal) -> None:
     order.paid_total = paid_f
     order.debt_amount = debt
     order.pricing_warning = warning
+    order.shipment_allowed = compute_shipment_allowed(order, paid_f)
+
+
+def compute_shipment_allowed(order: Order, paid_total: float) -> bool:
+    """«Отгрузка разрешена» / «ждём оплату» (правки 2026-07-25).
+
+    Приоритет: ручное перекрытие админа (shipment_override), затем автоматика:
+    «в долг» — разрешена; оплата при получении (физики) — разрешена;
+    предоплата — разрешена только когда заявка фактически оплачена.
+    """
+    if order.shipment_override == "allow":
+        return True
+    if order.shipment_override == "hold":
+        return False
+    if order.allow_delivery_unpaid:
+        return True
+    if order.payment_type == PaymentType.ON_DELIVERY:
+        return True
+    if order.payment_status in ("paid", "overpaid"):
+        return True
+    # Частичная оплата: разрешаем, если долга фактически нет (цена снижена и т.п.)
+    target = order.final_amount if order.final_amount is not None else order.expected_amount
+    if target is not None and paid_total >= float(target):
+        return True
+    return False
 
 
 async def attach_payment_totals(db: AsyncSession, orders: list[Order]) -> None:
@@ -250,8 +275,53 @@ async def record_payment(
     method: str,
     actor: TokenUser,
     notes: str | None = None,
+    idempotency_key: str | None = None,
 ) -> Payment:
     """Зафиксировать факт оплаты вручную."""
+    # ── Idempotency gate (mobile offline-outbox) ───────────────────────────
+    # Insert-first: атомарно «занимаем» ключ. Параллельный дубликат с тем же
+    # ключом блокируется на unique-индексе до нашего commit/rollback, после чего
+    # видит строку (RETURNING → 0 строк) и возвращает кэш — это закрывает гонку
+    # check-then-act, при которой оба запроса успевали применить оплату.
+    owns_idem_slot = False
+    if idempotency_key is not None:
+        from app.models.idempotency_key import IdempotencyKey
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        claim = await db.execute(
+            pg_insert(IdempotencyKey)
+            .values(key=idempotency_key, operation="payment_record", order_id=order_id)
+            .on_conflict_do_nothing(index_elements=["key"])
+            .returning(IdempotencyKey.key)
+        )
+        owns_idem_slot = claim.scalar_one_or_none() is not None
+        if not owns_idem_slot:
+            # Ключ уже занят (конфликт по PK). Параллельный INSERT блокировался
+            # до commit/rollback первой транзакции, так что строка гарантированно
+            # видна. НИКОГДА не выполняем оплату повторно — иначе вернётся гонка
+            # двойного списания. Возвращаем кэш либо явно падаем.
+            existing = await db.execute(
+                select(IdempotencyKey).where(IdempotencyKey.key == idempotency_key)
+            )
+            idem_row = existing.scalar_one_or_none()
+            if (
+                idem_row is not None
+                and idem_row.operation == "payment_record"
+                and idem_row.payment_id is not None
+            ):
+                pay_result = await db.execute(
+                    select(Payment).where(Payment.id == idem_row.payment_id)
+                )
+                cached = pay_result.scalar_one_or_none()
+                if cached is not None:
+                    return cached
+            # Ключ занят, но платёж по нему не найден: либо ключ переиспользован
+            # под другую операцию, либо исходный платёж удалён. Повторно платёж
+            # не проводим — сообщаем об ошибке идемпотентности.
+            raise ValidationError(
+                "Ключ идемпотентности уже использован для другой операции"
+            )
+    # ── End idempotency gate ───────────────────────────────────────────────
+
     # FOR UPDATE: сериализует параллельные record_payment по одной заявке —
     # иначе два запроса при отсутствии pending-счёта оба вставят PAID-строку
     # и гонка в recompute_and_save даст неверный payment_status.
@@ -315,6 +385,21 @@ async def record_payment(
     await recompute_and_save(db, order)
     await db.flush()
     await db.refresh(payment)
+
+    # ── Привязываем оплату к занятой ранее строке идемпотентности ──────────
+    if idempotency_key is not None and owns_idem_slot:
+        from app.models.idempotency_key import IdempotencyKey
+        from sqlalchemy import update as sa_update
+        await db.execute(
+            sa_update(IdempotencyKey)
+            .where(
+                IdempotencyKey.key == idempotency_key,
+                IdempotencyKey.operation == "payment_record",
+            )
+            .values(payment_id=payment.id)
+        )
+    # ── End idempotency persist ────────────────────────────────────────────
+
     log.info("Payment recorded: order=%s amount=%s method=%s actor=%s", order_id, amount, method, actor.id)
     return payment
 

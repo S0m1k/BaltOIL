@@ -603,6 +603,93 @@ async def forward_message(
     return MessageResponse.model_validate(msg)
 
 
+# ── Аватарка чата (правки 2026-07-25) ────────────────────────────────────────
+
+_AVATAR_EXT_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".webp": "image/webp",
+}
+_AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ достаточно для аватарки
+
+
+@router.post("/{conv_id}/avatar")
+async def upload_conversation_avatar(
+    conv_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Установить картинку чата (менеджер/админ). Возвращает {avatar_path}."""
+    if actor.role not in ("manager", "admin"):
+        raise HTTPException(status_code=403, detail="Картинку чата меняет менеджер или администратор")
+
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from app.models.conversation import Conversation as _Conv
+    from app.services.conversation_service import _check_access
+    res = await db.execute(
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id, _Conv.is_archived == False)  # noqa: E712
+    )
+    conv = res.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Диалог не найден")
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _AVATAR_EXT_MIME:
+        raise HTTPException(status_code=415, detail="Аватарка — jpg/png/webp")
+
+    content = await file.read()
+    if len(content) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Картинка больше 5 МБ")
+    if not content:
+        raise HTTPException(status_code=422, detail="Пустой файл")
+
+    fname = f"avatar_{uuid.uuid4().hex}{ext}"
+    dir_path = os.path.join(settings.media_root, "chat", str(conv_id))
+    os.makedirs(dir_path, exist_ok=True)
+    with open(os.path.join(dir_path, fname), "wb") as fh:
+        fh.write(content)
+
+    old = conv.avatar_path
+    conv.avatar_path = fname
+    await db.commit()
+    if old:
+        with contextlib.suppress(OSError):
+            os.remove(os.path.join(dir_path, old))
+    return {"avatar_path": fname}
+
+
+@router.get("/{conv_id}/avatar")
+async def get_conversation_avatar(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Отдать аватарку чата его участнику."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from app.models.conversation import Conversation as _Conv
+    from app.services.conversation_service import _check_access
+    res = await db.execute(
+        _select(_Conv)
+        .options(_selectinload(_Conv.participants))
+        .where(_Conv.id == conv_id)
+    )
+    conv = res.scalar_one_or_none()
+    if not conv or not conv.avatar_path:
+        raise HTTPException(status_code=404, detail="Аватарка не установлена")
+    _check_access(conv, actor, {p.user_id for p in conv.participants})
+
+    fpath = os.path.join(settings.media_root, "chat", str(conv_id), conv.avatar_path)
+    if not os.path.isfile(fpath):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    ext = os.path.splitext(conv.avatar_path)[1].lower()
+    return FileResponse(fpath, media_type=_AVATAR_EXT_MIME.get(ext, "image/jpeg"))
+
+
 # ── Вложения: фото/видео в чате (правки 2026-06-11) ──────────────────────────
 
 @router.post("/{conv_id}/attachments")

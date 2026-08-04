@@ -932,6 +932,9 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
   }
   .conv-item-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  /* Аватарка чата (2026-07-25): кружок-буква, при наличии картинки — фото */
+  .conv-ava { width: 26px; height: 26px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text2); flex: 0 0 26px; overflow: hidden; }
+  .conv-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .unread-badge {
     background: var(--amber); color: #0b0e14;
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; font-weight: 700;
@@ -2030,6 +2033,19 @@
               <span>Долговая заявка (доставка без оплаты)</span>
             </label>
           </div>
+          <!-- «Ждём оплату» при создании (правки 2026-07-25): водитель увидит
+               красный бейдж, пока админ не разрешит отгрузку -->
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="c-shipment-hold">
+              <span style="color:var(--red)">Ждём оплату (заблокировать отгрузку)</span>
+            </label>
+          </div>
+          <!-- Ручная стоимость доставки (правки 2026-07-25): перекрывает автосчёт по зоне -->
+          <div class="form-group">
+            <label class="form-label">Стоимость доставки вручную, ₽ <span style="color:var(--text3);font-weight:400">(пусто = автосчёт по зоне)</span></label>
+            <input type="number" id="c-manual-delivery-cost" class="form-input" min="0" step="100" placeholder="Например: 4000">
+          </div>
           <div class="section-divider">Данные заявки</div>
         </div>
 
@@ -2771,6 +2787,11 @@
                 onclick="startCallFromChat()"
                 title="Позвонить участникам диалога"
                 style="flex-shrink:0;color:#10b981"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-24.71c.2-.25.39-.5.57-.77a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46ZM176,208A128.14,128.14,0,0,1,48,80,40.2,40.2,0,0,1,82.87,40a.61.61,0,0,0,0,.12l21,47L83.2,111.86a6.13,6.13,0,0,0-.57.77,16,16,0,0,0-1,15.7c9.06,18.53,27.73,37.06,46.46,46.11a16,16,0,0,0,15.75-1.14,8.44,8.44,0,0,0,.74-.56L168.89,152l47,21.05h.05A40.21,40.21,0,0,1,176,208Z"/></svg></button>
+              <!-- Картинка чата (правки 2026-07-25, staff) -->
+              <button class="btn btn-sm btn-ghost" id="btn-conv-avatar"
+                onclick="pickConvAvatar()"
+                title="Установить картинку чата"
+                style="flex-shrink:0;color:var(--text3);display:none"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,16V158.75l-26.07-26.06a16,16,0,0,0-22.63,0l-20,20-44-44a16,16,0,0,0-22.62,0L40,149.37V56ZM40,172l52-52,80,80H40Zm176,28H194.63l-36-36,20-20L216,181.38V200ZM144,100a12,12,0,1,1,12,12A12,12,0,0,1,144,100Z"/></svg></button>
               <button class="btn btn-sm btn-ghost" id="btn-archive-conv"
                 onclick="archiveCurrentConv()"
                 title="Удалить диалог (архивировать)"
@@ -4633,6 +4654,13 @@ function switchOrderTab(status) {
 async function loadOrders() {
   const el = document.getElementById('orders-list');
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  // ФИО водителя в карточках (правки 2026-07-25): staff подгружает справочник
+  // водителей один раз — иначе в карточке был бы только UUID.
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  if (isStaff && !_allDrivers.length) {
+    try { _allDrivers = await authGet('/users?role=driver&limit=200&include_inactive=true'); }
+    catch (_) { /* не критично — покажем id */ }
+  }
   try {
     const orders = await orderGet(`/orders?limit=200&status=${_activeOrderStatus}`);
     renderOrders(orders);
@@ -4808,6 +4836,23 @@ function _changedMark(o) {
   return `<span style="color:var(--red);font-weight:800;font-size:16px;margin-right:6px" title="${escHtml(tip)}">!</span>`;
 }
 
+// «!» у водителя: есть комментарий (клиента/менеджера), который он не подтвердил
+// (правки 2026-07-25). Висит даже на закрытой заявке, пока не нажмёт «увидел».
+function _commentMark(o) {
+  if (currentUser?.role !== 'driver') return '';
+  if (!(o.client_comment || o.manager_comment) || o.driver_comment_ack_at) return '';
+  return `<span style="color:var(--amber);font-weight:800;font-size:16px;margin-right:6px" title="Комментарий к заявке не подтверждён">!</span>`;
+}
+
+// Бейдж отгрузки для водителя в списке (правки 2026-07-25): видно не раскрывая.
+function _shipmentBadge(o) {
+  if (currentUser?.role !== 'driver') return '';
+  if (['delivered', 'cancelled'].includes(o.status)) return '';
+  return o.shipment_allowed
+    ? `<span style="font-size:10px;font-weight:700;color:#10b981;border:1px solid rgba(16,185,129,.4);border-radius:10px;padding:1px 8px;white-space:nowrap">Отгрузка разрешена</span>`
+    : `<span style="font-size:10px;font-weight:700;color:var(--red);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:1px 8px;white-space:nowrap">Ждём оплату</span>`;
+}
+
 function orderCardHTML(o) {
   const statusLabel = STATUS_LABELS[o.status] || o.status;
   const fuelLabel   = FUEL_LABELS[o.fuel_type] || o.fuel_type;
@@ -4845,6 +4890,7 @@ function orderCardHTML(o) {
        data-payment-status="${escHtml(paymentStatusDisplay(o.payment_status || 'unpaid'))}">
     <div class="order-header" onclick="toggleCard('${o.id}')">
       ${_changedMark(o)}
+      ${_commentMark(o)}
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
       <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${escHtml(o.delivery_address)}</div>
@@ -4853,6 +4899,7 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
       </div>
       ${dateHtml}
+      ${_shipmentBadge(o)}
       <span class="status-badge status-${o.status}">${statusLabel}</span>
     </div>
     <div class="order-body" id="body-${o.id}">
@@ -4873,9 +4920,11 @@ function orderCardHTML(o) {
         ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
         ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
         ${priceFormulaHTML(o, driverHidesMoney)}
-        ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель (ID)</div><div class="detail-value">${uuidCell(o.driver_id)}</div></div>` : ''}
-        ${o.client_comment ? `<div class="detail-item"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
-        ${o.manager_comment ? `<div class="detail-item"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
+        ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель</div><div class="detail-value">${escHtml(_driverNameById(o.driver_id))}</div></div>` : ''}
+        ${o.client_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
+        ${o.manager_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
+        ${_ackCommentButtonHTML(o)}
+        ${_shipmentControlsHTML(o)}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
       </div>
       ${paymentSummaryHTML(o)}
@@ -4890,6 +4939,63 @@ function orderCardHTML(o) {
       </div>` : ''}
     </div>
   </div>`;
+}
+
+// ФИО водителя по id из справочника _allDrivers (правки 2026-07-25).
+function _driverNameById(driverId) {
+  const d = (_allDrivers || []).find(x => x.id === driverId);
+  return d ? (d.full_name || d.phone || driverId) : driverId;
+}
+
+// Подсветка комментария для водителя, пока он его не подтвердил (2026-07-25)
+function _commentHighlightStyle(o) {
+  if (currentUser?.role !== 'driver' || o.driver_comment_ack_at) return '';
+  return 'border:1px solid var(--amber);border-radius:8px;background:rgba(255,180,0,.08);padding:8px';
+}
+
+// Кнопка водителя «Комментарий увидел» (2026-07-25)
+function _ackCommentButtonHTML(o) {
+  if (currentUser?.role !== 'driver') return '';
+  if (!(o.client_comment || o.manager_comment) || o.driver_comment_ack_at) return '';
+  return `<div class="detail-item" style="grid-column:1/-1">
+    <button class="btn btn-sm btn-warn" onclick="event.stopPropagation();ackOrderComment('${o.id}')">! Комментарий увидел</button>
+  </div>`;
+}
+
+async function ackOrderComment(orderId) {
+  try {
+    await orderPost(`/orders/${orderId}/ack-comment`, {});
+    toast('Комментарий подтверждён');
+    await loadOrders();
+  } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+}
+
+// Управление отгрузкой (staff, 2026-07-25): статус + кнопки перекрытия
+function _shipmentControlsHTML(o) {
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  if (!isStaff) return '';
+  const state = o.shipment_allowed
+    ? `<span style="color:#10b981;font-weight:700">отгрузка разрешена</span>`
+    : `<span style="color:var(--red);font-weight:700">ждём оплату</span>`;
+  const src = o.shipment_override === 'allow' ? ' (вручную)'
+            : o.shipment_override === 'hold' ? ' (вручную)' : ' (авто)';
+  return `<div class="detail-item" style="grid-column:1/-1">
+    <div class="detail-label">Отгрузка</div>
+    <div class="detail-value" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${state}<span style="color:var(--text3);font-size:11px">${src}</span>
+      ${o.shipment_override !== 'allow' ? `<button class="btn btn-sm btn-ghost" style="color:#10b981" onclick="event.stopPropagation();setShipment('${o.id}','allow')">Разрешить отгрузку</button>` : ''}
+      ${o.shipment_override !== 'hold' ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();setShipment('${o.id}','hold')">Ждём оплату</button>` : ''}
+      ${o.shipment_override ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setShipment('${o.id}','auto')">Авто (по оплате)</button>` : ''}
+    </div>
+  </div>`;
+}
+
+async function setShipment(orderId, mode) {
+  try {
+    await orderPost(`/orders/${orderId}/shipment`, { mode });
+    toast(mode === 'allow' ? 'Отгрузка разрешена' : mode === 'hold' ? 'Поставлено «ждём оплату»' : 'Автоматический режим');
+    await loadOrders();
+  } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
 }
 
 // Формула расчёта цены в заявке физлица (правки 2026-07-11):
@@ -6767,6 +6873,12 @@ async function doCreateOrder() {
     if (isTtnL) body.is_ttn_l = true;
     const allowDebt = document.getElementById('c-allow-delivery-unpaid')?.checked;
     if (allowDebt) body.allow_delivery_unpaid = true;
+    // «Ждём оплату» + ручная стоимость доставки (правки 2026-07-25)
+    if (document.getElementById('c-shipment-hold')?.checked) body.shipment_hold = true;
+    const manualDc = document.getElementById('c-manual-delivery-cost')?.value;
+    if (manualDc !== '' && manualDc != null && Number(manualDc) >= 0) {
+      body.manual_delivery_cost = Number(manualDc);
+    }
   }
 
   // Проверка остатка склада убрана (правки 2026-07-14): продаём даже при
@@ -8259,12 +8371,16 @@ function setConvFolder(folder) {
 }
 
 function fmtTime(dt) {
+  // Полная дата и время у каждого сообщения (правки 2026-07-25):
+  // «дд.мм чч:мм», в чужом году — «дд.мм.гг чч:мм».
   if (!dt) return '';
   const d = new Date(dt);
   const now = new Date();
-  if (d.toDateString() === now.toDateString())
-    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const date = d.getFullYear() === now.getFullYear()
+    ? d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+    : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return `${date} ${time}`;
 }
 
 // ── Chat polling fallback (for when WebSocket is offline) ───────
@@ -8505,6 +8621,7 @@ function renderConvList(convs) {
   el.innerHTML = folderChips + visible.map(c => `
     <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
       <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
+        ${convAvatarHTML(c)}
         ${c.is_pinned ? `<span title="Закреплён" style="color:var(--amber)">${icon('push-pin-simple', 12)}</span>` : ''}
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(convTitle(c))}</span>
         <button title="${c.is_pinned ? 'Открепить' : 'Закрепить'}"
@@ -8518,6 +8635,64 @@ function renderConvList(convs) {
         <span class="conv-item-time">${fmtTime(c.updated_at)}</span>
       </div>
     </div>`).join('') + staffSection;
+  _loadConvAvatars(visible); // аватарки — асинхронно, буквы заменятся картинками
+}
+
+// ── Аватарка чата (правки 2026-07-25) ─────────────────────────────
+// GET /conversations/{id}/avatar требует Bearer — <img src> его не шлёт,
+// поэтому качаем блобом и подставляем objectURL (кэш по avatar_path).
+const _convAvatarCache = new Map(); // convId -> {path, url}
+
+function convAvatarHTML(c) {
+  const letter = (convTitle(c) || '?').trim().charAt(0).toUpperCase() || '?';
+  return `<span class="conv-ava" id="ava-${c.id}">${escHtml(letter)}</span>`;
+}
+
+async function _loadConvAvatars(convs) {
+  for (const c of (convs || [])) {
+    if (!c.avatar_path) continue;
+    const el = document.getElementById(`ava-${c.id}`);
+    if (!el) continue;
+    const cached = _convAvatarCache.get(c.id);
+    if (cached && cached.path === c.avatar_path) {
+      el.innerHTML = `<img src="${cached.url}" alt="">`;
+      continue;
+    }
+    try {
+      const token = localStorage.getItem('access_token');
+      const r = await fetch(`${CHAT_URL}/conversations/${c.id}/avatar`, {
+        headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) continue;
+      const url = URL.createObjectURL(await r.blob());
+      if (cached?.url) URL.revokeObjectURL(cached.url);
+      _convAvatarCache.set(c.id, { path: c.avatar_path, url });
+      const el2 = document.getElementById(`ava-${c.id}`);
+      if (el2) el2.innerHTML = `<img src="${url}" alt="">`;
+    } catch (_) { /* останется буква */ }
+  }
+}
+
+// Staff: установить картинку чата из шапки диалога
+function pickConvAvatar() {
+  if (!activeConvId) return;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/jpeg,image/png,image/webp';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const token = localStorage.getItem('access_token');
+      const r = await fetch(`${CHAT_URL}/conversations/${activeConvId}/avatar`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.detail || 'HTTP ' + r.status);
+      toast('Картинка чата обновлена');
+      await loadConversations();
+    } catch (e) { toast('Ошибка: ' + (e.message || e), 'error'); }
+  };
+  inp.click();
 }
 
 function _lastMsgPreview(m) {
@@ -8603,6 +8778,9 @@ async function openConversation(convId) {
     const archiveBtn = document.getElementById('btn-archive-conv');
     const isStaffRole = currentUser?.role === 'manager' || currentUser?.role === 'admin';
     if (archiveBtn) archiveBtn.style.display = isStaffRole ? '' : 'none';
+    // Картинка чата (2026-07-25) — тоже staff
+    const avaBtn = document.getElementById('btn-conv-avatar');
+    if (avaBtn) avaBtn.style.display = isStaffRole ? '' : 'none';
 
     // Mark as read
     chatPost(`/conversations/${convId}/read`, {}).catch(() => {});

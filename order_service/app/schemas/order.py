@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, Field
 from app.models.order import OrderStatus, OrderKind, PaymentType
 from .order_status_log import OrderStatusLogResponse
@@ -59,6 +60,12 @@ class OrderCreateRequest(BaseModel):
     is_ttn_l: bool = False
     # Долговая заявка: доставка без оплаты (только менеджер/админ, для клиента игнорируется)
     allow_delivery_unpaid: bool = False
+    # Ручная стоимость доставки (правки 2026-07-25, только staff): если задана —
+    # используется вместо зонального автосчёта.
+    manual_delivery_cost: Decimal | None = Field(None, ge=0)
+    # «Ждём оплату» при создании (правки 2026-07-25, только staff):
+    # ставит shipment_override='hold' — водитель видит красное «ждём оплату».
+    shipment_hold: bool = False
 
     # Минимальный объём (300 л) проверяется в order_service.create_order,
     # т.к. менеджер/админ может оформить заявку на любой объём (правка 2026-06-16).
@@ -101,12 +108,20 @@ class OrderStatusTransitionRequest(BaseModel):
     volume_delivered: float | None = Field(None, gt=0, le=200_000)
     # Для менеджера при отмене
     rejection_reason: str | None = None
+    # Mobile offline-outbox: клиентский UUID для идемпотентного повтора.
+    # Веб-клиенты поле не передают; поведение без ключа не меняется.
+    idempotency_key: uuid.UUID | None = None
 
 
 class RescheduleRequest(BaseModel):
     """Перенос заявки: смена желаемой даты и/или водителя."""
     desired_date: datetime | None = None
     driver_id: uuid.UUID | None = None
+
+
+class ShipmentOverrideRequest(BaseModel):
+    """Перекрытие отгрузки (правки 2026-07-25): allow | hold | auto."""
+    mode: Literal["allow", "hold", "auto"]
 
 
 class OrderResponse(BaseModel):
@@ -149,6 +164,13 @@ class OrderResponse(BaseModel):
     delivery_cost: Decimal | None = None
 
     allow_delivery_unpaid: bool = False
+
+    # Отгрузка (правки 2026-07-25): ручное перекрытие + вычисленный статус
+    # (True = «отгрузка разрешена», False = «ждём оплату»).
+    shipment_override: str | None = None
+    shipment_allowed: bool = True
+    # Подтверждение комментария водителем
+    driver_comment_ack_at: datetime | None = None
 
     # Денежные показатели — заполняются сервисом (см. payment_service.attach_payment_totals)
     paid_total: float = 0.0
@@ -193,6 +215,11 @@ class OrderListResponse(BaseModel):
     delivery_cost: Decimal | None = None
 
     allow_delivery_unpaid: bool = False
+
+    # Отгрузка (правки 2026-07-25) — бейдж водителю прямо в списке
+    shipment_override: str | None = None
+    shipment_allowed: bool = True
+    driver_comment_ack_at: datetime | None = None
 
     paid_total: float = 0.0
     debt_amount: float = 0.0
