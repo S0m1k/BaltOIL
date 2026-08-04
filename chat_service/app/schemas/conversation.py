@@ -66,5 +66,8 @@ class ConversationResponse(BaseModel):
     updated_at: datetime
     peer_name: str | None = None    # для kind=direct: имя собеседника
     peer_phone: str | None = None   # для kind=direct: телефон собеседника
+    # Аватарка чата (правки 2026-07-25): имя файла; URL строится клиентом как
+    # GET /conversations/{id}/avatar
+    avatar_path: str | None = None
 
     model_config = {"from_attributes": True}

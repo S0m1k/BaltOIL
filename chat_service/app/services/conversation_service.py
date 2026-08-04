@@ -94,8 +94,11 @@ def _check_access(
             return
         raise ForbiddenError("Это приватный чат")
 
-    # Приватная staff-группа (СЗТК): только явные участники, ДО привилегии менеджеров.
+    # Приватная staff-группа (СЗТК): только явные участники, ДО привилегии
+    # менеджеров. Исключение (правки 2026-07-25): админ модерирует все группы.
     if _is_private_group(conv):
+        if actor.role == "admin":
+            return
         if member_ids is not None and actor.id in member_ids:
             return
         raise ForbiddenError("Это приватный групповой чат")
@@ -601,15 +604,23 @@ async def list_conversations(
     )
 
     # Приватные staff-группы (СЗТК) — видны только своим участникам (по членству).
-    private_vis = and_(
-        Conversation.kind == ConversationKind.STAFF_GROUP,
-        Conversation.group_code.like(f"{PRIVATE_GROUP_PREFIX}%"),
-        Conversation.id.in_(
-            select(ConversationParticipant.conversation_id).where(
-                ConversationParticipant.user_id == actor.id
-            )
-        ),
-    )
+    # Админ (правки 2026-07-25) видит ВСЕ группы — модерирует и удаляет
+    # сообщения в любом групповом чате, даже не будучи участником.
+    if role == "admin":
+        private_vis = and_(
+            Conversation.kind == ConversationKind.STAFF_GROUP,
+            Conversation.group_code.like(f"{PRIVATE_GROUP_PREFIX}%"),
+        )
+    else:
+        private_vis = and_(
+            Conversation.kind == ConversationKind.STAFF_GROUP,
+            Conversation.group_code.like(f"{PRIVATE_GROUP_PREFIX}%"),
+            Conversation.id.in_(
+                select(ConversationParticipant.conversation_id).where(
+                    ConversationParticipant.user_id == actor.id
+                )
+            ),
+        )
 
     q = (
         select(Conversation)
@@ -731,6 +742,7 @@ async def list_conversations(
             "peer_role": peer_role,
             "peer_id": peer_id_val,
             "is_pinned": conv.id in pinned_ids,
+            "avatar_path": conv.avatar_path,
         })
 
     # Закреплённые — первыми, внутри групп сортировка по updated_at сохраняется

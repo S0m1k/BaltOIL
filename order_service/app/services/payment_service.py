@@ -12,7 +12,7 @@ from sqlalchemy import select, and_, func
 
 log = logging.getLogger(__name__)
 
-from app.models.order import Order, OrderStatus, OrderKind
+from app.models.order import Order, OrderStatus, OrderKind, PaymentType
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -128,6 +128,31 @@ def _attach_one(order: Order, paid_total: Decimal) -> None:
     order.paid_total = paid_f
     order.debt_amount = debt
     order.pricing_warning = warning
+    order.shipment_allowed = compute_shipment_allowed(order, paid_f)
+
+
+def compute_shipment_allowed(order: Order, paid_total: float) -> bool:
+    """«Отгрузка разрешена» / «ждём оплату» (правки 2026-07-25).
+
+    Приоритет: ручное перекрытие админа (shipment_override), затем автоматика:
+    «в долг» — разрешена; оплата при получении (физики) — разрешена;
+    предоплата — разрешена только когда заявка фактически оплачена.
+    """
+    if order.shipment_override == "allow":
+        return True
+    if order.shipment_override == "hold":
+        return False
+    if order.allow_delivery_unpaid:
+        return True
+    if order.payment_type == PaymentType.ON_DELIVERY:
+        return True
+    if order.payment_status in ("paid", "overpaid"):
+        return True
+    # Частичная оплата: разрешаем, если долга фактически нет (цена снижена и т.п.)
+    target = order.final_amount if order.final_amount is not None else order.expected_amount
+    if target is not None and paid_total >= float(target):
+        return True
+    return False
 
 
 async def attach_payment_totals(db: AsyncSession, orders: list[Order]) -> None:

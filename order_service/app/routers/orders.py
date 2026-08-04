@@ -9,7 +9,7 @@ from app.core.dependencies import CurrentUser
 from app.schemas.order import (
     OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest,
     RescheduleRequest, OrderResponse, OrderListResponse,
-    PricePreviewRequest, PricePreviewResponse,
+    PricePreviewRequest, PricePreviewResponse, ShipmentOverrideRequest,
 )
 from app.services import order_service
 
@@ -123,6 +123,29 @@ async def ack_changes(
 ):
     """Водитель подтверждает, что увидел изменения в заявке. Снимает флаг pending_driver_ack."""
     return await order_service.ack_changes(db, order_id, current_user)
+
+
+@router.post("/{order_id}/shipment", response_model=OrderResponse)
+async def set_shipment_override(
+    order_id: uuid.UUID,
+    data: ShipmentOverrideRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Отгрузка (правки 2026-07-25, менеджер/админ): 'allow' — разрешить
+    (разово, даже без оплаты), 'hold' — «ждём оплату», 'auto' — вернуть
+    автоматический расчёт от оплаты/типа клиента."""
+    return await order_service.set_shipment_override(db, order_id, data.mode, current_user)
+
+
+@router.post("/{order_id}/ack-comment", response_model=OrderResponse)
+async def ack_comment(
+    order_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Водитель подтверждает, что увидел комментарий к заявке (правки 2026-07-25)."""
+    return await order_service.ack_comment(db, order_id, current_user)
 
 
 @router.post("/{order_id}/reschedule", response_model=OrderResponse)

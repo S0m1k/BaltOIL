@@ -461,9 +461,20 @@ async def create_order(
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
+    # Ручная стоимость доставки (правки 2026-07-25, только staff):
+    # перекрывает зональный автосчёт — админ вводит цену прямо в форме.
+    if is_staff and data.manual_delivery_cost is not None:
+        if delivery_cost is not None and expected_amount is not None:
+            expected_amount = expected_amount - delivery_cost  # откатить автосчёт
+        delivery_cost = data.manual_delivery_cost
+        expected_amount = (expected_amount or _Decimal("0")) + delivery_cost
+
     # Согласование заявок (правки 2026-06-16):
     # - Физ лица: ВСЕ заявки клиента уходят на согласование менеджера.
     # - Юр лица: только строго > 3000 л.
+    # - Плюс (правки 2026-07-25): ЛЮБАЯ клиентская заявка, где стоимость
+    #   доставки не рассчиталась автоматически (нет зоны/координат) — менеджер
+    #   должен проставить цену руками до запуска в работу.
     # Водители заявку на согласовании не видят и не могут взять.
     # Заявки, созданные менеджером/админом, согласования не требуют.
     needs_approval = (
@@ -472,6 +483,7 @@ async def create_order(
         and (
             ctx.client_type == "individual"
             or float(data.volume_requested) > LARGE_VOLUME_THRESHOLD_L
+            or delivery_cost is None
         )
     )
     initial_status = OrderStatus.AWAITING_MANAGER if needs_approval else OrderStatus.NEW
@@ -501,6 +513,8 @@ async def create_order(
         delivery_cost=delivery_cost,
         # Only manager/admin may mark an order as debt (allow_delivery_unpaid)
         allow_delivery_unpaid=data.allow_delivery_unpaid if is_staff else False,
+        # «Ждём оплату» при создании (правки 2026-07-25, только staff)
+        shipment_override="hold" if (is_staff and data.shipment_hold) else None,
     )
     db.add(order)
     await db.flush()
@@ -930,6 +944,64 @@ async def ack_changes(
     order = await get_order(db, order_id, actor)
     order.pending_driver_ack = False
     order.pending_changed_fields = None
+    await db.flush()
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
+    return order
+
+
+async def set_shipment_override(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    mode: str,
+    actor: TokenUser,
+) -> Order:
+    """Перекрытие отгрузки (правки 2026-07-25): allow / hold / auto (сброс).
+
+    Только менеджер/админ. Пишется в status_log — видно, кто и когда
+    разрешил отгрузку без оплаты или поставил заявку на ожидание.
+    """
+    if actor.role not in (ROLE_MANAGER, ROLE_ADMIN):
+        raise ForbiddenError("Управлять отгрузкой может только менеджер или администратор")
+
+    order = await get_order(db, order_id, actor)
+    order.shipment_override = None if mode == "auto" else mode
+    label = {
+        "allow": "отгрузка разрешена вручную",
+        "hold": "ждём оплату (вручную)",
+        "auto": "отгрузка: автоматический режим",
+    }[mode]
+    db.add(OrderStatusLog(
+        order_id=order.id,
+        old_status=order.status,
+        new_status=order.status,
+        changed_by_id=actor.id,
+        changed_by_role=actor.role,
+        comment=label,
+    ))
+    await db.flush()
+
+    result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
+    order = result.scalar_one()
+    await attach_payment_totals_one(db, order)
+    await attach_buyer_name_one(order)
+    return order
+
+
+async def ack_comment(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> Order:
+    """Водитель подтверждает, что увидел комментарий к заявке (2026-07-25)."""
+    if actor.role != ROLE_DRIVER:
+        raise ForbiddenError("Подтвердить комментарий может только водитель")
+
+    order = await get_order(db, order_id, actor)
+    order.driver_comment_ack_at = datetime.now(timezone.utc)
     await db.flush()
 
     result = await db.execute(_with_logs(select(Order).where(Order.id == order.id)))
