@@ -18,6 +18,9 @@ class Order {
     this.clientComment,
     this.managerComment,
     this.buyerName,
+    this.shipmentAllowed = true,
+    this.shipmentOverride,
+    this.driverCommentAckAt,
   });
 
   final String id;
@@ -40,7 +43,24 @@ class Order {
   /// Имя организации или клиента-заказчика (веб d29807a) — null у физлица.
   final String? buyerName;
 
+  /// Отгрузка (правки 2026-07-25): можно ли водителю отгружать —
+  /// авто по оплате либо ручной режим менеджера.
+  final bool shipmentAllowed;
+
+  /// Ручной режим отгрузки: 'allow' | 'hold' | null (авто).
+  final String? shipmentOverride;
+
+  /// Когда водитель подтвердил комментарий к заявке (null — ещё нет).
+  final DateTime? driverCommentAckAt;
+
   bool get isIndividual => orderKind == 'individual';
+
+  /// Есть непустой комментарий, который водитель ещё не подтвердил
+  /// (правки 2026-07-25) — оранжевый «!» в списке и янтарный блок в детали.
+  bool get needsCommentAck =>
+      (clientComment?.isNotEmpty == true ||
+          managerComment?.isNotEmpty == true) &&
+      driverCommentAckAt == null;
 
   factory Order.fromJson(Map<String, dynamic> json) => Order(
     id: json['id'] as String,
@@ -68,6 +88,11 @@ class Order {
     clientComment: json['client_comment'] as String?,
     managerComment: json['manager_comment'] as String?,
     buyerName: json['buyer_name'] as String?,
+    shipmentAllowed: (json['shipment_allowed'] ?? true) as bool,
+    shipmentOverride: json['shipment_override'] as String?,
+    driverCommentAckAt: json['driver_comment_ack_at'] == null
+        ? null
+        : DateTime.tryParse(json['driver_comment_ack_at'] as String),
   );
 }
 
@@ -119,6 +144,9 @@ class OrderDetail extends Order {
     super.clientComment,
     super.managerComment,
     super.buyerName,
+    super.shipmentAllowed,
+    super.shipmentOverride,
+    super.driverCommentAckAt,
     this.clientId,
     this.managerId,
     this.organizationId,
@@ -182,6 +210,11 @@ class OrderDetail extends Order {
     clientComment: json['client_comment'] as String?,
     managerComment: json['manager_comment'] as String?,
     buyerName: json['buyer_name'] as String?,
+    shipmentAllowed: (json['shipment_allowed'] ?? true) as bool,
+    shipmentOverride: json['shipment_override'] as String?,
+    driverCommentAckAt: json['driver_comment_ack_at'] == null
+        ? null
+        : DateTime.tryParse(json['driver_comment_ack_at'] as String),
     clientId: json['client_id'] as String?,
     managerId: json['manager_id'] as String?,
     organizationId: json['organization_id'] as String?,

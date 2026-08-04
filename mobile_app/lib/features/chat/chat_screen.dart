@@ -356,7 +356,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       await ChatRepository.instance.sendAttachment(
         convId: widget.conversation.id,
         filePath: picked.path,
-        fileName: picked.name,
+        // Бэк определяет тип и MIME по расширению имени; pickVideo на
+        // Android может отдать имя без расширения — доклеиваем
+        // (правки 2026-07-25, видео не отправлялось).
+        fileName: _ensureExtension(picked, mediaType),
       );
       // Сообщение придёт по WS broadcast — добавится через _onWsFrame.
     } catch (e) {
@@ -368,6 +371,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  /// Гарантирует расширение в имени файла для аплоада: сервер отклоняет
+  /// вложения без известного расширения (415). pickVideo на Android может
+  /// вернуть XFile без расширения в имени — берём из пути, потом из mime,
+  /// в крайнем случае дефолт по типу медиа (правки 2026-07-25).
+  static String _ensureExtension(XFile picked, String mediaType) {
+    String extOf(String s) {
+      final base = s.split(RegExp(r'[\\/]')).last;
+      final dot = base.lastIndexOf('.');
+      return dot > 0 ? base.substring(dot).toLowerCase() : '';
+    }
+
+    final name = picked.name;
+    if (extOf(name).isNotEmpty) return name;
+    final fromPath = extOf(picked.path);
+    if (fromPath.isNotEmpty) return '$name$fromPath';
+    // Расширение из mime — как в _ATTACH_EXT_MIME на бэке.
+    const mimeExt = {
+      'video/mp4': '.mp4',
+      'video/quicktime': '.mov',
+      'video/webm': '.webm',
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+    };
+    final byMime = mimeExt[picked.mimeType?.toLowerCase()];
+    if (byMime != null) return '$name$byMime';
+    return '$name${mediaType == 'video' ? '.mp4' : '.jpg'}';
   }
 
   Future<String?> _showMediaTypeSheet() {
@@ -557,6 +589,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Картинка чата (правки 2026-07-25): менеджер/админ выбирает фото
+  /// из галереи → multipart POST /conversations/{id}/avatar
+  /// (jpg/png/webp до 5 МБ — проверяет бэк). После успеха — снекбар;
+  /// в списке чатов кружок обновится при следующей загрузке списка.
+  Future<void> _pickAndUploadAvatar() async {
+    try {
+      final picked = await _picker.pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+      await ChatRepository.instance.uploadAvatar(
+        convId: widget.conversation.id,
+        filePath: picked.path,
+        fileName: picked.name,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Картинка чата обновлена')));
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
   /// Очистить историю сообщений (admin, веб doClearConv, 2026-07-22).
   Future<void> _clearConversation() async {
     final ok = await showDialog<bool>(
@@ -696,38 +753,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.call_outlined),
             onPressed: _startCall,
           ),
-          // Управление диалогом (админ, веб archiveCurrentConv, 2026-07-22):
-          // очистить историю / удалить диалог полностью.
-          if (_myRole == 'admin')
+          // Управление диалогом (веб archiveCurrentConv, 2026-07-22):
+          // «Картинка чата» — менеджер и админ (правки 2026-07-25);
+          // очистить историю / удалить диалог — только админ.
+          if (_myRole == 'admin' || _myRole == 'manager')
             PopupMenuButton<String>(
               tooltip: 'Управление диалогом',
               onSelected: (v) => switch (v) {
+                'avatar' => _pickAndUploadAvatar(),
                 'clear' => _clearConversation(),
                 'delete' => _deleteConversation(),
                 _ => null,
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'clear',
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'avatar',
                   child: ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.cleaning_services_outlined),
-                    title: Text('Очистить историю'),
+                    leading: Icon(Icons.image_outlined),
+                    title: Text('Картинка чата'),
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.delete_outline, color: Colors.red),
-                    title: Text(
-                      'Удалить диалог',
-                      style: TextStyle(color: Colors.red),
+                if (_myRole == 'admin') ...const [
+                  PopupMenuItem(
+                    value: 'clear',
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.cleaning_services_outlined),
+                      title: Text('Очистить историю'),
                     ),
                   ),
-                ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline, color: Colors.red),
+                      title: Text(
+                        'Удалить диалог',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
         ],
@@ -969,11 +1039,19 @@ class _MessageBubble extends StatelessWidget {
     return Text(msg.text);
   }
 
+  /// Полная дата у каждого сообщения (правки 2026-07-25): «дд.мм чч:мм»,
+  /// а если год не текущий — «дд.мм.гг чч:мм».
   String _fmtTime(DateTime dt) {
     final local = dt.toLocal();
+    final d = local.day.toString().padLeft(2, '0');
+    final mo = local.month.toString().padLeft(2, '0');
     final h = local.hour.toString().padLeft(2, '0');
     final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+    if (local.year != DateTime.now().year) {
+      final y = (local.year % 100).toString().padLeft(2, '0');
+      return '$d.$mo.$y $h:$m';
+    }
+    return '$d.$mo $h:$m';
   }
 }
 

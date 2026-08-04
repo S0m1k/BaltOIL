@@ -93,6 +93,25 @@ class OrdersRepository {
     return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
   }
 
+  /// Менеджер/admin: режим отгрузки (правки 2026-07-25) —
+  /// 'allow' (разрешить вручную) | 'hold' (ждём оплату) | 'auto' (по оплате).
+  Future<OrderDetail> setShipment(String orderId, String mode) async {
+    final resp = await _dio.post(
+      '$_base/orders/$orderId/shipment',
+      data: {'mode': mode},
+    );
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  /// Водитель: подтвердить, что видел комментарий к заявке (2026-07-25).
+  Future<OrderDetail> ackComment(String orderId) async {
+    final resp = await _dio.post(
+      '$_base/orders/$orderId/ack-comment',
+      data: <String, dynamic>{},
+    );
+    return OrderDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
   /// Менеджер/admin: зафиксировать оплату.
   Future<void> recordPaymentManager({
     required String orderId,
@@ -381,6 +400,10 @@ class OrdersRepository {
     bool isTtnL = false,
     bool allowDeliveryUnpaid = false,
     String? organizationId,
+    // Правки 2026-07-25 (только staff): ручная стоимость доставки
+    // (null = автосчёт по зоне) и блокировка отгрузки «ждём оплату».
+    double? manualDeliveryCost,
+    bool shipmentHold = false,
   }) async {
     final resp = await _dio.post(
       '$_base/orders',
@@ -403,6 +426,10 @@ class OrdersRepository {
         if (allowDeliveryUnpaid) 'allow_delivery_unpaid': true,
         // «Оформить от имени» — организация клиента (веб: c-organization)
         if (organizationId != null) 'organization_id': organizationId,
+        // Отгрузка/доставка (правки 2026-07-25) — шлём только если заданы.
+        if (manualDeliveryCost != null)
+          'manual_delivery_cost': manualDeliveryCost,
+        if (shipmentHold) 'shipment_hold': true,
       },
     );
     return Order.fromJson(resp.data as Map<String, dynamic>);

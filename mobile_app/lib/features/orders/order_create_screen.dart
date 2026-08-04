@@ -67,6 +67,11 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   bool _isTtnL = false;
   bool _allowUnpaid = false;
 
+  // Правки 2026-07-25 (только staff): «Ждём оплату» блокирует отгрузку
+  // водителю (shipment_hold); ручная стоимость доставки — пусто = автосчёт.
+  bool _shipmentHold = false;
+  final _manualDeliveryCost = TextEditingController();
+
   // Разовый клиент (веб __oneoff__, правки 2026-07-11): имя+телефон,
   // всегда физлицо с оплатой по факту; дедуп по номеру на бэке.
   static const _kOneOffClientId = '__oneoff__';
@@ -174,6 +179,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     _managerComment.dispose();
     _oneOffName.dispose();
     _oneOffPhone.dispose();
+    _manualDeliveryCost.dispose();
     super.dispose();
   }
 
@@ -252,6 +258,11 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         if (contactName.isEmpty) contactName = ooName;
         if (contactPhone.isEmpty) contactPhone = ooPhone;
       }
+      // Ручная стоимость доставки (правки 2026-07-25): пусто = автосчёт.
+      final manualCostRaw = _manualDeliveryCost.text.trim();
+      final manualCost = manualCostRaw.isEmpty
+          ? null
+          : double.tryParse(manualCostRaw.replaceAll(',', '.'));
       await OrdersRepository.instance.create(
         fuelType: _fuelCode!,
         volume: double.parse(_volume.text.replaceAll(',', '.')),
@@ -267,6 +278,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         isTtnL: _isStaff && _isTtnL,
         allowDeliveryUnpaid: _isStaff && _allowUnpaid,
         organizationId: _organizationId,
+        manualDeliveryCost: _isStaff ? manualCost : null,
+        shipmentHold: _isStaff && _shipmentHold,
       );
       if (mounted) Navigator.of(context).pop(true);
     } on Object catch (e) {
@@ -602,6 +615,34 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         contentPadding: EdgeInsets.zero,
         controlAffinity: ListTileControlAffinity.leading,
         title: const Text('Долговая заявка (доставка без оплаты)'),
+      ),
+      // «Ждём оплату» (правки 2026-07-25): заявка создаётся с
+      // shipment_override='hold' — водитель видит красную плашку.
+      CheckboxListTile(
+        value: _shipmentHold,
+        onChanged: (v) => setState(() => _shipmentHold = v ?? false),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text('Ждём оплату (заблокировать отгрузку)'),
+      ),
+      const SizedBox(height: 8),
+      // Ручная стоимость доставки (правки 2026-07-25): пусто = автосчёт
+      // по зоне; заданное число уходит как manual_delivery_cost.
+      TextFormField(
+        controller: _manualDeliveryCost,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          labelText: 'Стоимость доставки вручную, ₽',
+          hintText: 'Пусто — автоматический расчёт',
+        ),
+        validator: (v) {
+          final t = (v ?? '').trim();
+          if (t.isEmpty) return null;
+          final n = double.tryParse(t.replaceAll(',', '.'));
+          if (n == null || n < 0) return 'Некорректная сумма';
+          return null;
+        },
       ),
       const Divider(height: 32),
     ];

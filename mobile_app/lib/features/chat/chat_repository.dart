@@ -151,7 +151,11 @@ class ChatRepository {
     final uploadResp = await _dio.post(
       '$_base/conversations/$convId/attachments',
       data: formData,
-      options: Options(receiveTimeout: const Duration(seconds: 60)),
+      // Правки 2026-07-25 (видео не отправлялось): у dio receiveTimeout
+      // отсчитывается от close() запроса, а тело большого файла ещё
+      // дозаливается из буферов сокета — 60 секунд не хватало видео.
+      // sendTimeout не ставим (без лимита), ответа ждём до 5 минут.
+      options: Options(receiveTimeout: const Duration(minutes: 5)),
     );
     final meta = uploadResp.data as Map<String, dynamic>;
     final msgType = meta['msg_type'] as String; // photo | video
@@ -163,6 +167,23 @@ class ChatRepository {
       data: {'text': originalName, 'msg_type': msgType, 'metadata': meta},
     );
     return ChatMessage.fromJson(msgResp.data as Map<String, dynamic>);
+  }
+
+  /// Картинка чата (правки 2026-07-25): менеджер/админ загружает
+  /// jpg/png/webp до 5 МБ — POST /conversations/{id}/avatar (multipart).
+  Future<void> uploadAvatar({
+    required String convId,
+    required String filePath,
+    required String fileName,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: fileName),
+    });
+    await _dio.post(
+      '$_base/conversations/$convId/avatar',
+      data: formData,
+      options: Options(receiveTimeout: const Duration(seconds: 60)),
+    );
   }
 
   /// Начать (или открыть) прямой чат по номеру телефона. Доступно всем ролям.

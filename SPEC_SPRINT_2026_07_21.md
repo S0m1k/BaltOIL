@@ -411,3 +411,42 @@ access-токен истекал, они получали 401 разом и КА
 
 **Деплой.** frontend — bind-mount (index.html подхватывается сразу);
 auth_service — restart (config.py), миграций нет.
+
+---
+
+# Часть N — Батч 9 правок заказчика (2026-07-25, веб+мобилка)
+
+Согласовано опросом: отгрузка — авто от оплаты + ручное перекрытие; согласование
+без автосчёта доставки — только клиентские заявки; админ видит все группы;
+дата — полная у каждого сообщения.
+
+1. **Согласование**: клиентская заявка (физик/юрлицо) с нерассчитанной
+   доставкой (нет зоны) → AWAITING_MANAGER. Staff-заявки — нет: staff вводит
+   стоимость сам — новое поле «Стоимость доставки вручную» (manual_delivery_cost,
+   перекрывает автосчёт; ГОТЧА: recompute при правке объёма пересчитает зонально).
+2. **Даты сообщений**: fmtTime/_fmtTime → «дд.мм чч:мм» (чужой год — с годом).
+3. **Видео в чате мобилки** — Ф: (а) receiveTimeout 60с в sendAttachment резал
+   аплоад больших видео (dio вешает его на request.close()) → 5 мин;
+   (б) pickVideo на Android отдаёт имя без расширения → 415 от _ATTACH_EXT_MIME
+   → _ensureExtension (имя→путь→mime→.mp4/.jpg).
+4. **Аватарка чата**: chat мигр.0007 avatar_path; POST/GET
+   /conversations/{id}/avatar (staff, jpg/png/webp ≤5МБ, файл в media/chat/{id}/,
+   старый удаляется). Веб: кружок в списке (blob c Bearer — <img> токен не шлёт),
+   кнопка в шапке. Мобилка: Image.network с Authorization-header.
+5. **Отгрузка**: order мигр.0023 shipment_override(allow|hold|NULL).
+   shipment_allowed вычисляется в _attach_one: override → в долг → on_delivery
+   (физик) → paid/overpaid → частичная без долга. Водителю бейдж в списке
+   (зел/красн, кроме delivered/cancelled). POST /orders/{id}/shipment
+   {mode: allow|hold|auto} (staff, лог в status_log). Кнопки в карточке.
+6. **При создании staff**: чекбокс «Ждём оплату» (shipment_hold→override=hold)
+   + «в долг» (был).
+7. **Админ-модерация**: list_conversations и _check_access пускают админа во
+   ВСЕ приватные группы (менеджеры/водители — по-прежнему только участники).
+8. **Комментарий водителю**: мигр.0023 driver_comment_ack_at; POST
+   /orders/{id}/ack-comment (driver). Подсветка янтарным + кнопка
+   «! Комментарий увидел», «!» в списке (в т.ч. закрытые), пока не подтвердил.
+9. **Водитель в заявке**: ФИО из справочника водителей (веб _allDrivers
+   в loadOrders; мобилка listByRole('driver') в детали) вместо UUID.
+
+Деплой: выполнен (order 0021→0023 авто, chat 0006→0007, health ok, フ frontend
+bind-mount). Мобилка — субагент, analyze 0 errors, APK 1.1.0+2.

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_config.dart';
+import '../../core/token_storage.dart';
 import '../auth/auth_repository.dart';
 import 'chat_models.dart';
 import 'chat_repository.dart';
@@ -55,11 +57,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   CurrentUser? _user;
   String _folder = 'all';
 
+  /// Bearer для загрузки аватарок чатов через Image.network
+  /// (правки 2026-07-25): грузим один раз, чтобы не дёргать storage на тайл.
+  String? _token;
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadUser();
+    TokenStorage.instance.accessToken.then((t) {
+      if (mounted) setState(() => _token = t);
+    });
   }
 
   void _load() {
@@ -361,6 +370,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, i) => _ConvTile(
                       conv: sorted[i],
+                      token: _token,
                       onTap: () => _openChat(sorted[i]),
                     ),
                   );
@@ -375,24 +385,19 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 }
 
 class _ConvTile extends StatelessWidget {
-  const _ConvTile({required this.conv, required this.onTap});
+  const _ConvTile({required this.conv, required this.onTap, this.token});
   final Conversation conv;
   final VoidCallback onTap;
+
+  /// Bearer-токен для загрузки аватарки (правки 2026-07-25).
+  final String? token;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final subtitle = conv.lastMessage?.text ?? '';
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.primaryContainer,
-        child: Text(
-          conv.displayTitle.isNotEmpty
-              ? conv.displayTitle[0].toUpperCase()
-              : '?',
-          style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
-        ),
-      ),
+      leading: _ConvAvatar(conv: conv, token: token),
       title: Row(
         children: [
           if (conv.isPinned)
@@ -428,6 +433,41 @@ class _ConvTile extends StatelessWidget {
             )
           : null,
       onTap: onTap,
+    );
+  }
+}
+
+/// Кружок 40px слева от названия (правки 2026-07-25): картинка чата,
+/// если менеджер её установил (avatar_path), иначе первая буква названия.
+class _ConvAvatar extends StatelessWidget {
+  const _ConvAvatar({required this.conv, this.token});
+
+  final Conversation conv;
+  final String? token;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final letter = CircleAvatar(
+      backgroundColor: theme.colorScheme.primaryContainer,
+      child: Text(
+        conv.displayTitle.isNotEmpty
+            ? conv.displayTitle[0].toUpperCase()
+            : '?',
+        style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
+      ),
+    );
+    if (conv.avatarPath == null || token == null) return letter;
+    // Картинка отдаётся только с Bearer — передаём заголовок вручную.
+    return ClipOval(
+      child: Image.network(
+        '${AppConfig.chatBase}/conversations/${conv.id}/avatar',
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        headers: {'Authorization': 'Bearer $token'},
+        errorBuilder: (_, _, _) => letter,
+      ),
     );
   }
 }

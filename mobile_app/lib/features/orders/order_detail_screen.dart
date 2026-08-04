@@ -81,6 +81,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   Future<List<OrderDocument>>? _docsFuture;
   bool _busy = false;
 
+  /// Справочник водителей для строки «Водитель: ФИО» (правки 2026-07-25) —
+  /// staff-only, грузится один раз при открытии детали.
+  List<UserBrief>? _drivers;
+
   bool get _isStaff =>
       widget.user.role == 'manager' || widget.user.role == 'admin';
   bool get _isClient => widget.user.role == 'client';
@@ -94,6 +98,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   void initState() {
     super.initState();
     _load();
+    if (_isStaff) {
+      // ФИО водителя в карточке (2026-07-25); ошибка не критична —
+      // останется фолбэк из первых символов id.
+      AuthRepository.instance.listByRole('driver').then((list) {
+        if (mounted) setState(() => _drivers = list);
+      }).catchError((_) {});
+    }
+  }
+
+  /// ФИО водителя по id из справочника; фолбэк — первые 8 символов id.
+  String _driverName(String driverId) {
+    final hit = _drivers?.where((d) => d.id == driverId).firstOrNull;
+    if (hit != null && hit.fullName.isNotEmpty) return hit.fullName;
+    return driverId.length > 8 ? driverId.substring(0, 8) : driverId;
   }
 
   void _load() {
@@ -529,6 +547,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     });
   }
 
+  /// Менеджер/админ: переключить режим отгрузки (правки 2026-07-25).
+  Future<void> _setShipment(OrderDetail order, String mode) => _run(() async {
+    await OrdersRepository.instance.setShipment(order.id, mode);
+    _snack('Режим отгрузки обновлён');
+    _reload();
+  });
+
+  /// Водитель: подтвердить, что видел комментарий (правки 2026-07-25).
+  Future<void> _driverAckComment(OrderDetail order) => _run(() async {
+    await OrdersRepository.instance.ackComment(order.id);
+    _snack('Комментарий подтверждён');
+    _reload();
+  });
+
   // Driver actions (reusing same repo calls as driver_orders_screen)
 
   Future<void> _driverClaim(OrderDetail order) => _run(() async {
@@ -742,8 +774,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           _buildHeader(context, order, c),
           const SizedBox(height: 12),
           _buildDetailsGrid(context, order, c),
+          // Комментарий для водителя (правки 2026-07-25): янтарный блок
+          // с кнопкой подтверждения, пока водитель не нажал «увидел».
+          if (_driverAckNeeded(order)) ...[
+            const SizedBox(height: 12),
+            _buildCommentAckBlock(context, order, c),
+          ],
           const SizedBox(height: 12),
           _buildPaymentSummary(context, order, c),
+          // Блок «Отгрузка» для staff (правки 2026-07-25).
+          if (_isStaff) ...[
+            const SizedBox(height: 12),
+            _buildShipmentBlock(context, order, c),
+          ],
           const SizedBox(height: 12),
           _buildActionBar(context, order, c),
           const SizedBox(height: 16),
@@ -961,6 +1004,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
 
     if (_isStaff && order.driverId != null) {
+      // ФИО водителя (правки 2026-07-25) — из справочника listByRole('driver');
+      // пока не загрузился или не нашёлся — первые 8 символов id.
+      rows.add(
+        _DetailRow(label: 'Водитель', text: _driverName(order.driverId!)),
+      );
       rows.add(
         _DetailRow(
           label: 'Водитель (ID)',
@@ -969,13 +1017,17 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       );
     }
 
-    if (order.clientComment?.isNotEmpty == true) {
+    // Комментарии: у водителя до подтверждения показываются в янтарном
+    // блоке с кнопкой (правки 2026-07-25) — тут не дублируем.
+    final inAckBlock = _driverAckNeeded(order);
+
+    if (!inAckBlock && order.clientComment?.isNotEmpty == true) {
       rows.add(
         _DetailRow(label: 'Комментарий клиента', text: order.clientComment!),
       );
     }
 
-    if (order.managerComment?.isNotEmpty == true) {
+    if (!inAckBlock && order.managerComment?.isNotEmpty == true) {
       rows.add(
         _DetailRow(label: 'Комментарий менеджера', text: order.managerComment!),
       );
@@ -1128,6 +1180,151 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  // ── Отгрузка (staff, правки 2026-07-25) ──────────────────────────────────
+
+  static const _kShipGreen = Color(0xFF10B981);
+
+  Widget _buildShipmentBlock(
+    BuildContext context,
+    OrderDetail order,
+    AppColors c,
+  ) {
+    final allowed = order.shipmentAllowed;
+    final color = allowed ? _kShipGreen : c.red;
+    final manual = order.shipmentOverride != null;
+    return _Section(
+      title: 'Отгрузка',
+      colors: c,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                allowed ? Icons.check_circle_outline : Icons.hourglass_top,
+                size: 16,
+                color: color,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${allowed ? 'Отгрузка разрешена' : 'Ждём оплату'} '
+                  '${manual ? '(вручную)' : '(авто)'}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (order.shipmentOverride != 'allow')
+                _ActionBtn(
+                  label: 'Разрешить отгрузку',
+                  icon: Icons.check,
+                  color: _kShipGreen,
+                  onTap: _busy ? null : () => _setShipment(order, 'allow'),
+                ),
+              if (order.shipmentOverride != 'hold')
+                _ActionBtn(
+                  label: 'Ждём оплату',
+                  icon: Icons.front_hand,
+                  color: c.red,
+                  onTap: _busy ? null : () => _setShipment(order, 'hold'),
+                ),
+              if (order.shipmentOverride != null)
+                _ActionBtn(
+                  label: 'Авто',
+                  icon: Icons.autorenew,
+                  color: c.text2,
+                  onTap: _busy ? null : () => _setShipment(order, 'auto'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Комментарий для водителя (правки 2026-07-25) ─────────────────────────
+
+  static const _kAmber = Color(0xFFF59E0B);
+
+  /// Водителю нужно подтвердить комментарий: есть непустой комментарий
+  /// клиента/менеджера и driver_comment_ack_at ещё пуст.
+  bool _driverAckNeeded(OrderDetail order) =>
+      widget.user.role == 'driver' && order.needsCommentAck;
+
+  Widget _buildCommentAckBlock(
+    BuildContext context,
+    OrderDetail order,
+    AppColors c,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kAmber.withValues(alpha: 0.10),
+        border: Border.all(color: _kAmber),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.priority_high, size: 16, color: _kAmber),
+              SizedBox(width: 6),
+              Text(
+                'Комментарий к заявке',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _kAmber,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (order.clientComment?.isNotEmpty == true)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                'Клиент: ${order.clientComment}',
+                style: TextStyle(fontSize: 13, color: c.text),
+              ),
+            ),
+          if (order.managerComment?.isNotEmpty == true)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                'Менеджер: ${order.managerComment}',
+                style: TextStyle(fontSize: 13, color: c.text),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: _kAmber,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _busy ? null : () => _driverAckComment(order),
+              icon: const Icon(Icons.visibility_outlined, size: 16),
+              label: const Text('! Комментарий увидел'),
+            ),
+          ),
         ],
       ),
     );

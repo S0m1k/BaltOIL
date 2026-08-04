@@ -110,6 +110,7 @@ class Conversation {
     this.peerPhone,
     this.peerId,
     this.peerRole,
+    this.avatarPath,
   });
 
   final String id;
@@ -131,6 +132,10 @@ class Conversation {
   final String? peerId;
   final String? peerRole;
   final bool isPinned;
+
+  /// Картинка чата (правки 2026-07-25): имя файла на бэке или null.
+  /// Сама картинка отдаётся GET /conversations/{id}/avatar (нужен Bearer).
+  final String? avatarPath;
 
   /// Человекочитаемое название диалога (fallback: kind).
   String get displayTitle {
@@ -170,6 +175,7 @@ class Conversation {
       peerId: json['peer_id']?.toString(),
       peerRole: json['peer_role'] as String?,
       isPinned: (json['is_pinned'] ?? false) as bool,
+      avatarPath: json['avatar_path'] as String?,
     );
   }
 }

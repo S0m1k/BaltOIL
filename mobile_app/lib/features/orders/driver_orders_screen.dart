@@ -394,6 +394,49 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// Плашка «Отгрузка разрешена» / «Ждём оплату» на карточке списка
+/// (правки 2026-07-25): зелёная #10B981 или красная — по shipment_allowed.
+class _ShipmentBadge extends StatelessWidget {
+  const _ShipmentBadge({required this.allowed});
+
+  final bool allowed;
+
+  static const _green = Color(0xFF10B981);
+  static const _red = Color(0xFFDC2626);
+
+  @override
+  Widget build(BuildContext context) {
+    final color = allowed ? _green : _red;
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            allowed ? Icons.check_circle_outline : Icons.hourglass_top,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            allowed ? 'Отгрузка разрешена' : 'Ждём оплату',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DriverOrderCard extends StatelessWidget {
   const _DriverOrderCard({
     required this.order,
@@ -428,6 +471,20 @@ class _DriverOrderCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                // Оранжевый «!» — водитель ещё не подтвердил комментарий
+                // (правки 2026-07-25); виден и на доставленных/отменённых.
+                if (order.needsCommentAck)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 4),
+                    child: Text(
+                      '!',
+                      style: TextStyle(
+                        color: Color(0xFFF59E0B),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: Text(
                     '№${order.orderNumber} — ${FuelCatalog.label(order.fuelType)}, '
@@ -464,6 +521,10 @@ class _DriverOrderCard extends StatelessWidget {
                 ),
               ],
             ),
+            // Плашка отгрузки (правки 2026-07-25): по активным заявкам
+            // водитель сразу видит, можно ли отгружать или ждём оплату.
+            if (order.status != 'delivered' && order.status != 'cancelled')
+              _ShipmentBadge(allowed: order.shipmentAllowed),
             const SizedBox(height: 4),
             Text(order.deliveryAddress),
             if (order.desiredDate != null)
