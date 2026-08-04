@@ -448,5 +448,5 @@ auth_service — restart (config.py), миграций нет.
 9. **Водитель в заявке**: ФИО из справочника водителей (веб _allDrivers
    в loadOrders; мобилка listByRole('driver') в детали) вместо UUID.
 
-Деплой: выполнен (order 0021→0023 авто, chat 0006→0007, health ok, フ frontend
+Деплой: выполнен (order 0021→0023 авто, chat 0006→0007, health ok, frontend
 bind-mount). Мобилка — субагент, analyze 0 errors, APK 1.1.0+2.
