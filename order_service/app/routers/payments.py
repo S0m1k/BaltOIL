@@ -89,6 +89,25 @@ async def record_payment(
     )
 
 
+class CancelPaymentRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/{payment_id}/cancel", response_model=PaymentResponse)
+async def cancel_payment(
+    payment_id: uuid.UUID,
+    data: CancelPaymentRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Отменить платёж (правки 2026-08-12, менеджер/админ): например, заявку
+    разделили на две и оплата зафиксирована не там. payment_status заявки
+    пересчитывается автоматически."""
+    return await payment_service.cancel_payment(
+        db, payment_id, current_user, reason=data.reason,
+    )
+
+
 class InvoiceRequest(BaseModel):
     basis: str = "requested"  # "requested" — предоплата, "delivered" — по факту
 

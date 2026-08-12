@@ -13,6 +13,7 @@ from sqlalchemy import select, and_, func
 log = logging.getLogger(__name__)
 
 from app.models.order import Order, OrderStatus, OrderKind, PaymentType
+from app.models.order_status_log import OrderStatusLog
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -168,6 +169,50 @@ async def attach_payment_totals_one(db: AsyncSession, order: Order) -> None:
     """Прикрепить к одной заявке."""
     paid = await get_paid_total(db, order.id)
     _attach_one(order, paid)
+
+
+async def cancel_payment(
+    db: AsyncSession,
+    payment_id: uuid.UUID,
+    actor: TokenUser,
+    reason: str | None = None,
+) -> Payment:
+    """Отменить платёж (правки 2026-08-12): заявку разделили/оплата зафиксирована
+    ошибочно — платёж помечается CANCELLED, payment_status заявки пересчитывается
+    (оплачено → не оплачено/частично). Только менеджер/админ; след — в notes
+    платежа и в истории статусов заявки.
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Отменить платёж может только менеджер или администратор")
+
+    payment = await db.get(Payment, payment_id)
+    if payment is None:
+        raise NotFoundError("Платёж не найден")
+    if payment.status == PaymentStatus.CANCELLED:
+        return payment  # идемпотентно
+
+    order = await db.get(Order, payment.order_id)
+    if order is None:
+        raise NotFoundError("Заявка платежа не найдена")
+
+    payment.status = PaymentStatus.CANCELLED
+    mark = f"отменён ({actor.role}) {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M')}"
+    if reason:
+        mark += f": {reason}"
+    payment.notes = f"{payment.notes} | {mark}" if payment.notes else mark
+
+    new_status = await recompute_and_save(db, order)
+    db.add(OrderStatusLog(
+        order_id=order.id,
+        from_status=order.status,
+        to_status=order.status,
+        changed_by_id=actor.id,
+        changed_by_role=actor.role,
+        comment=f"платёж {float(payment.amount):.2f} ₽ отменён, оплата: {new_status}",
+    ))
+    await db.commit()
+    await db.refresh(payment)
+    return payment
 
 
 async def recompute_and_save(db: AsyncSession, order: Order) -> str:
