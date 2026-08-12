@@ -976,8 +976,8 @@ async def set_shipment_override(
     }[mode]
     db.add(OrderStatusLog(
         order_id=order.id,
-        old_status=order.status,
-        new_status=order.status,
+        from_status=order.status,
+        to_status=order.status,
         changed_by_id=actor.id,
         changed_by_role=actor.role,
         comment=label,

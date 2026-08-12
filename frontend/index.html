@@ -5463,6 +5463,10 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
     // F1 (правка 2026-06-24): дублировать заявку — например, разбить заявку >3000 л на две
     btns.push(`<button class="btn btn-sm btn-ghost" onclick="duplicateOrder('${o.id}')">${icon('copy',14)} Дублировать</button>`);
+    // Платежи заявки (правки 2026-08-12): просмотр и отмена ошибочных платежей
+    // (например, заявку разделили, а оплата зафиксирована на старой)
+    if ((o.paid_total || 0) > 0 || paymentStatusDisplay(o.payment_status || 'unpaid') === 'paid')
+      btns.push(`<button class="btn btn-sm btn-ghost" onclick="showOrderPayments('${o.id}','${escHtml(o.order_number||'')}')">${icon('wallet',14)} Платежи</button>`);
   }
 
   if (role === 'driver') {
@@ -5999,6 +6003,50 @@ function promptReschedule(orderId, orderNumber) {
       }
     }
   );
+}
+
+// Платежи заявки (правки 2026-08-12): список + отмена ошибочного платежа.
+// Кейс заказчика: заявку разделили на две, а оплата уже зафиксирована на
+// исходной — отмена платежа возвращает «не оплачено» и правильный долг.
+async function showOrderPayments(orderId, orderNumber) {
+  openModal(`Платежи · ${orderNumber}`, '<div class="loading"></div>', null);
+  const body = document.getElementById('modal-body');
+  document.getElementById('modal-confirm').style.display = 'none';
+  const METHOD_RU = { cash: 'Наличные', card: 'Карта', bank_transfer: 'Банковский перевод', invoice: 'Счёт', other: 'Другое' };
+  const STATUS_RU = { paid: ['Оплачен', '#10b981'], pending: ['Ожидает', 'var(--amber)'], cancelled: ['Отменён', 'var(--text3)'] };
+  try {
+    const pays = await orderGet(`/payments?order_id=${orderId}&limit=100`);
+    if (!Array.isArray(pays) || !pays.length) {
+      body.innerHTML = '<div class="empty-state" style="padding:20px">Платежей по заявке нет</div>';
+      return;
+    }
+    body.innerHTML = pays.map(p => {
+      const [label, color] = STATUS_RU[p.status] || [p.status, 'var(--text2)'];
+      const canCancel = p.status !== 'cancelled';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700">${Number(p.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽
+            <span style="font-weight:400;color:${color};font-size:11px;margin-left:6px">${label}</span></div>
+          <div style="font-size:11px;color:var(--text3)">${fmtDate(p.created_at)} · ${METHOD_RU[p.method] || p.method}${p.notes ? ' · ' + escHtml(p.notes) : ''}</div>
+        </div>
+        ${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelPayment('${p.id}','${orderId}','${escHtml(orderNumber)}')">Отменить</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function cancelPayment(paymentId, orderId, orderNumber) {
+  if (!confirm('Отменить платёж? Статус оплаты заявки пересчитается.')) return;
+  try {
+    await orderPost(`/payments/${paymentId}/cancel`, {});
+    toast('Платёж отменён');
+    await loadOrders();
+    showOrderPayments(orderId, orderNumber); // обновить список в модале
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  }
 }
 
 // Manager/admin records an actual payment against an order.
