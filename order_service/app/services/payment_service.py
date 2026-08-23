@@ -233,6 +233,13 @@ async def recompute_and_save(db: AsyncSession, order: Order) -> str:
 
     status = compute_payment_status(paid_total, expected, final)
     order.payment_status = status
+    # Ручной «ждём оплату» снимается сам, когда деньги пришли (правки 2026-08-12):
+    # смысл флага — дождаться оплаты, поэтому держать его на оплаченной заявке
+    # незачем — водитель иначе видел красное «ждём оплату» по оплаченной заявке.
+    # Блокировку можно вернуть кнопкой «Ждём оплату» вручную.
+    if status in ("paid", "overpaid") and order.shipment_override == "hold":
+        order.shipment_override = None
+        log.info("order=%s: hold снят автоматически (оплачено)", order.id)
     log.debug(
         "recompute_and_save: order=%s paid_total=%s expected=%s final=%s → %s",
         order.id, paid_total, expected, final, status,
