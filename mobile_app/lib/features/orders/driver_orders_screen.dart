@@ -521,11 +521,19 @@ class _DriverOrderCard extends StatelessWidget {
                 ),
               ],
             ),
-            // Плашка отгрузки (правки 2026-07-25): по активным заявкам
-            // водитель сразу видит, можно ли отгружать или ждём оплату.
-            if (order.status != 'delivered' && order.status != 'cancelled')
+            // Плашка отгрузки (правки 2026-07-25, уточнено 2026-08-12):
+            // только по ВЗЯТЫМ заявкам — на бирже «Свободные заявки» она лишняя
+            // (водитель ещё не везёт этот груз и красный бейдж только пугает).
+            if (order.driverId != null &&
+                order.status != 'delivered' &&
+                order.status != 'cancelled')
               _ShipmentBadge(allowed: order.shipmentAllowed),
             const SizedBox(height: 4),
+            // Заказчик (организация/клиент) — водителю важно, к кому едет
+            // (правки 2026-08-12: в карточке водителя не выводился).
+            if (order.buyerName?.isNotEmpty == true)
+              Text(order.buyerName!,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
             Text(order.deliveryAddress),
             if (order.desiredDate != null)
               Text(
