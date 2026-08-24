@@ -5165,7 +5165,9 @@ async function loadDocs(orderId) {
       return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <div style="font-size:18px;flex-shrink:0">${icon('file-text',18)}</div>
         <div style="flex:1;min-width:140px">
-          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.display_number || d.doc_number)}</span></div>
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.display_number || d.doc_number)}</span>${isStaff ? `
+            <button class="btn-icon" title="Переименовать документ" style="border:none;background:none;cursor:pointer;padding:0 2px;font-size:12px;vertical-align:middle"
+              onclick="renameDoc('${orderId}','${d.id}','${escHtml(d.display_number || d.doc_number)}')">✏️</button>` : ''}</div>
           <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
         </div>
         ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
@@ -5265,11 +5267,37 @@ async function generateInvoice(orderId, docType, btn) {
   }
 }
 
+// Переименование документа (правки 2026-08-24): ручное имя перекрывает
+// авто-«166 ОТК» везде — файл, чат, письмо, списки. Пустой ввод = вернуть авто.
+async function renameDoc(orderId, docId, current, isRegistry) {
+  const name = prompt('Название документа (пусто — вернуть автоматическое):', current || '');
+  if (name === null) return;
+  try {
+    await orderPatch(`/orders/${orderId}/documents/${docId}`, { display_name: name.trim() });
+    toast('Название сохранено', 'success');
+    if (isRegistry) { ccLoadDocs(); } else { loadDocs(orderId); }
+  } catch (e) {
+    toast('Не удалось переименовать: ' + e.message, 'error');
+  }
+}
+
+// Имя файла из Content-Disposition (сервер шлёт «166 ОТК.pdf» по RFC 5987).
+// Без заголовка возвращаем fallback — старую схему document_<id>.
+function _filenameFromDisposition(r, fallback) {
+  const cd = r.headers.get('Content-Disposition') || '';
+  const star = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  if (star) { try { return decodeURIComponent(star[1].trim()); } catch (e) { /* ignore */ } }
+  const plain = cd.match(/filename="?([^";]+)"?/i);
+  if (plain) return plain[1].trim();
+  return fallback;
+}
+
 function downloadDoc(orderId, docId) {
   const token = localStorage.getItem('access_token');
   const url = `${ORDER_URL}/orders/${orderId}/documents/${docId}/download`;
+  let fname = `document_${docId.slice(0,8)}.pdf`;
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); fname = _filenameFromDisposition(r, fname); return r.blob(); })
     .then(blob => {
       // Защита от misroute: если вернулся не PDF (напр. SPA index.html) — не сохраняем «битый» файл.
       if (blob.type && blob.type.indexOf('pdf') === -1) {
@@ -5295,14 +5323,15 @@ function _extFromMime(t) {
 function downloadDocExport(orderId, docId) {
   const token = localStorage.getItem('access_token');
   const url = `${ORDER_URL}/orders/${orderId}/documents/${docId}/export`;
+  let fname = null;
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); fname = _filenameFromDisposition(r, null); return r.blob(); })
     .then(blob => {
       const ext = _extFromMime(blob.type);
       if (ext === 'bin') throw new Error('сервер вернул неизвестный формат (' + (blob.type || '?') + ')');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `document_${docId.slice(0,8)}.${ext}`;
+      a.download = fname || `document_${docId.slice(0,8)}.${ext}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
@@ -10637,7 +10666,9 @@ function _ccDocsRender(docs, typeFilter) {
       ${filtered.map(d => `
         <tr>
           <td>${escHtml(CC_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)}</td>
-          <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.display_number || d.doc_number)}</td>
+          <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.display_number || d.doc_number)}
+            <button class="btn-icon" title="Переименовать документ" style="border:none;background:none;cursor:pointer;padding:0 2px;font-size:11px"
+              onclick="event.stopPropagation();renameDoc('${d.order_id}','${d.id}','${escHtml(d.display_number || d.doc_number)}',true)">✏️</button></td>
           <td><span class="status-badge">${escHtml(CC_DOC_STATUS_LABELS[d.status] || d.status)}</span></td>
           <td style="white-space:nowrap">${d.issued_at ? fmtDate(d.issued_at) : fmtDate(d.created_at)}</td>
           <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>

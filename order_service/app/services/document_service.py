@@ -186,14 +186,22 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
     return f"{prefix}-{year}-{seq2:06d}"
 
 
-def document_display_name(doc_type, doc_number: str | None, buyer_snapshot: dict | None) -> str:
+def document_display_name(
+    doc_type,
+    doc_number: str | None,
+    buyer_snapshot: dict | None,
+    override: str | None = None,
+) -> str:
     """Отображаемое имя документа (правки 2026-08-24).
 
-    Для счетов: «{номер без ведущих нулей} {короткое имя покупателя}» — «166 ОТК».
-    Для остальных типов — номер как есть. Используется для имени PDF-файла,
-    вложения письма, подписи в чате и в списках документов на фронте.
+    Приоритет: ручное имя (Document.display_name, задаёт админ/менеджер) →
+    для счетов авто-«{номер без ведущих нулей} {короткое имя покупателя}»
+    («166 ОТК») → номер как есть. Используется для имени PDF-файла, вложения
+    письма, подписи в чате и в списках документов на фронте.
     Официальный номер ВНУТРИ PDF не меняется.
     """
+    if override and override.strip():
+        return override.strip()
     dtype = doc_type.value if hasattr(doc_type, "value") else str(doc_type)
     number = str(doc_number or "")
     if dtype not in _INVOICE_DOC_TYPE_VALUES:
@@ -909,7 +917,10 @@ async def regenerate_invoice(
         pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
         file_path = _save_pdf(
             order.id,
-            document_display_name(DocumentType.INVOICE, existing.doc_number, buyer),
+            document_display_name(
+                DocumentType.INVOICE, existing.doc_number, buyer,
+                override=existing.display_name,
+            ),
             pdf_bytes,
         )
         existing.file_path = file_path
@@ -1062,7 +1073,9 @@ async def send_document_to_chat(
         doc_type_value = doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type
         doc_type_label = _DOC_TYPE_LABELS_RU.get(doc_type_value, "Документ")
         # Подпись документа в чате — отображаемое имя («Счёт 166 ОТК»)
-        doc_display = document_display_name(doc.doc_type, doc.doc_number, doc.buyer_snapshot)
+        doc_display = document_display_name(
+            doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
+        )
         msg_text = f"📄 {doc_type_label} {doc_display} по заявке {order.order_number}"
 
         r3 = await client.post(
@@ -1134,7 +1147,9 @@ async def send_document_by_email(db: AsyncSession, order: Order, doc: Document) 
     pdf_bytes = full_path.read_bytes()
     content_b64 = base64.b64encode(pdf_bytes).decode()
 
-    doc_display = document_display_name(doc.doc_type, doc.doc_number, doc.buyer_snapshot)
+    doc_display = document_display_name(
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
+    )
     subject = f"Документ {doc_display} по заявке {order.order_number}"
     body_text = (
         "Здравствуйте,\n\n"

@@ -75,6 +75,16 @@ def _date_conditions(date_from: datetime | None, date_to: datetime | None):
     return conds
 
 
+# Решение заказчика 24.08.2026: отменённые и архивные заявки в финансах не
+# считаем НИГДЕ — ни в сводке, ни в списке платежей, ни в выгрузке. Раньше
+# сводка их исключала, а платежи/выгрузка включали — числа не бились.
+def _active_order_conds():
+    return [
+        Order.is_archived == False,  # noqa: E712
+        Order.status != OrderStatus.CANCELLED,
+    ]
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/summary", response_model=PaymentSummary)
@@ -92,9 +102,8 @@ async def get_summary(
         order_conds.append(Order.created_at >= date_from)
     if date_to:
         order_conds.append(Order.created_at <= date_to)
-    order_conds.append(Order.is_archived == False)  # noqa: E712
-    # Отклонённые заявки не учитываем в финансовых ожиданиях
-    order_conds.append(Order.status != OrderStatus.CANCELLED)
+    # Отклонённые/архивные заявки не учитываем в финансовых ожиданиях
+    order_conds.extend(_active_order_conds())
 
     orders_q = select(Order)
     if order_conds:
@@ -115,14 +124,16 @@ async def get_summary(
         by_type[key] = by_type.get(key, 0) + 1
 
     # Суммы платежей за период (фильтр по дате создания платежа)
-    pay_conds = _date_conditions(date_from, date_to)
-    paid_q = select(func.coalesce(func.sum(Payment.amount), 0)).where(
-        Payment.status == PaymentStatus.PAID,
-        *pay_conds,
+    pay_conds = _date_conditions(date_from, date_to) + _active_order_conds()
+    paid_q = (
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .join(Order, Order.id == Payment.order_id)
+        .where(Payment.status == PaymentStatus.PAID, *pay_conds)
     )
-    pending_q = select(func.coalesce(func.sum(Payment.amount), 0)).where(
-        Payment.status == PaymentStatus.PENDING,
-        *pay_conds,
+    pending_q = (
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .join(Order, Order.id == Payment.order_id)
+        .where(Payment.status == PaymentStatus.PENDING, *pay_conds)
     )
     paid_sum = float((await db.execute(paid_q)).scalar() or 0)
     pending_sum = float((await db.execute(pending_q)).scalar() or 0)
@@ -173,7 +184,7 @@ async def list_payments(
     limit:  int = Query(100, ge=1, le=500),
 ):
     """Список платежей с фильтрацией — для таблицы на вкладке Финансы."""
-    conds = _date_conditions(date_from, date_to)
+    conds = _date_conditions(date_from, date_to) + _active_order_conds()
     if status:
         conds.append(Payment.status == status)
 
@@ -223,7 +234,7 @@ async def export_xlsx(
     date_to:   datetime | None = Query(None),
 ):
     """Выгрузка платежей за период в Excel (.xlsx)."""
-    conds = _date_conditions(date_from, date_to)
+    conds = _date_conditions(date_from, date_to) + _active_order_conds()
     q = (
         select(Payment, Order)
         .join(Order, Order.id == Payment.order_id)

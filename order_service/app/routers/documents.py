@@ -63,7 +63,7 @@ class DocumentResponse(BaseModel):
 def _with_display(doc):
     """Проставить display_number на объект документа перед сериализацией."""
     doc.display_number = document_service.document_display_name(
-        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
     )
     return doc
 
@@ -152,7 +152,7 @@ async def download_document(
     # Имя файла — отображаемое («166 ОТК.pdf»). Кириллица в HTTP-заголовке
     # только через RFC 5987, иначе UnicodeEncodeError (заголовки — latin-1).
     display = document_service.document_display_name(
-        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
     )
     return FileResponse(
         path=str(full_path),
@@ -188,13 +188,49 @@ async def export_document(
         raise ValidationError(str(exc))
 
     display = document_service.document_display_name(
-        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
     )
     return Response(
         content=content,
         media_type=mime,
         headers={"Content-Disposition": content_disposition_attachment(f"{display}.{ext}")},
     )
+
+
+class RenameDocumentRequest(BaseModel):
+    # Пустая строка / null — вернуть авто-имя («166 ОТК»).
+    display_name: str | None = None
+
+
+@router.patch("/{document_id}", response_model=DocumentResponse)
+async def rename_document(
+    order_id: uuid.UUID,
+    document_id: uuid.UUID,
+    data: RenameDocumentRequest,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Переименовать документ (правки 2026-08-24).
+
+    Ручное имя перекрывает авто-«{номер} {КраткоеИмяОрг}» везде: файл при
+    скачивании, вложение письма, подпись в чате, списки. Официальный номер
+    внутри PDF не меняется. Только менеджер/админ.
+    """
+    if actor.role not in ("manager", "admin"):
+        raise ForbiddenError("Переименовывать документы может менеджер или администратор")
+
+    await get_order(db, order_id, actor)  # проверка доступа
+    doc = await document_service.get_document(db, document_id)
+    if doc.order_id != order_id:
+        raise ForbiddenError("Документ не принадлежит этой заявке")
+
+    name = (data.display_name or "").strip()
+    if len(name) > 120:
+        raise ValidationError("Название слишком длинное (максимум 120 символов)")
+    doc.display_name = name or None
+    await db.commit()
+    await db.refresh(doc)
+    return _with_display(doc)
 
 
 @router.post("/{document_id}/send", status_code=200)

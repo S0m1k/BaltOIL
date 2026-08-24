@@ -44,6 +44,10 @@ class Document(Base):
         nullable=False,
     )
     doc_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    # Ручное имя документа (правки 2026-08-24): админ/менеджер может переименовать
+    # счёт — это имя перекрывает авто-«{номер} {КраткоеИмяОрг}» везде (файл, чат,
+    # письмо, списки). NULL — используется авто-имя. Официальный номер не меняется.
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[DocumentStatus] = mapped_column(
         SAEnum(DocumentStatus, values_callable=lambda x: [e.value for e in x], name="documentstatus"),
         nullable=False, default=DocumentStatus.DRAFT,

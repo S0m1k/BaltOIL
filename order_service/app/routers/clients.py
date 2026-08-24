@@ -93,7 +93,7 @@ async def list_client_documents(
     docs = list(result.scalars().all())
     for d in docs:
         d.display_number = document_service.document_display_name(
-            d.doc_type, d.doc_number, d.buyer_snapshot
+            d.doc_type, d.doc_number, d.buyer_snapshot, override=d.display_name
         )
     return docs
 
