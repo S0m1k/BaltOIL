@@ -10,7 +10,7 @@ import redis.asyncio as aioredis
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
-from app.core.media import resolve_media_path
+from app.core.media import resolve_media_path, content_disposition_attachment
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.models.document import DocumentType, DocumentStatus
 from app.models.order import OrderKind
@@ -53,8 +53,19 @@ class DocumentResponse(BaseModel):
     file_path: str | None
     created_by_id: uuid.UUID
     created_at: datetime
+    # Отображаемое имя счёта («166 ОТК», правки 2026-08-24). Для прочих типов —
+    # тот же номер, что в doc_number.
+    display_number: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+def _with_display(doc):
+    """Проставить display_number на объект документа перед сериализацией."""
+    doc.display_number = document_service.document_display_name(
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+    )
+    return doc
 
 
 class GenerateDocumentRequest(BaseModel):
@@ -80,7 +91,7 @@ async def list_documents(
     has_unified = any(d.doc_type == DocumentType.INVOICE for d in active)
     if has_unified:
         active = [d for d in active if d.doc_type == DocumentType.INVOICE]
-    return active
+    return [_with_display(d) for d in active]
 
 
 @router.post("/generate", response_model=DocumentResponse, status_code=201)
@@ -115,7 +126,7 @@ async def generate_document(
     doc = await document_service.regenerate_invoice(db, order, actor)
     await db.commit()
     await db.refresh(doc)
-    return doc
+    return _with_display(doc)
 
 
 @router.get("/{document_id}/download")
@@ -138,10 +149,15 @@ async def download_document(
     if not full_path.exists():
         raise NotFoundError("Файл не найден на сервере")
 
+    # Имя файла — отображаемое («166 ОТК.pdf»). Кириллица в HTTP-заголовке
+    # только через RFC 5987, иначе UnicodeEncodeError (заголовки — latin-1).
+    display = document_service.document_display_name(
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+    )
     return FileResponse(
         path=str(full_path),
         media_type="application/pdf",
-        filename=f"{doc.doc_number}.pdf",
+        headers={"Content-Disposition": content_disposition_attachment(f"{display}.pdf")},
     )
 
 
@@ -171,11 +187,13 @@ async def export_document(
     except ValueError as exc:
         raise ValidationError(str(exc))
 
-    filename = f"{doc.doc_number}.{ext}"
+    display = document_service.document_display_name(
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot
+    )
     return Response(
         content=content,
         media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition_attachment(f"{display}.{ext}")},
     )
 
 

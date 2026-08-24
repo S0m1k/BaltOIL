@@ -20,6 +20,7 @@ from app.core.exceptions import ForbiddenError
 from app.models.document import Document, DocumentType, DocumentStatus
 from app.models.order import Order, OrderStatus
 from app.models.payment import Payment, PaymentStatus
+from app.services import document_service
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ class ClientDocumentResponse(BaseModel):
     file_path: str | None
     created_by_id: uuid.UUID
     created_at: datetime
+    # Отображаемое имя счёта («166 ОТК», правки 2026-08-24)
+    display_number: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -87,7 +90,12 @@ async def list_client_documents(
         .limit(limit)
     )
     result = await db.execute(q)
-    return list(result.scalars().all())
+    docs = list(result.scalars().all())
+    for d in docs:
+        d.display_number = document_service.document_display_name(
+            d.doc_type, d.doc_number, d.buyer_snapshot
+        )
+    return docs
 
 
 @router.get("/{client_id}/payments", response_model=ClientPaymentsResponse)

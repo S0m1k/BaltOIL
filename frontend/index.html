@@ -2073,7 +2073,7 @@ setTimeout(function () {
           <!-- Ручная стоимость доставки (правки 2026-07-25): перекрывает автосчёт по зоне -->
           <div class="form-group">
             <label class="form-label">Стоимость доставки вручную, ₽ <span style="color:var(--text3);font-weight:400">(пусто = автосчёт по зоне)</span></label>
-            <input type="number" id="c-manual-delivery-cost" class="form-input" min="0" step="100" placeholder="Например: 4000">
+            <input type="number" id="c-manual-delivery-cost" class="form-input" min="0" step="100" placeholder="Например: 4000" oninput="updatePricePreview()">
           </div>
           <div class="section-divider">Данные заявки</div>
         </div>
@@ -4631,6 +4631,12 @@ async function _doPricePreview() {
     // Разовый клиент ещё не создан — превью цены считаем без client_id
     // (бэкенд возьмёт default-тариф физлица по актору-менеджеру).
     if (cid && cid !== '__oneoff__') body.client_id = cid;
+    // Ручная стоимость доставки участвует в «Итого» превью (правки 2026-08-24)
+    const manualRaw = document.getElementById('c-manual-delivery-cost')?.value;
+    if (manualRaw !== undefined && manualRaw !== null && String(manualRaw).trim() !== '') {
+      const manualNum = Number(manualRaw);
+      if (isFinite(manualNum) && manualNum >= 0) body.manual_delivery_cost = manualNum;
+    }
   }
   const orgSel = document.getElementById('c-organization');
   if (orgSel && orgSel.value) body.organization_id = orgSel.value;
@@ -4648,19 +4654,32 @@ async function _doPricePreview() {
     const discountLine = (Number(r.discount_pct) > 0)
       ? ` <span style="color:var(--text3)">−${fmt(r.discount_pct)}% → ${fmt(r.effective_price_per_liter)} ₽/л</span>` : '';
     let zoneLine;
-    if (r.zone_name && r.delivery_cost != null) {
-      zoneLine = `Доставка: ${fmt(r.delivery_cost)} ₽`;
+    if (r.delivery_is_manual && r.delivery_cost != null) {
+      zoneLine = `Доставка (вручную): ${fmtRub(r.delivery_cost)} ₽`;
+    } else if (r.zone_name && r.delivery_cost != null) {
+      zoneLine = `Доставка: ${fmtRub(r.delivery_cost)} ₽`;
     } else {
       // Зона без заданной цены или адрес вне зон — цену доставки уточнит менеджер
       zoneLine = `Доставка: уточнит менеджер`;
     }
+    // Доставка не определилась и вручную не задана — для staff это ошибка ввода,
+    // заявка уйдёт в работу с итогом «топливо без доставки» (правки 2026-08-24).
+    const deliveryUnknown = (r.delivery_cost == null);
+    const staffWarn = (isStaff && deliveryUnknown)
+      ? `<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45);color:var(--amber);font-weight:600">
+           ⚠ Доставка не рассчитана — введите стоимость вручную
+         </div>` : '';
+    const perLiterLine = (r.price_per_liter_with_delivery != null)
+      ? `<div style="color:var(--text3);font-size:12px">Цена за литр с учётом доставки: ${fmtPerLiter(r.price_per_liter_with_delivery)} ₽</div>` : '';
 
     previewEl.innerHTML = `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7">
         <div>Цена топлива: <strong>${fmt(r.price_per_liter)} ₽/л</strong>${discountLine}</div>
         <div>Топливо: ${fmt(r.effective_price_per_liter)} × ${Number(r.volume).toLocaleString('ru-RU')} л = <strong>${fmt(r.fuel_subtotal)} ₽</strong></div>
         <div>${zoneLine}</div>
-        <div style="margin-top:4px;font-size:14px">Итого ≈ <strong>${fmt(r.total)} ₽</strong></div>
+        <div style="margin-top:4px;font-size:14px">Итого ≈ <strong>${fmtRub(r.total)} ₽</strong></div>
+        ${perLiterLine}
+        ${staffWarn}
       </div>`;
   } catch (e) {
     previewEl.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">${escHtml(e.message)}</div>`;
@@ -4782,6 +4801,24 @@ function renderOrdersGroupedByDate(orders) {
 function fmtDate(dt) {
   if (!dt) return '—';
   return new Date(dt).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+// Суммы заявок с 2026-08-24 считаются целыми рублями — копейки не показываем.
+// У старых заявок копейки в БД остались: если сумма дробная — печатаем 2 знака.
+function fmtRub(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  const dec = Number.isInteger(n) ? 0 : 2;
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+// Цена за литр всегда с двумя знаками (справочная величина, не итог).
+function fmtPerLiter(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Дата без времени в формате дд.мм.гггг (F4: эхо выбранной даты в форме заявки)
@@ -4944,13 +4981,13 @@ function orderCardHTML(o) {
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
-        ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? Number(fuelCost).toLocaleString('ru-RU',{minimumFractionDigits:2}) + ' ₽' : '—'}</div></div>` : ''}
-        ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? Number(o.delivery_cost).toLocaleString('ru') + ' ₽' : '—'}</div></div>` : ''}
+        ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? fmtRub(fuelCost) + ' ₽' : '—'}</div></div>` : ''}
+        ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? fmtRub(o.delivery_cost) + ' ₽' : '—'}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
         ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
-        ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${Number(o.expected_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${Number(o.final_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</strong>` : ''}</div></div>` : ''}
+        ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${fmtRub(o.expected_amount)} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${fmtRub(o.final_amount)} ₽</strong>` : ''}</div></div>` : ''}
         ${priceFormulaHTML(o, driverHidesMoney)}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель</div><div class="detail-value">${escHtml(_driverNameById(o.driver_id))}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
@@ -5043,11 +5080,12 @@ function priceFormulaHTML(o, driverHidesMoney) {
   const delivery = o.delivery_cost != null ? Number(o.delivery_cost) : 0;
   const perLiter = (amount - delivery) / volume;
   if (!(perLiter > 0)) return '';
-  const fmt2 = v => Number(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  const formula = `${fmt2(perLiter)} ₽/л × ${Number(volume).toLocaleString('ru')} л`
-    + (delivery > 0 ? ` + ${Number(delivery).toLocaleString('ru')} ₽ доставка` : '')
-    + ` = <strong>${fmt2(amount)} ₽</strong>`;
-  return `<div class="detail-item"><div class="detail-label">Расчёт цены</div><div class="detail-value">${formula}</div></div>`;
+  const formula = `${fmtPerLiter(perLiter)} ₽/л × ${Number(volume).toLocaleString('ru')} л`
+    + (delivery > 0 ? ` + ${fmtRub(delivery)} ₽ доставка` : '')
+    + ` = <strong>${fmtRub(amount)} ₽</strong>`;
+  // Справочная цена за литр «под ключ» — итог / литры (правки 2026-08-24)
+  const perLiterAll = `<div style="color:var(--text3);font-size:12px;margin-top:2px">Цена за литр с учётом доставки: ${fmtPerLiter(amount / volume)} ₽</div>`;
+  return `<div class="detail-item"><div class="detail-label">Расчёт цены</div><div class="detail-value">${formula}${perLiterAll}</div></div>`;
 }
 
 async function toggleCard(orderId) {
@@ -5127,7 +5165,7 @@ async function loadDocs(orderId) {
       return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <div style="font-size:18px;flex-shrink:0">${icon('file-text',18)}</div>
         <div style="flex:1;min-width:140px">
-          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.doc_number)}</span></div>
+          <div style="font-weight:600;font-size:12px">${typeLabel} <span style="font-family:monospace;word-break:break-all">${escHtml(d.display_number || d.doc_number)}</span></div>
           <div style="font-size:11px;color:${statusColor}">${statusLabel}</div>
         </div>
         ${canDownload ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
@@ -5539,8 +5577,11 @@ function actionBarHTML(o) {
 // ═══════════════════════════════════════════════════════════════
 async function transitionOrder(orderId, toStatus, extra = {}) {
   try {
-    await orderPost(`/orders/${orderId}/transition`, { to_status: toStatus, ...extra });
+    const res = await orderPost(`/orders/${orderId}/transition`, { to_status: toStatus, ...extra });
     toast(`Статус изменён → ${STATUS_LABELS[toStatus] || toStatus}`);
+    // Счёт при согласовании мог не выпуститься (нет тарифа/суммы) — раньше это
+    // молча уходило в лог, менеджер думал, что счёт выставлен (правки 2026-08-24).
+    if (res && res.invoice_warning) toast('Счёт не выпущен: ' + res.invoice_warning, 'error');
     await loadOrders();
   } catch (e) {
     toast(e.message, 'error');
@@ -8937,7 +8978,7 @@ function msgHTML(m) {
       <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;min-width:220px">
         <div style="font-size:22px">${icon('file-text',22)}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_number)}</div>
+          <div style="font-weight:600;font-size:12px">${escHtml(typeLabel)} ${escHtml(meta.doc_display || meta.doc_number)}</div>
           <div style="font-size:11px;color:var(--text3)">Заявка ${escHtml(meta.order_number || '')}</div>
         </div>
         <button type="button" onclick="downloadDoc('${escHtml(meta.order_id)}','${escHtml(meta.document_id)}')"
@@ -10594,7 +10635,7 @@ function _ccDocsRender(docs, typeFilter) {
       ${filtered.map(d => `
         <tr>
           <td>${escHtml(CC_DOC_TYPE_LABELS[d.doc_type] || d.doc_type)}</td>
-          <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.doc_number)}</td>
+          <td style="font-family:'SF Mono',ui-monospace,monospace;font-size:11px;color:var(--amber)">${escHtml(d.display_number || d.doc_number)}</td>
           <td><span class="status-badge">${escHtml(CC_DOC_STATUS_LABELS[d.status] || d.status)}</span></td>
           <td style="white-space:nowrap">${d.issued_at ? fmtDate(d.issued_at) : fmtDate(d.created_at)}</td>
           <td style="text-align:right;white-space:nowrap">${d.total_amount != null ? Number(d.total_amount).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₽' : '—'}</td>

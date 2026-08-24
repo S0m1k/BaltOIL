@@ -109,6 +109,12 @@ class Order(Base):
     delivery_zone_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Стоимость доставки, заложенная в expected_amount (NULL = уточняется менеджером)
     delivery_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Доставка задана вручную (staff при создании или карандашиком в карточке).
+    # Пересчёт при смене объёма/топлива такую доставку НЕ перетирает зональной
+    # (правки 2026-08-24) — иначе ручная цена админа молча терялась.
+    delivery_cost_is_manual: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Комментарии
     client_comment: Mapped[str | None] = mapped_column(Text, nullable=True)

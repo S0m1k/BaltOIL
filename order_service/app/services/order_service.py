@@ -1,6 +1,7 @@
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal as _Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
@@ -29,6 +30,7 @@ from app.services.client_context import get_client_context, get_user_organizatio
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
+from app.services.money import round_order_total, per_liter_with_delivery
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -272,7 +274,6 @@ async def preview_price(
     actor: TokenUser,
 ) -> dict:
     """Read-only price breakdown for the order create form. No DB writes."""
-    from decimal import Decimal as _Decimal
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
 
     if is_staff and not data.client_id:
@@ -310,9 +311,17 @@ async def preview_price(
     except Exception as exc:
         log.warning("preview_price: zone resolution failed (non-fatal): %s", exc)
 
+    # Ручная стоимость доставки в форме админа перекрывает зональный расчёт —
+    # иначе «Итого» в превью не совпадало с тем, что получится при создании.
+    manual_delivery = data.manual_delivery_cost if is_staff else None
+    delivery_is_manual = manual_delivery is not None
+    if delivery_is_manual:
+        delivery_cost = _Decimal(str(manual_delivery))
+
     fuel_subtotal = bd["fuel_subtotal"]
     if fuel_subtotal is not None:
-        total = fuel_subtotal + (delivery_cost or _Decimal("0"))
+        # Итог — целые рубли, копейки гасятся в доставке (правки 2026-08-24)
+        total, delivery_cost = round_order_total(fuel_subtotal, delivery_cost)
     else:
         total = None
         pricing_warning = True
@@ -328,7 +337,9 @@ async def preview_price(
         "zone_cost_coefficient": zone_cost_coefficient,
         "base_delivery_cost": bd["base_delivery_cost"],
         "delivery_cost": delivery_cost,
+        "delivery_is_manual": delivery_is_manual,
         "total": total,
+        "price_per_liter_with_delivery": per_liter_with_delivery(total, data.volume),
         "pricing_warning": pricing_warning,
     }
 
@@ -453,21 +464,26 @@ async def create_order(
                             ctx.delivery_coefficient,
                             ctx.client_type,
                         )
-                if delivery_cost is not None:
-                    if expected_amount is not None:
-                        expected_amount = expected_amount + delivery_cost
-                    else:
-                        expected_amount = delivery_cost
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
     # Ручная стоимость доставки (правки 2026-07-25, только staff):
     # перекрывает зональный автосчёт — админ вводит цену прямо в форме.
-    if is_staff and data.manual_delivery_cost is not None:
-        if delivery_cost is not None and expected_amount is not None:
-            expected_amount = expected_amount - delivery_cost  # откатить автосчёт
+    delivery_is_manual = is_staff and data.manual_delivery_cost is not None
+    if delivery_is_manual:
         delivery_cost = data.manual_delivery_cost
-        expected_amount = (expected_amount or _Decimal("0")) + delivery_cost
+
+    # Итог = топливо + доставка, округлённый до целого рубля; копеечная поправка
+    # ложится на доставку, чтобы строки счёта сходились с итогом (правки 2026-08-24).
+    # Если тариф не настроен (топливная часть не рассчитана) — итог остаётся NULL:
+    # выдавать одну лишь доставку за сумму заявки нельзя, менеджер проставит руками.
+    if expected_amount is not None:
+        expected_amount, delivery_cost = round_order_total(expected_amount, delivery_cost)
+    elif delivery_cost is not None:
+        log.warning(
+            "Order create: тариф не рассчитан, итог оставлен пустым (доставка %s)",
+            delivery_cost,
+        )
 
     # Согласование заявок (правки 2026-06-16):
     # - Физ лица: ВСЕ заявки клиента уходят на согласование менеджера.
@@ -511,6 +527,7 @@ async def create_order(
         delivery_zone_id=resolved_zone_id,
         delivery_zone_name=resolved_zone_name,
         delivery_cost=delivery_cost,
+        delivery_cost_is_manual=bool(delivery_is_manual),
         # Only manager/admin may mark an order as debt (allow_delivery_unpaid)
         allow_delivery_unpaid=data.allow_delivery_unpaid if is_staff else False,
         # «Ждём оплату» при создании (правки 2026-07-25, только staff)
@@ -623,19 +640,31 @@ _DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desire
 _EDITABLE_STATUSES = {OrderStatus.NEW, OrderStatus.AWAITING_MANAGER, OrderStatus.ACCEPTED}
 
 
+async def _fuel_subtotal_for(db: AsyncSession, order: Order, ctx, volume: float | None = None):
+    """Топливная часть суммы заявки по тарифу клиента (без доставки)."""
+    vol = float(order.volume_requested) if volume is None else float(volume)
+    return await compute_expected_amount(
+        db, order.fuel_type, vol, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
+    )
+
+
 async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
     """Пересчитать expected_amount и delivery_cost после смены топлива/объёма.
 
-    Fail-open: при недоступности auth/delivery сервисов суммы остаются прежними.
+    Fail-open по сервисам: при недоступности auth/delivery суммы остаются прежними.
+    Но если тариф не нашёлся — итог честно сбрасывается в NULL (правки 2026-08-24):
+    показать прочерк лучше, чем оставить сумму от прежнего объёма/топлива.
+    Ручную стоимость доставки (delivery_cost_is_manual) зональной НЕ перетираем.
     """
     try:
         ctx = await get_client_context(order.client_id, order.organization_id)
-        expected = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_requested),
-            ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
-        )
+        expected = await _fuel_subtotal_for(db, order, ctx)
         delivery_cost = order.delivery_cost
-        if order.delivery_lat is not None and order.delivery_lon is not None:
+        if (
+            not order.delivery_cost_is_manual
+            and order.delivery_lat is not None
+            and order.delivery_lon is not None
+        ):
             zone_info = await resolve_zone(order.delivery_lat, order.delivery_lon)
             if zone_info:
                 base_rate = None
@@ -654,8 +683,17 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
                 if recalc_delivery is not None:
                     delivery_cost = recalc_delivery
                     order.delivery_cost = recalc_delivery
-        if expected is not None:
-            order.expected_amount = expected + (delivery_cost or 0)
+        if expected is None:
+            log.warning(
+                "recompute_expected_amount: тариф не найден для заявки %s "
+                "(fuel=%s) — итог сброшен в NULL", order.id, order.fuel_type,
+            )
+            order.expected_amount = None
+            return
+        total, adjusted_delivery = round_order_total(expected, delivery_cost)
+        order.expected_amount = total
+        if adjusted_delivery is not None:
+            order.delivery_cost = adjusted_delivery
     except Exception as exc:
         log.warning("recompute_expected_amount failed for order %s (non-fatal): %s",
                     order.id, exc)
@@ -732,7 +770,14 @@ async def update_order(
     # Ключи изменённых полей для индикации «что поменялось» (правки 2026-06-11)
     changed_keys: list[str] = []
 
+    # Правка комментария сбрасывает подтверждение водителя (правки 2026-08-24):
+    # у водителя снова загорается янтарный «!» и кнопка «Комментарий увидел».
+    def _reset_comment_ack(old: str | None, new: str | None) -> None:
+        if new and (new or "").strip() != (old or "").strip():
+            order.driver_comment_ack_at = None
+
     if data.manager_comment is not None:
+        _reset_comment_ack(order.manager_comment, data.manager_comment)
         order.manager_comment = data.manager_comment
         changed = True
         changed_keys.append("comment")
@@ -767,6 +812,7 @@ async def update_order(
         order.payment_type = data.payment_type
         changed = True
     if data.client_comment is not None:
+        _reset_comment_ack(order.client_comment, data.client_comment)
         order.client_comment = data.client_comment
         changed = True
         changed_keys.append("comment")
@@ -780,15 +826,55 @@ async def update_order(
         order.organization_id = data.organization_id
         changed = True
         changed_keys.append("organization")
+    _final_amount_touched = False
     if data.delivery_cost is not None:
-        # Перекладываем долю доставки в expected_amount: топливная часть
-        # (expected_amount − старый delivery_cost) сохраняется, доставка заменяется.
-        # Пропускаем, если staff задал expected_amount явно (имеет приоритет) или
-        # сумма ещё не рассчитана (нет тарифа — заполнит менеджер вручную).
-        if data.expected_amount is None and order.expected_amount is not None:
-            fuel_part = order.expected_amount - (order.delivery_cost or 0)
-            order.expected_amount = fuel_part + data.delivery_cost
-        order.delivery_cost = data.delivery_cost
+        # Перекладываем долю доставки в суммы заявки: топливная часть
+        # (сумма − старый delivery_cost) сохраняется, доставка заменяется.
+        # Ручной ввод помечаем флагом — пересчёт по объёму его не перетрёт.
+        order.delivery_cost_is_manual = True
+        old_delivery = order.delivery_cost or _Decimal("0")
+
+        fuel_expected = None
+        if order.expected_amount is not None:
+            fuel_expected = order.expected_amount - old_delivery
+        else:
+            # Итог не рассчитан (заявка ушла на согласование из-за нерассчитанной
+            # доставки) — восстанавливаем топливную часть по тарифу клиента,
+            # иначе ввод цены доставки не давал итога вовсе (баг 2026-08-24).
+            try:
+                _ctx = await get_client_context(order.client_id, order.organization_id)
+                fuel_expected = await _fuel_subtotal_for(db, order, _ctx)
+            except Exception as exc:
+                log.warning(
+                    "delivery_cost edit: не удалось пересчитать топливо по тарифу "
+                    "для заявки %s: %s", order.id, exc,
+                )
+            if fuel_expected is None:
+                log.warning(
+                    "delivery_cost edit: тариф не найден для заявки %s — итог "
+                    "остаётся пустым", order.id,
+                )
+
+        fuel_final = (
+            order.final_amount - old_delivery if order.final_amount is not None else None
+        )
+
+        # Копеечную поправку доставки считаем от «главной» суммы: фактическая
+        # важнее ожидаемой (от неё считаются долг и счёт).
+        base_for_adjust = fuel_final if fuel_final is not None else fuel_expected
+        if base_for_adjust is not None:
+            _t, adjusted_delivery = round_order_total(base_for_adjust, data.delivery_cost)
+            order.delivery_cost = adjusted_delivery
+        else:
+            order.delivery_cost = data.delivery_cost
+
+        if data.expected_amount is None and fuel_expected is not None:
+            order.expected_amount = round_order_total(fuel_expected, order.delivery_cost)[0]
+        # Доставленная заявка: долг и счёт считаются от final_amount — его тоже
+        # надо подвинуть на дельту доставки (баг 2026-08-24).
+        if data.final_amount is None and fuel_final is not None:
+            order.final_amount = round_order_total(fuel_final, order.delivery_cost)[0]
+            _final_amount_touched = True
         changed = True
         changed_keys.append("amount")
     if data.allow_delivery_unpaid is not None:
@@ -807,6 +893,10 @@ async def update_order(
         await recompute_and_save(db, order)
         changed = True
         changed_keys.append("amount")
+    elif _final_amount_touched:
+        # final_amount сдвинулся из-за правки стоимости доставки — статус оплаты
+        # (долг/переплата) считается от него, поэтому пересчитываем и здесь.
+        await recompute_and_save(db, order)
 
     # Единый счёт (Д4 2026-06-23): если staff поменял объём/стоимость/сумму —
     # перевыпускаем счёт с теми же номером и датой, но новыми цифрами. Только для
@@ -1144,7 +1234,16 @@ async def transition_status(
             ctx.fuel_coefficient,
         )
         if recalc is not None:
-            order.final_amount = recalc + (order.delivery_cost or 0)
+            # Итог целыми рублями, копейки — в строку доставки (правки 2026-08-24)
+            total, adjusted_delivery = round_order_total(recalc, order.delivery_cost)
+            order.final_amount = total
+            if adjusted_delivery is not None:
+                order.delivery_cost = adjusted_delivery
+        else:
+            log.warning(
+                "DELIVERED: тариф не найден для заявки %s — final_amount не пересчитан",
+                order.id,
+            )
 
     if data.to_status == OrderStatus.CANCELLED:
         if data.rejection_reason:
@@ -1152,16 +1251,28 @@ async def transition_status(
 
     prev_status = order.status
     order.status = data.to_status
+    invoice_error: str | None = None
 
     # Согласование крупной заявки менеджером (правки 2026-06-11): при одобрении
     # выставляем единый счёт — заказчик подтвердил «выставляется счёт».
     # Ошибка генерации не блокирует согласование (менеджер выставит вручную).
     if prev_status == OrderStatus.AWAITING_MANAGER and data.to_status == OrderStatus.NEW:
+        # Перед выпуском счёта пересчитываем итог: на согласование заявка могла
+        # уйти именно из-за нерассчитанной суммы/доставки (правки 2026-08-24).
+        if order.expected_amount is None:
+            await _recompute_expected_amount(db, order)
         try:
             async with db.begin_nested():
                 await document_service.regenerate_invoice(db, order, actor)
-        except Exception as exc:
+        except ValidationError as exc:
+            # Типовая причина — не рассчитана сумма заявки (нет тарифа/доставки).
+            # Раньше это молча уходило в log.warning, и менеджер думал, что счёт
+            # выставлен. Согласование не откатываем, но говорим об этом явно.
             log.warning("Auto-invoice on approval failed for order %s: %s", order.id, exc)
+            invoice_error = str(exc)
+        except Exception as exc:
+            log.error("Auto-invoice on approval failed for order %s: %s", order.id, exc)
+            invoice_error = "Счёт не выпущен — повторите выставление вручную."
 
     db.add(OrderStatusLog(
         order_id=order.id,
@@ -1234,6 +1345,9 @@ async def transition_status(
 
     await attach_payment_totals_one(db, order)
     await attach_buyer_name_one(order)
+    # Предупреждение о невыпущенном счёте едет в ответе — переход состоялся,
+    # но менеджер должен узнать, что счёт выставить не удалось.
+    order.invoice_warning = invoice_error
 
     # Строка идемпотентности с order_id уже записана gate'ом в начале функции —
     # повторная вставка не нужна.

@@ -14,6 +14,9 @@ class PricePreviewRequest(BaseModel):
     delivery_lon: float | None = Field(None, ge=-180, le=180)
     client_id: uuid.UUID | None = None
     organization_id: uuid.UUID | None = None
+    # Ручная стоимость доставки из формы админа (правки 2026-08-24): перекрывает
+    # зональный расчёт, чтобы «Итого» в превью совпадало с созданной заявкой.
+    manual_delivery_cost: Decimal | None = Field(None, ge=0)
 
 
 class PricePreviewResponse(BaseModel):
@@ -27,7 +30,10 @@ class PricePreviewResponse(BaseModel):
     zone_cost_coefficient: float | None
     base_delivery_cost: Decimal | None
     delivery_cost: Decimal | None
+    delivery_is_manual: bool = False
     total: Decimal | None
+    # Справочная цена за литр С учётом доставки = итог / литры (правки 2026-08-24)
+    price_per_liter_with_delivery: Decimal | None = None
     pricing_warning: bool
 
 
@@ -179,6 +185,12 @@ class OrderResponse(BaseModel):
 
     # Имя покупателя: организация, иначе ФИО клиента (правки 2026-06-23)
     buyer_name: str | None = None
+
+    # Доставка задана вручную (пересчёт по объёму её не перетирает)
+    delivery_cost_is_manual: bool = False
+    # Счёт не удалось выпустить при согласовании — текст для менеджера
+    # (правки 2026-08-24). None = всё в порядке.
+    invoice_warning: str | None = None
 
     model_config = {"from_attributes": True}
 
