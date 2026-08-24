@@ -14,6 +14,35 @@
 <link rel="stylesheet" href="vendor/leaflet-geoman.css">
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/leaflet-geoman.min.js"></script>
+<!-- ── Страж целостности загрузки ────────────────────────────────────────
+     Вся логика приложения лежит в ОДНОМ инлайновом <script> (~508 КБ ниже).
+     Браузер выполняет такой блок только целиком: если документ недокачался,
+     скрипт обрывается на середине → SyntaxError → не определяется ни одна
+     функция. Вёрстка формы входа при этом уже отрисована, кнопки висят на
+     inline onclick — и молча ничего не делают, без единого запроса на сервер.
+     Именно так это выглядело у Волковой Ирины 24.08.2026.
+     Страж срабатывает, если хвост скрипта не выставил флаг: показываем
+     внятное сообщение вместо мёртвого экрана. -->
+<script>
+setTimeout(function () {
+  // Проверяем именно doLogin, а не флаг в конце скрипта: объявления функций
+  // поднимаются при парсинге, поэтому наличие doLogin означает «блок разобран
+  // целиком, кнопки живые». Флаг в конце не выставится при ЛЮБОЙ runtime-ошибке
+  // в коде верхнего уровня (например, не поднялся Leaflet) — по нему страж
+  // ругался бы на вполне рабочее приложение.
+  if (typeof window.doLogin === 'function' || window.__APP_JS_OK) return;
+  if (!document.body) return;
+  var b = document.createElement('div');
+  b.setAttribute('role', 'alert');
+  b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;padding:14px 16px;'
+    + 'background:#b3261e;color:#fff;cursor:pointer;text-align:center;'
+    + 'font:600 15px/1.4 system-ui,-apple-system,sans-serif';
+  b.textContent = 'Страница загрузилась не полностью, кнопки не будут работать. '
+    + 'Нажмите здесь, чтобы перезагрузить.';
+  b.onclick = function () { location.reload(); };
+  document.body.appendChild(b);
+}, 5000);
+</script>
 <style>
   :root {
     --bg:        #eef2fb;
@@ -6865,12 +6894,8 @@ async function doCreateOrder() {
   const _house  = document.getElementById('c-addr-house')?.value.trim();
   if ((!_street || !_house) && !(_orderGeo && _orderGeo.lat != null)) {
     if (!confirm(
-      'Адрес указан без улицы и дома:
-
-' + resolvedAddress +
-      '
-
-Водитель не будет знать точку доставки, а зона доставки не ' +
+      'Адрес указан без улицы и дома:\n\n' + resolvedAddress +
+      '\n\nВодитель не будет знать точку доставки, а зона доставки не ' +
       'определится автоматически. Всё равно создать заявку?'
     )) return;
   }
@@ -12705,6 +12730,10 @@ window._handleNotifForCalls = function (n) {
     _handleCallEnded(n.call_id || n.entity_id);
   }
 };
+
+// Последняя строка скрипта. Если она выполнилась — блок дошёл целиком и все
+// обработчики определены. Страж целостности в <head> проверяет этот флаг.
+window.__APP_JS_OK = true;
 </script>
 </body>
 </html>
