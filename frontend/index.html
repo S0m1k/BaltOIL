@@ -6865,12 +6865,8 @@ async function doCreateOrder() {
   const _house  = document.getElementById('c-addr-house')?.value.trim();
   if ((!_street || !_house) && !(_orderGeo && _orderGeo.lat != null)) {
     if (!confirm(
-      'Адрес указан без улицы и дома:
-
-' + resolvedAddress +
-      '
-
-Водитель не будет знать точку доставки, а зона доставки не ' +
+      'Адрес указан без улицы и дома:\n\n' + resolvedAddress +
+      '\n\nВодитель не будет знать точку доставки, а зона доставки не ' +
       'определится автоматически. Всё равно создать заявку?'
     )) return;
   }
