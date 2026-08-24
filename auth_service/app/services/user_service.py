@@ -597,8 +597,12 @@ async def change_password(
             RefreshToken.is_revoked == False,  # noqa: E712
         )
     )
+    now = datetime.now(timezone.utc)
     for token in result.scalars().all():
         token.is_revoked = True
+        # rotated_to_id не трогаем — смена пароля это не ротация, повтор такого
+        # токена обязан уходить в ветку «кража».
+        token.revoked_at = now
 
     await revoke_user_tokens(str(actor.id))
 
