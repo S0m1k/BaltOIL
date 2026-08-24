@@ -5,9 +5,12 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.order import Order
 from app.config import get_settings
 from app.schemas.fuel_type import FuelTypeInfo
 from app.schemas.driver_report import DriverOrderInfo
@@ -78,3 +81,35 @@ async def internal_driver_delivered_orders(
     return await driver_report_query.list_driver_delivered_orders(
         db, driver_id=driver_id, date_from=date_from, date_to=date_to,
     )
+
+
+# ── Номера ТТН батчем (складской отчёт delivery_service) ──────────────────────
+
+MAX_TTN_LOOKUP = 10_000
+
+
+class TtnLookupRequest(BaseModel):
+    order_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_TTN_LOOKUP)
+
+
+class TtnLookupItem(BaseModel):
+    order_id: uuid.UUID
+    ttn_number: str | None = None
+
+
+@router.post(
+    "/orders/ttn-numbers",
+    response_model=list[TtnLookupItem],
+    summary="Номера ТТН по списку заявок (батч, для складского отчёта)",
+)
+async def internal_ttn_numbers(
+    _: InternalDep,
+    payload: TtnLookupRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Один запрос на весь отчёт — вместо N обращений по каждой операции."""
+    if not payload.order_ids:
+        return []
+    stmt = select(Order.id, Order.ttn_number).where(Order.id.in_(payload.order_ids))
+    rows = (await db.execute(stmt)).all()
+    return [TtnLookupItem(order_id=oid, ttn_number=ttn) for oid, ttn in rows]

@@ -2505,7 +2505,7 @@ setTimeout(function () {
           <input type="date" id="fin-from" class="form-input" style="width:140px;max-width:48%;padding:6px 10px">
           <input type="date" id="fin-to"   class="form-input" style="width:140px;max-width:48%;padding:6px 10px">
           <button class="btn btn-sm btn-primary" onclick="loadFinance()">Показать</button>
-          <button class="btn btn-sm btn-ghost"   onclick="exportFinanceCsv()">⬇ CSV</button>
+          <button class="btn btn-sm btn-ghost"   onclick="exportFinanceXlsx()">⬇ Excel</button>
         </div>
       </div>
 
@@ -7840,8 +7840,8 @@ async function loadReportInline() {
   try {
     const qs = new URLSearchParams({
       driver_id: driverId,
-      date_from: dateFrom + 'T00:00:00',
-      date_to:   dateTo   + 'T23:59:59',
+      date_from: dayStartIso(dateFrom),
+      date_to:   dayEndIso(dateTo),
     });
     const rpt = await deliveryGet(`/reports/driver?${qs}`);
     el.innerHTML = reportHTML(rpt);
@@ -7861,8 +7861,8 @@ async function requestReportXlsx() {
   try {
     const qs = new URLSearchParams({
       driver_id: driverId,
-      date_from: dateFrom + 'T00:00:00',
-      date_to:   dateTo   + 'T23:59:59',
+      date_from: dayStartIso(dateFrom),
+      date_to:   dayEndIso(dateTo),
     });
     await api(`${DELIVERY_URL}/reports/driver/xlsx?${qs}`,
       { method: 'POST', body: '{}' });
@@ -7880,7 +7880,7 @@ async function requestInvReportXlsx() {
   if (!from || !to) { toast('Укажите период', 'error'); return; }
 
   try {
-    const params = { date_from: from + 'T00:00:00', date_to: to + 'T23:59:59' };
+    const params = { date_from: dayStartIso(from), date_to: dayEndIso(to) };
     if (fuel) params.fuel_type = fuel;
     const qs = new URLSearchParams(params);
     await api(`${DELIVERY_URL}/inventory/report/xlsx?${qs}`,
@@ -7898,6 +7898,7 @@ function reportHTML(r) {
       : '—';
     const addr = o.delivery_address ? escHtml(o.delivery_address) : '—';
     const orderRef = escHtml(o.order_number);
+    const ttn = o.ttn_number || '';
     const fuel = o.fuel_type ? fuelLabel(o.fuel_type) : '';
     const comment = o.comment ? escHtml(o.comment) : '';
     return `
@@ -7905,6 +7906,7 @@ function reportHTML(r) {
       <div class="trip-card-head">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="trip-order-ref">${orderRef}</span>
+          ${ttn ? `<span class="trip-fuel-badge" title="Номер ТТН">ТТН ${escHtml(ttn)}</span>` : ''}
           ${fuel ? `<span class="trip-fuel-badge">${escHtml(fuel)}</span>` : ''}
         </div>
         <span style="font-size:11px;color:var(--text3)">${fmtDate(o.delivered_at)}</span>
@@ -11411,8 +11413,8 @@ async function loadTransactions() {
     let qs = '?limit=500';
     if (ft)   qs += `&fuel_type=${ft}`;
     if (type) qs += `&type=${type}`;
-    if (from) qs += `&date_from=${from}T00:00:00`;
-    if (to)   qs += `&date_to=${to}T23:59:59`;
+    if (from) qs += `&date_from=${encodeURIComponent(dayStartIso(from))}`;
+    if (to)   qs += `&date_to=${encodeURIComponent(dayEndIso(to))}`;
 
     const txs = await deliveryGet(`/inventory/transactions${qs}`);
     if (!txs.length) {
@@ -11511,7 +11513,7 @@ async function loadInvReport() {
 
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
   try {
-    const params = { date_from: from + 'T00:00:00', date_to: to + 'T23:59:59' };
+    const params = { date_from: dayStartIso(from), date_to: dayEndIso(to) };
     if (fuel) params.fuel_type = fuel;
     const qs = new URLSearchParams(params);
 
@@ -11592,6 +11594,7 @@ function renderInvReport(rpt, from, to) {
             <th>Топливо</th>
             <th>Объём (л)</th>
             <th>Заявка</th>
+            <th>№ ТТН</th>
             <th>Клиент</th>
             <th>Водитель / ТС</th>
             <th>Поставщик / Накладная</th>
@@ -11608,6 +11611,7 @@ function renderInvReport(rpt, from, to) {
             <td>${escHtml(tx.fuel_label)}</td>
             <td style="font-family:monospace;text-align:right">${Number(tx.volume).toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
             <td style="font-size:11px">${tx.order_number ? `<span style="font-family:monospace">${escHtml(tx.order_number)}</span>` : '—'}</td>
+            <td style="font-size:11px">${tx.ttn_number ? `<span style="font-family:monospace">${escHtml(tx.ttn_number)}</span>` : '—'}</td>
             <td>${tx.client_name ? escHtml(tx.client_name) : '—'}</td>
             <td>${tx.driver_name ? escHtml(tx.driver_name) : '—'}</td>
             <td style="font-size:11px">${
@@ -11669,12 +11673,20 @@ function paymentStatusDisplay(s) {
 const PAYMENT_STATUS_DISPLAY_LABELS = { paid: 'Оплачено', unpaid: 'Не оплачено' };
 const PAYMENT_STATUS_DISPLAY_COLORS = { paid: 'var(--green)', unpaid: 'var(--red)' };
 
+// Границы суток по ЛОКАЛЬНОМУ времени → ISO с таймзоной.
+// 'YYYY-MM-DD' + 'T00:00:00' без зоны бэкенд трактует как UTC, из-за чего окно
+// отчёта уезжало на смещение зоны (в МСК — на 3 часа: начало дня терялось).
+function dayStartIso(ymd) { return ymd ? new Date(ymd + 'T00:00:00').toISOString() : ''; }
+function dayEndIso(ymd)   { return ymd ? new Date(ymd + 'T23:59:59.999').toISOString() : ''; }
+
 function _finDateParams() {
   const from = document.getElementById('fin-from').value;
   const to   = document.getElementById('fin-to').value;
   const p = new URLSearchParams();
-  if (from) p.set('date_from', new Date(from).toISOString());
-  if (to)   p.set('date_to',   new Date(to + 'T23:59:59').toISOString());
+  // new Date('YYYY-MM-DD') = UTC-полночь, а конец дня строился по локальному
+  // времени — начало периода срезалось на 3 часа. Обе границы локальные.
+  if (from) p.set('date_from', dayStartIso(from));
+  if (to)   p.set('date_to',   dayEndIso(to));
   return p.toString() ? '?' + p.toString() : '';
 }
 
@@ -12221,22 +12233,22 @@ async function promptClientSettings(userId, clientName) {
   );
 }
 
-function exportFinanceCsv() {
+function exportFinanceXlsx() {
   const qs = _finDateParams();
   const token = localStorage.getItem('access_token');
-  // Создаём временную ссылку с токеном в query (т.к. FileResponse не принимает заголовок)
-  // В продакшне лучше signed URL, но для внутреннего инструмента это приемлемо
-  const url = `${ORDER_URL}/finance/export.csv${qs}`;
+  // Качаем через fetch с заголовком Authorization и отдаём blob ссылкой:
+  // прямой <a href> не может передать токен.
+  const url = `${ORDER_URL}/finance/export.xlsx${qs}`;
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
     .then(blob => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `payments_${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = `finance_${new Date().toISOString().slice(0,10)}.xlsx`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
-    .catch(e => toast('Ошибка экспорта CSV: ' + e.message, 'error'));
+    .catch(e => toast('Ошибка экспорта Excel: ' + e.message, 'error'));
 }
 
 // ═══════════════════════════════════════════════════════════════

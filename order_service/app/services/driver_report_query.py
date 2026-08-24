@@ -41,10 +41,23 @@ async def list_driver_delivered_orders(
     )
     rows = (await db.execute(stmt)).all()
 
+    # Дедупликация: если заявку помечали «Доставлена» несколько раз (откат
+    # статуса и повторная отметка), в истории будет несколько записей и заявка
+    # попадала в отчёт дважды — вместе с её литражом в итогах. Сортировка выше
+    # по created_at DESC, поэтому первым идёт самый свежий факт доставки.
+    seen: set[uuid.UUID] = set()
+    unique_rows = []
+    for order, delivered_at, delivery_comment in rows:
+        if order.id in seen:
+            continue
+        seen.add(order.id)
+        unique_rows.append((order, delivered_at, delivery_comment))
+
     return [
         DriverOrderInfo(
             order_id=order.id,
             order_number=order.order_number,
+            ttn_number=order.ttn_number,
             fuel_type=order.fuel_type,
             volume_delivered=(
                 float(order.volume_delivered) if order.volume_delivered is not None else None
@@ -54,5 +67,5 @@ async def list_driver_delivered_orders(
             delivered_at=delivered_at,
             comment=delivery_comment,
         )
-        for order, delivered_at, delivery_comment in rows
+        for order, delivered_at, delivery_comment in unique_rows
     ]

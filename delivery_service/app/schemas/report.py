@@ -8,6 +8,7 @@ class DriverOrderItem(BaseModel):
 
     order_id: uuid.UUID
     order_number: str
+    ttn_number: str | None = None
     fuel_type: str
     volume_delivered: float | None
     delivery_address: str

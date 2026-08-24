@@ -13,6 +13,7 @@ from app.schemas.inventory import (
     FuelStockResponse, FuelSummary, InventoryReport, DriverExpenseSummary,
 )
 from app.services import fuel_catalog
+from app.services.ttn_lookup import fetch_ttn_numbers
 
 
 # ── Вспомогательные функции ──────────────────────────────────────────────────
@@ -577,6 +578,12 @@ async def generate_report(
         )
         for row in (await db.execute(driver_q)).all()
     ]
+
+    # Номера ТТН по заявкам — один батч-запрос в order_service на весь отчёт.
+    ttn_by_order = await fetch_ttn_numbers([tx.order_id for tx in period_txs if tx.order_id])
+    for tx in period_txs:
+        if tx.order_id:
+            tx.ttn_number = ttn_by_order.get(tx.order_id)
 
     return InventoryReport(
         period_from=date_from,

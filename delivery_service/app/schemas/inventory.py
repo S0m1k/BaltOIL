@@ -59,6 +59,9 @@ class TransactionResponse(BaseModel):
     trip_id: uuid.UUID | None
     order_id: uuid.UUID | None
     order_number: str | None
+    # Номер ТТН заявки. Заполняется только в сводном отчёте (батч-запрос
+    # в order_service); в обычном списке операций остаётся None.
+    ttn_number: str | None = None
     client_id: uuid.UUID | None
     client_name: str | None
     driver_id: uuid.UUID | None

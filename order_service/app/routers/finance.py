@@ -1,14 +1,13 @@
 """
-Финансовый обзор: сводка по платежам + CSV-экспорт.
+Финансовый обзор: сводка по платежам + выгрузка в Excel.
 Доступен только менеджерам и администраторам.
 """
-import csv
-import io
+import asyncio
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from pydantic import BaseModel
@@ -19,6 +18,8 @@ from app.core.exceptions import ForbiddenError
 from app.models.order import Order, OrderStatus, PaymentType
 from app.models.payment import Payment, PaymentStatus
 from app.services.payment_service import get_paid_totals_map
+from app.services.buyer_info import attach_buyer_names
+from app.services.finance_export import finance_payments_xlsx
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -204,49 +205,71 @@ async def list_payments(
     ]
 
 
-@router.get("/export.csv")
-async def export_csv(
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+
+# Старый путь /export.csv сохранён как алиас: закладки и мобильный клиент
+# продолжают работать, но отдаётся тот же XLSX (CSV с запятой русский Excel
+# открывал одной колонкой — «поля поехали»).
+@router.get("/export.xlsx")
+@router.get("/export.csv", include_in_schema=False)
+async def export_xlsx(
     _: StaffOnly,
     actor: CurrentUser,
     db: AsyncSession = Depends(get_db),
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
 ):
-    """Выгрузка платежей в CSV."""
+    """Выгрузка платежей за период в Excel (.xlsx)."""
     conds = _date_conditions(date_from, date_to)
     q = (
-        select(Payment, Order.order_number, Order.payment_type)
+        select(Payment, Order)
         .join(Order, Order.id == Payment.order_id)
         .where(*conds)
         .order_by(Payment.created_at.desc())
     )
     rows = list((await db.execute(q)).all())
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "ID платежа", "Заявка", "Клиент", "Тип оплаты", "Вид", "Статус",
-        "Метод", "Сумма", "Дата оплаты", "Дата создания", "Примечание",
-    ])
-    for p, order_number, payment_type in rows:
-        writer.writerow([
-            str(p.id),
-            order_number,
-            str(p.client_id),
-            payment_type.value if hasattr(payment_type, "value") else str(payment_type),
-            p.kind.value,
-            p.status.value,
-            p.method.value if p.method else "",
-            float(p.amount),
-            p.paid_at.strftime("%d.%m.%Y %H:%M") if p.paid_at else "",
-            p.created_at.strftime("%d.%m.%Y %H:%M"),
-            p.notes or "",
-        ])
+    # Имена клиентов/организаций — ОДИН батч-запрос в auth на весь отчёт
+    # (не N+1). Уникальные заявки, чтобы не гонять один и тот же client дважды.
+    unique_orders = list({order.id: order for _, order in rows}.values())
+    await attach_buyer_names(unique_orders)
 
-    output.seek(0)
-    filename = f"payments_{datetime.now().strftime('%Y%m%d')}.csv"
-    return StreamingResponse(
-        iter([output.getvalue().encode("utf-8-sig")]),  # utf-8-sig for Excel compatibility
-        media_type="text/csv; charset=utf-8",
+    payments = [
+        {
+            "payment_id":   str(p.id),
+            "order_number": order.order_number,
+            "ttn_number":   order.ttn_number,
+            "client_name":  getattr(order, "buyer_name", None),
+            "payment_type": (
+                order.payment_type.value
+                if hasattr(order.payment_type, "value")
+                else str(order.payment_type)
+            ),
+            "kind":       p.kind.value,
+            "status":     p.status.value,
+            "method":     p.method.value if p.method else None,
+            "amount":     float(p.amount),
+            "paid_at":    p.paid_at,
+            "created_at": p.created_at,
+            "notes":      p.notes,
+        }
+        for p, order in rows
+    ]
+
+    report = {
+        "period_from": date_from,
+        "period_to":   date_to,
+        "payments":    payments,
+    }
+    # openpyxl синхронен — уводим в тред, чтобы не блокировать event loop.
+    xlsx_bytes = await asyncio.to_thread(finance_payments_xlsx, report)
+
+    filename = f"finance_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
