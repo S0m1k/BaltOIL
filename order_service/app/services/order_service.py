@@ -1227,23 +1227,41 @@ async def transition_status(
             else float(order.volume_requested)
         )
 
-        # Пересчитываем final_amount по фактическому объёму (+ стоимость доставки)
-        ctx = await get_client_context(order.client_id, order.organization_id)
-        recalc = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
-            ctx.fuel_coefficient,
-        )
-        if recalc is not None:
-            # Итог целыми рублями, копейки — в строку доставки (правки 2026-08-24)
-            total, adjusted_delivery = round_order_total(recalc, order.delivery_cost)
-            order.final_amount = total
-            if adjusted_delivery is not None:
-                order.delivery_cost = adjusted_delivery
+        # Итог по факту (правки заказчицы 2026-08-24, скрины ю187/ю194):
+        # 1) объём НЕ изменился → факт = ожидаемому, никакого пересчёта.
+        #    Раньше пересчитывали по ТЕКУЩЕМУ тарифу — если цена для клиента
+        #    менялась после создания заявки, «Факт» расходился с «Ожидалось»
+        #    и со счётом при том же литраже (600 л: 58 270 → 52 270).
+        # 2) объём изменился → цена за литр берётся из УСЛОВИЙ ЗАЯВКИ:
+        #    (expected − доставка) / заказанный объём. Текущий прайс — только
+        #    fallback, когда ожидаемой суммы вообще нет (тариф не был настроен).
+        vol_req = float(order.volume_requested or 0)
+        vol_fact = float(order.volume_delivered)
+        if order.expected_amount is not None and abs(vol_fact - vol_req) < 1e-9:
+            order.final_amount = order.expected_amount
         else:
-            log.warning(
-                "DELIVERED: тариф не найден для заявки %s — final_amount не пересчитан",
-                order.id,
-            )
+            recalc = None
+            if order.expected_amount is not None and vol_req > 0:
+                delivery_dec = _Decimal(str(order.delivery_cost)) if order.delivery_cost is not None else _Decimal("0")
+                fuel_expected = _Decimal(str(order.expected_amount)) - delivery_dec
+                recalc = fuel_expected * _Decimal(str(vol_fact)) / _Decimal(str(vol_req))
+            else:
+                ctx = await get_client_context(order.client_id, order.organization_id)
+                recalc = await compute_expected_amount(
+                    db, order.fuel_type, vol_fact, ctx.tariff_id, ctx.client_type,
+                    ctx.fuel_coefficient,
+                )
+            if recalc is not None:
+                # Итог целыми рублями, копейки — в строку доставки (правки 2026-08-24)
+                total, adjusted_delivery = round_order_total(recalc, order.delivery_cost)
+                order.final_amount = total
+                if adjusted_delivery is not None:
+                    order.delivery_cost = adjusted_delivery
+            else:
+                log.warning(
+                    "DELIVERED: тариф не найден для заявки %s — final_amount не пересчитан",
+                    order.id,
+                )
 
     if data.to_status == OrderStatus.CANCELLED:
         if data.rejection_reason:

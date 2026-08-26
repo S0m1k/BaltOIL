@@ -5053,7 +5053,7 @@ function _shipmentControlsHTML(o) {
     <div class="detail-value" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       ${state}<span style="color:var(--text3);font-size:11px">${src}</span>
       ${o.shipment_override !== 'allow' ? `<button class="btn btn-sm btn-ghost" style="color:#10b981" onclick="event.stopPropagation();setShipment('${o.id}','allow')">Разрешить отгрузку</button>` : ''}
-      ${o.shipment_override !== 'hold' ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();setShipment('${o.id}','hold')">Ждём оплату</button>` : ''}
+      ${o.shipment_override !== 'hold' ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();setShipment('${o.id}','hold')">⛔ Заблокировать отгрузку</button>` : ''}
       ${o.shipment_override ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();setShipment('${o.id}','auto')">Авто (по оплате)</button>` : ''}
     </div>
   </div>`;
