@@ -14,7 +14,7 @@ Revises: 0025_document_display_name
 """
 from alembic import op
 
-revision = "0026_tariff_hidden_fuels_and_formula"
+revision = "0026_tariff_hidden_formula"
 down_revision = "0025_document_display_name"
 branch_labels = None
 depends_on = None
