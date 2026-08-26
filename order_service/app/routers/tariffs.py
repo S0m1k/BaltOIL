@@ -8,7 +8,7 @@ from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import ForbiddenError
 from app.schemas.tariff import (
     TariffCreateRequest, TariffUpdateRequest, TariffResponse,
-    ClientPaymentOptionsResponse,
+    TariffPriceHistoryResponse, ClientPaymentOptionsResponse,
 )
 from app.services import tariff_service
 from app.services.client_context import get_client_context
@@ -46,6 +46,17 @@ async def get_default_tariff(
     return await tariff_service.get_default_tariff(db, actor)
 
 
+@router.get("/{tariff_id}/history", response_model=list[TariffPriceHistoryResponse])
+async def get_tariff_price_history(
+    tariff_id: uuid.UUID,
+    actor: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """История изменения цен тарифа (CRM-32): кто, когда, топливо, было → стало."""
+    return await tariff_service.list_price_history(db, tariff_id, actor, limit=limit)
+
+
 @router.get("/{tariff_id}", response_model=TariffResponse)
 async def get_tariff(
     tariff_id: uuid.UUID,
@@ -69,6 +80,9 @@ async def create_tariff(
         volume_tiers=[t.model_dump() for t in data.volume_tiers],
         client_type=data.client_type,
         base_delivery_cost=data.base_delivery_cost,
+        base_tariff_id=data.base_tariff_id,
+        formula_type=data.formula_type,
+        formula_value=data.formula_value,
     )
 
 
@@ -81,6 +95,7 @@ async def update_tariff(
 ):
     # model_fields_set tells us whether client_type was explicitly sent by the caller
     client_type_set = "client_type" in data.model_fields_set
+    formula_set = "base_tariff_id" in data.model_fields_set
     return await tariff_service.update_tariff(
         db, tariff_id, actor,
         name=data.name,
@@ -90,6 +105,10 @@ async def update_tariff(
         client_type=data.client_type,
         _client_type_set=client_type_set,
         base_delivery_cost=data.base_delivery_cost,
+        base_tariff_id=data.base_tariff_id,
+        formula_type=data.formula_type,
+        formula_value=data.formula_value,
+        _formula_set=formula_set,
     )
 
 

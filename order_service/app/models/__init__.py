@@ -4,7 +4,7 @@ from .payment import Payment, PaymentStatus, PaymentMethod, PaymentKind
 from .order_counter import OrderKindCounter
 from .legal_entity import LegalEntity
 from .document import Document, DocumentType, DocumentStatus
-from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier
+from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier, TariffPriceHistory
 from .fuel_type_catalog import FuelTypeCatalog
 from .idempotency_key import IdempotencyKey
 from .client_object import ClientObject
@@ -16,7 +16,7 @@ __all__ = [
     "OrderKindCounter",
     "LegalEntity",
     "Document", "DocumentType", "DocumentStatus",
-    "Tariff", "TariffFuelPrice", "TariffVolumeTier",
+    "Tariff", "TariffFuelPrice", "TariffVolumeTier", "TariffPriceHistory",
     "FuelTypeCatalog",
     "IdempotencyKey",
     "ClientObject",

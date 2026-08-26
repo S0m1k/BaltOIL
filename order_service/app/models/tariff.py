@@ -23,6 +23,17 @@ class Tariff(Base):
     )
     # individual | company | None (None = не привязан к типу клиента)
     client_type: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    # ── Формульный тариф (CRM-33): цены считаются от базового при чтении ──
+    # Если base_tariff_id задан — собственные цены игнорируются, а берутся
+    # цены базового тарифа с наценкой/скидкой (formula_type/formula_value).
+    base_tariff_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tariffs.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    # percent | fixed | None
+    formula_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Знаковое: +5 = наценка, −5 = скидка (в % или ₽/л по formula_type)
+    formula_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -58,7 +69,11 @@ class TariffFuelPrice(Base):
     )
     # Stored as string matching FuelType enum VALUES ('DIESEL_SUMMER' etc.)
     fuel_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    price_per_liter: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    # NULL допустим только для скрытых видов (глазик выключен, цена не задана)
+    price_per_liter: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    # «Глазик» (CRM-33): скрытый вид топлива не требует цены и не предлагается
+    # клиенту при заказе по этому тарифу
+    is_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     tariff: Mapped["Tariff"] = relationship("Tariff", back_populates="fuel_prices")
 
@@ -82,3 +97,31 @@ class TariffVolumeTier(Base):
     discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
 
     tariff: Mapped["Tariff"] = relationship("Tariff", back_populates="volume_tiers")
+
+
+class TariffPriceHistory(Base):
+    """Журнал изменений цен тарифа (CRM-32): кто, когда, топливо, было → стало.
+
+    Пишется при создании и правке тарифа. Бэкфилла нет — история ведётся
+    с момента деплоя.
+    """
+
+    __tablename__ = "tariff_price_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tariff_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tariffs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    fuel_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    # added | price | removed | hidden | shown
+    change_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    old_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    new_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    changed_by_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )

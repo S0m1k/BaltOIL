@@ -7442,14 +7442,15 @@ async function showBaseTariffsModal() {
       '<div class="empty-state" style="padding:20px">Базовые тарифы не настроены</div>';
     return;
   }
+  // Цены с учётом формулы и «глазика» тарифа (effective_fuel_prices)
   const price = (t, code) => {
-    const fp = (t?.fuel_prices || []).find(p => p.fuel_type === code);
+    const fp = tariffEffectivePrices(t).find(p => p.fuel_type === code);
     return fp ? Number(fp.price_per_liter).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽/л' : '—';
   };
   // Все виды топлива, встречающиеся в обоих тарифах. Скрытые админом виды
   // (глазик в каталоге) не показываем; коды тарифов — в ВЕРХНЕМ регистре.
   const _hiddenCodes = new Set(_fuelCatalog.filter(f => !f.is_active).map(f => f.code.toLowerCase()));
-  const codes = [...new Set([...(ind?.fuel_prices || []), ...(com?.fuel_prices || [])].map(p => p.fuel_type))]
+  const codes = [...new Set([...tariffEffectivePrices(ind), ...tariffEffectivePrices(com)].map(p => p.fuel_type))]
     .filter(code => !_hiddenCodes.has(String(code).toLowerCase()));
   const rows = codes.map(code => `
     <tr>
@@ -7457,7 +7458,6 @@ async function showBaseTariffsModal() {
       <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:monospace">${price(ind, code)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:monospace">${price(com, code)}</td>
     </tr>`).join('');
-  const fmtDelivery = t => t ? Number(t.base_delivery_cost).toLocaleString('ru-RU') + ' ₽' : '—';
   document.getElementById('modal-body').innerHTML = `
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -7472,9 +7472,9 @@ async function showBaseTariffsModal() {
       </table>
     </div>
     <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.7">
-      <div>Цена для физлица — по столбцу «Физлицо» <strong>+ доставка</strong> (база ${fmtDelivery(ind)})</div>
-      <div>Цена для юрлица — по столбцу «Юрлицо (с НДС)» <strong>+ доставка</strong> (база ${fmtDelivery(com)})</div>
-      <div style="color:var(--text3);margin-top:4px">Стоимость доставки умножается на коэффициент зоны доставки.</div>
+      <div>Цена для физлица — по столбцу «Физлицо» <strong>+ доставка</strong></div>
+      <div>Цена для юрлица — по столбцу «Юрлицо (с НДС)» <strong>+ доставка</strong></div>
+      <div style="color:var(--text3);margin-top:4px">Стоимость доставки считается по зоне доставки.</div>
     </div>`;
 }
 
@@ -11900,10 +11900,142 @@ const PAYMENT_TYPE_LABELS_ALL = {
 };
 
 let _defaultTariff = null;
+let _allTariffs = [];
+
+// ── Правки CRM-33: «глазик» видов топлива + формульные тарифы ────────────────
+
+const _TARIFF_FUELS_FALLBACK = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+
+// Виды топлива для формы тарифа: активные из каталога (тарифы хранят коды
+// в ВЕРХНЕМ регистре) + те, что уже заданы в самом тарифе.
+function tariffFuelCodes(tariff) {
+  const fromCatalog = (_fuelCatalog || []).filter(f => f.is_active)
+    .map(f => String(f.code).toUpperCase());
+  const fromTariff = ((tariff && tariff.fuel_prices) || [])
+    .map(fp => String(fp.fuel_type).toUpperCase());
+  const seen = new Set();
+  const codes = [...fromCatalog, ...fromTariff].filter(c => {
+    if (seen.has(c)) return false;
+    seen.add(c);
+    return true;
+  });
+  return codes.length ? codes : _TARIFF_FUELS_FALLBACK;
+}
+
+// Строка «глазик + цена» для одного вида топлива в форме тарифа
+function tariffPriceRowHtml(prefix, code, fp) {
+  const hidden = !!(fp && fp.is_hidden);
+  const val = (fp && fp.price_per_liter != null) ? Number(fp.price_per_liter).toFixed(2) : '';
+  return `
+    <div style="display:flex;align-items:center;gap:6px" id="${prefix}-row-${code}">
+      <button type="button" class="btn btn-sm btn-ghost" id="${prefix}-eye-${code}"
+        data-hidden="${hidden ? '1' : '0'}" style="padding:2px 6px;opacity:${hidden ? '0.45' : '1'}"
+        title="Показать / скрыть вид топлива"
+        onclick="toggleTariffFuel('${prefix}', '${code}')">${hidden ? '🚫' : '👁'}</button>
+      <span style="font-size:12px;min-width:90px;color:var(--text2);${hidden ? 'text-decoration:line-through;opacity:0.55' : ''}"
+        id="${prefix}-lbl-${code}">${escHtml(fuelLabel(code))}</span>
+      <input type="number" step="0.01" min="0.01" class="form-input" id="${prefix}-price-${code}"
+        style="width:90px;font-size:13px" value="${val}" placeholder="0.00" ${hidden ? 'disabled' : ''}>
+      <span style="font-size:12px;color:var(--text3)">₽/л</span>
+    </div>`;
+}
+
+function toggleTariffFuel(prefix, code) {
+  const eye = document.getElementById(`${prefix}-eye-${code}`);
+  const inp = document.getElementById(`${prefix}-price-${code}`);
+  const lbl = document.getElementById(`${prefix}-lbl-${code}`);
+  if (!eye) return;
+  const hidden = eye.dataset.hidden !== '1';
+  eye.dataset.hidden = hidden ? '1' : '0';
+  eye.textContent = hidden ? '🚫' : '👁';
+  eye.style.opacity = hidden ? '0.45' : '1';
+  if (lbl) {
+    lbl.style.textDecoration = hidden ? 'line-through' : 'none';
+    lbl.style.opacity = hidden ? '0.55' : '1';
+  }
+  if (inp) inp.disabled = hidden || _tariffFormulaActive(prefix);
+}
+
+function _tariffFormulaActive(prefix) {
+  const sel = document.getElementById(`${prefix}-base`);
+  return !!(sel && sel.value);
+}
+
+// Собрать цены из формы: скрытые уходят с is_hidden=true и без цены
+function collectTariffPrices(prefix, codes) {
+  return codes.map(code => {
+    const eye = document.getElementById(`${prefix}-eye-${code}`);
+    const inp = document.getElementById(`${prefix}-price-${code}`);
+    const hidden = eye ? eye.dataset.hidden === '1' : false;
+    const raw = inp ? parseFloat(inp.value) : NaN;
+    return {
+      fuel_type: code,
+      price_per_liter: (!hidden && raw > 0) ? raw : null,
+      is_hidden: hidden,
+    };
+  });
+}
+
+// Блок «формула от базового тарифа» в форме создания/правки
+function tariffFormulaBlockHtml(prefix, tariff) {
+  const current = tariff && tariff.base_tariff_id ? String(tariff.base_tariff_id) : '';
+  const options = (_allTariffs || [])
+    .filter(t => !t.is_archived && !t.base_tariff_id && (!tariff || t.id !== tariff.id))
+    .map(t => `<option value="${escHtml(t.id)}" ${String(t.id) === current ? 'selected' : ''}>${escHtml(t.name)}</option>`)
+    .join('');
+  const ftype = (tariff && tariff.formula_type) || 'percent';
+  const fval = (tariff && tariff.formula_value != null) ? Number(tariff.formula_value) : '';
+  return `
+    <div class="form-group">
+      <label class="form-label">Формула от базового тарифа</label>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <select id="${prefix}-base" class="form-input" style="width:190px;font-size:13px"
+          onchange="onTariffFormulaChange('${prefix}')">
+          <option value="">— свои цены —</option>
+          ${options}
+        </select>
+        <select id="${prefix}-ftype" class="form-input" style="width:90px;font-size:13px">
+          <option value="percent" ${ftype === 'percent' ? 'selected' : ''}>%</option>
+          <option value="fixed" ${ftype === 'fixed' ? 'selected' : ''}>₽/л</option>
+        </select>
+        <input type="number" step="0.01" id="${prefix}-fval" class="form-input"
+          style="width:110px;font-size:13px" value="${fval}" placeholder="+5 / −5">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">
+        Плюс — наценка, минус — скидка. Цены пересчитываются автоматически при изменении базового тарифа.
+      </div>
+    </div>`;
+}
+
+function onTariffFormulaChange(prefix) {
+  const active = _tariffFormulaActive(prefix);
+  document.querySelectorAll(`[id^="${prefix}-price-"]`).forEach(inp => {
+    const code = inp.id.slice(`${prefix}-price-`.length);
+    const eye = document.getElementById(`${prefix}-eye-${code}`);
+    inp.disabled = active || (eye && eye.dataset.hidden === '1');
+  });
+  const hint = document.getElementById(`${prefix}-price-hint`);
+  if (hint) hint.style.display = active ? '' : 'none';
+}
+
+// Цены тарифа с учётом формулы (бэкенд отдаёт effective_fuel_prices)
+function tariffEffectivePrices(t) {
+  const eff = (t && t.effective_fuel_prices && t.effective_fuel_prices.length)
+    ? t.effective_fuel_prices : ((t && t.fuel_prices) || []);
+  return eff.filter(fp => !fp.is_hidden && fp.price_per_liter != null);
+}
+
+function tariffFormulaLabel(t) {
+  if (!t || !t.base_tariff_id || t.formula_value == null) return '';
+  const v = Number(t.formula_value);
+  const unit = t.formula_type === 'fixed' ? ' ₽/л' : '%';
+  return `${v >= 0 ? '+' : '−'}${Math.abs(v)}${unit} от «${t.base_tariff_name || 'базового'}»`;
+}
 
 async function loadTariffs() {
   try {
     const tariffs = await orderGet('/tariffs?include_archived=false');
+    _allTariffs = tariffs;
     _defaultTariff = tariffs.find(t => t.is_default) || null;
     renderDefaultTariffBlock(_defaultTariff);
     renderTariffsList(tariffs);
@@ -11922,26 +12054,13 @@ function renderDefaultTariffBlock(tariff) {
   }
   if (nameEl) nameEl.textContent = `(${escHtml(tariff.name)})`;
 
-  // Price inputs
-  block.innerHTML = tariff.fuel_prices.map(fp => `
-    <div style="display:flex;flex-direction:column;gap:4px">
-      <label style="font-size:11px;color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</label>
-      <div style="display:flex;align-items:center;gap:4px">
-        <input type="number" step="0.01" min="0.01"
-          class="form-input" style="width:100px;font-size:13px"
-          id="price-${escHtml(fp.fuel_type)}"
-          value="${Number(fp.price_per_liter).toFixed(2)}">
-        <span style="font-size:12px;color:var(--text3)">₽/л</span>
-      </div>
-    </div>`).join('') + `
-    <div style="display:flex;flex-direction:column;gap:4px">
-      <label style="font-size:11px;color:var(--text3)">Доставка за литр</label>
-      <div style="display:flex;align-items:center;gap:4px">
-        <input type="number" step="0.01" min="0" class="form-input" style="width:100px;font-size:13px"
-          id="tariff-default-delivery" value="${Number(tariff.base_delivery_cost || 0).toFixed(2)}">
-        <span style="font-size:12px;color:var(--text3)">₽/л</span>
-      </div>
-    </div>`;
+  // Цены с «глазиком»: скрытый вид не требует цены и не предлагается клиентам.
+  // Поле «доставка ₽/л» убрано из формы (правки 2026-08-26) — неактуально.
+  const codes = tariffFuelCodes(tariff);
+  block.innerHTML = codes.map(code => {
+    const fp = tariff.fuel_prices.find(p => String(p.fuel_type).toUpperCase() === code);
+    return tariffPriceRowHtml('dt', code, fp);
+  }).join('');
 
   // Volume tiers
   const tiersEl = document.getElementById('tariff-default-tiers');
@@ -11980,15 +12099,12 @@ async function saveDefaultTariffPrices() {
   const msgEl = document.getElementById('tariff-save-msg');
   msgEl.style.display = 'none';
   try {
-    const fuel_prices = _defaultTariff.fuel_prices.map(fp => ({
-      fuel_type: fp.fuel_type,
-      price_per_liter: parseFloat(
-        document.getElementById(`price-${fp.fuel_type}`)?.value || fp.price_per_liter
-      ),
-    }));
+    const fuel_prices = collectTariffPrices('dt', tariffFuelCodes(_defaultTariff));
+    if (!fuel_prices.some(fp => !fp.is_hidden && fp.price_per_liter > 0)) {
+      toast('Укажите цену хотя бы для одного вида топлива'); return;
+    }
     const volume_tiers = collectTiers('tariff-default-tiers');
-    const base_delivery_cost = parseFloat(document.getElementById('tariff-default-delivery')?.value) || 0;
-    await orderPut(`/tariffs/${_defaultTariff.id}`, { fuel_prices, volume_tiers, base_delivery_cost });
+    await orderPut(`/tariffs/${_defaultTariff.id}`, { fuel_prices, volume_tiers });
     msgEl.style.display = '';
     setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
     await loadTariffs();
@@ -12017,15 +12133,20 @@ function renderTariffsList(tariffs) {
             onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
         ${isStaff && !t.is_archived ? `
           <button class="btn btn-sm btn-ghost" onclick="promptEditTariff('${t.id}')">Редактировать</button>` : ''}
+        ${isStaff ? `
+          <button class="btn btn-sm btn-ghost" onclick="openTariffHistory('${t.id}')">История</button>` : ''}
       </div>
+      ${tariffFormulaLabel(t) ? `
+        <div style="margin-bottom:8px;font-size:12px;color:var(--text3)">
+          Формула: <span style="font-weight:600;color:var(--text2)">${escHtml(tariffFormulaLabel(t))}</span>
+        </div>` : ''}
       <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${t.fuel_prices.map(fp => `
+        ${tariffEffectivePrices(t).map(fp => `
           <div style="background:var(--bg3);border-radius:4px;padding:4px 10px;font-size:12px">
-            <span style="color:var(--text3)">${escHtml(FUEL_LABELS_TARIFF[fp.fuel_type] || fp.fuel_type)}</span>
+            <span style="color:var(--text3)">${escHtml(fuelLabel(fp.fuel_type))}</span>
             <span style="font-weight:600;margin-left:6px">${Number(fp.price_per_liter).toFixed(2)} ₽/л</span>
           </div>`).join('')}
       </div>
-      <div style="margin-top:6px;font-size:12px;color:var(--text3)">Доставка: <span style="font-weight:600;color:var(--text2)">${Number(t.base_delivery_cost || 0).toFixed(2)} ₽/л</span></div>
       ${t.volume_tiers.length ? `
         <div style="margin-top:8px;font-size:12px;color:var(--text3)">
           Скидки: ${t.volume_tiers.map(vt =>
@@ -12052,8 +12173,21 @@ async function archiveTariff(tariffId, name) {
   } catch (e) { toast('Ошибка: ' + e.message); }
 }
 
+// Собрать поля формулы из формы; null — обычный тариф со своими ценами
+function _collectTariffFormula(prefix) {
+  const baseId = document.getElementById(`${prefix}-base`)?.value || '';
+  if (!baseId) return { base_tariff_id: null, formula_type: null, formula_value: null };
+  const val = parseFloat(document.getElementById(`${prefix}-fval`)?.value);
+  if (!isFinite(val)) return null;  // сигнал об ошибке ввода
+  return {
+    base_tariff_id: baseId,
+    formula_type: document.getElementById(`${prefix}-ftype`)?.value || 'percent',
+    formula_value: val,
+  };
+}
+
 function promptCreateTariff() {
-  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  const fuels = tariffFuelCodes(null);
   openModal('Новый тариф', `
     <div class="form-group">
       <label class="form-label">Название</label>
@@ -12063,22 +12197,18 @@ function promptCreateTariff() {
       <label class="form-label">Описание (необязательно)</label>
       <input type="text" id="nt-desc" class="form-input">
     </div>
+    ${tariffFormulaBlockHtml('nt', null)}
     <div class="form-group">
       <label class="form-label">Цены за литр</label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        ${fuels.map(f => `
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
-            <input type="number" step="0.01" min="0.01" class="form-input" id="nt-price-${f}"
-              style="width:80px;font-size:13px" placeholder="0.00">
-            <span style="font-size:12px;color:var(--text3)">₽/л</span>
-          </div>`).join('')}
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+        Глазик выключает вид топлива: цена не нужна, клиентам он не предлагается.
       </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Стоимость доставки за литр, ₽</label>
-      <input type="number" step="0.01" min="0" id="nt-delivery" class="form-input" style="width:120px;font-size:13px" placeholder="0.00">
-      <div style="font-size:11px;color:var(--text3);margin-top:3px">× коэффициент зоны × коэффициент клиента</div>
+      <div id="nt-price-hint" style="display:none;font-size:11px;color:var(--text3);margin-bottom:6px">
+        Цены берутся из базового тарифа по формуле — глазиком можно скрыть лишние виды.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${fuels.map(f => tariffPriceRowHtml('nt', f, null)).join('')}
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Ступени скидок</label>
@@ -12088,12 +12218,12 @@ function promptCreateTariff() {
     async () => {
       const name = document.getElementById('nt-name').value.trim();
       if (!name) { toast('Укажите название'); return; }
-      const fuel_prices = fuels.map(f => ({
-        fuel_type: f,
-        price_per_liter: parseFloat(document.getElementById(`nt-price-${f}`).value),
-      }));
-      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
-        toast('Укажите цены для всех типов топлива'); return;
+      const formula = _collectTariffFormula('nt');
+      if (formula === null) { toast('Укажите величину наценки или скидки'); return; }
+      const fuel_prices = collectTariffPrices('nt', fuels);
+      if (!formula.base_tariff_id
+          && !fuel_prices.some(fp => !fp.is_hidden && fp.price_per_liter > 0)) {
+        toast('Укажите цену хотя бы для одного вида топлива'); return;
       }
       try {
         await orderPost('/tariffs', {
@@ -12101,7 +12231,7 @@ function promptCreateTariff() {
           description: document.getElementById('nt-desc').value.trim() || null,
           fuel_prices,
           volume_tiers: collectTiers('nt-tiers'),
-          base_delivery_cost: parseFloat(document.getElementById('nt-delivery').value) || 0,
+          ...formula,
         });
         closeModal();
         toast('Тариф создан');
@@ -12109,6 +12239,7 @@ function promptCreateTariff() {
       } catch (e) { toast('Ошибка: ' + e.message); }
     }
   );
+  setTimeout(() => onTariffFormulaChange('nt'), 50);
 }
 
 async function promptEditTariff(tariffId) {
@@ -12116,27 +12247,23 @@ async function promptEditTariff(tariffId) {
   try { tariff = await orderGet(`/tariffs/${tariffId}`); }
   catch (e) { toast('Ошибка загрузки тарифа'); return; }
 
-  const fuels = ['DIESEL_SUMMER','DIESEL_WINTER','PETROL_92','PETROL_95','FUEL_OIL'];
+  const fuels = tariffFuelCodes(tariff);
   openModal(`Тариф: ${tariff.name || ''}`, `
+    ${tariffFormulaBlockHtml('et', tariff)}
     <div class="form-group">
       <label class="form-label">Цены за литр</label>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+        Глазик выключает вид топлива: цена не нужна, клиентам он не предлагается.
+      </div>
+      <div id="et-price-hint" style="display:none;font-size:11px;color:var(--text3);margin-bottom:6px">
+        Цены берутся из базового тарифа по формуле — глазиком можно скрыть лишние виды.
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${fuels.map(f => {
-          const fp = tariff.fuel_prices.find(p => p.fuel_type === f);
-          return `
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:12px;min-width:90px;color:var(--text2)">${escHtml(FUEL_LABELS_TARIFF[f])}</span>
-              <input type="number" step="0.01" min="0.01" class="form-input" id="et-price-${f}"
-                style="width:80px;font-size:13px" value="${fp ? Number(fp.price_per_liter).toFixed(2) : ''}">
-              <span style="font-size:12px;color:var(--text3)">₽/л</span>
-            </div>`;
+          const fp = tariff.fuel_prices.find(p => String(p.fuel_type).toUpperCase() === f);
+          return tariffPriceRowHtml('et', f, fp);
         }).join('')}
       </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Стоимость доставки за литр, ₽</label>
-      <input type="number" step="0.01" min="0" id="et-delivery" class="form-input" style="width:120px;font-size:13px" value="${Number(tariff.base_delivery_cost || 0).toFixed(2)}">
-      <div style="font-size:11px;color:var(--text3);margin-top:3px">× коэффициент зоны × коэффициент клиента</div>
     </div>
     <div class="form-group">
       <label class="form-label">Ступени скидок</label>
@@ -12144,18 +12271,18 @@ async function promptEditTariff(tariffId) {
       <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('et-tiers')">+ Добавить</button>
     </div>`,
     async () => {
-      const fuel_prices = fuels.map(f => ({
-        fuel_type: f,
-        price_per_liter: parseFloat(document.getElementById(`et-price-${f}`).value),
-      }));
-      if (fuel_prices.some(fp => !fp.price_per_liter || fp.price_per_liter <= 0)) {
-        toast('Укажите цены для всех типов топлива'); return;
+      const formula = _collectTariffFormula('et');
+      if (formula === null) { toast('Укажите величину наценки или скидки'); return; }
+      const fuel_prices = collectTariffPrices('et', fuels);
+      if (!formula.base_tariff_id
+          && !fuel_prices.some(fp => !fp.is_hidden && fp.price_per_liter > 0)) {
+        toast('Укажите цену хотя бы для одного вида топлива'); return;
       }
       try {
         await orderPut(`/tariffs/${tariffId}`, {
           fuel_prices,
           volume_tiers: collectTiers('et-tiers'),
-          base_delivery_cost: parseFloat(document.getElementById('et-delivery').value) || 0,
+          ...formula,
         });
         closeModal();
         toast('Тариф обновлён');
@@ -12164,7 +12291,64 @@ async function promptEditTariff(tariffId) {
     }
   );
   // Populate tiers after modal is rendered
-  setTimeout(() => tariff.volume_tiers.forEach(t => addTierRow('et-tiers', t)), 50);
+  setTimeout(() => {
+    tariff.volume_tiers.forEach(t => addTierRow('et-tiers', t));
+    onTariffFormulaChange('et');
+  }, 50);
+}
+
+// ── История цен тарифа (CRM-32) ─────────────────────────────────────────────
+
+const _TARIFF_HISTORY_KIND_LABELS = {
+  added:   'добавлено',
+  price:   'цена изменена',
+  removed: 'удалено',
+  hidden:  'скрыто',
+  shown:   'показано',
+};
+
+async function openTariffHistory(tariffId) {
+  const tariff = (_allTariffs || []).find(t => String(t.id) === String(tariffId));
+  openModal(`История цен: ${tariff ? tariff.name : ''}`,
+    '<div class="empty-state">Загрузка…</div>', null);
+  let rows;
+  try {
+    rows = await orderGet(`/tariffs/${tariffId}/history?limit=200`);
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="inline-error">${escHtml(e.message)}</div>`;
+    return;
+  }
+  const body = document.getElementById('modal-body');
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty-state">Изменений пока нет. Журнал ведётся с момента обновления системы.</div>';
+    return;
+  }
+  const money = v => (v == null ? '—' : Number(v).toFixed(2) + ' ₽/л');
+  body.innerHTML = `
+    <div style="max-height:60vh;overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="text-align:left;color:var(--text3)">
+            <th style="padding:6px 8px">Дата</th>
+            <th style="padding:6px 8px">Топливо</th>
+            <th style="padding:6px 8px">Изменение</th>
+            <th style="padding:6px 8px">Было</th>
+            <th style="padding:6px 8px">Стало</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td style="padding:6px 8px;border-top:1px solid var(--border);white-space:nowrap">${escHtml(fmtDate(r.changed_at))}</td>
+              <td style="padding:6px 8px;border-top:1px solid var(--border)">${escHtml(fuelLabel(r.fuel_type))}</td>
+              <td style="padding:6px 8px;border-top:1px solid var(--border)">${escHtml(_TARIFF_HISTORY_KIND_LABELS[r.change_kind] || r.change_kind)}${r.changed_by_role ? ` <span style="color:var(--text3)">(${escHtml(r.changed_by_role)})</span>` : ''}</td>
+              <td style="padding:6px 8px;border-top:1px solid var(--border)">${money(r.old_price)}</td>
+              <td style="padding:6px 8px;border-top:1px solid var(--border);font-weight:600">${money(r.new_price)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
