@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/outbox_db.dart';
 import '../../core/sync_service.dart';
+import '../auth/auth_repository.dart';
 import '../inventory/inventory_repository.dart';
 import '../tariffs/base_tariffs_sheet.dart';
 import 'delivery_dialog.dart';
+import 'order_detail_screen.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -14,9 +16,11 @@ import 'orders_repository.dart';
 /// Бэк для роли driver отдаёт одним списком свои заявки и свободные new
 /// (driver_id IS NULL) — делим на секции на клиенте.
 class DriverOrdersScreen extends StatefulWidget {
-  const DriverOrdersScreen({super.key, required this.driverId});
+  const DriverOrdersScreen({super.key, required this.user});
 
-  final String driverId;
+  final CurrentUser user;
+
+  String get driverId => user.id;
 
   @override
   State<DriverOrdersScreen> createState() => _DriverOrdersScreenState();
@@ -118,6 +122,25 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
         await OrdersRepository.instance.claim(order.id);
         if (mounted) _snack('Заявка №${order.orderNumber} принята');
       });
+
+  /// Заявка назначена админом (status=new, driver_id = я) — водитель её
+  /// подтверждает (new → accepted). claim здесь не годится: заявка уже
+  /// не свободна и бэк его отклонит.
+  Future<void> _accept(Order order) => _run(() async {
+        await OrdersRepository.instance.accept(order.id);
+        if (mounted) _snack('Заявка №${order.orderNumber} принята');
+      });
+
+  /// Полная карточка заявки (адрес, зона, контакт приёмки, комментарии,
+  /// ТТН, статусы) — и по взятым, и по свободным из пула.
+  Future<void> _openDetail(Order order) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OrderDetailScreen(orderId: order.id, user: widget.user),
+      ),
+    );
+    if (mounted) _reload();
+  }
 
   Future<void> _ack(Order order) => _run(() async {
         await OrdersRepository.instance.ackChanges(order.id);
@@ -309,18 +332,28 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
                   ]);
                 }
                 final orders = snap.data ?? const [];
+                final me = widget.driverId;
+                // Назначенные админом, но ещё не подтверждённые (new + мой
+                // driver_id). Раньше проваливались между фильтрами: «мои»
+                // требовали accepted, «свободные» — driver_id == null,
+                // и водитель такую заявку не видел вовсе.
+                final mineAssigned = orders
+                    .where((o) => o.driverId == me && o.status == 'new')
+                    .toList();
+                // Всё остальное назначенное на меня и ещё не закрытое
+                // (accepted / in_transit / легаси-статусы).
+                const closedStatuses = ['delivered', 'cancelled', 'rejected'];
                 final mineActive = orders
                     .where((o) =>
-                        o.driverId == widget.driverId &&
-                        o.status == 'accepted')
+                        o.driverId == me &&
+                        o.status != 'new' &&
+                        !closedStatuses.contains(o.status))
                     .toList();
                 final pool = orders
                     .where((o) => o.status == 'new' && o.driverId == null)
                     .toList();
                 final mineDone = orders
-                    .where((o) =>
-                        o.driverId == widget.driverId &&
-                        o.status == 'delivered')
+                    .where((o) => o.driverId == me && o.status == 'delivered')
                     .toList();
 
                 if (orders.isEmpty) {
@@ -332,6 +365,19 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
 
                 return ListView(
                   children: [
+                    if (mineAssigned.isNotEmpty) ...[
+                      const _SectionHeader('Назначены вам'),
+                      for (final o in mineAssigned)
+                        _DriverOrderCard(
+                          order: o,
+                          busy: _busy,
+                          pendingCount: _pendingByOrder[o.id] ?? 0,
+                          assignedToMe: true,
+                          onOpen: () => _openDetail(o),
+                          onAck: o.pendingDriverAck ? () => _ack(o) : null,
+                          onAccept: () => _accept(o),
+                        ),
+                    ],
                     if (mineActive.isNotEmpty) ...[
                       const _SectionHeader('В работе'),
                       for (final o in mineActive)
@@ -339,6 +385,8 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
                           order: o,
                           busy: _busy,
                           pendingCount: _pendingByOrder[o.id] ?? 0,
+                          assignedToMe: true,
+                          onOpen: () => _openDetail(o),
                           onAck: o.pendingDriverAck ? () => _ack(o) : null,
                           onDeliver: () => _deliver(o),
                         ),
@@ -350,6 +398,7 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
                           order: o,
                           busy: _busy,
                           pendingCount: 0,
+                          onOpen: () => _openDetail(o),
                           onClaim: () => _claim(o),
                         ),
                     ],
@@ -360,6 +409,8 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
                           order: o,
                           busy: _busy,
                           pendingCount: _pendingByOrder[o.id] ?? 0,
+                          assignedToMe: true,
+                          onOpen: () => _openDetail(o),
                           // Д5: оплату можно внести и после доставки.
                           onRecordPayment:
                               o.isIndividual && o.paymentStatus != 'paid'
@@ -442,8 +493,11 @@ class _DriverOrderCard extends StatelessWidget {
     required this.order,
     required this.busy,
     required this.pendingCount,
+    this.assignedToMe = false,
+    this.onOpen,
     this.onClaim,
     this.onDeliver,
+    this.onAccept,
     this.onAck,
     this.onRecordPayment,
   });
@@ -451,8 +505,11 @@ class _DriverOrderCard extends StatelessWidget {
   final Order order;
   final bool busy;
   final int pendingCount; // число офлайн-действий в очереди для этой заявки
+  final bool assignedToMe;
+  final VoidCallback? onOpen; // тап по карточке → полная деталка
   final VoidCallback? onClaim;
   final VoidCallback? onDeliver;
+  final VoidCallback? onAccept;
   final VoidCallback? onAck;
   final VoidCallback? onRecordPayment;
 
@@ -464,7 +521,12 @@ class _DriverOrderCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      // Тап по карточке → полная деталка заявки (контакт приёмки,
+      // комментарии, ТТН) — раньше карточка была «мёртвой».
+      child: InkWell(
+          onTap: onOpen,
+          child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,11 +547,15 @@ class _DriverOrderCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                // Заголовок = заказчик (юрлицо/клиент), не топливо
+                // (правки 2026-08-26): водителю важно, к кому он едет.
                 Expanded(
                   child: Text(
-                    '№${order.orderNumber} — ${FuelCatalog.label(order.fuelType)}, '
-                    '${order.volumeRequested.toStringAsFixed(0)} л',
+                    '№${order.orderNumber} — '
+                    '${order.buyerName?.isNotEmpty == true ? order.buyerName : 'Заказчик не указан'}',
                     style: const TextStyle(fontWeight: FontWeight.w600),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (pendingCount > 0)
@@ -528,12 +594,30 @@ class _DriverOrderCard extends StatelessWidget {
                 order.status != 'delivered' &&
                 order.status != 'cancelled')
               _ShipmentBadge(allowed: order.shipmentAllowed),
+            // «Назначена вам» — заявку создал админ уже с водителем;
+            // брать её из пула не нужно, достаточно подтвердить.
+            if (assignedToMe && order.status == 'new')
+              Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text('Назначена вам',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF3B82F6),
+                    )),
+              ),
             const SizedBox(height: 4),
-            // Заказчик (организация/клиент) — водителю важно, к кому едет
-            // (правки 2026-08-12: в карточке водителя не выводился).
-            if (order.buyerName?.isNotEmpty == true)
-              Text(order.buyerName!,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            // Топливо + объём — вторичной строкой под заказчиком.
+            Text(
+              '${FuelCatalog.label(order.fuelType)}, '
+              '${order.volumeRequested.toStringAsFixed(0)} л',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             Text(order.deliveryAddress),
             if (order.desiredDate != null)
               Text(
@@ -565,20 +649,28 @@ class _DriverOrderCard extends StatelessWidget {
                   ],
                 ),
               ),
-            if (onClaim != null || onDeliver != null || onRecordPayment != null)
+            if (onClaim != null ||
+                onDeliver != null ||
+                onAccept != null ||
+                onRecordPayment != null)
               Align(
                 alignment: Alignment.centerRight,
                 child: Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: switch ((onClaim, onDeliver)) {
-                    (final claim?, _) => FilledButton.icon(
+                  child: switch ((onClaim, onAccept, onDeliver)) {
+                    (final claim?, _, _) => FilledButton.icon(
                         onPressed: busy ? null : claim,
                         icon: const Icon(Icons.front_hand, size: 18),
                         label: const Text('Взять заявку'),
                       ),
-                    (_, final deliver?) => FilledButton.icon(
-                        onPressed: busy ? null : deliver,
+                    (_, final accept?, _) => FilledButton.icon(
+                        onPressed: busy ? null : accept,
                         icon: const Icon(Icons.check, size: 18),
+                        label: const Text('Принять'),
+                      ),
+                    (_, _, final deliver?) => FilledButton.icon(
+                        onPressed: busy ? null : deliver,
+                        icon: const Icon(Icons.local_shipping, size: 18),
                         label: const Text('Доставлена'),
                       ),
                     _ => OutlinedButton.icon(
@@ -591,7 +683,7 @@ class _DriverOrderCard extends StatelessWidget {
               ),
           ],
         ),
-      ),
+      )),
     );
   }
 }

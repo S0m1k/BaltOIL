@@ -249,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return switch (_dest) {
       _Dest.orders => user.role == 'driver'
-          ? DriverOrdersScreen(driverId: user.id)
+          ? DriverOrdersScreen(user: user)
           : OrdersScreen(
               canCreate: user.role == 'client' ||
                   user.role == 'manager' ||
