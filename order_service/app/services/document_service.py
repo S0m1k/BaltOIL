@@ -327,30 +327,29 @@ def _build_invoice_ctx(
     }
 
 
-DELIVERY_ITEM_NAME = "Доставка"
-
-
 def _build_line_items(
     order: Order, volume: float, total_amount: float, vat_rate: int
 ) -> tuple[list[dict], float, float, float]:
-    """Разбить заказ на позиции (топливо + доставка) с разбивкой НДС.
+    """Разбить заказ на позиции (только топливо) с разбивкой НДС.
 
     total_amount — сумма С НДС (то, что клиент платит, как order.expected/final_amount,
     на этой сумме строится учёт долга). В образце счёта строки и «Итого» показаны
     БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС. Поэтому
     раскладываем total_amount обратно на пред-НДС базу и налог.
 
-    Доставка (правки 2026-08-24) выводится ОТДЕЛЬНОЙ строкой (кол-во 1), если
-    order.delivery_cost > 0. Раньше она была размазана по строке топлива, из-за
-    чего цена за литр в счёте была завышена, а для юрлиц (у которых доставка уже
-    ×1.22) пред-НДС база доставки считалась некорректно.
+    Стоимость доставки уже включена в total_amount (Д3) и отдельной строкой не
+    выводится — вся пред-НДС база ложится на единственную строку топлива.
+
+    ИСТОРИЯ: 24.08.2026 доставку вынесли отдельной строкой, обосновав это
+    «двойным ×1.22 у юрлиц». Обоснование неверное: доставка юрлицам хранится
+    уже с НДС (pricing_service.LEGAL_DELIVERY_VAT), и деление ВСЕГО итога на
+    1.22 даёт корректную пред-НДС базу — двойного налога не было. По решению
+    заказчика (Д3) 27.08.2026 вернули единственную строку топлива.
 
     Возвращает (items, subtotal_no_vat, vat_amount, total), где total == total_amount.
     """
     rate = vat_rate or 0
-
-    def _pre_vat(amount_with_vat: float) -> float:
-        return round(amount_with_vat / (1 + rate / 100), 2) if rate else round(amount_with_vat, 2)
+    pre_vat_total = round(total_amount / (1 + rate / 100), 2) if rate else total_amount
 
     def _line(name: str, qty: float, unit: str, unit_code: str | None, sum_no_vat: float) -> dict:
         vat = round(sum_no_vat * rate / 100, 2)
@@ -365,16 +364,7 @@ def _build_line_items(
             "sum":        round(sum_no_vat + vat, 2),
         }
 
-    delivery = float(order.delivery_cost or 0)
-    # Защита от «доставка больше итога» (правка суммы вручную) — тогда отдельной
-    # строки не делаем, чтобы не получить отрицательную стоимость топлива.
-    if delivery <= 0 or delivery >= total_amount:
-        delivery = 0.0
-    fuel_with_vat = total_amount - delivery
-
-    items = [_line(_fuel_name(order), volume, "л", "112", _pre_vat(fuel_with_vat))]
-    if delivery > 0:
-        items.append(_line(DELIVERY_ITEM_NAME, 1, "усл.", "796", _pre_vat(delivery)))
+    items = [_line(_fuel_name(order), volume, "л", "112", pre_vat_total)]
 
     subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
     # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
