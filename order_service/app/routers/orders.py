@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.order import OrderStatus
+from app.models.order import OrderStatus, OrderKind
 from app.core.dependencies import CurrentUser
 from app.schemas.order import (
     OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest,
@@ -23,12 +23,13 @@ async def list_orders(
     status: OrderStatus | None = Query(None),
     driver_id: uuid.UUID | None = Query(None),
     client_id: uuid.UUID | None = Query(None),
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
     return await order_service.list_orders(
         db, current_user, status=status, driver_id=driver_id, client_id=client_id,
-        offset=offset, limit=limit
+        kind=kind, offset=offset, limit=limit
     )
 
 
@@ -36,9 +37,10 @@ async def list_orders(
 async def count_orders(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l"),
 ):
     """Счётчики заявок по статусам (в пределах видимости роли) — для бейджей вкладок."""
-    return await order_service.count_orders_by_status(db, current_user)
+    return await order_service.count_orders_by_status(db, current_user, kind=kind)
 
 
 @router.get("/last-delivery-by-client", response_model=dict[str, str])

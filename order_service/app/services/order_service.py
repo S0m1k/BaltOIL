@@ -169,13 +169,22 @@ async def get_order(
     return order
 
 
-def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> list:
+def _visibility_conditions(
+    actor: TokenUser,
+    org_ids: list | None = None,
+    kind: OrderKind | None = None,
+) -> list:
     """Условия видимости заявок по роли — общие для списка и счётчиков.
 
     Для клиента: свои заявки (client_id) + все заявки его организаций
     (organization_id ∈ org_ids) — member видит весь учёт по юрлицу.
+
+    kind — фильтр вида заявки (физ/юр/ТТН-Л) поверх видимости: сужает выдачу
+    для любой роли, прав не расширяет (правки 2026-09-02).
     """
     conditions = [Order.is_archived == False]  # noqa: E712
+    if kind is not None:
+        conditions.append(Order.order_kind == kind)
 
     if actor.role == ROLE_CLIENT:
         if org_ids:
@@ -205,11 +214,13 @@ def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> lis
 async def count_orders_by_status(
     db: AsyncSession,
     actor: TokenUser,
+    *,
+    kind: OrderKind | None = None,
 ) -> dict[str, int]:
     """Количество заявок по каждому статусу в пределах видимости роли.
     Используется для бейджей на вкладках реестра (правка заказчика 2026-06-16)."""
     org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
-    conditions = _visibility_conditions(actor, org_ids)
+    conditions = _visibility_conditions(actor, org_ids, kind)
     result = await db.execute(
         select(Order.status, func.count())
         .where(and_(*conditions))
@@ -242,11 +253,12 @@ async def list_orders(
     status: OrderStatus | None = None,
     driver_id: uuid.UUID | None = None,
     client_id: uuid.UUID | None = None,
+    kind: OrderKind | None = None,
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
     org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
-    conditions = _visibility_conditions(actor, org_ids)
+    conditions = _visibility_conditions(actor, org_ids, kind)
 
     if status:
         conditions.append(Order.status == status)

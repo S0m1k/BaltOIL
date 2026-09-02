@@ -563,6 +563,18 @@ setTimeout(function () {
   .status-cb-label:hover { border-color: var(--amber); }
   .status-cb-label input[type="checkbox"] { accent-color: var(--amber); margin: 0; }
 
+  /* Чипы фильтра по виду заявки (правки 2026-09-02) — только staff */
+  .kind-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0 0; }
+  .kind-chip {
+    font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace;
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text3); cursor: pointer; white-space: nowrap;
+    padding: 4px 12px; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 2px; transition: all .15s;
+  }
+  .kind-chip:hover { border-color: var(--amber); color: var(--text2); }
+  .kind-chip.active { background: var(--amber-dim); color: var(--amber); font-weight: 600; border-color: var(--amber); }
+
   .orders-grid { display: flex; flex-direction: column; gap: 8px; }
 
   .order-card {
@@ -1995,6 +2007,13 @@ setTimeout(function () {
         <button class="btn btn-sm btn-ghost" id="base-tariffs-btn" onclick="showBaseTariffsModal()" style="display:none">
           ₽ Базовые тарифы
         </button>
+      </div>
+      <!-- Фильтр по виду заявки (правки 2026-09-02): только менеджер/админ -->
+      <div id="orders-kind-filter" class="kind-chips" style="display:none">
+        <button class="kind-chip active" data-kind=""           onclick="switchOrderKind('')">Все</button>
+        <button class="kind-chip"        data-kind="individual" onclick="switchOrderKind('individual')">Физ</button>
+        <button class="kind-chip"        data-kind="company"    onclick="switchOrderKind('company')">Юр</button>
+        <button class="kind-chip"        data-kind="ttn_l"      onclick="switchOrderKind('ttn_l')">Л</button>
       </div>
       <button id="orders-new-btn" class="btn btn-primary"
         style="width:100%;margin:4px 0 14px;font-size:15px;padding:14px;display:none"
@@ -4691,6 +4710,16 @@ async function _doPricePreview() {
 // ORDERS
 // ═══════════════════════════════════════════════════════════════
 let _activeOrderStatus = 'new';
+// Фильтр по виду заявки (правки 2026-09-02): '' = все. Переживает перезагрузку —
+// менеджер, работающий только с юрлицами, не переключает его каждый раз заново.
+const ORDER_KIND_FILTER_KEY = 'orders.kindFilter';
+const _ORDER_KINDS = ['individual', 'company', 'ttn_l'];
+let _activeOrderKind = (() => {
+  try {
+    const v = localStorage.getItem(ORDER_KIND_FILTER_KEY);
+    return _ORDER_KINDS.includes(v) ? v : '';
+  } catch { return ''; }
+})();
 
 function switchOrderTab(status) {
   _activeOrderStatus = status;
@@ -4698,6 +4727,24 @@ function switchOrderTab(status) {
     btn.classList.toggle('active', btn.dataset.status === status);
   });
   loadOrders();
+}
+
+function switchOrderKind(kind) {
+  _activeOrderKind = _ORDER_KINDS.includes(kind) ? kind : '';
+  try { localStorage.setItem(ORDER_KIND_FILTER_KEY, _activeOrderKind); } catch { /* приватный режим */ }
+  syncOrderKindChips();
+  loadOrders();
+}
+
+// Показать чипы только staff и подсветить выбранный вид.
+function syncOrderKindChips() {
+  const row = document.getElementById('orders-kind-filter');
+  if (!row) return;
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  row.style.display = isStaff ? 'flex' : 'none';
+  row.querySelectorAll('.kind-chip').forEach(btn => {
+    btn.classList.toggle('active', (btn.dataset.kind || '') === _activeOrderKind);
+  });
 }
 
 async function loadOrders() {
@@ -4710,8 +4757,10 @@ async function loadOrders() {
     try { _allDrivers = await authGet('/users?role=driver&limit=200&include_inactive=true'); }
     catch (_) { /* не критично — покажем id */ }
   }
+  syncOrderKindChips();
+  const kindQs = _activeOrderKind ? `&kind=${_activeOrderKind}` : '';
   try {
-    const orders = await orderGet(`/orders?limit=200&status=${_activeOrderStatus}`);
+    const orders = await orderGet(`/orders?limit=200&status=${_activeOrderStatus}${kindQs}`);
     renderOrders(orders);
   } catch (e) {
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
@@ -4722,7 +4771,7 @@ async function loadOrders() {
 // Обновить счётчики-бейджи на вкладках реестра (правка заказчика 2026-06-16)
 async function refreshOrderTabCounts() {
   try {
-    const counts = await orderGet('/orders/counts');
+    const counts = await orderGet('/orders/counts' + (_activeOrderKind ? `?kind=${_activeOrderKind}` : ''));
     document.querySelectorAll('.tab-badge').forEach(b => {
       const n = counts[b.dataset.badge] || 0;
       b.textContent = n;
