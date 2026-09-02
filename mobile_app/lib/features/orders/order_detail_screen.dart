@@ -5,7 +5,6 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../common/copyable_phone.dart';
-import '../inventory/inventory_repository.dart';
 import '../organizations/organizations_repository.dart';
 import 'delivery_dialog.dart';
 import 'order_create_screen.dart';
@@ -581,135 +580,34 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _reload();
   });
 
+  /// CRM-38: то же единое окно, что и в списке водителя (delivery_dialog.dart):
+  /// литры, ёмкость/счётчик и — для физлица — полученная сумма со способом
+  /// оплаты. Отправку делает сам диалог.
   Future<void> _driverDeliver(OrderDetail order) async {
-    // Как на вебе (правки 2026-07-14): фактический объём, комментарий
-    // в отчёт, ёмкость + счётчик колонки (если ёмкости заведены).
-    final input = await showDeliveryDialog(
-      context,
-      requestedVolume: order.volumeRequested,
-      fuelType: order.fuelType,
-    );
-    if (input == null) return;
-    await _run(() async {
-      final delivered = await OrdersRepository.instance.markDelivered(
-        order.id,
-        volumeDelivered: input.volume,
-        comment: input.comment,
-      );
-      if (!mounted) return;
-      _snack('Статус изменён → Доставлена');
-      // Списание из ёмкости — после успешного перевода статуса; ошибка
-      // не отменяет доставку (исправит админ корректировкой).
-      if (input.tankId != null && input.counterAfter != null) {
-        try {
-          await InventoryRepository.instance.tankIssue(
-            input.tankId!,
-            counterAfter: input.counterAfter!,
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            volumeHint: input.volume,
-          );
-        } on Object catch (te) {
-          if (mounted) {
-            _snack(
-                'Доставка отмечена, но ёмкость не списана: ${apiErrorMessage(te)}');
-          }
-        }
-      }
-      if (delivered.isIndividual) {
-        await _showDriverPaymentDialog(delivered);
-      }
-      _reload();
-    });
-  }
-
-  Future<void> _showDriverPaymentDialog(Order order) async {
-    final expected = order.finalAmount ?? order.expectedAmount ?? 0;
-    final amountCtrl = TextEditingController(text: expected.toStringAsFixed(0));
-    String method = 'cash';
-    const methodLabels = {
-      'cash': 'Наличные',
-      'card': 'Карта',
-      'bank_transfer': 'Банковский перевод',
-    };
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Зафиксировать оплату'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD97706).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Сумма к получению: ${expected.toStringAsFixed(0)} ₽',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFFD97706),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              TextField(
-                controller: amountCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Сумма, ₽ *',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: method,
-                items: [
-                  for (final e in methodLabels.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ],
-                onChanged: (v) => setDialogState(() => method = v ?? 'cash'),
-                decoration: const InputDecoration(
-                  labelText: 'Метод оплаты *',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('ОК'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true) return;
-    final amount = double.tryParse(amountCtrl.text.replaceAll(',', '.'));
-    if (amount == null || amount <= 0) {
-      _snack('Некорректная сумма — оплата не записана');
-      return;
-    }
+    if (_busy) return;
+    setState(() => _busy = true);
+    DeliveryResult? res;
     try {
-      await OrdersRepository.instance.recordPayment(
+      res = await showDeliveryDialog(
+        context,
         orderId: order.id,
-        amount: amount,
-        method: method,
+        orderNumber: order.orderNumber,
+        requestedVolume: order.volumeRequested,
+        fuelType: order.fuelType,
+        // Д5: у юрлиц водитель денег не видит.
+        collectPayment: order.isIndividual,
+        expectedAmount: order.finalAmount ?? order.expectedAmount,
       );
-      if (mounted) _snack('Оплата зафиксирована');
-    } on Exception catch (e) {
-      if (mounted) _snack(apiErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+    if (!mounted || res == null) return;
+    final warning = res.warning;
+    if (warning != null) _snack(warning);
+    _snack(res.paymentRecorded
+        ? 'Доставлена, оплата зафиксирована'
+        : 'Статус изменён → Доставлена');
+    _reload();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────

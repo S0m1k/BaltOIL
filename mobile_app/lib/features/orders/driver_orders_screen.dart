@@ -4,7 +4,6 @@ import '../../core/api_client.dart';
 import '../../core/outbox_db.dart';
 import '../../core/sync_service.dart';
 import '../auth/auth_repository.dart';
-import '../inventory/inventory_repository.dart';
 import '../tariffs/base_tariffs_sheet.dart';
 import 'delivery_dialog.dart';
 import 'order_detail_screen.dart';
@@ -146,134 +145,47 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
         await OrdersRepository.instance.ackChanges(order.id);
       });
 
+  /// CRM-38: одно окно для физлица — литры, ёмкость/счётчик, полученная сумма
+  /// и способ оплаты. Отправкой (delivered → списание → оплата) занимается сам
+  /// диалог; здесь остаются только снекбар и перезагрузка списка.
   Future<void> _deliver(Order order) async {
-    // Как на вебе (правки 2026-07-14): фактический объём, комментарий
-    // в отчёт, ёмкость + счётчик колонки (если ёмкости заведены).
-    final input = await showDeliveryDialog(
-      context,
-      requestedVolume: order.volumeRequested,
-      fuelType: order.fuelType,
-    );
-    if (input == null) return;
-
-    await _run(() async {
-      final delivered = await OrdersRepository.instance.markDelivered(
-        order.id,
-        volumeDelivered: input.volume,
-        comment: input.comment,
+    if (_busy) return;
+    setState(() => _busy = true);
+    DeliveryResult? res;
+    try {
+      res = await showDeliveryDialog(
+        context,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        requestedVolume: order.volumeRequested,
+        fuelType: order.fuelType,
+        // Д5: деньги водитель собирает только у физлиц, у юрлиц их не видит.
+        collectPayment: order.isIndividual,
+        expectedAmount: order.finalAmount ?? order.expectedAmount,
       );
-      if (!mounted) return;
-      _snack('Статус изменён → Доставлена');
-      // Списание из ёмкости по счётчику — после успешного перевода статуса.
-      // Ошибка не отменяет доставку: расхождение исправит админ корректировкой.
-      if (input.tankId != null && input.counterAfter != null) {
-        try {
-          await InventoryRepository.instance.tankIssue(
-            input.tankId!,
-            counterAfter: input.counterAfter!,
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            volumeHint: input.volume,
-          );
-        } on Object catch (te) {
-          if (mounted) {
-            _snack(
-                'Доставка отмечена, но ёмкость не списана: ${apiErrorMessage(te)}');
-          }
-        }
-      }
-      // Д5: фиксация оплаты — только у физлиц; у юрлиц водитель денег не видит.
-      if (delivered.isIndividual) {
-        await _showPaymentDialog(delivered);
-      }
-    });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted || res == null) return;
+    final warning = res.warning;
+    if (warning != null) _snack(warning);
+    _snack(res.paymentRecorded
+        ? 'Доставлена, оплата зафиксирована'
+        : 'Статус изменён → Доставлена');
+    _reload();
   }
 
-  Future<void> _showPaymentDialog(Order order) async {
-    final expected = order.finalAmount ?? order.expectedAmount ?? 0;
-    final amountCtrl = TextEditingController(text: expected.toStringAsFixed(0));
-    String method = 'cash';
-    // Подписи метода — как в селекте веба (promptDriverRecordPayment).
-    const methodLabels = {
-      'cash': 'Наличные',
-      'card': 'Карта',
-      'bank_transfer': 'Банковский перевод',
-    };
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Зафиксировать оплату'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD97706).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '⚠ Сумма к получению: ${expected.toStringAsFixed(0)} ₽',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: Color(0xFFD97706), fontWeight: FontWeight.w600),
-                ),
-              ),
-              TextField(
-                controller: amountCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Сумма, ₽ *',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: method,
-                items: [
-                  for (final e in methodLabels.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ],
-                onChanged: (v) => setDialogState(() => method = v ?? 'cash'),
-                decoration: const InputDecoration(
-                  labelText: 'Метод оплаты *',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('ОК'),
-            ),
-          ],
-        ),
-      ),
+  /// Д5: оплату можно внести и после доставки — то же окно без литров.
+  Future<void> _recordPayment(Order order) async {
+    final res = await showDriverPaymentDialog(
+      context,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      expectedAmount: order.finalAmount ?? order.expectedAmount,
     );
-
-    if (confirmed != true) return;
-    final amount = double.tryParse(amountCtrl.text.replaceAll(',', '.'));
-    if (amount == null || amount <= 0) {
-      _snack('Некорректная сумма — оплата не записана');
-      return;
-    }
-    try {
-      await OrdersRepository.instance
-          .recordPayment(orderId: order.id, amount: amount, method: method);
-      if (mounted) _snack('Оплата зафиксирована');
-    } catch (e) {
-      if (mounted) _snack(apiErrorMessage(e));
-    }
+    if (!mounted) return;
+    if (res != null && res.paymentRecorded) _snack('Оплата зафиксирована');
+    _reload();
   }
 
   @override
@@ -414,8 +326,7 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
                           // Д5: оплату можно внести и после доставки.
                           onRecordPayment:
                               o.isIndividual && o.paymentStatus != 'paid'
-                                  ? () =>
-                                      _showPaymentDialog(o).then((_) => _reload())
+                                  ? () => _recordPayment(o)
                                   : null,
                         ),
                     ],
