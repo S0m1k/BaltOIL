@@ -4628,9 +4628,10 @@ async function _doPricePreview() {
   if (_orderGeo?.lat != null) { body.delivery_lat = _orderGeo.lat; body.delivery_lon = _orderGeo.lon; }
   if (isStaff) {
     const cid = document.getElementById('c-client-id')?.value;
-    // Разовый клиент ещё не создан — превью цены считаем без client_id
-    // (бэкенд возьмёт default-тариф физлица по актору-менеджеру).
-    if (cid && cid !== '__oneoff__') body.client_id = cid;
+    // Разовый клиент ещё не создан, у заявки от организации клиента нет вовсе —
+    // превью цены считаем без client_id (бэкенд возьмёт контекст организации,
+    // иначе default-тариф физлица по актору-менеджеру).
+    if (cid && !_isPseudoClient(cid)) body.client_id = cid;
     // Ручная стоимость доставки участвует в «Итого» превью (правки 2026-08-24)
     const manualRaw = document.getElementById('c-manual-delivery-cost')?.value;
     if (manualRaw !== undefined && manualRaw !== null && String(manualRaw).trim() !== '') {
@@ -6325,6 +6326,12 @@ function updatePaymentUI() {
 }
 
 
+// Псевдо-пункты селектора клиента: разовый клиент (создаётся при сабмите) и
+// заявка от организации без клиента (правки 2026-09-02) — id клиента у них нет.
+function _isPseudoClient(cid) {
+  return cid === '__oneoff__' || cid === '__org__';
+}
+
 async function loadClientSelectForOrder() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   if (!isStaff) {
@@ -6343,18 +6350,20 @@ async function loadClientSelectForOrder() {
     // «Разовый клиент» — первым пунктом (правки 2026-07-11): физлицо по имени+телефону
     sel.innerHTML = '<option value="">— выберите клиента —</option>' +
       `<option value="__oneoff__"${current === '__oneoff__' ? ' selected' : ''}>⭐ Разовый клиент (имя + телефон)</option>` +
+      `<option value="__org__"${current === '__org__' ? ' selected' : ''}>От организации (без клиента)</option>` +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email || c.phone || '')}</option>`).join('');
     // Reload payment radios, saved objects + organizations when manager picks a different client
     sel.onchange = () => {
       const cid = sel.value;
       toggleOneOffFields(cid === '__oneoff__');
-      if (cid && cid !== '__oneoff__') renderPaymentRadios(cid);
+      if (!_isPseudoClient(cid) && cid) renderPaymentRadios(cid);
       loadSavedObjects();
-      loadOrganizationSelectForOrder(cid && cid !== '__oneoff__' ? cid : null);
+      loadOrganizationSelectForOrder(_isPseudoClient(cid) ? null : (cid || null), cid === '__org__');
     };
     toggleOneOffFields(current === '__oneoff__');
-    if (current && current !== '__oneoff__') { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
-    else { loadOrganizationSelectForOrder(null); } // staff: все организации, включая «ничейные»
+    if (current && !_isPseudoClient(current)) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
+    // staff: все организации, включая «ничейные»
+    else { loadOrganizationSelectForOrder(null, current === '__org__'); }
     loadSavedObjects();
   } catch { /* тихо, не блокируем форму */ }
 }
@@ -6393,7 +6402,8 @@ async function loadSavedObjects() {
   if (isStaff) {
     const clientSel = document.getElementById('c-client-id');
     clientId = clientSel?.value || null;
-    if (clientId === '__oneoff__') clientId = null; // разовый клиент — объектов ещё нет
+    // Разовый клиент / заявка от организации — сохранённых объектов клиента нет
+    if (_isPseudoClient(clientId)) clientId = null;
     if (!clientId) {
       // No client selected yet — hide the selector
       _savedObjects = [];
@@ -6488,12 +6498,18 @@ async function deleteSavedObject() {
 
 // Загрузить организации пользователя в селектор «Оформить от имени».
 // Клиент — свои; staff — организации выбранного клиента. Скрываем, если их нет.
-async function loadOrganizationSelectForOrder(userId) {
+// orgOnly (правки 2026-09-02): выбран пункт «От организации (без клиента)» —
+// организация обязательна, поэтому первый пункт не «Физлицо», а плейсхолдер,
+// и блок остаётся видимым даже при пустом списке (иначе выбор нечем исправить).
+async function loadOrganizationSelectForOrder(userId, orgOnly = false) {
   const group = document.getElementById('c-org-group');
   const sel   = document.getElementById('c-organization');
   if (!group || !sel) return;
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  sel.innerHTML = '<option value="">Физлицо (на себя)</option>';
+  const placeholder = orgOnly
+    ? '<option value="">— выберите организацию —</option>'
+    : '<option value="">Физлицо (на себя)</option>';
+  sel.innerHTML = placeholder;
   // Staff без выбранного клиента видит ВСЕ организации (правки 2026-07-22):
   // так оформляются заявки на «ничейные» организации, созданные без клиента.
   if (!userId && !isStaff) { group.style.display = 'none'; return; }
@@ -6501,16 +6517,17 @@ async function loadOrganizationSelectForOrder(userId) {
     const path = isStaff && userId ? `/organizations?user_id=${userId}` : '/organizations';
     const orgs = await authGet(path);
     if (Array.isArray(orgs) && orgs.length) {
-      sel.innerHTML += orgs.map(o =>
+      sel.innerHTML = placeholder + orgs.map(o =>
         `<option value="${o.id}">${escHtml(o.company_name)}${o.inn ? ' (ИНН ' + escHtml(o.inn) + ')' : ''}</option>`
       ).join('');
       group.style.display = '';
     } else {
-      group.style.display = 'none';
+      group.style.display = orgOnly ? '' : 'none';
     }
   } catch {
-    group.style.display = 'none';
+    group.style.display = orgOnly ? '' : 'none';
   }
+  if (orgOnly) updatePricePreview();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7004,6 +7021,15 @@ async function doCreateOrder() {
     if (!clientId && !body.organization_id) {
       errEl.innerHTML = '<div class="inline-error">Выберите клиента или организацию</div>';
       return;
+    }
+    // «От организации (без клиента)» (правки 2026-09-02): клиента не шлём вовсе,
+    // организация обязательна — иначе заявка молча уедет на самого менеджера.
+    if (clientId === '__org__') {
+      if (!body.organization_id) {
+        errEl.innerHTML = '<div class="inline-error">Выберите организацию</div>';
+        return;
+      }
+      clientId = '';
     }
     // Разовый клиент (правки 2026-07-11): создаём/находим по телефону перед заявкой
     if (clientId === '__oneoff__') {
