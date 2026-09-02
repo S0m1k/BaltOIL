@@ -15,6 +15,11 @@ order event:
     "driver_id": "...|null", "manager_id": "...|null",
     "status": "...", "title": "...", "body": "..." }
 
+order_deleted (полное удаление заявки админом):
+  { "event": "order_deleted", "order_id": "...", "order_number": "...",
+    "ttn_number": "...|null", "actor_id": "..." }
+  → удаляем уведомления заявки, новых не создаём.
+
 chat event:
   { "event": "chat_message",
     "conv_id": "...", "sender_id": "...", "sender_name": "...",
@@ -28,10 +33,11 @@ import logging
 import uuid
 import redis.asyncio as aioredis
 import httpx
+from sqlalchemy import delete
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.models.notification import NotificationType
+from app.models.notification import Notification, NotificationType
 from app.schemas.notification import PublishRequest
 from app.services.notification_service import create_notifications, notif_to_json, schedule_emails
 from app.services.push_service import schedule_pushes
@@ -185,8 +191,40 @@ async def _build_call_request(payload: dict) -> PublishRequest | None:
     return None
 
 
+async def _handle_order_deleted(payload: dict) -> None:
+    """Заявку удалили навсегда — уведомления о ней больше некуда вести."""
+    raw_id = payload.get("order_id")
+    if not raw_id:
+        return
+    try:
+        order_id = uuid.UUID(raw_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.warning("order_deleted с некорректным order_id: %r", raw_id)
+        return
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(
+                delete(Notification).where(
+                    Notification.entity_type == "order",
+                    Notification.entity_id == order_id,
+                )
+            )
+            await db.commit()
+            logger.warning(
+                "action=order.hard_deleted.notification_cleanup order_id=%s deleted=%s",
+                order_id, result.rowcount,
+            )
+        except Exception:
+            logger.exception("Не удалось удалить уведомления заявки %s", order_id)
+            await db.rollback()
+
+
 async def _handle(payload: dict, r: aioredis.Redis) -> None:
     event = payload.get("event", "")
+    if event == "order_deleted":
+        await _handle_order_deleted(payload)
+        return
     if event in ("order_created", "order_status", "order_large_volume", "order_rescheduled"):
         req = await _build_order_request(payload)
     elif event == "chat_message":

@@ -10,6 +10,7 @@ from app.routers import internal as internal_router
 from app.routers import zones as zones_router
 from app.routers import tanks as tanks_router
 from app.routers.downloads import _purge_loop
+from app.services.redis_subscriber import order_events_subscriber_task
 
 settings = get_settings()
 
@@ -37,8 +38,10 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     purge_task = asyncio.create_task(_purge_loop())
+    events_task = asyncio.create_task(order_events_subscriber_task())
     yield
     purge_task.cancel()
+    events_task.cancel()
     await engine.dispose()
 
 

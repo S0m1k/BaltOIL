@@ -168,3 +168,18 @@ async def archive_order(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await order_service.archive_order(db, order_id, current_user)
+
+
+@router.delete("/{order_id}/hard")
+async def hard_delete_order(
+    order_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Полное удаление заявки без возможности восстановления (только админ).
+
+    В отличие от DELETE /orders/{id} (архивирование) удаляет документы, платежи,
+    историю статусов, а по событию order_deleted — рейсы, складские проводки,
+    чат заявки и уведомления в смежных сервисах.
+    """
+    return await order_service.hard_delete_order(db, order_id, current_user)

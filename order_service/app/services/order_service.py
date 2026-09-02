@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as _Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, delete as sa_delete
 from sqlalchemy.orm import selectinload
 
 import httpx
@@ -15,6 +15,7 @@ from app.services import fuel_type_service
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
+from app.core.media import resolve_media_path
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest, PricePreviewRequest
 from app.services.order_number import generate_order_number, generate_ttn_number
@@ -1416,3 +1417,97 @@ async def archive_order(
         changed_by_role=actor.role,
         comment="Заявка архивирована",
     ))
+
+
+def _remove_document_files(file_paths: list[str]) -> None:
+    """Удалить PDF-файлы документов с диска. Ошибки логируем, но не падаем:
+    строки в БД уже удалены, осиротевший файл менее вреден, чем 500 на удалении."""
+    from app.services.document_service import MEDIA_ROOT
+
+    for rel_path in file_paths:
+        try:
+            path = resolve_media_path(MEDIA_ROOT, rel_path)
+            path.unlink(missing_ok=True)
+        except Exception:
+            log.warning("Не удалось удалить файл документа %s", rel_path, exc_info=True)
+
+
+async def hard_delete_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> dict:
+    """Полное удаление заявки со всеми связанными данными (только админ).
+
+    Архивирование (archive_order) остаётся мягким удалением; это — необратимое.
+    Каскад в order_service: документы (+ PDF с диска), платежи, лог статусов,
+    ключи идемпотентности, сама заявка. Счётчики номеров заявок и ТТН НЕ трогаем —
+    номера не переиспользуются.
+
+    Данные в других сервисах (рейсы и складские проводки delivery_service, чат
+    заявки, уведомления) удаляются подписчиками события `order_deleted`
+    в канале events:orders.
+    """
+    from app.models.document import Document
+    from app.models.idempotency_key import IdempotencyKey
+    from app.models.payment import Payment
+
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError("Полное удаление заявки доступно только администратору")
+
+    # Архивные заявки тоже удаляем — удаление доступно в любом статусе.
+    result = await db.execute(select(Order).where(Order.id == order_id))
+    order = result.scalar_one_or_none()
+    if not order:
+        raise NotFoundError("Заявка не найдена")
+
+    order_number = order.order_number
+    ttn_number = order.ttn_number
+    status_value = order.status.value
+    client_id = str(order.client_id) if order.client_id else None
+    driver_id = str(order.driver_id) if order.driver_id else None
+    # Сколько литров вернётся на склад: фактически доставленный объём.
+    stock_restored_l = (
+        float(order.volume_delivered) if order.volume_delivered is not None else None
+    )
+
+    doc_paths = [
+        p for p in (
+            await db.execute(
+                select(Document.file_path).where(Document.order_id == order_id)
+            )
+        ).scalars().all()
+        if p
+    ]
+
+    await db.execute(sa_delete(Document).where(Document.order_id == order_id))
+    await db.execute(sa_delete(Payment).where(Payment.order_id == order_id))
+    await db.execute(sa_delete(OrderStatusLog).where(OrderStatusLog.order_id == order_id))
+    await db.execute(sa_delete(IdempotencyKey).where(IdempotencyKey.order_id == order_id))
+    await db.execute(sa_delete(Order).where(Order.id == order_id))
+    await db.commit()
+
+    _remove_document_files(doc_paths)
+
+    log.warning(
+        "action=order.hard_deleted order_id=%s order_number=%s actor_id=%s status=%s",
+        order_id, order_number, actor.id, status_value,
+    )
+
+    # Событие — только после успешного commit: подписчики (delivery/chat/
+    # notification) чистят свои данные и откатить их вместе с нами нельзя.
+    await publish_order_event({
+        "event": "order_deleted",
+        "order_id": str(order_id),
+        "order_number": order_number,
+        "ttn_number": ttn_number,
+        "actor_id": str(actor.id),
+        "client_id": client_id,
+        "driver_id": driver_id,
+    })
+
+    return {
+        "deleted": True,
+        "order_number": order_number,
+        "stock_restored_l": stock_restored_l,
+    }

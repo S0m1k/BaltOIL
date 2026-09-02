@@ -5616,6 +5616,9 @@ function actionBarHTML(o) {
     // (например, заявку разделили, а оплата зафиксирована на старой)
     if ((o.paid_total || 0) > 0 || paymentStatusDisplay(o.payment_status || 'unpaid') === 'paid')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="showOrderPayments('${o.id}','${escHtml(o.order_number||'')}')">${icon('wallet',14)} Платежи</button>`);
+    // Полное удаление (П4, 2026-09-02) — только админ, любой статус.
+    if (role === 'admin')
+      btns.push(`<button class="btn btn-sm btn-danger" onclick="promptHardDeleteOrder('${o.id}','${escHtml(o.order_number||'')}','${o.status}',${o.volume_delivered != null ? Number(o.volume_delivered) : 'null'})">${icon('trash',14)} Удалить навсегда</button>`);
   }
 
   if (role === 'driver') {
@@ -5665,6 +5668,36 @@ async function transitionOrder(orderId, toStatus, extra = {}) {
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+// Полное удаление заявки админом (П4, 2026-09-02). Необратимо, поэтому
+// подтверждение — точным вводом номера заявки, а не одной кнопкой.
+function promptHardDeleteOrder(orderId, orderNumber, status, volumeDelivered) {
+  const stockNote = status === 'delivered'
+    ? `<div style="margin-bottom:10px;color:var(--amber);font-size:12px">Заявка доставлена: складские проводки удалятся, остаток вырастет на ${volumeDelivered != null ? fmtRub(volumeDelivered) : '—'} л.</div>`
+    : '';
+  openModal('Удалить заявку навсегда',
+    `<div style="margin-bottom:10px;color:var(--red);font-size:13px">
+      Заявка ${escHtml(orderNumber)} будет удалена без возможности восстановления:
+      документы, платежи, чат, рейсы.
+    </div>
+    ${stockNote}
+    <div class="form-group">
+      <label class="form-label">Введите номер заявки для подтверждения</label>
+      <input type="text" id="modal-hard-delete-number" class="form-input" placeholder="${escHtml(orderNumber)}" autofocus>
+    </div>`,
+    async () => {
+      const typed = (document.getElementById('modal-hard-delete-number').value || '').trim();
+      if (typed !== orderNumber) { toast('Номер заявки не совпадает', 'error'); return; }
+      try {
+        const res = await orderDelete(`/orders/${orderId}/hard`);
+        closeModal();
+        const restored = res && res.stock_restored_l != null
+          ? `, на склад возвращено ${fmtRub(res.stock_restored_l)} л` : '';
+        toast(`Заявка ${orderNumber} удалена${restored}`, 'success');
+        await loadOrders();
+      } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+    });
 }
 
 async function claimOrder(orderId) {
