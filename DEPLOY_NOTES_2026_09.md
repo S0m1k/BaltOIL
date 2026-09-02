@@ -9,6 +9,7 @@
 | П1 | frontend/index.html (заявка «От организации») | только `git pull`, force-recreate не нужен |
 | П3 | order_service (query `kind` в `/orders` и `/orders/counts`) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |
 | П4 | order_service (`DELETE /orders/{id}/hard`), delivery_service + chat_service (новые подписчики `events:orders`), notification_service + frontend | force-recreate всех четырёх сервисов (см. ниже) |
+| П5 | order_service (`money.price_first_breakdown`: цена за литр первична, итог с копейками) | `docker compose up -d --force-recreate --no-deps order_service` |
 | П6 | order_service (гейт отгрузки, payment-options, дефолт DEBT) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |
 | П7 | order_service (клиенту не отдаётся `manager_comment`) + frontend (подписи полей) | `docker compose up -d --force-recreate --no-deps order_service` |
 | П8 | order_service (гейт правки закрытых заявок) + frontend (карандаши комментариев и контакта) | `docker compose up -d --force-recreate --no-deps order_service` |
@@ -35,3 +36,8 @@ docker compose up -d --force-recreate --no-deps notification_service
 
 Если Redis был недоступен в момент удаления, событие теряется (pub/sub без персистентности):
 рейсы/чат/уведомления заявки останутся сиротами. Лечится вручную; повторной отправки события нет.
+
+## П5 — цена за литр первична
+
+Суммы заявок больше не целые рубли. Уже выпущенные счета не перевыпускаются автоматически —
+новые и перевыпущенные будут с копейками.

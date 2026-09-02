@@ -12,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.money import (  # noqa: E402
     invoice_display_number,
+    order_total,
     per_liter_with_delivery,
-    round_order_total,
+    price_first_breakdown,
     short_org_name,
     strip_leading_zeros,
 )
@@ -21,80 +22,77 @@ from app.services.money import (  # noqa: E402
 D = Decimal
 
 
-# ── round_order_total ─────────────────────────────────────────────────────────
+# ── price_first_breakdown ─────────────────────────────────────────────────────
 
-def test_total_is_whole_ruble_and_delivery_absorbs_kopecks():
-    # 1234 л × 63.55 − 2% = 76852.286 → 76852.29; доставка юрлица 4000 × 1.22
-    fuel = D("76852.29")
-    total, delivery = round_order_total(fuel, D("4880.00"))
-    assert total == D("81732.00")
-    assert delivery == D("4879.71")
-    assert fuel + delivery == total
-
-
-def test_reference_example_1000l_legal_entity():
-    # 1000 л × 63.5 − 2% = 62230.00; доставка 4000 ₽ ×1.22 = 4880.00
-    fuel = D("62230.00")
-    total, delivery = round_order_total(fuel, D("4880.00"))
-    assert total == D("67110.00")
-    assert delivery == D("4880.00")
-    assert fuel + delivery == total
+def test_reference_example_593l_from_task():
+    # Пример заказчика (CRM-27): 593 л × 90 ₽/л + доставка 3200, НДС 22%.
+    bd = price_first_breakdown(D("56570.00"), 593, 22)
+    assert bd["unit_no_vat"] == D("78.19")
+    assert bd["sum_no_vat"] == D("46366.67")
+    assert bd["vat"] == D("10200.67")
+    assert bd["total"] == D("56567.34")
 
 
-def test_no_delivery_gives_whole_ruble_total():
-    total, delivery = round_order_total(D("62230.49"), None)
-    assert total == D("62230.00")
-    assert delivery is None
+def test_price_times_volume_equals_sum():
+    bd = price_first_breakdown(D("56570.00"), 593, 22)
+    assert bd["unit_no_vat"] * D("593") == bd["sum_no_vat"]
+    assert bd["sum_no_vat"] + bd["vat"] == bd["total"]
 
 
-def test_no_delivery_rounds_half_up():
-    total, delivery = round_order_total(D("62230.50"), None)
-    assert total == D("62231.00")
-    assert delivery is None
+def test_zero_vat_rate_keeps_total():
+    bd = price_first_breakdown(D("1000.00"), 100, 0)
+    assert bd["unit_no_vat"] == D("10.00")
+    assert bd["vat"] == D("0.00")
+    assert bd["total"] == D("1000.00")
 
 
-def test_manual_delivery_cost_kept_when_total_already_whole():
-    total, delivery = round_order_total(D("62230.00"), D("3500.00"))
-    assert total == D("65730.00")
-    assert delivery == D("3500.00")
+def test_breakdown_guards():
+    assert price_first_breakdown(None, 100, 22) is None
+    assert price_first_breakdown(D("100"), 0, 22) is None
+    assert price_first_breakdown(D("100"), None, 22) is None
 
 
-def test_zero_delivery_stays_zero():
-    total, delivery = round_order_total(D("100.40"), D("0"))
-    assert total == D("100.00")
-    assert delivery == D("0.00")
+# ── order_total ───────────────────────────────────────────────────────────────
+
+def test_order_total_matches_invoice_total():
+    # Итог заявки обязан совпасть с «Всего к оплате» счёта копейка в копейку.
+    total = order_total(D("53370.00"), D("3200.00"), 593, 22)
+    assert total == price_first_breakdown(D("56570.00"), 593, 22)["total"]
+    assert total == D("56567.34")
 
 
-def test_tiny_delivery_absorbed_into_fuel_never_negative():
-    # Поправка (−0.40) увела бы доставку в минус — доставка обнуляется.
-    total, delivery = round_order_total(D("100.40"), D("0.05"))
-    assert total == D("100.00")
-    assert delivery == D("0.00")
-    assert delivery >= 0
+def test_order_total_keeps_kopecks():
+    # Правило «целыми рублями» (2026-08-24) отменено — копейки сохраняются.
+    total = order_total(D("53370.00"), D("3200.00"), 593, 22)
+    assert total == D("56567.34")
+    assert total != total.quantize(D("1"))
 
 
-def test_none_fuel_subtotal_passes_through():
-    total, delivery = round_order_total(None, D("4000"))
-    assert total is None
-    assert delivery == D("4000")
+def test_order_total_without_volume_is_plain_sum():
+    assert order_total(D("62230.49"), D("3500.00"), None, 22) == D("65730.49")
+    assert order_total(D("62230.49"), D("3500.00"), 0, 22) == D("65730.49")
 
 
-def test_accepts_floats_and_strings():
-    total, delivery = round_order_total(76852.29, "4880")
-    assert total == D("81732.00")
-    assert delivery == D("4879.71")
+def test_order_total_none_fuel_subtotal():
+    assert order_total(None, D("4000"), 100, 22) is None
 
 
-@pytest.mark.parametrize("fuel,dlv", [
-    ("1.11", "2.22"), ("999999.99", "0.51"), ("63500.00", "4270.00"),
-    ("12345.67", "890.12"), ("0.01", "0.99"),
+def test_order_total_accepts_floats_and_strings():
+    assert order_total(76852.29, "4880", 1234, 22) == order_total(
+        D("76852.29"), D("4880"), 1234, 22
+    )
+
+
+@pytest.mark.parametrize("fuel,dlv,vol", [
+    ("1.11", "2.22", 10), ("999999.99", "0.51", 20000), ("63500.00", "4270.00", 1000),
+    ("12345.67", "890.12", 593), ("0.01", "0.99", 1),
 ])
-def test_invariant_fuel_plus_delivery_equals_total(fuel, dlv):
-    fuel_d = D(fuel)
-    total, delivery = round_order_total(fuel_d, D(dlv))
-    assert total == total.quantize(D("1"))  # целый рубль
-    if delivery and delivery > 0:
-        assert fuel_d + delivery == total
+def test_invariant_total_is_reproducible_from_price(fuel, dlv, vol):
+    total = order_total(D(fuel), D(dlv), vol, 22)
+    bd = price_first_breakdown(total, vol, 22)
+    # Пересчёт итога от него самого не «уплывает» — счёт стабилен при перевыпуске.
+    assert bd["total"] == total
+    assert bd["unit_no_vat"] * D(str(vol)) == bd["sum_no_vat"]
 
 
 # ── per_liter_with_delivery ───────────────────────────────────────────────────

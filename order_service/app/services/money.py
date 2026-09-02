@@ -5,25 +5,27 @@
 
 Две темы:
 
-1. Округление итога заявки (решение заказчика 2026-08-24). Итог заявки
-   (топливо + доставка) показывается и хранится в ЦЕЛЫХ РУБЛЯХ. Позиции топлива
-   считаются по тарифу с копейками, а копеечный остаток гасится в строке
-   доставки — так «топливо + доставка = итог» сходится копейка в копейку.
-   Если доставки нет (или она полностью съедена поправкой) — итог просто целый
-   рубль от суммы топлива, а в счёте строка топлива подгоняется под итог.
+1. Итог заявки и счёта (решение заказчика 2026-09-02, CRM-27). Первична ЦЕНА
+   ЗА ЛИТР без НДС: её округляют до копейки, а всё остальное считают от неё,
+   чтобы в счёте «цена × количество» в точности давало сумму строки. Правило
+   «итог целыми рублями» (2026-08-24) отменено — итог хранится с копейками, и
+   стоимость доставки больше не «поглощает» копеечный остаток.
 
 2. Короткое имя документа-счёта: «0166» + «ООО "ОТК"» → «166 ОТК».
 """
 from decimal import Decimal, ROUND_HALF_UP
 
 CENT = Decimal("0.01")
-RUBLE = Decimal("1")
+
+# Ставка НДС по умолчанию, если реквизиты продавца не заданы (образец заказчика).
+DEFAULT_VAT_RATE = 22
 
 __all__ = [
     "CENT",
-    "RUBLE",
+    "DEFAULT_VAT_RATE",
     "to_decimal",
-    "round_order_total",
+    "price_first_breakdown",
+    "order_total",
     "per_liter_with_delivery",
     "short_org_name",
     "strip_leading_zeros",
@@ -40,41 +42,67 @@ def to_decimal(value) -> Decimal | None:
     return Decimal(str(value))
 
 
-def round_order_total(fuel_subtotal, delivery_cost):
-    """Итог заявки целыми рублями; копейки гасятся в стоимости доставки.
+def price_first_breakdown(raw_total, volume, vat_rate=DEFAULT_VAT_RATE) -> dict | None:
+    """Разложить «грязную» сумму на цену за литр без НДС, базу, налог и итог.
 
-    Возвращает кортеж (total, delivery_adjusted):
-      * total — Decimal с двумя знаками, но всегда целое число рублей
-        (ROUND_HALF_UP от «топливо + доставка»);
-      * delivery_adjusted — стоимость доставки, скорректированная так, что
-        fuel_subtotal + delivery_adjusted == total. None, если доставки нет.
+    Первична цена за литр без НДС — она округляется до копейки, остальное
+    считается ОТ НЕЁ, поэтому в счёте «цена × количество = сумма» сходится
+    в точности (CRM-27, заказчик 2026-09-02).
 
-    Если доставка задана, но поправка увела бы её в ноль или минус — доставка
-    становится 0.00, а весь итог ложится на топливо (в счёте строка топлива
-    подгоняется по сумме).
+        unit_no_vat = round(raw_total / (1 + rate/100) / volume, 2)
+        sum_no_vat  = round(unit_no_vat × volume, 2)
+        vat         = round(sum_no_vat × rate/100, 2)
+        total       = sum_no_vat + vat
 
-    fuel_subtotal is None → (None, delivery_cost без изменений): суммы нет,
-    считать нечего.
+    Итог поэтому может на копейки отличаться от raw_total — это ожидаемо: и
+    сумма заявки, и счёт считаются этой же функцией, так что они совпадают.
+
+    Возвращает {"unit_no_vat", "sum_no_vat", "vat", "total"} (Decimal, 2 знака)
+    или None, если сумма не задана либо объём непригоден для деления.
+    """
+    raw = to_decimal(raw_total)
+    vol = to_decimal(volume)
+    if raw is None or vol is None or vol <= 0:
+        return None
+
+    rate = to_decimal(vat_rate) or Decimal("0")
+    divisor = Decimal("1") + rate / Decimal("100")
+
+    unit_no_vat = (raw / divisor / vol).quantize(CENT, rounding=ROUND_HALF_UP)
+    sum_no_vat = (unit_no_vat * vol).quantize(CENT, rounding=ROUND_HALF_UP)
+    vat = (sum_no_vat * rate / Decimal("100")).quantize(CENT, rounding=ROUND_HALF_UP)
+    return {
+        "unit_no_vat": unit_no_vat,
+        "sum_no_vat":  sum_no_vat,
+        "vat":         vat,
+        "total":       (sum_no_vat + vat).quantize(CENT),
+    }
+
+
+def order_total(fuel_subtotal, delivery_cost, volume=None, vat_rate=DEFAULT_VAT_RATE):
+    """Итог заявки = топливо + доставка, приведённый к цене за литр (2 знака).
+
+    Считается той же функцией, что и счёт (`price_first_breakdown`), поэтому
+    «Всего к оплате» в счёте совпадает с `expected_amount`/`final_amount`
+    заявки копейка в копейку.
+
+    Без объёма (или при нулевом объёме) цену за литр вывести нельзя — тогда
+    возвращается простая сумма с округлением до копейки.
+
+    fuel_subtotal is None → None: топливной части нет, одна доставка за итог
+    заявки не выдаётся.
     """
     fuel = to_decimal(fuel_subtotal)
     if fuel is None:
-        return None, to_decimal(delivery_cost)
+        return None
 
-    fuel = fuel.quantize(CENT, rounding=ROUND_HALF_UP)
-    delivery = to_decimal(delivery_cost)
-    if delivery is not None:
-        delivery = delivery.quantize(CENT, rounding=ROUND_HALF_UP)
+    delivery = to_decimal(delivery_cost) or Decimal("0")
+    raw_total = (fuel + delivery).quantize(CENT, rounding=ROUND_HALF_UP)
 
-    raw_total = fuel + (delivery or Decimal("0"))
-    total = raw_total.quantize(RUBLE, rounding=ROUND_HALF_UP).quantize(CENT)
-
-    if delivery is None:
-        return total, None
-
-    adjusted = (total - fuel).quantize(CENT)
-    if adjusted <= 0:
-        return total, Decimal("0.00")
-    return total, adjusted
+    breakdown = price_first_breakdown(raw_total, volume, vat_rate)
+    if breakdown is None:
+        return raw_total
+    return breakdown["total"]
 
 
 def per_liter_with_delivery(total, volume) -> Decimal | None:

@@ -14,6 +14,7 @@ from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ForbiddenError
 from app.schemas.legal_entity import LegalEntityCreate
+from app.services.money import DEFAULT_VAT_RATE
 
 log = logging.getLogger(__name__)
 
@@ -113,6 +114,19 @@ async def get_by_id(db: AsyncSession, entity_id, actor: TokenUser) -> LegalEntit
     if not entity:
         raise NotFoundError("Запись реквизитов не найдена")
     return entity
+
+
+async def get_seller_vat_rate(db: AsyncSession) -> int:
+    """Ставка НДС продавца — та же, что попадёт в счёт.
+
+    Нужна при расчёте суммы заявки: итог считается от цены за литр без НДС
+    (CRM-27), поэтому ставка должна совпадать со ставкой будущего счёта.
+    Реквизиты ещё не заданы → дефолт.
+    """
+    entity = await get_active(db)
+    if entity is None or entity.vat_rate is None:
+        return DEFAULT_VAT_RATE
+    return int(entity.vat_rate)
 
 
 async def get_seller_snapshot(db: AsyncSession) -> dict | None:

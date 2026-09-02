@@ -30,7 +30,7 @@ from app.models.payment import Payment, PaymentStatus
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
 from app.services.legal_entity_service import get_seller_snapshot
-from app.services.money import invoice_display_number
+from app.services.money import DEFAULT_VAT_RATE, invoice_display_number, price_first_breakdown
 
 
 # ── Сумма прописью ────────────────────────────────────────────────────────────
@@ -280,9 +280,7 @@ def _order_amount(order: Order) -> float:
 
 # ── Invoice context (по образцу заказчика) ────────────────────────────────────
 
-# Дефолтная ставка НДС, если в seller-снимке не указано. Образец заказчика —
-# 22%. Когда в LegalEntity появится поле vat_rate, использовать оттуда.
-DEFAULT_VAT_RATE = 22
+# Дефолтная ставка НДС, если в seller-снимке не указано (money.DEFAULT_VAT_RATE).
 
 
 def _build_invoice_ctx(
@@ -312,7 +310,7 @@ def _build_invoice_ctx(
         "subtotal":        subtotal,      # пред-НДС
         "vat_rate":        vat_rate,
         "vat_amount":      vat_amount,
-        "total":           total,         # с НДС = total_amount (то, что платит клиент)
+        "total":           total,         # с НДС = цена за литр × объём + НДС (CRM-27)
         "amount_in_words": amount_to_words_ru(total),
         "seller_signature": seller_signature_data_uri(),
         "seller_stamp":      seller_stamp_data_uri(),
@@ -334,50 +332,49 @@ def _build_line_items(
 
     total_amount — сумма С НДС (то, что клиент платит, как order.expected/final_amount,
     на этой сумме строится учёт долга). В образце счёта строки и «Итого» показаны
-    БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС. Поэтому
-    раскладываем total_amount обратно на пред-НДС базу и налог.
+    БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС.
+
+    Первична ЦЕНА ЗА ЛИТР без НДС (CRM-27, заказчик 2026-09-02): раньше базу
+    делили на 1.22 целиком, а цену выводили обратным делением на объём — из-за
+    двойного округления «цена × количество» не давало сумму строки, и бухгалтер
+    видел расхождение. Теперь всё считается от округлённой цены за литр
+    (`money.price_first_breakdown`), той же функцией, что и итог заявки, поэтому
+    «Всего к оплате» совпадает с expected/final_amount копейка в копейку.
 
     Стоимость доставки уже включена в total_amount (Д3) и отдельной строкой не
     выводится — вся пред-НДС база ложится на единственную строку топлива.
 
-    ИСТОРИЯ: 24.08.2026 доставку вынесли отдельной строкой, обосновав это
-    «двойным ×1.22 у юрлиц». Обоснование неверное: доставка юрлицам хранится
-    уже с НДС (pricing_service.LEGAL_DELIVERY_VAT), и деление ВСЕГО итога на
-    1.22 даёт корректную пред-НДС базу — двойного налога не было. По решению
-    заказчика (Д3) 27.08.2026 вернули единственную строку топлива.
-
-    Возвращает (items, subtotal_no_vat, vat_amount, total), где total == total_amount.
+    Возвращает (items, subtotal_no_vat, vat_amount, total).
     """
     rate = vat_rate or 0
-    pre_vat_total = round(total_amount / (1 + rate / 100), 2) if rate else total_amount
+    bd = price_first_breakdown(total_amount, volume, rate)
+    if bd is None:
+        # Объём нулевой/не задан — цену за литр вывести не из чего; показываем
+        # сумму одной строкой, чтобы документ всё же выпустился.
+        log.warning(
+            "Счёт по заявке %s: объём %s непригоден для расчёта цены за литр",
+            order.order_number, volume,
+        )
+        total = round(float(total_amount), 2)
+        pre_vat = round(total / (1 + rate / 100), 2) if rate else total
+        items = [{
+            "name": _fuel_name(order), "qty": volume, "unit": "л", "unit_code": "112",
+            "price": 0.0, "sum_no_vat": pre_vat, "vat": round(total - pre_vat, 2),
+            "sum": total,
+        }]
+        return items, pre_vat, round(total - pre_vat, 2), total
 
-    def _line(name: str, qty: float, unit: str, unit_code: str | None, sum_no_vat: float) -> dict:
-        vat = round(sum_no_vat * rate / 100, 2)
-        return {
-            "name":       name,
-            "qty":        qty,
-            "unit":       unit,
-            "unit_code":  unit_code,
-            "price":      round(sum_no_vat / qty, 2) if qty else 0.0,
-            "sum_no_vat": sum_no_vat,
-            "vat":        vat,
-            "sum":        round(sum_no_vat + vat, 2),
-        }
-
-    items = [_line(_fuel_name(order), volume, "л", "112", pre_vat_total)]
-
-    subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
-    # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
-    vat_amount = round(total_amount - subtotal_no_vat, 2)
-    # Согласуем построчный НДС с итоговым: остаток округления вешаем на последнюю
-    # строку, иначе сумма столбцов «НДС»/«Сумма с НДС» по строкам могла на копейку
-    # не совпасть с итоговой строкой (бухгалтер расценит как ошибку документа).
-    line_vat_sum = round(sum(i["vat"] for i in items), 2)
-    residual = round(vat_amount - line_vat_sum, 2)
-    if residual and items:
-        items[-1]["vat"] = round(items[-1]["vat"] + residual, 2)
-        items[-1]["sum"] = round(items[-1]["sum_no_vat"] + items[-1]["vat"], 2)
-    return items, subtotal_no_vat, vat_amount, total_amount
+    items = [{
+        "name":       _fuel_name(order),
+        "qty":        volume,
+        "unit":       "л",
+        "unit_code":  "112",
+        "price":      float(bd["unit_no_vat"]),
+        "sum_no_vat": float(bd["sum_no_vat"]),
+        "vat":        float(bd["vat"]),
+        "sum":        float(bd["total"]),
+    }]
+    return items, float(bd["sum_no_vat"]), float(bd["vat"]), float(bd["total"])
 
 
 def _build_upd_ctx(

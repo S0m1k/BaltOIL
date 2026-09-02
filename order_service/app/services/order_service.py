@@ -31,7 +31,8 @@ from app.services.client_context import get_client_context, get_user_organizatio
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
-from app.services.money import round_order_total, per_liter_with_delivery
+from app.services.money import order_total, per_liter_with_delivery, price_first_breakdown
+from app.services.legal_entity_service import get_seller_vat_rate
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -332,9 +333,13 @@ async def preview_price(
         delivery_cost = _Decimal(str(manual_delivery))
 
     fuel_subtotal = bd["fuel_subtotal"]
+    unit_price_no_vat = None
     if fuel_subtotal is not None:
-        # Итог — целые рубли, копейки гасятся в доставке (правки 2026-08-24)
-        total, delivery_cost = round_order_total(fuel_subtotal, delivery_cost)
+        # Итог считаем от цены за литр без НДС — той же функцией, что и счёт (CRM-27)
+        vat_rate = await get_seller_vat_rate(db)
+        total = order_total(fuel_subtotal, delivery_cost, data.volume, vat_rate)
+        breakdown = price_first_breakdown(total, data.volume, vat_rate)
+        unit_price_no_vat = breakdown["unit_no_vat"] if breakdown else None
     else:
         total = None
         pricing_warning = True
@@ -353,6 +358,7 @@ async def preview_price(
         "delivery_is_manual": delivery_is_manual,
         "total": total,
         "price_per_liter_with_delivery": per_liter_with_delivery(total, data.volume),
+        "unit_price_no_vat": unit_price_no_vat,
         "pricing_warning": pricing_warning,
     }
 
@@ -508,12 +514,15 @@ async def create_order(
     if delivery_is_manual:
         delivery_cost = data.manual_delivery_cost
 
-    # Итог = топливо + доставка, округлённый до целого рубля; копеечная поправка
-    # ложится на доставку, чтобы строки счёта сходились с итогом (правки 2026-08-24).
+    # Итог = топливо + доставка, приведённый к цене за литр без НДС — той же
+    # функцией, что и счёт, чтобы «Всего к оплате» совпадало с заявкой (CRM-27).
     # Если тариф не настроен (топливная часть не рассчитана) — итог остаётся NULL:
     # выдавать одну лишь доставку за сумму заявки нельзя, менеджер проставит руками.
     if expected_amount is not None:
-        expected_amount, delivery_cost = round_order_total(expected_amount, delivery_cost)
+        expected_amount = order_total(
+            expected_amount, delivery_cost, data.volume_requested,
+            await get_seller_vat_rate(db),
+        )
     elif delivery_cost is not None:
         log.warning(
             "Order create: тариф не рассчитан, итог оставлен пустым (доставка %s)",
@@ -748,10 +757,10 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
             )
             order.expected_amount = None
             return
-        total, adjusted_delivery = round_order_total(expected, delivery_cost)
-        order.expected_amount = total
-        if adjusted_delivery is not None:
-            order.delivery_cost = adjusted_delivery
+        order.expected_amount = order_total(
+            expected, delivery_cost, float(order.volume_requested or 0),
+            await get_seller_vat_rate(db),
+        )
     except Exception as exc:
         log.warning("recompute_expected_amount failed for order %s (non-fatal): %s",
                     order.id, exc)
@@ -919,21 +928,23 @@ async def update_order(
             order.final_amount - old_delivery if order.final_amount is not None else None
         )
 
-        # Копеечную поправку доставки считаем от «главной» суммы: фактическая
-        # важнее ожидаемой (от неё считаются долг и счёт).
-        base_for_adjust = fuel_final if fuel_final is not None else fuel_expected
-        if base_for_adjust is not None:
-            _t, adjusted_delivery = round_order_total(base_for_adjust, data.delivery_cost)
-            order.delivery_cost = adjusted_delivery
-        else:
-            order.delivery_cost = data.delivery_cost
+        # Доставка сохраняется как введена: копеечный остаток она больше не
+        # «поглощает» — итог сводится ценой за литр (CRM-27, 2026-09-02).
+        order.delivery_cost = data.delivery_cost
 
+        _vat_rate = await get_seller_vat_rate(db)
+        _vol_req = float(order.volume_requested or 0)
         if data.expected_amount is None and fuel_expected is not None:
-            order.expected_amount = round_order_total(fuel_expected, order.delivery_cost)[0]
+            order.expected_amount = order_total(
+                fuel_expected, order.delivery_cost, _vol_req, _vat_rate,
+            )
         # Доставленная заявка: долг и счёт считаются от final_amount — его тоже
         # надо подвинуть на дельту доставки (баг 2026-08-24).
         if data.final_amount is None and fuel_final is not None:
-            order.final_amount = round_order_total(fuel_final, order.delivery_cost)[0]
+            order.final_amount = order_total(
+                fuel_final, order.delivery_cost,
+                float(order.volume_delivered or 0) or _vol_req, _vat_rate,
+            )
             _final_amount_touched = True
         changed = True
         changed_keys.append("amount")
@@ -1312,11 +1323,10 @@ async def transition_status(
                     ctx.fuel_coefficient,
                 )
             if recalc is not None:
-                # Итог целыми рублями, копейки — в строку доставки (правки 2026-08-24)
-                total, adjusted_delivery = round_order_total(recalc, order.delivery_cost)
-                order.final_amount = total
-                if adjusted_delivery is not None:
-                    order.delivery_cost = adjusted_delivery
+                # Итог сводим через цену за литр без НДС — как в счёте (CRM-27)
+                order.final_amount = order_total(
+                    recalc, order.delivery_cost, vol_fact, await get_seller_vat_rate(db),
+                )
             else:
                 log.warning(
                     "DELIVERED: тариф не найден для заявки %s — final_amount не пересчитан",

@@ -34,6 +34,8 @@ class PricePreviewResponse(BaseModel):
     total: Decimal | None
     # Справочная цена за литр С учётом доставки = итог / литры (правки 2026-08-24)
     price_per_liter_with_delivery: Decimal | None = None
+    # Цена за литр БЕЗ НДС — та, что попадёт в строку счёта (CRM-27, 2026-09-02)
+    unit_price_no_vat: Decimal | None = None
     pricing_warning: bool
 
 
