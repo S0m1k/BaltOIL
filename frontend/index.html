@@ -2100,7 +2100,7 @@ setTimeout(function () {
         <!-- Селектор организации: показывается, если у клиента есть организации -->
         <div class="form-group" id="c-org-group" style="display:none">
           <label class="form-label">Оформить от имени</label>
-          <select id="c-organization" class="form-input" onchange="updatePricePreview()">
+          <select id="c-organization" class="form-input" onchange="onOrderOrgChange()">
             <option value="">Физлицо (на себя)</option>
           </select>
         </div>
@@ -5846,8 +5846,8 @@ async function duplicateOrder(orderId) {
     clientSel.value = order.client_id || '';
     // Подгружаем платёж/организации/сохранённые объекты под выбранного клиента
     if (order.client_id) {
-      renderPaymentRadios(order.client_id);
       await loadOrganizationSelectForOrder(order.client_id);
+      renderPaymentRadios(order.client_id, order.organization_id || '');
     }
   }
   const orgSel = document.getElementById('c-organization');
@@ -6375,6 +6375,15 @@ function updatePaymentUI() {
 }
 
 
+// Смена организации в форме заявки: пересчитать цену И перезагрузить типы
+// оплаты — кредит («в долг») задаётся на организации, а не на клиенте.
+function onOrderOrgChange() {
+  updatePricePreview();
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const cid = isStaff ? document.getElementById('c-client-id')?.value : currentUser?.id;
+  if (cid && !_isPseudoClient(cid)) renderPaymentRadios(cid);
+}
+
 // Псевдо-пункты селектора клиента: разовый клиент (создаётся при сабмите) и
 // заявка от организации без клиента (правки 2026-09-02) — id клиента у них нет.
 function _isPseudoClient(cid) {
@@ -6384,11 +6393,11 @@ function _isPseudoClient(cid) {
 async function loadClientSelectForOrder() {
   const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   if (!isStaff) {
-    // For client role: render payment radios based on own profile
-    if (currentUser?.id) renderPaymentRadios(currentUser.id);
     loadSavedObjects();
-    // Подгружаем свои организации в селектор «Оформить от имени»
-    loadOrganizationSelectForOrder(currentUser?.id);
+    // Подгружаем свои организации в селектор «Оформить от имени», и только
+    // потом типы оплаты — они зависят от выбранной организации (кредит юрлица).
+    await loadOrganizationSelectForOrder(currentUser?.id);
+    if (currentUser?.id) renderPaymentRadios(currentUser.id);
     return;
   }
   const sel = document.getElementById('c-client-id');
@@ -6402,15 +6411,17 @@ async function loadClientSelectForOrder() {
       `<option value="__org__"${current === '__org__' ? ' selected' : ''}>От организации (без клиента)</option>` +
       clients.map(c => `<option value="${c.id}"${c.id === current ? ' selected' : ''}>${escHtml(c.full_name || c.email)} — ${escHtml(c.email || c.phone || '')}</option>`).join('');
     // Reload payment radios, saved objects + organizations when manager picks a different client
-    sel.onchange = () => {
+    sel.onchange = async () => {
       const cid = sel.value;
       toggleOneOffFields(cid === '__oneoff__');
-      if (!_isPseudoClient(cid) && cid) renderPaymentRadios(cid);
       loadSavedObjects();
-      loadOrganizationSelectForOrder(_isPseudoClient(cid) ? null : (cid || null), cid === '__org__');
+      // Организации грузим ДО типов оплаты: кредит («в долг») висит на юрлице,
+      // а renderPaymentRadios читает выбранную организацию из селектора.
+      await loadOrganizationSelectForOrder(_isPseudoClient(cid) ? null : (cid || null), cid === '__org__');
+      if (cid && !_isPseudoClient(cid)) renderPaymentRadios(cid);
     };
     toggleOneOffFields(current === '__oneoff__');
-    if (current && !_isPseudoClient(current)) { renderPaymentRadios(current); loadOrganizationSelectForOrder(current); }
+    if (current && !_isPseudoClient(current)) { await loadOrganizationSelectForOrder(current); renderPaymentRadios(current); }
     // staff: все организации, включая «ничейные»
     else { loadOrganizationSelectForOrder(null, current === '__org__'); }
     loadSavedObjects();
@@ -12430,26 +12441,37 @@ async function openTariffHistory(tariffId) {
 // DYNAMIC PAYMENT RADIO
 // ═══════════════════════════════════════════════════════════════
 
-async function renderPaymentRadios(clientId) {
+async function renderPaymentRadios(clientId, organizationId) {
   const container = document.getElementById('payment-radio-group');
   if (!container) return;
   try {
-    const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`);
-    // Физ и юр лица — выбор типа оплаты скрыт; первый доступный тип выбирается автоматически
+    // Организация задаёт коммерческие условия (кредит) — без неё «в долг»
+    // у клиента с кредитом на юрлице не приходил вовсе (правки 2026-09-02).
+    const orgId = organizationId !== undefined
+      ? organizationId
+      : document.getElementById('c-organization')?.value;
+    const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`
+      + (orgId ? `?organization_id=${orgId}` : ''));
     const wrapper = container.closest('.form-group');
     const types = opts.available_payment_types || ['on_delivery'];
-    const defaultType = types[0] || 'on_delivery';
-    if (opts.client_type === 'individual' || opts.client_type === 'company') {
+    // Юрлицо с кредитом работает «в долг» — это же ставит и бэкенд, когда фронт
+    // тип оплаты не прислал; для остальных дефолт прежний — первый доступный.
+    const preferDebt = opts.credit_allowed && types.includes('debt');
+    const defaultType = (preferDebt ? 'debt' : types[0]) || 'on_delivery';
+    // Физлицо — выбор скрыт всегда (оплата по факту). Юрлицу выбор показываем,
+    // когда доступных типов больше одного, иначе показывать нечего.
+    if (opts.client_type === 'individual' || types.length <= 1) {
       if (wrapper) wrapper.style.display = 'none';
       container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="${defaultType}" checked onchange="updatePaymentUI()"></label>`;
       return;
     }
     if (wrapper) wrapper.style.display = '';
-    const current = container.querySelector('input[name="payment"]:checked')?.value || defaultType;
-    container.innerHTML = types.map((pt, i) => `
-      <label class="radio-label${pt === current || (i === 0 && !current) ? ' selected' : ''}" id="pay-${pt}-label">
+    // Выбор прошлого клиента не переносим — он мог быть скрытым радио физлица,
+    // который перебивал бы «в долг» у нового клиента-юрлица.
+    container.innerHTML = types.map(pt => `
+      <label class="radio-label${pt === defaultType ? ' selected' : ''}" id="pay-${pt}-label">
         <input type="radio" name="payment" value="${pt}"
-          ${pt === current || (i === 0 && !current) ? 'checked' : ''}
+          ${pt === defaultType ? 'checked' : ''}
           onchange="updatePaymentUI()">
         ${escHtml(PAYMENT_TYPE_LABELS_ALL[pt] || pt)}
       </label>`).join('');

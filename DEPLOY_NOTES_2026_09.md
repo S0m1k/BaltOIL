@@ -8,3 +8,4 @@
 |-------|--------------|--------|
 | П1 | frontend/index.html (заявка «От организации») | только `git pull`, force-recreate не нужен |
 | П3 | order_service (query `kind` в `/orders` и `/orders/counts`) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |
+| П6 | order_service (гейт отгрузки, payment-options, дефолт DEBT) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |

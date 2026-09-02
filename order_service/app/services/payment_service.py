@@ -23,6 +23,14 @@ ROLE_ADMIN = "admin"
 ROLE_MANAGER = "manager"
 ROLE_DRIVER = "driver"
 
+# Кредитные типы оплаты: топливо отгружается до поступления денег
+# (в долг, товарный кредит, постоплата) — правки 2026-09-02.
+_CREDIT_PAYMENT_TYPES = frozenset({
+    PaymentType.DEBT,
+    PaymentType.TRADE_CREDIT,
+    PaymentType.POSTPAID,
+})
+
 
 async def get_seller_snapshot(db: AsyncSession) -> dict:
     """Загрузить реквизиты продавца из БД для подстановки в документы и счета."""
@@ -138,12 +146,18 @@ def compute_shipment_allowed(order: Order, paid_total: float) -> bool:
     Приоритет: ручное перекрытие админа (shipment_override), затем автоматика:
     «в долг» — разрешена; оплата при получении (физики) — разрешена;
     предоплата — разрешена только когда заявка фактически оплачена.
+
+    Кредитные типы оплаты (правки 2026-09-02): смысл «в долг»/«отсрочка» в том,
+    что топливо едет ДО денег — держать такую заявку в «ждём оплату» бессмысленно,
+    флаг allow_delivery_unpaid для них не требуется.
     """
     if order.shipment_override == "allow":
         return True
     if order.shipment_override == "hold":
         return False
     if order.allow_delivery_unpaid:
+        return True
+    if order.payment_type in _CREDIT_PAYMENT_TYPES:
         return True
     if order.payment_type == PaymentType.ON_DELIVERY:
         return True

@@ -111,3 +111,6 @@ class ClientPaymentOptionsResponse(BaseModel):
     client_id: uuid.UUID
     client_type: str
     available_payment_types: list[str]
+    # Разрешён ли кредит в контексте (клиент или организация) — фронт по нему
+    # выбирает «в долг» типом оплаты по умолчанию (правки 2026-09-02).
+    credit_allowed: bool = False

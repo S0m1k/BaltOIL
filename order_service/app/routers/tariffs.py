@@ -134,15 +134,20 @@ async def archive_tariff(
 async def get_client_payment_options(
     client_id: uuid.UUID,
     actor: CurrentUser,
+    organization_id: uuid.UUID | None = None,
 ):
     """Return available payment types for this client.
 
     Staff can query any client. Clients can only query themselves.
+
+    organization_id (правки 2026-09-02): заявка от юрлица — коммерческие условия
+    берутся у организации, а не у личного профиля. Без него «в долг» у клиента
+    с кредитом на организации не появлялся в списке.
     """
     if actor.role == "client" and actor.id != client_id:
         raise ForbiddenError()
 
-    ctx = await get_client_context(client_id)
+    ctx = await get_client_context(client_id, organization_id)
 
     available = []
     for pt in PaymentType:
@@ -159,4 +164,5 @@ async def get_client_payment_options(
         client_id=client_id,
         client_type=ctx.client_type,
         available_payment_types=available,
+        credit_allowed=ctx.credit_allowed,
     )
