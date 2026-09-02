@@ -60,6 +60,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   // Поля менеджера/админа.
   bool get _isStaff =>
       widget.user.role == 'manager' || widget.user.role == 'admin';
+
+  /// CRM-37: водитель оформляет заявку «с колёс» и адрес может не знать —
+  /// поле необязательное, пустое уходит как "" (менеджер уточнит).
+  bool get _isDriver => widget.user.role == 'driver';
   List<UserBrief>? _clients;
   List<UserBrief>? _drivers;
   String? _clientId;
@@ -401,11 +405,19 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                   ],
                   TextFormField(
                     controller: _address,
-                    decoration:
-                        const InputDecoration(labelText: 'Адрес доставки'),
-                    validator: (v) => (v == null || v.trim().length < 5)
-                        ? 'Укажите адрес'
-                        : null,
+                    decoration: InputDecoration(
+                      labelText: _isDriver
+                          ? 'Адрес доставки (необязательно)'
+                          : 'Адрес доставки',
+                      helperText:
+                          _isDriver ? 'Адрес уточнит менеджер' : null,
+                    ),
+                    validator: (v) {
+                      if (_isDriver) return null;
+                      return (v == null || v.trim().length < 5)
+                          ? 'Укажите адрес'
+                          : null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
