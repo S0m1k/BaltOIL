@@ -2060,7 +2060,7 @@ setTimeout(function () {
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">Комментарий менеджера</label>
+            <label class="form-label">Комментарий менеджера (внутренний: водитель и сотрудники)</label>
             <input type="text" id="c-manager-comment" class="form-input" placeholder="...">
           </div>
           <div class="form-group">
@@ -2202,7 +2202,7 @@ setTimeout(function () {
         </div>
 
         <div class="form-group">
-          <label class="form-label">Комментарий</label>
+          <label class="form-label">Комментарий клиента (виден всем)</label>
           <textarea id="c-comment" class="form-input" placeholder="Дополнительные пожелания..."></textarea>
         </div>
 
@@ -5041,7 +5041,7 @@ function orderCardHTML(o) {
         ${priceFormulaHTML(o, driverHidesMoney)}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель</div><div class="detail-value">${escHtml(_driverNameById(o.driver_id))}</div></div>` : ''}
         ${o.client_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
-        ${o.manager_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий менеджера</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
+        ${o.manager_comment && currentUser?.role !== 'client' ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий менеджера (внутренний)</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
         ${_ackCommentButtonHTML(o)}
         ${_shipmentControlsHTML(o)}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}

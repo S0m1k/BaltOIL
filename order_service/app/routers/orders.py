@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.order import OrderStatus, OrderKind
 from app.core.dependencies import CurrentUser
+from app.core.status_machine import ROLE_CLIENT
 from app.schemas.order import (
     OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest,
     RescheduleRequest, OrderResponse, OrderListResponse,
@@ -14,6 +15,22 @@ from app.schemas.order import (
 from app.services import order_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _hide_internal(order, actor, model):
+    """CRM-41: комментарий менеджера — внутренний (сотрудники и водитель).
+
+    Единственное место, где ответ заявки «обрезается» под роль: клиенту поле
+    отдаётся как None. ORM-объект не трогаем — иначе SQLAlchemy запишет очистку
+    комментария в БД при ближайшем commit.
+    """
+    if actor.role != ROLE_CLIENT:
+        return order
+    if isinstance(order, list):
+        return [_hide_internal(o, actor, model) for o in order]
+    response = model.model_validate(order)
+    response.manager_comment = None
+    return response
 
 
 @router.get("", response_model=list[OrderListResponse])
@@ -27,10 +44,11 @@ async def list_orders(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    return await order_service.list_orders(
+    orders = await order_service.list_orders(
         db, current_user, status=status, driver_id=driver_id, client_id=client_id,
         kind=kind, offset=offset, limit=limit
     )
+    return _hide_internal(orders, current_user, OrderListResponse)
 
 
 @router.get("/counts", response_model=dict[str, int])
@@ -71,7 +89,8 @@ async def create_order(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await order_service.create_order(db, data, current_user)
+    order = await order_service.create_order(db, data, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.get("/{order_id}", response_model=OrderResponse)
@@ -80,7 +99,8 @@ async def get_order(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await order_service.get_order(db, order_id, current_user)
+    order = await order_service.get_order(db, order_id, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.patch("/{order_id}", response_model=OrderResponse)
@@ -90,7 +110,8 @@ async def update_order(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await order_service.update_order(db, order_id, data, current_user)
+    order = await order_service.update_order(db, order_id, data, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/transition", response_model=OrderResponse)
@@ -101,10 +122,11 @@ async def transition_status(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Смена статуса заявки. Допустимые переходы зависят от роли пользователя."""
-    return await order_service.transition_status(
+    order = await order_service.transition_status(
         db, order_id, data, current_user,
         idempotency_key=str(data.idempotency_key) if data.idempotency_key else None,
     )
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/claim", response_model=OrderResponse)
@@ -114,7 +136,8 @@ async def claim_order(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Водитель берёт свободную заявку (NEW, без водителя) → переходит в ACCEPTED."""
-    return await order_service.claim_order(db, order_id, current_user)
+    order = await order_service.claim_order(db, order_id, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/ack-changes", response_model=OrderResponse)
@@ -124,7 +147,8 @@ async def ack_changes(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Водитель подтверждает, что увидел изменения в заявке. Снимает флаг pending_driver_ack."""
-    return await order_service.ack_changes(db, order_id, current_user)
+    order = await order_service.ack_changes(db, order_id, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/shipment", response_model=OrderResponse)
@@ -137,7 +161,8 @@ async def set_shipment_override(
     """Отгрузка (правки 2026-07-25, менеджер/админ): 'allow' — разрешить
     (разово, даже без оплаты), 'hold' — «ждём оплату», 'auto' — вернуть
     автоматический расчёт от оплаты/типа клиента."""
-    return await order_service.set_shipment_override(db, order_id, data.mode, current_user)
+    order = await order_service.set_shipment_override(db, order_id, data.mode, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/ack-comment", response_model=OrderResponse)
@@ -147,7 +172,8 @@ async def ack_comment(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Водитель подтверждает, что увидел комментарий к заявке (правки 2026-07-25)."""
-    return await order_service.ack_comment(db, order_id, current_user)
+    order = await order_service.ack_comment(db, order_id, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.post("/{order_id}/reschedule", response_model=OrderResponse)
@@ -158,7 +184,8 @@ async def reschedule_order(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Перенос заявки: смена desired_date и/или driver_id."""
-    return await order_service.reschedule_order(db, order_id, data, current_user)
+    order = await order_service.reschedule_order(db, order_id, data, current_user)
+    return _hide_internal(order, current_user, OrderResponse)
 
 
 @router.delete("/{order_id}", status_code=204)
