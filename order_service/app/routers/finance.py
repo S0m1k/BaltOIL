@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import ForbiddenError
-from app.models.order import Order, OrderStatus, PaymentType
+from app.models.order import Order, OrderKind, OrderStatus, PaymentType
 from app.models.payment import Payment, PaymentStatus
 from app.services.payment_service import get_paid_totals_map
 from app.services.buyer_info import attach_buyer_names
@@ -55,6 +55,7 @@ class PaymentRow(BaseModel):
     order_number: str
     client_id: str
     payment_type: str
+    order_kind: str      # вид заявки: individual|company|ttn_l
     kind: str
     status: str
     method: str | None
@@ -85,6 +86,15 @@ def _active_order_conds():
     ]
 
 
+def _kind_conds(kind: OrderKind | None):
+    """Фильтр по виду заявки (физ/юр/ТТН-Л) — общий для сводки, списка и выгрузки."""
+    return [Order.order_kind == kind] if kind else []
+
+
+# Валидацию значения делает FastAPI по enum (невалидное → 422).
+KindQuery = Annotated[OrderKind | None, Query(description="Вид заявки: individual|company|ttn_l")]
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/summary", response_model=PaymentSummary)
@@ -94,6 +104,7 @@ async def get_summary(
     db: AsyncSession = Depends(get_db),
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
+    kind: KindQuery = None,
 ):
     """Сводка: кол-во заявок по статусу оплаты + суммы (ожидание / получено / долг)."""
     # Заявки в диапазоне дат (фильтр по created_at заявки)
@@ -104,6 +115,7 @@ async def get_summary(
         order_conds.append(Order.created_at <= date_to)
     # Отклонённые/архивные заявки не учитываем в финансовых ожиданиях
     order_conds.extend(_active_order_conds())
+    order_conds.extend(_kind_conds(kind))
 
     orders_q = select(Order)
     if order_conds:
@@ -124,7 +136,7 @@ async def get_summary(
         by_type[key] = by_type.get(key, 0) + 1
 
     # Суммы платежей за период (фильтр по дате создания платежа)
-    pay_conds = _date_conditions(date_from, date_to) + _active_order_conds()
+    pay_conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
     paid_q = (
         select(func.coalesce(func.sum(Payment.amount), 0))
         .join(Order, Order.id == Payment.order_id)
@@ -180,16 +192,17 @@ async def list_payments(
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
     status: str | None = Query(None),
+    kind: KindQuery = None,
     offset: int = Query(0, ge=0),
     limit:  int = Query(100, ge=1, le=500),
 ):
     """Список платежей с фильтрацией — для таблицы на вкладке Финансы."""
-    conds = _date_conditions(date_from, date_to) + _active_order_conds()
+    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
     if status:
         conds.append(Payment.status == status)
 
     q = (
-        select(Payment, Order.order_number, Order.payment_type)
+        select(Payment, Order.order_number, Order.payment_type, Order.order_kind)
         .join(Order, Order.id == Payment.order_id)
         .where(*conds)
         .order_by(Payment.created_at.desc())
@@ -204,6 +217,7 @@ async def list_payments(
             order_number=order_number,
             client_id=str(p.client_id),
             payment_type=payment_type.value if hasattr(payment_type, "value") else str(payment_type),
+            order_kind=order_kind.value if hasattr(order_kind, "value") else str(order_kind),
             kind=p.kind.value,
             status=p.status.value,
             method=p.method.value if p.method else None,
@@ -212,7 +226,7 @@ async def list_payments(
             notes=p.notes,
             created_at=p.created_at,
         )
-        for p, order_number, payment_type in rows
+        for p, order_number, payment_type, order_kind in rows
     ]
 
 
@@ -232,9 +246,10 @@ async def export_xlsx(
     db: AsyncSession = Depends(get_db),
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
+    kind: KindQuery = None,
 ):
     """Выгрузка платежей за период в Excel (.xlsx)."""
-    conds = _date_conditions(date_from, date_to) + _active_order_conds()
+    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
     q = (
         select(Payment, Order)
         .join(Order, Order.id == Payment.order_id)
@@ -252,6 +267,11 @@ async def export_xlsx(
         {
             "payment_id":   str(p.id),
             "order_number": order.order_number,
+            "order_kind": (
+                order.order_kind.value
+                if hasattr(order.order_kind, "value")
+                else str(order.order_kind or "")
+            ),
             "ttn_number":   order.ttn_number,
             "client_name":  getattr(order, "buyer_name", None),
             "payment_type": (

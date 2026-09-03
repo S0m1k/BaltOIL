@@ -7,6 +7,7 @@
 | Пункт | Что менялось | Деплой |
 |-------|--------------|--------|
 | П1 | frontend/index.html (заявка «От организации») | только `git pull`, force-recreate не нужен |
+| П2 | order_service (`kind` в `/finance/*`, `order_kind` в internal `/driver-orders`) + delivery_service (отчёт водителя) + frontend | force-recreate `order_service`, затем `delivery_service` (см. ниже) |
 | П3 | order_service (query `kind` в `/orders` и `/orders/counts`) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |
 | П4 | order_service (`DELETE /orders/{id}/hard`), delivery_service + chat_service (новые подписчики `events:orders`), notification_service + frontend | force-recreate всех четырёх сервисов (см. ниже) |
 | П5 | order_service (`money.price_first_breakdown`: цена за литр первична, итог с копейками) | `docker compose up -d --force-recreate --no-deps order_service` |
@@ -41,3 +42,15 @@ docker compose up -d --force-recreate --no-deps notification_service
 
 Суммы заявок больше не целые рубли. Уже выпущенные счета не перевыпускаются автоматически —
 новые и перевыпущенные будут с копейками.
+
+## П2 — отчёты по видам заявок
+
+Порядок: сначала `order_service`, потом `delivery_service` — отчёт водителя ждёт `order_kind`
+от internal-эндпоинта (поле с дефолтом `""`, поэтому обратный порядок не ломает, просто все
+заявки временно попадут в секцию «Прочие»).
+
+## Ветка `mobile` (П12–П14)
+
+Бэкенд не менялся. Пересобрать и выложить APK из `mobile@c05d118`: единое окно доставки
+физлицу (CRM-38), адрес необязателен водителю, плюс уже готовые фиксы «назначенная заявка
+не видна» и «карточка не открывается» (5984001).

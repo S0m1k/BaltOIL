@@ -13,7 +13,7 @@ import httpx
 from app.config import get_settings
 from app.core.dependencies import TokenUser, ROLE_DRIVER, ROLE_ADMIN, ROLE_MANAGER
 from app.core.exceptions import ForbiddenError
-from app.schemas.report import DriverReportResponse, DriverOrderItem
+from app.schemas.report import DriverReportResponse, DriverOrderItem, OrderKindFilter
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ async def driver_report(
     driver_id: uuid.UUID,
     date_from: datetime,
     date_to: datetime,
+    kind: OrderKindFilter | None = None,
 ) -> DriverReportResponse:
     # Водитель может получить только свой отчёт
     if actor.role == ROLE_DRIVER and actor.id != driver_id:
@@ -32,7 +33,7 @@ async def driver_report(
     if actor.role not in (ROLE_DRIVER, ROLE_MANAGER, ROLE_ADMIN):
         raise ForbiddenError()
 
-    raw = await _fetch_delivered_orders(driver_id, date_from, date_to)
+    raw = await _fetch_delivered_orders(driver_id, date_from, date_to, kind)
 
     orders = [DriverOrderItem(**item) for item in raw]
     total_volume_delivered = sum(
@@ -53,6 +54,7 @@ async def _fetch_delivered_orders(
     driver_id: uuid.UUID,
     date_from: datetime,
     date_to: datetime,
+    kind: OrderKindFilter | None = None,
 ) -> list[dict]:
     """Получить доставленные заявки водителя из order_service internal API."""
     _settings = get_settings()
@@ -61,6 +63,8 @@ async def _fetch_delivered_orders(
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
     }
+    if kind:
+        params["kind"] = kind.value
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(
             f"{_settings.order_service_url}/api/v1/internal/driver-orders",

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.order import Order
+from app.models.order import Order, OrderKind
 from app.config import get_settings
 from app.schemas.fuel_type import FuelTypeInfo
 from app.schemas.driver_report import DriverOrderInfo
@@ -72,6 +72,7 @@ async def internal_driver_delivered_orders(
     driver_id: uuid.UUID = Query(..., description="UUID водителя"),
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual|company|ttn_l"),
 ):
     """Заявки со статусом «Доставлена», подтверждённые этим водителем в периоде.
 
@@ -79,7 +80,7 @@ async def internal_driver_delivered_orders(
     Авторизацию актора выполняет delivery_service до вызова этого эндпоинта.
     """
     return await driver_report_query.list_driver_delivered_orders(
-        db, driver_id=driver_id, date_from=date_from, date_to=date_to,
+        db, driver_id=driver_id, date_from=date_from, date_to=date_to, kind=kind,
     )
 
 

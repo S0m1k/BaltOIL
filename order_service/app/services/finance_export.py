@@ -21,6 +21,8 @@ __all__ = [
     "PAYMENT_KIND_RU",
     "PAYMENT_METHOD_RU",
     "PAYMENT_TYPE_RU",
+    "ORDER_KIND_SECTIONS",
+    "ORDER_KIND_SHORT_RU",
     "finance_payments_xlsx",
 ]
 
@@ -109,6 +111,19 @@ PAYMENT_TYPE_RU = {
 }
 
 
+# Виды заявок (order_service/app/models/order.py::OrderKind) в порядке секций отчёта.
+ORDER_KIND_SECTIONS = (
+    ("individual", "Физические лица",  "Физ"),
+    ("company",    "Юридические лица", "Юр"),
+    ("ttn_l",      "ТТН-Л",            "Л"),
+)
+ORDER_KIND_SHORT_RU = {code: short for code, _, short in ORDER_KIND_SECTIONS}
+
+# Заявки с неизвестным/пустым видом не выбрасываем: иначе строки платежей молча
+# исчезли бы из отчёта, а сумма перестала биться с итогом «Оплачено, ₽».
+_OTHER_SECTION = ("Прочие", "—")
+
+
 def _ru(mapping: dict[str, str], code) -> str:
     """Русская подпись по коду; неизвестный код возвращаем как есть."""
     if code is None or code == "":
@@ -154,12 +169,46 @@ def _as_float(value) -> float:
 # ── Отчёт ────────────────────────────────────────────────────────────────────
 
 _COLUMNS = [
-    "Дата создания", "Дата оплаты", "Заявка №", "№ ТТН", "Клиент",
+    "Дата создания", "Дата оплаты", "Заявка №", "Вид", "№ ТТН", "Клиент",
     "Вид платежа", "Тип оплаты", "Статус", "Метод", "Сумма, ₽",
     "Примечание", "ID платежа",
 ]
-_COL_WIDTHS = [18, 18, 16, 20, 34, 16, 20, 18, 20, 14, 40, 38]
+_COL_WIDTHS = [18, 18, 16, 8, 20, 34, 16, 20, 18, 20, 14, 40, 38]
 _LAST_COL = get_column_letter(len(_COLUMNS))
+_AMOUNT_COL = _COLUMNS.index("Сумма, ₽") + 1
+
+
+def _order_number_key(number) -> tuple[int, str]:
+    """Натуральная сортировка номеров: «ф9» раньше «ф10» (лексически — наоборот)."""
+    text = str(number or "")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return (int(digits) if digits else 0, text)
+
+
+def _payment_sort_key(payment: dict):
+    """Внутри секции: по номеру заявки, затем по дате платежа."""
+    moment = _naive(_as_dt(payment.get("paid_at") or payment.get("created_at")))
+    if not isinstance(moment, datetime):
+        moment = datetime.min
+    return (*_order_number_key(payment.get("order_number")), moment)
+
+
+def _sections_by_kind(payments: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Разбить платежи на секции по виду заявки; пустые секции не возвращаются."""
+    buckets: dict[str, list[dict]] = {code: [] for code, _, _ in ORDER_KIND_SECTIONS}
+    other: list[dict] = []
+    for p in payments:
+        code = str(p.get("order_kind") or "")
+        (buckets[code] if code in buckets else other).append(p)
+
+    sections = [
+        (title, sorted(buckets[code], key=_payment_sort_key))
+        for code, title, _ in ORDER_KIND_SECTIONS
+        if buckets[code]
+    ]
+    if other:
+        sections.append((_OTHER_SECTION[0], sorted(other, key=_payment_sort_key)))
+    return sections
 
 
 def finance_payments_xlsx(report: dict) -> bytes:
@@ -168,10 +217,13 @@ def finance_payments_xlsx(report: dict) -> bytes:
     report = {
       "period_from": datetime | str | None,
       "period_to":   datetime | str | None,
-      "payments": [ {payment_id, order_number, ttn_number, client_name,
-                     kind, payment_type, status, method, amount,
+      "payments": [ {payment_id, order_number, order_kind, ttn_number,
+                     client_name, kind, payment_type, status, method, amount,
                      paid_at, created_at, notes}, ... ],
     }
+
+    Платежи выводятся секциями по виду заявки (`order_kind`) с подытогом по
+    каждой и общим итогом внизу — заказчик сводит физлиц и юрлиц раздельно.
     """
     payments = report.get("payments") or []
 
@@ -239,25 +291,52 @@ def finance_payments_xlsx(report: dict) -> bytes:
     col_hdr = tbl_start + 1
     _header_row(ws, _COLUMNS, row=col_hdr)
 
-    for i, p in enumerate(payments, 1):
-        r = col_hdr + i
-        status = str(p.get("status") or "")
-        fill = _PAID_FILL if status == "paid" else (_PENDING_FILL if status == "pending" else None)
+    # Секции по виду заявки (правки заказчика 2026-09-02): физлица, юрлица,
+    # ТТН-Л — каждая со своим подытогом, общий итог в конце.
+    r = col_hdr
+    for section_title, section_payments in _sections_by_kind(payments):
+        r += 1
+        ws.merge_cells(f"A{r}:{_LAST_COL}{r}")
+        sec = ws[f"A{r}"]
+        sec.value     = f"{section_title} ({len(section_payments)})"
+        sec.font      = _LABEL_FONT
+        sec.fill      = _SUMMARY_FILL
+        sec.alignment = _LEFT
+        sec.border    = _THIN_B
 
-        _cell(ws, r, 1, _naive(_as_dt(p.get("created_at"))), fill=fill, fmt="DD.MM.YYYY HH:MM")
-        paid_at = _naive(_as_dt(p.get("paid_at")))
-        _cell(ws, r, 2, paid_at if paid_at is not None else "—", fill=fill,
-              fmt="DD.MM.YYYY HH:MM" if paid_at is not None else None)
-        _cell(ws, r, 3, p.get("order_number") or "—", fill=fill)
-        _cell(ws, r, 4, p.get("ttn_number") or "—", fill=fill)
-        _cell(ws, r, 5, p.get("client_name") or "—", fill=fill)
-        _cell(ws, r, 6, _ru(PAYMENT_KIND_RU, p.get("kind")), fill=fill)
-        _cell(ws, r, 7, _ru(PAYMENT_TYPE_RU, p.get("payment_type")), fill=fill)
-        _cell(ws, r, 8, _ru(PAYMENT_STATUS_RU, status), fill=fill)
-        _cell(ws, r, 9, _ru(PAYMENT_METHOD_RU, p.get("method")), fill=fill)
-        _cell(ws, r, 10, round(_as_float(p.get("amount")), 2), fill=fill, fmt=_MONEY_FMT)
-        _cell(ws, r, 11, p.get("notes") or "", fill=fill)
-        _cell(ws, r, 12, str(p.get("payment_id") or ""), fill=fill)
+        for p in section_payments:
+            r += 1
+            status = str(p.get("status") or "")
+            fill = _PAID_FILL if status == "paid" else (_PENDING_FILL if status == "pending" else None)
+
+            _cell(ws, r, 1, _naive(_as_dt(p.get("created_at"))), fill=fill, fmt="DD.MM.YYYY HH:MM")
+            paid_at = _naive(_as_dt(p.get("paid_at")))
+            _cell(ws, r, 2, paid_at if paid_at is not None else "—", fill=fill,
+                  fmt="DD.MM.YYYY HH:MM" if paid_at is not None else None)
+            _cell(ws, r, 3, p.get("order_number") or "—", fill=fill)
+            _cell(ws, r, 4, ORDER_KIND_SHORT_RU.get(str(p.get("order_kind") or ""),
+                                                    _OTHER_SECTION[1]), fill=fill)
+            _cell(ws, r, 5, p.get("ttn_number") or "—", fill=fill)
+            _cell(ws, r, 6, p.get("client_name") or "—", fill=fill)
+            _cell(ws, r, 7, _ru(PAYMENT_KIND_RU, p.get("kind")), fill=fill)
+            _cell(ws, r, 8, _ru(PAYMENT_TYPE_RU, p.get("payment_type")), fill=fill)
+            _cell(ws, r, 9, _ru(PAYMENT_STATUS_RU, status), fill=fill)
+            _cell(ws, r, 10, _ru(PAYMENT_METHOD_RU, p.get("method")), fill=fill)
+            _cell(ws, r, 11, round(_as_float(p.get("amount")), 2), fill=fill, fmt=_MONEY_FMT)
+            _cell(ws, r, 12, p.get("notes") or "", fill=fill)
+            _cell(ws, r, 13, str(p.get("payment_id") or ""), fill=fill)
+
+        r += 1
+        _cell(ws, r, 1, f"Итого: {section_title}", fill=_SUMMARY_FILL, bold=True)
+        _cell(ws, r, _AMOUNT_COL,
+              round(sum(_as_float(p.get("amount")) for p in section_payments), 2),
+              fill=_SUMMARY_FILL, bold=True, fmt=_MONEY_FMT)
+
+    r += 1
+    _cell(ws, r, 1, "Итого по всем видам", fill=_SUMMARY_FILL, bold=True)
+    _cell(ws, r, _AMOUNT_COL,
+          round(sum(_as_float(p.get("amount")) for p in payments), 2),
+          fill=_SUMMARY_FILL, bold=True, fmt=_MONEY_FMT)
 
     # Шапка таблицы остаётся видимой при прокрутке.
     ws.freeze_panes = ws.cell(row=col_hdr + 1, column=1)

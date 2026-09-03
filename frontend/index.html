@@ -2272,6 +2272,15 @@ setTimeout(function () {
             <label class="form-label">По</label>
             <input type="date" id="rpt-to" class="form-input">
           </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Вид заявки</label>
+            <select id="rpt-kind" class="form-input" style="min-width:140px">
+              <option value="">Все</option>
+              <option value="individual">Физлица</option>
+              <option value="company">Юрлица</option>
+              <option value="ttn_l">ТТН-Л</option>
+            </select>
+          </div>
           <button class="btn btn-primary" style="width:auto;padding:10px 24px" onclick="loadReportInline()">Показать отчёт</button>
           <button class="btn btn-primary" style="width:auto;padding:10px 24px;background:var(--green);border-color:var(--green)" onclick="requestReportXlsx()">⬇ Скачать XLSX</button>
         </div>
@@ -2523,6 +2532,12 @@ setTimeout(function () {
         <div style="display:flex;gap:8px;margin-left:auto;align-items:center;flex-wrap:wrap;justify-content:flex-end">
           <input type="date" id="fin-from" class="form-input" style="width:140px;max-width:48%;padding:6px 10px">
           <input type="date" id="fin-to"   class="form-input" style="width:140px;max-width:48%;padding:6px 10px">
+          <select id="fin-kind" class="form-input" style="width:130px;max-width:48%;padding:6px 10px" title="Вид заявки">
+            <option value="">Вид: все</option>
+            <option value="individual">Физлица</option>
+            <option value="company">Юрлица</option>
+            <option value="ttn_l">ТТН-Л</option>
+          </select>
           <button class="btn btn-sm btn-primary" onclick="loadFinance()">Показать</button>
           <button class="btn btn-sm btn-ghost"   onclick="exportFinanceXlsx()">⬇ Excel</button>
         </div>
@@ -8003,6 +8018,18 @@ async function initReport() {
   }
 }
 
+// Параметры отчёта водителя: период + вид заявки (пустой вид = все виды).
+function _reportParams(driverId, dateFrom, dateTo) {
+  const qs = new URLSearchParams({
+    driver_id: driverId,
+    date_from: dayStartIso(dateFrom),
+    date_to:   dayEndIso(dateTo),
+  });
+  const kind = document.getElementById('rpt-kind')?.value || '';
+  if (kind) qs.set('kind', kind);
+  return qs;
+}
+
 async function loadReportInline() {
   const driverId = document.getElementById('rpt-driver-id').value;
   const dateFrom = document.getElementById('rpt-from').value;
@@ -8015,11 +8042,7 @@ async function loadReportInline() {
   el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
 
   try {
-    const qs = new URLSearchParams({
-      driver_id: driverId,
-      date_from: dayStartIso(dateFrom),
-      date_to:   dayEndIso(dateTo),
-    });
+    const qs = _reportParams(driverId, dateFrom, dateTo);
     const rpt = await deliveryGet(`/reports/driver?${qs}`);
     el.innerHTML = reportHTML(rpt);
   } catch (e) {
@@ -8036,11 +8059,7 @@ async function requestReportXlsx() {
   if (!dateFrom || !dateTo) { toast('Укажите период', 'error'); return; }
 
   try {
-    const qs = new URLSearchParams({
-      driver_id: driverId,
-      date_from: dayStartIso(dateFrom),
-      date_to:   dayEndIso(dateTo),
-    });
+    const qs = _reportParams(driverId, dateFrom, dateTo);
     await api(`${DELIVERY_URL}/reports/driver/xlsx?${qs}`,
       { method: 'POST', body: '{}' });
     toast('Отчёт формируется — вы получите уведомление', 'success');
@@ -8068,8 +8087,15 @@ async function requestInvReportXlsx() {
   }
 }
 
+// Секции отчёта водителя по виду заявки (order_kind), порядок как в XLSX.
+const REPORT_KIND_SECTIONS = [
+  ['individual', 'Физические лица'],
+  ['company',    'Юридические лица'],
+  ['ttn_l',      'ТТН-Л'],
+];
+
 function reportHTML(r) {
-  const orderRows = (r.orders || []).map(o => {
+  const orderCard = o => {
     const vol = o.volume_delivered != null
       ? `${Number(o.volume_delivered).toLocaleString('ru')} л`
       : '—';
@@ -8094,7 +8120,26 @@ function reportHTML(r) {
         ${comment ? `<div class="trip-addr-line" style="color:var(--text2);margin-top:4px">${icon('chat-circle',12,'margin-right:4px;opacity:.5')} ${comment}</div>` : ''}
       </div>
     </div>`;
-  }).join('');
+  };
+
+  // Группировка заголовками секций: физлица / юрлица / ТТН-Л, у каждой —
+  // подытог по объёму. Заявки без вида (старые) попадают в «Прочие», чтобы
+  // сумма секций сходилась с итогом отчёта.
+  const all = r.orders || [];
+  const known = REPORT_KIND_SECTIONS.map(([code]) => code);
+  const groups = REPORT_KIND_SECTIONS
+    .map(([code, title]) => [title, all.filter(o => o.order_kind === code)])
+    .concat([['Прочие', all.filter(o => !known.includes(o.order_kind))]])
+    .filter(([, list]) => list.length);
+
+  const volumeSum = list => list.reduce((s, o) => s + (Number(o.volume_delivered) || 0), 0);
+
+  const orderRows = groups.map(([title, list]) => `
+    <div class="section-header" style="margin-top:14px">
+      ${escHtml(title)} — ${list.length} шт., ${volumeSum(list).toLocaleString('ru')} л
+    </div>
+    ${list.map(orderCard).join('')}
+  `).join('');
 
   return `
     <div class="report-stats">
@@ -11866,6 +11911,9 @@ function _finDateParams() {
   // времени — начало периода срезалось на 3 часа. Обе границы локальные.
   if (from) p.set('date_from', dayStartIso(from));
   if (to)   p.set('date_to',   dayEndIso(to));
+  // Вид заявки (физ/юр/ТТН-Л): пустое значение = все виды, параметр не шлём.
+  const kind = document.getElementById('fin-kind')?.value || '';
+  if (kind) p.set('kind', kind);
   return p.toString() ? '?' + p.toString() : '';
 }
 
