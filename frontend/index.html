@@ -4900,7 +4900,11 @@ function _payIcon(o) {
 // Может ли текущий пользователь редактировать поля заявки «карандашиком»
 function canEditOrderFields(o) {
   const role = currentUser?.role;
-  if (role === 'manager' || role === 'admin')
+  // CRM-39: закрытую заявку (доставлена/отменена) правит только админ —
+  // и только «бумажные» поля: карандаши топлива и объёма там не рисуются.
+  if (role === 'admin')
+    return ['new', 'awaiting_manager', 'accepted', 'delivered', 'cancelled'].includes(o.status);
+  if (role === 'manager')
     return ['new', 'awaiting_manager', 'accepted'].includes(o.status);
   if (role === 'client')
     return o.client_id === currentUser?.id
@@ -4910,8 +4914,12 @@ function canEditOrderFields(o) {
   return false;
 }
 
+// Поля, замороженные в закрытых статусах (бэкенд отдаёт по ним 422)
+const _FROZEN_IN_CLOSED = ['fuel_type', 'volume_requested'];
+
 function _editPencil(o, field) {
   if (!canEditOrderFields(o)) return '';
+  if (_FROZEN_IN_CLOSED.includes(field) && ['delivered', 'cancelled'].includes(o.status)) return '';
   return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
     onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
 }
@@ -4936,11 +4944,11 @@ function _orgEditPencil(o) {
 
 // Карандаш только для staff (стоимость доставки правит менеджер/админ —
 // например при переадресации на 2 адреса, правки 2026-06-23).
-function _editPencilStaff(o, field) {
+function _editPencilStaff(o, field, title = 'Изменить') {
   const role = currentUser?.role;
   if (role !== 'manager' && role !== 'admin') return '';
-  if (!['new', 'awaiting_manager', 'accepted'].includes(o.status)) return '';
-  return `<button class="btn-icon" title="Изменить" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
+  if (!canEditOrderFields(o)) return '';
+  return `<button class="btn-icon" title="${escHtml(title)}" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;vertical-align:middle"
     onclick="event.stopPropagation();promptEditOrderField('${o.id}','${field}')">${icon('pencil-simple',12)}</button>`;
 }
 
@@ -5034,14 +5042,14 @@ function orderCardHTML(o) {
         ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? fmtRub(fuelCost) + ' ₽' : '—'}</div></div>` : ''}
         ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? fmtRub(o.delivery_cost) + ' ₽' : '—'}</div></div>` : ''}
         <div class="detail-item"><div class="detail-label">Желаемая дата ${_editPencil(o,'desired_date')}</div><div class="detail-value">${o.desired_date ? new Date(o.desired_date).toLocaleDateString('ru-RU') : '—'}</div></div>
-        ${(o.contact_person_name || o.contact_person_phone) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки</div><div class="detail-value">${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}</div></div>` : ''}
+        ${(o.contact_person_name || o.contact_person_phone || isStaff) ? `<div class="detail-item"><div class="detail-label">Контакт для приёмки ${_editPencilStaff(o,'contact_person_name','Изменить имя контакта')}${_editPencilStaff(o,'contact_person_phone','Изменить телефон контакта')}</div><div class="detail-value">${(o.contact_person_name || o.contact_person_phone) ? `${escHtml(o.contact_person_name || '')}${o.contact_person_phone ? ` · <a href="tel:${escHtml(o.contact_person_phone)}" style="color:var(--accent)">${escHtml(o.contact_person_phone)}</a>` : ''}` : '<span style="color:var(--text3)">не указан</span>'}</div></div>` : ''}
         ${isStaff && o.ttn_number ? `<div class="detail-item"><div class="detail-label">Номер ТТН</div><div class="detail-value" style="font-family:monospace">${escHtml(o.ttn_number)}</div></div>` : ''}
         ${!driverHidesMoney ? `<div class="detail-item"><div class="detail-label">Оплата</div><div class="detail-value">${PAYMENT_LABELS[o.payment_type] || o.payment_type}</div></div>` : ''}
         ${!driverHidesMoney && (o.expected_amount != null || o.final_amount != null) ? `<div class="detail-item"><div class="detail-label">Суммы</div><div class="detail-value">${o.expected_amount != null ? `Ожидалось: ${fmtRub(o.expected_amount)} ₽` : ''}${o.final_amount != null ? ` &nbsp; Факт: <strong>${fmtRub(o.final_amount)} ₽</strong>` : ''}</div></div>` : ''}
         ${priceFormulaHTML(o, driverHidesMoney)}
         ${isStaff && o.driver_id ? `<div class="detail-item"><div class="detail-label">Водитель</div><div class="detail-value">${escHtml(_driverNameById(o.driver_id))}</div></div>` : ''}
-        ${o.client_comment ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий клиента</div><div class="detail-value">${escHtml(o.client_comment)}</div></div>` : ''}
-        ${o.manager_comment && currentUser?.role !== 'client' ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий менеджера (внутренний)</div><div class="detail-value">${escHtml(o.manager_comment)}</div></div>` : ''}
+        ${(o.client_comment || isStaff) ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий клиента ${_editPencilStaff(o,'client_comment')}</div><div class="detail-value">${o.client_comment ? escHtml(o.client_comment) : '<span style="color:var(--text3)">—</span>'}</div></div>` : ''}
+        ${(o.manager_comment || isStaff) && currentUser?.role !== 'client' ? `<div class="detail-item" style="${_commentHighlightStyle(o)}"><div class="detail-label">Комментарий менеджера (внутренний) ${_editPencilStaff(o,'manager_comment')}</div><div class="detail-value">${o.manager_comment ? escHtml(o.manager_comment) : '<span style="color:var(--text3)">—</span>'}</div></div>` : ''}
         ${_ackCommentButtonHTML(o)}
         ${_shipmentControlsHTML(o)}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
@@ -5768,6 +5776,20 @@ async function promptEditOrderField(orderId, field) {
     const _fuel = order.expected_amount != null ? order.expected_amount - (order.delivery_cost || 0) : '';
     inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${_fuel !== '' ? Number(_fuel) : ''}" placeholder="0">
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Стоимость топлива без доставки (например, скидка клиенту). Доставка ${order.delivery_cost != null ? Number(order.delivery_cost).toLocaleString('ru') + ' ₽' : '0 ₽'} добавится к сумме заявки. Счёт перевыпустится с тем же номером.</div>`;
+  } else if (field === 'client_comment' || field === 'manager_comment') {
+    // CRM-39: staff правит оба комментария прямо в карточке. Пустое поле = очистить.
+    const isMgr = field === 'manager_comment';
+    title = isMgr ? 'Изменить комментарий менеджера' : 'Изменить комментарий клиента';
+    inputHtml = `<textarea id="eof-value" class="form-input" rows="3">${escHtml(order[field] || '')}</textarea>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${isMgr ? 'Внутренний комментарий: видят водитель и сотрудники, клиент — нет.' : 'Виден всем участникам заявки.'} Пустое поле очистит комментарий.</div>`;
+  } else if (field === 'contact_person_name') {
+    title = 'Изменить контактное лицо';
+    inputHtml = `<input type="text" id="eof-value" class="form-input" maxlength="120" value="${escHtml(order.contact_person_name || '')}" placeholder="ФИО принимающего">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое поле очистит контакт.</div>`;
+  } else if (field === 'contact_person_phone') {
+    title = 'Изменить телефон контактного лица';
+    inputHtml = `<input type="tel" id="eof-value" class="form-input" maxlength="20" value="${escHtml(order.contact_person_phone || '')}" placeholder="+7 999 000 00 00">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Пустое поле очистит телефон.</div>`;
   } else { return; }
 
   openModal(`${title} · ${order.order_number}`,
@@ -5776,7 +5798,10 @@ async function promptEditOrderField(orderId, field) {
         ? '<div style="font-size:11px;color:var(--amber)">Заявка уже принята водителем — он получит запрос на подтверждение изменений.</div>' : ''}`,
     async () => {
       const raw = document.getElementById('eof-value').value;
-      if (field !== 'delivery_cost' && !raw) { toast('Укажите значение', 'error'); return; }
+      // Поля, которые можно очистить пустым значением (CRM-39)
+      const _clearable = ['delivery_cost', 'client_comment', 'manager_comment',
+                          'contact_person_name', 'contact_person_phone'];
+      if (!_clearable.includes(field) && !raw) { toast('Укажите значение', 'error'); return; }
       const body = {};
       if (field === 'volume_requested') {
         const v = parseFloat(raw);

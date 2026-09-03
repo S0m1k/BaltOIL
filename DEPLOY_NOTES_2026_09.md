@@ -11,6 +11,7 @@
 | П4 | order_service (`DELETE /orders/{id}/hard`), delivery_service + chat_service (новые подписчики `events:orders`), notification_service + frontend | force-recreate всех четырёх сервисов (см. ниже) |
 | П6 | order_service (гейт отгрузки, payment-options, дефолт DEBT) + frontend | `docker compose up -d --force-recreate --no-deps order_service` |
 | П7 | order_service (клиенту не отдаётся `manager_comment`) + frontend (подписи полей) | `docker compose up -d --force-recreate --no-deps order_service` |
+| П8 | order_service (гейт правки закрытых заявок) + frontend (карандаши комментариев и контакта) | `docker compose up -d --force-recreate --no-deps order_service` |
 
 ## П4 — полное удаление заявки админом
 

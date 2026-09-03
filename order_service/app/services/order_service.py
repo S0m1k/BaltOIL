@@ -656,6 +656,29 @@ _CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desire
 _DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
 # Статусы, в которых клиент/водитель ещё могут править заявку
 _EDITABLE_STATUSES = {OrderStatus.NEW, OrderStatus.AWAITING_MANAGER, OrderStatus.ACCEPTED}
+# Закрытые статусы (CRM-39): заявка уже отработана — правит только админ,
+# и только «бумажные» поля: объём и топливо после доставки не меняются
+# (по ним уже выписаны ТТН, счёт и списан склад).
+_CLOSED_STATUSES = {
+    OrderStatus.DELIVERED: ("Доставленную", "доставленной"),
+    OrderStatus.CANCELLED: ("Отменённую", "отменённой"),
+}
+_FROZEN_IN_CLOSED = {"fuel_type", "volume_requested"}
+
+
+def _check_closed_order_edit(order: Order, actor: TokenUser, requested_fields: set[str]) -> None:
+    """CRM-39: правка заявки в закрытом статусе (доставлена/отменена).
+
+    Менеджеру закрыто совсем, админу — всё, кроме объёма и вида топлива:
+    по ним уже выписаны ТТН со счётом и списан склад.
+    """
+    if order.status not in _CLOSED_STATUSES:
+        return
+    accusative, genitive = _CLOSED_STATUSES[order.status]
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError(f"{accusative} заявку правит только администратор")
+    if requested_fields & _FROZEN_IN_CLOSED:
+        raise ValidationError(f"Объём и вид топлива {genitive} заявки не меняются")
 
 
 async def _fuel_subtotal_for(db: AsyncSession, order: Order, ctx, volume: float | None = None):
@@ -751,6 +774,8 @@ async def update_order(
             raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
         if order.status not in _EDITABLE_STATUSES:
             raise ValidationError("Заявку в этом статусе редактировать нельзя")
+    else:
+        _check_closed_order_edit(order, actor, requested_fields)
 
     # Минимальный объём — только клиентам и водителям; менеджер/админ правит на
     # любой объём (правка заказчика 2026-07-16), как и при создании заявки.
