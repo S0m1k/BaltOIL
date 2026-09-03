@@ -110,6 +110,8 @@ class AuthRepository {
     await TokenStorage.instance.save(
       access: data['access_token'] as String,
       refresh: data['refresh_token'] as String,
+      // Вход, а не ротация: сессия новая, 401-ы прошлой её больше не рвут.
+      newSession: true,
     );
     // Привязываем устройство к новому пользователю (no-op без Firebase).
     await PushRegistrar.instance.registerCurrentToken();

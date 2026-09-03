@@ -9,8 +9,17 @@ import 'token_storage.dart';
 
 /// Один Dio на всё приложение. Интерцептор:
 ///  - подставляет Bearer из TokenStorage,
-///  - на 401 делает refresh и повторяет запрос один раз,
-///  - если refresh не удался — чистит сессию и зовёт onSessionExpired.
+///  - на 401 делает refresh и повторяет запрос один раз (со СВЕЖИМ токеном),
+///  - чистит сессию и зовёт onSessionExpired, только если сервер явно отверг
+///    refresh-токен ТЕКУЩЕЙ сессии.
+///
+/// Про «выкидывает из аккаунта» (правки 2026-09-03). Пока пользователь вводит
+/// логин, фоновые опросы (поллинг звонков раз в 4 с, outbox, WS) продолжают
+/// стучаться со старым или отсутствующим токеном. Их 401 прилетал уже ПОСЛЕ
+/// успешного входа и сносил свежую сессию: clear() + переход на экран входа.
+/// Теперь у сессии есть номер (TokenStorage.generation), запрос помечается им
+/// при отправке, и ответ из прошлой сессии не может ни закрыть новую, ни
+/// перезаписать её токены результатом своего refresh.
 class ApiClient {
   ApiClient._() {
     _dio = Dio(BaseOptions(
@@ -31,6 +40,9 @@ class ApiClient {
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
         if (options.extra['noAuth'] != true) {
+          // Номер сессии на момент отправки: по нему в onError отличаем
+          // «протухший хвост» прошлой сессии от 401 текущей.
+          options.extra['authGen'] = TokenStorage.instance.generation;
           final token = await TokenStorage.instance.accessToken;
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -44,9 +56,38 @@ class ApiClient {
         if (response?.statusCode == 401 &&
             !alreadyRetried &&
             error.requestOptions.extra['noAuth'] != true) {
+          final sentGen = error.requestOptions.extra['authGen'] as int?;
+          final currentGen = TokenStorage.instance.generation;
+
+          // Ответ на запрос ПРОШЛОЙ сессии: пользователь за это время успел
+          // войти заново. Такой 401 не говорит ничего о свежей сессии —
+          // рвать её нельзя. Повторяем с актуальным токеном.
+          if (sentGen != null && sentGen != currentGen) {
+            final token = await TokenStorage.instance.accessToken;
+            if (token == null) return handler.next(error);
+            final opts = error.requestOptions
+              ..extra['retried'] = true
+              ..extra['authGen'] = currentGen
+              ..headers['Authorization'] = 'Bearer $token';
+            try {
+              return handler.resolve(await _dio.fetch(opts));
+            } on DioException catch (e) {
+              return handler.next(e);
+            }
+          }
+
           final refreshed = await _tryRefresh();
           if (refreshed) {
-            final opts = error.requestOptions..extra['retried'] = true;
+            // Bearer ставим явно, хотя dio.fetch и прогоняет onRequest заново
+            // (Dio 5.9): полагаться на это в повторе после refresh не хочется —
+            // смена поведения пакета тихо вернула бы 401 в цикл.
+            final token = await TokenStorage.instance.accessToken;
+            final opts = error.requestOptions
+              ..extra['retried'] = true
+              ..extra['authGen'] = TokenStorage.instance.generation;
+            if (token != null) {
+              opts.headers['Authorization'] = 'Bearer $token';
+            }
             try {
               final retry = await _dio.fetch(opts);
               return handler.resolve(retry);
@@ -57,7 +98,10 @@ class ApiClient {
           // Выкидываем на экран входа ТОЛЬКО если сервер явно отверг
           // refresh-токен (правки 2026-07-24). Раньше любая сетевая ошибка
           // (таймаут, метро, лифт) чистила сессию и требовала логин заново.
-          if (_refreshRejected) {
+          // И только если за время refresh не начался новый вход — иначе
+          // снесём сессию, в которую пользователь уже успешно зашёл.
+          if (_refreshRejected &&
+              TokenStorage.instance.generation == currentGen) {
             await TokenStorage.instance.clear();
             onSessionExpired?.call();
           }
@@ -97,6 +141,7 @@ class ApiClient {
   }
 
   Future<bool> _doRefresh() async {
+    final gen = TokenStorage.instance.generation;
     final refresh = await TokenStorage.instance.refreshToken;
     if (refresh == null) {
       _refreshRejected = true; // токена нет — это не сетевая проблема
@@ -108,6 +153,13 @@ class ApiClient {
         data: {'refresh_token': refresh},
         options: Options(extra: {'noAuth': true}),
       );
+      // Пока ходили на сервер, пользователь мог войти заново. Сохранять пару
+      // от старой сессии поверх новой нельзя: она уже не действует, и первый
+      // же запрос с ней получит 401 — вход выглядел бы как «сразу выкинуло».
+      if (TokenStorage.instance.generation != gen) {
+        _refreshRejected = false;
+        return false;
+      }
       await TokenStorage.instance.save(
         access: resp.data['access_token'] as String,
         refresh: resp.data['refresh_token'] as String,
@@ -116,7 +168,9 @@ class ApiClient {
       return true;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      _refreshRejected = code == 401 || code == 403;
+      // Отказ по уже сменившейся сессии текущей не касается.
+      _refreshRejected = (code == 401 || code == 403) &&
+          TokenStorage.instance.generation == gen;
       return false;
     } on Object {
       _refreshRejected = false; // непонятная ошибка — сессию не рвём

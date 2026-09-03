@@ -25,7 +25,17 @@ Future<void> main() async {
   // ignore: unawaited_futures
   SyncService.instance.init();
 
+  // Экран входа показываем ОДИН раз на сессию. Поллинг звонков стучится раз
+  // в 4 секунды: без этой защиты каждый его 401 заново сбрасывал стек
+  // навигации — в том числе поверх экрана уже вошедшего пользователя.
+  var loginShownForGen = -1;
   ApiClient.instance.onSessionExpired = () {
+    final gen = TokenStorage.instance.generation;
+    if (loginShownForGen == gen) return;
+    loginShownForGen = gen;
+    // Сессии больше нет — фоновые опросы обязаны замолчать, иначе они
+    // продолжают долбить сервер без токена, пока идёт ввод логина.
+    IncomingCallWatcher.instance.stop();
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
