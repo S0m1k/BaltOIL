@@ -204,9 +204,21 @@ async def refresh_tokens(
     #   1) штатная гонка — две вкладки/устройства обновились одновременно,
     #      проигравшая прислала уже ротированный токен на миллисекунды позже;
     #   2) атака — переигрывание украденного токена.
+    #   3) мобильный клиент не получил ответ на refresh — Android убил процесс,
+    #      сеть оборвалась в дороге. Сервер пару уже ротировал, а телефон о ней
+    #      не узнал и при следующем запуске предъявляет прежний токен. Это была
+    #      главная причина «в приложении каждый раз приходится логиниться»:
+    #      access-токен клиента живёт 15 минут, поэтому refresh идёт почти на
+    #      каждом холодном старте, и любое обрывание валило logout_all — то есть
+    #      сессии на ВСЕХ устройствах.
     # Отличаем по паре (revoked_at, rotated_to_id): при ротации проставлены оба,
     # при logout/logout_all — только revoked_at. Свежая ротация внутри grace-окна
     # трактуется как (1): просто выдаём новую пару, ничего не отзывая.
+    # Случай (3) виден по наследнику: если выданный на замену токен НИКТО не
+    # предъявлял (жив и не отозван), второго владельца пары не существует —
+    # ответ действительно потерялся. Отзываем наследника и выдаём новую пару.
+    # Кража при этом не проходит: настоящий клиент придёт со своим наследником,
+    # тот окажется отозванным без rotated_to_id — и сработает logout_all.
     # Всё остальное — как раньше: сносим ВСЮ refresh-цепочку юзера.
     stolen_result = await db.execute(
         select(RefreshToken).where(RefreshToken.token_hash == token_hash)
@@ -220,14 +232,39 @@ async def refresh_tokens(
             and (now - revoked_at).total_seconds() <= grace_seconds
         )
 
-        if is_parallel_refresh:
+        # Потерянный ответ: наследника никто не предъявлял (см. случай 3).
+        lost_response = False
+        if (
+            not is_parallel_refresh
+            and seen.rotated_to_id is not None
+            and _as_utc(seen.expires_at) > now
+        ):
+            successor = (
+                await db.execute(
+                    select(RefreshToken).where(RefreshToken.id == seen.rotated_to_id)
+                )
+            ).scalar_one_or_none()
+            if (
+                successor is not None
+                and not successor.is_revoked
+                and _as_utc(successor.expires_at) > now
+            ):
+                # Наследник так и остался неиспользованным — гасим его, чтобы
+                # действующей осталась ровно одна пара.
+                successor.is_revoked = True
+                successor.revoked_at = now
+                lost_response = True
+
+        if is_parallel_refresh or lost_response:
             user = await _load_usable_user(db, seen.user_id)
             _, response = await _issue_refresh_pair(
                 db,
                 user,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                audit_details={"duplicate_within_grace": True},
+                audit_details={"duplicate_within_grace": True}
+                if is_parallel_refresh
+                else {"lost_refresh_response": True},
             )
             return response
 

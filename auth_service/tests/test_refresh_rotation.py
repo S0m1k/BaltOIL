@@ -120,19 +120,64 @@ async def test_duplicate_refresh_within_grace_issues_new_pair(db):
     assert third.refresh_token
 
 
-async def test_duplicate_refresh_outside_grace_is_treated_as_theft(db):
-    """(b) Повтор вне grace → AuthError + все токены юзера отозваны."""
+async def _age_out_of_grace(db, raw: str) -> None:
+    """Отмотать revoked_at токена за пределы grace-окна."""
+    grace = auth_service.get_settings().refresh_rotation_grace_seconds
+    row = await _token_row(db, raw)
+    row.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=grace + 5)
+    await db.commit()
+
+
+async def test_lost_refresh_response_outside_grace_issues_new_pair(db):
+    """(b) Мобильный клиент не получил ответ на refresh — не кража.
+
+    Android убивает процесс, сеть рвётся в дороге: сервер пару ротировал, а
+    телефон о ней не узнал и на следующем запуске предъявляет прежний токен.
+    Наследника при этом НИКТО не предъявлял — второго владельца пары нет.
+    Раньше здесь срабатывал logout_all, и человек логинился заново каждый
+    запуск приложения.
+    """
     user = await _make_user(db)
     raw = await _login(db, user)
 
-    fresh = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
+    lost = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
+    await db.commit()
+    await _age_out_of_grace(db, raw)
+
+    again = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
     await db.commit()
 
-    # Отматываем revoked_at назад за пределы окна.
-    grace = auth_service.get_settings().refresh_rotation_grace_seconds
-    old = await _token_row(db, raw)
-    old.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=grace + 5)
+    assert again.refresh_token
+    assert "user.refresh_token_reuse_detected" not in await _actions(db)
+    # Неполученный наследник погашен: действующей остаётся ровно одна пара.
+    assert (await _token_row(db, lost.refresh_token)).is_revoked is True
+    assert (await _token_row(db, again.refresh_token)).is_revoked is False
+
+    result = await db.execute(
+        select(AuditLog).where(AuditLog.action == "user.token_refresh")
+    )
+    assert {"lost_refresh_response": True} in [
+        entry.details for entry in result.scalars().all()
+    ]
+
+
+async def test_reuse_with_spent_successor_is_treated_as_theft(db):
+    """(b2) Наследник уже потрачен → пару держат двое → сносим все сессии.
+
+    Это и есть настоящая кража: легитимный клиент ответ получил и наследником
+    воспользовался, значит старый токен предъявляет кто-то ещё.
+    """
+    user = await _make_user(db)
+    raw = await _login(db, user)
+
+    second = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
     await db.commit()
+    # Легитимный клиент воспользовался наследником — тот больше не «нетронут».
+    third = await auth_service.refresh_tokens(
+        db, raw_refresh_token=second.refresh_token
+    )
+    await db.commit()
+    await _age_out_of_grace(db, raw)
 
     with pytest.raises(AuthError):
         await auth_service.refresh_tokens(db, raw_refresh_token=raw)
@@ -142,9 +187,37 @@ async def test_duplicate_refresh_outside_grace_is_treated_as_theft(db):
     )
     tokens = list(result.scalars().all())
     assert tokens and all(t.is_revoked for t in tokens)
+    assert (await _token_row(db, third.refresh_token)).is_revoked is True
+    assert "user.refresh_token_reuse_detected" in await _actions(db)
 
-    # Токен-преемник тоже убит.
-    assert (await _token_row(db, fresh.refresh_token)).is_revoked is True
+
+async def test_stolen_token_is_caught_when_real_client_returns(db):
+    """Кража украденного токена не даёт злоумышленнику тихой сессии.
+
+    Вор предъявляет старый токен первым и получает пару (наследник выглядел
+    нетронутым). Но настоящий клиент приходит со СВОИМ наследником — тот уже
+    отозван и без rotated_to_id, — и это гасит все сессии обоих.
+    """
+    user = await _make_user(db)
+    raw = await _login(db, user)
+
+    victim = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
+    await db.commit()
+    await _age_out_of_grace(db, raw)
+
+    thief = await auth_service.refresh_tokens(db, raw_refresh_token=raw)
+    await db.commit()
+    assert thief.refresh_token
+
+    with pytest.raises(AuthError):
+        await auth_service.refresh_tokens(db, raw_refresh_token=victim.refresh_token)
+
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.user_id == user.id)
+    )
+    tokens = list(result.scalars().all())
+    assert tokens and all(t.is_revoked for t in tokens), "сессия вора тоже убита"
+    assert (await _token_row(db, thief.refresh_token)).is_revoked is True
     assert "user.refresh_token_reuse_detected" in await _actions(db)
 
 
