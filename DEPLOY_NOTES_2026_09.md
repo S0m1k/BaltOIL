@@ -13,6 +13,8 @@
 | П7 | order_service (клиенту не отдаётся `manager_comment`) + frontend (подписи полей) | `docker compose up -d --force-recreate --no-deps order_service` |
 | П8 | order_service (гейт правки закрытых заявок) + frontend (карандаши комментариев и контакта) | `docker compose up -d --force-recreate --no-deps order_service` |
 | П9 | order_service (адрес обязателен только клиенту) + frontend (валидация по роли, «Адрес уточняется») | `docker compose up -d --force-recreate --no-deps order_service` |
+| П10 | order_service (тип формулы `equal`) + frontend (пункт «= базовый») | `docker compose up -d --force-recreate --no-deps order_service` |
+| П11 | кода нет — «166 ОТК» уже работает, номер внутри PDF оставлен по решению заказчика | деплой не нужен, задачу на доске закрыть |
 
 ## П4 — полное удаление заявки админом
 

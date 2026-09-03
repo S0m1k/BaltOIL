@@ -12142,17 +12142,27 @@ function tariffFormulaBlockHtml(prefix, tariff) {
           <option value="">— свои цены —</option>
           ${options}
         </select>
-        <select id="${prefix}-ftype" class="form-input" style="width:90px;font-size:13px">
+        <select id="${prefix}-ftype" class="form-input" style="width:110px;font-size:13px"
+          onchange="onTariffFormulaTypeChange('${prefix}')">
           <option value="percent" ${ftype === 'percent' ? 'selected' : ''}>%</option>
           <option value="fixed" ${ftype === 'fixed' ? 'selected' : ''}>₽/л</option>
+          <option value="equal" ${ftype === 'equal' ? 'selected' : ''}>= базовый</option>
         </select>
         <input type="number" step="0.01" id="${prefix}-fval" class="form-input"
-          style="width:110px;font-size:13px" value="${fval}" placeholder="+5 / −5">
+          style="width:110px;font-size:13px${ftype === 'equal' ? ';display:none' : ''}" value="${fval}" placeholder="+5 / −5">
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:3px">
-        Плюс — наценка, минус — скидка. Цены пересчитываются автоматически при изменении базового тарифа.
+        Плюс — наценка, минус — скидка; «= базовый» — цены базового тарифа один в один.
+        Цены пересчитываются автоматически при изменении базового тарифа.
       </div>
     </div>`;
+}
+
+// «= базовый» (CRM-40): величина наценки не нужна — прячем поле ввода
+function onTariffFormulaTypeChange(prefix) {
+  const ftype = document.getElementById(`${prefix}-ftype`)?.value;
+  const fval = document.getElementById(`${prefix}-fval`);
+  if (fval) fval.style.display = ftype === 'equal' ? 'none' : '';
 }
 
 function onTariffFormulaChange(prefix) {
@@ -12174,7 +12184,9 @@ function tariffEffectivePrices(t) {
 }
 
 function tariffFormulaLabel(t) {
-  if (!t || !t.base_tariff_id || t.formula_value == null) return '';
+  if (!t || !t.base_tariff_id) return '';
+  if (t.formula_type === 'equal') return `= «${t.base_tariff_name || 'базовый'}»`;
+  if (t.formula_value == null) return '';
   const v = Number(t.formula_value);
   const unit = t.formula_type === 'fixed' ? ' ₽/л' : '%';
   return `${v >= 0 ? '+' : '−'}${Math.abs(v)}${unit} от «${t.base_tariff_name || 'базового'}»`;
@@ -12325,11 +12337,16 @@ async function archiveTariff(tariffId, name) {
 function _collectTariffFormula(prefix) {
   const baseId = document.getElementById(`${prefix}-base`)?.value || '';
   if (!baseId) return { base_tariff_id: null, formula_type: null, formula_value: null };
+  const ftype = document.getElementById(`${prefix}-ftype`)?.value || 'percent';
+  // «= базовый» (CRM-40): цены базового один в один, величина не нужна
+  if (ftype === 'equal') {
+    return { base_tariff_id: baseId, formula_type: 'equal', formula_value: null };
+  }
   const val = parseFloat(document.getElementById(`${prefix}-fval`)?.value);
   if (!isFinite(val)) return null;  // сигнал об ошибке ввода
   return {
     base_tariff_id: baseId,
-    formula_type: document.getElementById(`${prefix}-ftype`)?.value || 'percent',
+    formula_type: ftype,
     formula_value: val,
   };
 }

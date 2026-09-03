@@ -174,6 +174,13 @@ def _validate_tiers(volume_tiers: list[dict]) -> None:
 _VALID_CLIENT_TYPES = {None, "individual", "company"}
 
 
+def _stored_formula_value(formula_type: str | None, formula_value) -> Decimal | None:
+    """Величина формулы для хранения: у «= базовый» её нет (CRM-40)."""
+    if formula_value is None or formula_type == tariff_formula.FORMULA_EQUAL:
+        return None
+    return Decimal(str(formula_value))
+
+
 async def _validate_formula(
     db: AsyncSession,
     base_tariff_id: uuid.UUID | None,
@@ -187,8 +194,9 @@ async def _validate_formula(
     if self_id is not None and base_tariff_id == self_id:
         raise ValidationError("Тариф не может считаться от самого себя")
     if formula_type not in tariff_formula.VALID_FORMULA_TYPES:
-        raise ValidationError("Тип формулы должен быть «percent» или «fixed»")
-    if formula_value is None:
+        raise ValidationError("Тип формулы должен быть «percent», «fixed» или «equal»")
+    # «= базовый» (CRM-40) — цены базового один-в-один, величина не нужна
+    if formula_type != tariff_formula.FORMULA_EQUAL and formula_value is None:
         raise ValidationError("Укажите величину наценки или скидки")
 
     result = await db.execute(select(Tariff).where(Tariff.id == base_tariff_id))
@@ -287,9 +295,7 @@ async def create_tariff(
         created_by_id=actor.id,
         base_tariff_id=base_tariff_id,
         formula_type=formula_type if is_formula else None,
-        formula_value=(
-            Decimal(str(formula_value)) if is_formula and formula_value is not None else None
-        ),
+        formula_value=_stored_formula_value(formula_type, formula_value) if is_formula else None,
     )
     db.add(tariff)
     await db.flush()
@@ -342,9 +348,8 @@ async def update_tariff(
         new_base_id = base_tariff_id
         new_formula_type = formula_type if base_tariff_id is not None else None
         new_formula_value = (
-            Decimal(str(formula_value))
-            if base_tariff_id is not None and formula_value is not None
-            else None
+            _stored_formula_value(formula_type, formula_value)
+            if base_tariff_id is not None else None
         )
     else:
         new_base_id = tariff.base_tariff_id

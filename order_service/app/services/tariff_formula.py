@@ -14,7 +14,11 @@ from decimal import Decimal, ROUND_HALF_UP
 
 FORMULA_PERCENT = "percent"
 FORMULA_FIXED = "fixed"
-VALID_FORMULA_TYPES = (FORMULA_PERCENT, FORMULA_FIXED)
+# «= базовый» (CRM-40): цены базового тарифа один-в-один, величина не нужна.
+# Нужен, чтобы держать отдельный тариф (свой глазик, свой client_type) без
+# наценки — раньше для этого приходилось ставить +0%.
+FORMULA_EQUAL = "equal"
+VALID_FORMULA_TYPES = (FORMULA_PERCENT, FORMULA_FIXED, FORMULA_EQUAL)
 
 # Цена за литр не может опуститься до нуля даже при агрессивной скидке.
 MIN_PRICE = Decimal("0.0001")
@@ -35,10 +39,13 @@ def _dec(value) -> Decimal:
 def apply_formula(base_price, formula_type: str | None, formula_value) -> Decimal:
     """Цена формульного тарифа от цены базового.
 
-    percent: base × (1 + value/100);  fixed: base + value.
+    percent: base × (1 + value/100);  fixed: base + value;  equal: база как есть.
     value знаковое (+наценка / −скидка). Результат не опускается ниже MIN_PRICE.
     """
     price = _dec(base_price)
+    if formula_type == FORMULA_EQUAL:
+        # Величина у «= базовый» не хранится, а присланную игнорируем.
+        return price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP)
     if formula_type is None or formula_value is None:
         return price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP)
     val = _dec(formula_value)
@@ -54,6 +61,8 @@ def apply_formula(base_price, formula_type: str | None, formula_value) -> Decima
 
 def formula_label(formula_type: str | None, formula_value) -> str:
     """Человекочитаемое описание формулы для UI/журнала."""
+    if formula_type == FORMULA_EQUAL:
+        return "= базовый"
     if formula_type is None or formula_value is None:
         return ""
     val = _dec(formula_value)

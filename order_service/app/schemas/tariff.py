@@ -1,7 +1,13 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+# Тип формулы кастомного тарифа: наценка в %, наценка в ₽/л или «= базовый» (CRM-40)
+FormulaType = Literal["percent", "fixed", "equal"]
 
 
 class FuelPriceIn(BaseModel):
@@ -32,7 +38,7 @@ class TariffCreateRequest(BaseModel):
     base_delivery_cost: Decimal = Field(Decimal("0"), ge=0, le=Decimal("1000"), decimal_places=2)
     # ── Формульный тариф: цены от базового ──
     base_tariff_id: uuid.UUID | None = None
-    formula_type: str | None = Field(None, description="percent | fixed")
+    formula_type: FormulaType | None = Field(None, description="percent | fixed | equal")
     formula_value: Decimal | None = Field(None, decimal_places=4,
                                           description="Знаковое: +наценка / −скидка")
 
@@ -47,7 +53,7 @@ class TariffUpdateRequest(BaseModel):
     base_delivery_cost: Decimal | None = Field(None, ge=0, le=Decimal("1000"), decimal_places=2)
     # Формула: поля применяются только если явно присланы (model_fields_set)
     base_tariff_id: uuid.UUID | None = None
-    formula_type: str | None = None
+    formula_type: FormulaType | None = None
     formula_value: Decimal | None = Field(None, decimal_places=4)
 
 

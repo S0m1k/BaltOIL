@@ -16,6 +16,7 @@ from app.services.tariff_formula import (  # noqa: E402
     CHANGE_PRICE,
     CHANGE_REMOVED,
     CHANGE_SHOWN,
+    FORMULA_EQUAL,
     MIN_PRICE,
     apply_formula,
     derive_price_rows,
@@ -65,6 +66,23 @@ def test_result_is_rounded_to_four_decimals():
     assert apply_formula(D("57.00"), "percent", D("11.111")) == D("63.3333")
 
 
+def test_equal_formula_keeps_base_price(): # CRM-40
+    assert apply_formula(D("60.00"), FORMULA_EQUAL, None) == D("60.0000")
+
+
+def test_equal_formula_ignores_value():
+    """Величина у «= базовый» не хранится, а присланную игнорируем."""
+    assert apply_formula(D("60.00"), FORMULA_EQUAL, D("5")) == D("60.0000")
+
+
+def test_equal_formula_derives_whole_price_list():
+    base = [row("DT", "60.00"), row("AI92", "55.50"), row("AI95", None)]
+    derived = derive_price_rows(base, [], FORMULA_EQUAL, None)
+    assert {r["fuel_type"]: r["price_per_liter"] for r in derived} == {
+        "DT": D("60.0000"), "AI92": D("55.5000"),
+    }
+
+
 def test_unknown_formula_type_raises():
     with pytest.raises(ValueError):
         apply_formula(D("60.00"), "magic", D("5"))
@@ -75,6 +93,7 @@ def test_formula_label_is_human_readable():
     assert formula_label("percent", D("-7.5")) == "−7.5%"
     assert formula_label("fixed", D("2")) == "+2 ₽/л"
     assert formula_label(None, None) == ""
+    assert formula_label(FORMULA_EQUAL, None) == "= базовый"
 
 
 # ── normalize_rows / visible_prices («глазик») ────────────────────────────────
