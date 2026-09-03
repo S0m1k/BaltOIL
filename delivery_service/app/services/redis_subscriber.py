@@ -113,13 +113,15 @@ async def _handle(payload: dict) -> None:
 async def order_events_subscriber_task() -> None:
     """Фоновая задача: слушает events:orders, переподключаясь при сбоях."""
     settings = get_settings()
-    log.info("Delivery Redis subscriber starting…")
+    # warning, а не info: в delivery_service нет basicConfig(level=INFO), и строка
+    # старта подписчика — та самая, по которой DEPLOY_NOTES велят проверять деплой.
+    log.warning("Delivery Redis subscriber starting…")
     while True:
         try:
             r = aioredis.from_url(settings.redis_url, decode_responses=True)
             pubsub = r.pubsub()
             await pubsub.subscribe(*CHANNELS)
-            log.info("Subscribed to %s", CHANNELS)
+            log.warning("Subscribed to %s", CHANNELS)
             async for msg in pubsub.listen():
                 if msg["type"] != "message":
                     continue
