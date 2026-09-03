@@ -21,16 +21,18 @@ def _hide_internal(order, actor, model):
     """CRM-41: комментарий менеджера — внутренний (сотрудники и водитель).
 
     Единственное место, где ответ заявки «обрезается» под роль: клиенту поле
-    отдаётся как None. ORM-объект не трогаем — иначе SQLAlchemy запишет очистку
-    комментария в БД при ближайшем commit.
+    отдаётся как None. Исходный объект не трогаем — иначе SQLAlchemy запишет
+    очистку комментария в БД при ближайшем commit.
+
+    `model_copy` обязателен: `model_validate` на уже готовом экземпляре модели
+    возвращает ЕГО ЖЕ (pydantic v2, revalidate_instances="never"), и правка
+    поля ушла бы в исходный объект.
     """
     if actor.role != ROLE_CLIENT:
         return order
     if isinstance(order, list):
         return [_hide_internal(o, actor, model) for o in order]
-    response = model.model_validate(order)
-    response.manager_comment = None
-    return response
+    return model.model_validate(order).model_copy(update={"manager_comment": None})
 
 
 @router.get("", response_model=list[OrderListResponse])
