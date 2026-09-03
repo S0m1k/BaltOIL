@@ -357,6 +357,19 @@ async def preview_price(
     }
 
 
+def _normalize_delivery_address(address: str | None, actor: TokenUser) -> str:
+    """CRM-37: адрес обязателен только клиенту.
+
+    Сотрудник и водитель оформляют заявку со слов — адрес уточняет менеджер.
+    Пустая строка (колонка NOT NULL) означает «адрес уточняется»: зона и
+    стоимость доставки останутся пустыми.
+    """
+    normalized = (address or "").strip()
+    if not normalized and actor.role == ROLE_CLIENT:
+        raise ValidationError("Укажите адрес доставки")
+    return normalized
+
+
 async def create_order(
     db: AsyncSession,
     data: OrderCreateRequest,
@@ -426,6 +439,8 @@ async def create_order(
             credit_allowed=ctx.credit_allowed,
         )
 
+    data.delivery_address = _normalize_delivery_address(data.delivery_address, actor)
+
     # Дата доставки не может быть в прошлом. Сравниваем календарные дни,
     # а не моменты времени: заявка «на сегодня» валидна весь день, даже если
     # присланный timestamp (полдень UTC от фронта) уже позади текущего момента.
@@ -455,7 +470,9 @@ async def create_order(
     delivery_lat = data.delivery_lat if data.delivery_lat is not None else None
     delivery_lon = data.delivery_lon if data.delivery_lon is not None else None
 
-    if delivery_lat is not None and delivery_lon is not None:
+    # Без адреса (CRM-37) зону не определяем даже при случайно пришедших
+    # координатах: считать доставку не к чему — её уточнит менеджер.
+    if data.delivery_address and delivery_lat is not None and delivery_lon is not None:
         try:
             zone_info = await resolve_zone(delivery_lat, delivery_lon)
             if zone_info:

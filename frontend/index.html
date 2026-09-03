@@ -5020,7 +5020,7 @@ function orderCardHTML(o) {
       ${_commentMark(o)}
       ${isStaff ? _payIcon(o) : ''}
       <div class="order-number">${o.order_number}</div>
-      <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${escHtml(o.delivery_address)}</div>
+      <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${o.delivery_address ? escHtml(o.delivery_address) : 'адрес уточняется'}</div>
       <div class="order-volume">
         ${Number(o.volume_requested).toLocaleString('ru')} л
         ${o.volume_delivered != null ? `<span style="color:var(--green);margin-left:4px">/ факт: ${Number(o.volume_delivered).toLocaleString('ru')} л</span>` : ''}
@@ -5037,7 +5037,7 @@ function orderCardHTML(o) {
         <div class="detail-item"><div class="detail-label">Топливо ${_editPencil(o,'fuel_type')}</div><div class="detail-value">${fuelLabel}</div></div>
         <div class="detail-item"><div class="detail-label">Объём заказан ${_editPencil(o,'volume_requested')}</div><div class="detail-value">${Number(o.volume_requested).toLocaleString('ru')} л</div></div>
         ${o.volume_delivered != null ? `<div class="detail-item"><div class="detail-label">Объём доставлен</div><div class="detail-value">${Number(o.volume_delivered).toLocaleString('ru')} л</div></div>` : ''}
-        <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${escHtml(o.delivery_address)}</div></div>
+        <div class="detail-item"><div class="detail-label">Адрес доставки ${_editPencil(o,'delivery_address')}</div><div class="detail-value">${o.delivery_address ? escHtml(o.delivery_address) : '<span style="color:var(--text3)">Адрес уточняется</span>'}</div></div>
         ${o.delivery_zone_name ? `<div class="detail-item"><div class="detail-label">Зона доставки</div><div class="detail-value">${escHtml(o.delivery_zone_name)}</div></div>` : ''}
         ${(isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость топлива ${_editPencilStaff(o,'fuel_cost')}</div><div class="detail-value">${fuelCost != null ? fmtRub(fuelCost) + ' ₽' : '—'}</div></div>` : ''}
         ${(o.delivery_cost != null || isStaff || (!driverHidesMoney && fuelCost != null)) ? `<div class="detail-item"><div class="detail-label">Стоимость доставки ${_editPencilStaff(o,'delivery_cost')}</div><div class="detail-value">${o.delivery_cost != null ? fmtRub(o.delivery_cost) + ' ₽' : '—'}</div></div>` : ''}
@@ -7086,7 +7086,10 @@ async function doCreateOrder() {
   ].filter(Boolean).join(', ');
   const resolvedAddress = _orderAddress || _addrFallback;
 
-  if (!resolvedAddress) {
+  // CRM-37: адрес обязателен только клиенту. Сотрудник и водитель оформляют
+  // заявку со слов — уедет пустой адрес, менеджер уточнит его позже.
+  const _addressOptional = isStaff || currentUser?.role === 'driver';
+  if (!resolvedAddress && !_addressOptional) {
     errEl.innerHTML = '<div class="inline-error">Укажите адрес доставки (город, улица, дом)</div>';
     return;
   }
@@ -7097,7 +7100,8 @@ async function doCreateOrder() {
   // объекты без адреса, куда едут по звонку контактному лицу).
   const _street = document.getElementById('c-addr-street')?.value.trim();
   const _house  = document.getElementById('c-addr-house')?.value.trim();
-  if ((!_street || !_house) && !(_orderGeo && _orderGeo.lat != null)) {
+  // Совсем пустой адрес (staff/водитель) — осознанный выбор, спрашивать не о чем.
+  if (resolvedAddress && (!_street || !_house) && !(_orderGeo && _orderGeo.lat != null)) {
     if (!confirm(
       'Адрес указан без улицы и дома:\n\n' + resolvedAddress +
       '\n\nВодитель не будет знать точку доставки, а зона доставки не ' +
