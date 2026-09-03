@@ -18,6 +18,19 @@
 | П10 | order_service (тип формулы `equal`) + frontend (пункт «= базовый») | `docker compose up -d --force-recreate --no-deps order_service` |
 | П11 | кода нет — «166 ОТК» уже работает, номер внутри PDF оставлен по решению заказчика | деплой не нужен, задачу на доске закрыть |
 
+## Вне спринта — «в приложении каждый раз приходится логиниться»
+
+```
+docker compose up -d --force-recreate --no-deps auth_service
+```
+
+Потерянный ответ на `/auth/refresh` (Android убил процесс, оборвалась связь)
+больше не считается кражей и не вызывает `logout_all`. Миграций нет.
+Проверка: в audit_log у записей `user.token_refresh` появляется
+`{"lost_refresh_response": true}`, а `user.refresh_token_reuse_detected`
+становится редким. Клиентская половина — в ветке `mobile` (номер сессии в
+`TokenStorage`), бэкенду она не нужна.
+
 ## П4 — полное удаление заявки админом
 
 ```
