@@ -5378,7 +5378,9 @@ function downloadDoc(orderId, docId) {
       }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `document_${docId.slice(0,8)}.pdf`;
+      // Имя из Content-Disposition («0189 НВК.pdf»): blob-ссылка заголовок не
+      // видит, поэтому имя приходится ставить руками (CRM-28).
+      a.download = fname;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
