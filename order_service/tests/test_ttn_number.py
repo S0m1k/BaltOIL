@@ -16,6 +16,7 @@ from sqlalchemy.dialects import postgresql
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models.order import OrderKind  # noqa: E402
+from app.services import ttn_number  # noqa: E402
 from app.services.ttn_number import (  # noqa: E402
     ISSUABLE_TTN_KINDS,
     TTN_PREFIX,
@@ -65,9 +66,21 @@ def test_every_kind_has_prefix():
     assert TTN_PREFIX[TtnKind.SPECIAL] == "Л"
 
 
-def test_special_kind_is_registered_but_not_issuable():
-    assert TtnKind.SPECIAL in TTN_PREFIX
-    assert TtnKind.SPECIAL not in ISSUABLE_TTN_KINDS
+def test_all_registered_kinds_are_issuable():
+    # Л введён в оборот (CRM-42.1): внутренние заявки нумеруются своим рядом.
+    assert set(ISSUABLE_TTN_KINDS) == set(TtnKind)
+
+
+def test_kind_outside_registry_is_refused_by_the_guard(monkeypatch):
+    # Страховка остаётся: новый префикс не выдаётся, пока его не включили
+    # в ISSUABLE_TTN_KINDS и не описали правило в resolve_ttn_kind.
+    monkeypatch.setattr(
+        ttn_number, "ISSUABLE_TTN_KINDS", frozenset({TtnKind.COMPANY})
+    )
+    db = FakeCounterSession()
+    with pytest.raises(TtnKindNotIssuable):
+        asyncio.run(generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026)))
+    assert db.counters == {}
 
 
 def test_format_matches_customer_examples():
@@ -94,8 +107,9 @@ def test_counter_keys_fit_column_width():
 def test_resolve_kind_from_order_kind():
     assert resolve_ttn_kind(OrderKind.COMPANY) is TtnKind.COMPANY
     assert resolve_ttn_kind(OrderKind.INDIVIDUAL) is TtnKind.INDIVIDUAL
-    # ТТН-Л пока остаётся на Ю-счётчике: критерий префикса Л не определён.
-    assert resolve_ttn_kind(OrderKind.TTN_L) is TtnKind.COMPANY
+    # Внутренняя заявка (чекбокс «ТТН-Л») — свой префикс Л.
+    assert resolve_ttn_kind(OrderKind.TTN_L) is TtnKind.SPECIAL
+    assert resolve_ttn_kind("ttn_l") is TtnKind.SPECIAL
 
 
 def test_resolve_kind_accepts_raw_values_and_falls_back():
@@ -119,14 +133,36 @@ async def test_individual_starts_from_one():
 
 
 @pytest.mark.asyncio
+async def test_special_starts_from_one_regardless_of_legacy_sequence():
+    # Внутренние заявки раньше нумеровались общим Ю-рядом; ряд Л начинается с 1.
+    db = FakeCounterSession({"ttn-2026": 41})
+    assert await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026)) == "ТТН-2026-Л000001"
+    assert db.counters["ttn-2026"] == 41
+
+
+@pytest.mark.asyncio
+async def test_special_matches_customer_example():
+    db = FakeCounterSession({"ttn-2026-special": 2})
+    assert await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026)) == "ТТН-2026-Л000003"
+
+
+@pytest.mark.asyncio
 async def test_counters_are_independent():
     db = FakeCounterSession()
     numbers = [
         await generate_ttn_number(db, TtnKind.COMPANY, now=_at(2026)),
         await generate_ttn_number(db, TtnKind.INDIVIDUAL, now=_at(2026)),
+        await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026)),
         await generate_ttn_number(db, TtnKind.COMPANY, now=_at(2026)),
+        await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026)),
     ]
-    assert numbers == ["ТТН-2026-Ю000001", "ТТН-2026-Ф000001", "ТТН-2026-Ю000002"]
+    assert numbers == [
+        "ТТН-2026-Ю000001",
+        "ТТН-2026-Ф000001",
+        "ТТН-2026-Л000001",
+        "ТТН-2026-Ю000002",
+        "ТТН-2026-Л000002",
+    ]
 
 
 @pytest.mark.asyncio
@@ -135,31 +171,25 @@ async def test_year_rollover_resets_each_counter():
     for _ in range(3):
         await generate_ttn_number(db, TtnKind.COMPANY, now=_at(2026))
     await generate_ttn_number(db, TtnKind.INDIVIDUAL, now=_at(2026))
+    await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026))
 
     assert await generate_ttn_number(db, TtnKind.COMPANY, now=_at(2027)) == "ТТН-2027-Ю000001"
     assert await generate_ttn_number(db, TtnKind.INDIVIDUAL, now=_at(2027)) == "ТТН-2027-Ф000001"
+    assert await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2027)) == "ТТН-2027-Л000001"
     # Прошлый год продолжается со своего места (номер задним числом).
     assert await generate_ttn_number(db, TtnKind.COMPANY, now=_at(2026)) == "ТТН-2026-Ю000004"
 
 
 @pytest.mark.asyncio
-async def test_special_kind_is_refused():
-    db = FakeCounterSession()
-    with pytest.raises(TtnKindNotIssuable):
-        await generate_ttn_number(db, TtnKind.SPECIAL, now=_at(2026))
-    assert db.counters == {}
-
-
-@pytest.mark.asyncio
 async def test_parallel_issue_has_no_duplicates():
     db = FakeCounterSession()
-    kinds = [TtnKind.COMPANY, TtnKind.INDIVIDUAL] * 25
+    kinds = [TtnKind.COMPANY, TtnKind.INDIVIDUAL, TtnKind.SPECIAL] * 25
     numbers = await asyncio.gather(
         *(generate_ttn_number(db, k, now=_at(2026)) for k in kinds)
     )
 
-    assert len(set(numbers)) == len(numbers) == 50
-    company = sorted(n for n in numbers if "Ю" in n)
-    individual = sorted(n for n in numbers if "Ф" in n)
-    assert company == [f"ТТН-2026-Ю{i:06d}" for i in range(1, 26)]
-    assert individual == [f"ТТН-2026-Ф{i:06d}" for i in range(1, 26)]
+    assert len(set(numbers)) == len(numbers) == 75
+    for kind in TtnKind:
+        prefix = TTN_PREFIX[kind]
+        issued = sorted(n for n in numbers if prefix in n)
+        assert issued == [f"ТТН-2026-{prefix}{i:06d}" for i in range(1, 26)]

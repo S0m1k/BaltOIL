@@ -20,7 +20,7 @@ class TtnKindFilter(str, Enum):
 
     COMPANY    = "company"      # Ю
     INDIVIDUAL = "individual"   # Ф
-    SPECIAL    = "special"      # Л — зарезервирован, пока не выдаётся
+    SPECIAL    = "special"      # Л — внутренние заявки (order_kind=ttn_l)
 
 
 class DriverOrderItem(BaseModel):
