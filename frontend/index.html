@@ -10098,6 +10098,47 @@ async function _ensureChatUsersLoaded() {
   }
 }
 
+// CRM-47: управление составом приватной группы («СЗТК» и пр.).
+// Состав таких групп хранится явно (ConversationParticipant), в отличие от
+// штатных «Работа»/«Бухгалтерия», где членство ролевое и не редактируется.
+function _isPrivateGroupConv(conv) {
+  return !!conv && conv.kind === 'staff_group'
+    && typeof conv.group_code === 'string' && conv.group_code.startsWith('custom-');
+}
+
+// Менять состав может админ или создатель чата — те же права, что на бэке.
+function _canManageConvMembers(conv) {
+  if (!_isPrivateGroupConv(conv) || !currentUser) return false;
+  if (currentUser.role === 'admin') return true;
+  return currentUser.role === 'manager' && String(conv.created_by_id) === String(currentUser.id);
+}
+
+async function addConvMember() {
+  const sel = document.getElementById('participant-add-select');
+  const userId = sel && sel.value;
+  if (!userId) { toast('Выберите пользователя', 'error'); return; }
+  try {
+    await chatPost(`/conversations/staff-group/${activeConvId}/members/add`, { user_id: userId });
+    toast('Участник добавлен');
+    await openConversation(activeConvId);
+    await showConvParticipants();
+  } catch (e) {
+    toast(e.message || 'Не удалось добавить участника', 'error');
+  }
+}
+
+async function removeConvMember(userId, name) {
+  if (!confirm(`Удалить ${name || 'участника'} из чата?\n\nОн потеряет доступ к этому чату.`)) return;
+  try {
+    await chatDelete(`/conversations/staff-group/${activeConvId}/members/${userId}`);
+    toast('Участник удалён');
+    await openConversation(activeConvId);
+    await showConvParticipants();
+  } catch (e) {
+    toast(e.message || 'Не удалось удалить участника', 'error');
+  }
+}
+
 async function showConvParticipants() {
   const parts = _currentConvParticipants || [];
   if (!parts.length) {
@@ -10107,13 +10148,17 @@ async function showConvParticipants() {
   // Open the modal immediately with a placeholder so the user gets feedback.
   openModal(
     `Участники диалога (${parts.length})`,
-    '<div id="participants-list"><div class="empty-state" style="padding:14px"><div class="loading"></div></div></div>',
+    '<div id="participants-list"><div class="empty-state" style="padding:14px"><div class="loading"></div></div></div>'
+    + '<div id="participants-add"></div>',
     null
   );
   // openModal() hides the Confirm button automatically when onConfirm=null
 
   await _ensureChatUsersLoaded();
   const byId = new Map(_allChatUsers.map(u => [String(u.id), u]));
+
+  const canManage = _canManageConvMembers(_currentConv);
+  const creatorId = _currentConv ? String(_currentConv.created_by_id) : '';
 
   const html = parts.map(p => {
     const u = byId.get(String(p.user_id));
@@ -10132,11 +10177,32 @@ async function showConvParticipants() {
           ${phone ? `<div style="font-size:11px;color:var(--text2)"><a href="tel:${escHtml(phone)}" style="color:var(--accent)">${escHtml(phone)}</a></div>` : ''}
         </div>
         <span class="participant-role role-${escHtml(role)}">${escHtml(ROLE_LABEL_RU[role] || role)}</span>
+        ${canManage && String(p.user_id) !== creatorId
+          ? `<button class="btn-icon" title="Удалить из чата" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0 2px;font-size:14px;flex-shrink:0"
+               onclick="removeConvMember('${escHtml(String(p.user_id))}', '${escHtml((name || '').replace(/'/g, ''))}')">&times;</button>`
+          : ''}
       </div>`;
   }).join('');
 
   const box = document.getElementById('participants-list');
   if (box) box.innerHTML = html || '<div class="empty-state" style="padding:14px">Список пуст</div>';
+
+  // CRM-47: блок добавления участника — только админу/создателю приватной группы.
+  const addBox = document.getElementById('participants-add');
+  if (addBox && canManage) {
+    const memberIds = new Set(parts.map(p => String(p.user_id)));
+    const candidates = _allChatUsers.filter(u =>
+      !memberIds.has(String(u.id))
+      && (u.role === 'admin' || u.role === 'manager' || u.role === 'driver'));
+    addBox.innerHTML = candidates.length
+      ? `<div style="display:flex;gap:8px;align-items:center;padding:10px 10px 2px;border-top:1px solid var(--border)">
+           <select id="participant-add-select" class="form-input" style="flex:1;min-width:0">
+             ${candidates.map(u => `<option value="${escHtml(String(u.id))}">${escHtml(u.full_name || u.email || String(u.id).slice(0,8))} (${escHtml(ROLE_LABEL_RU[u.role] || u.role || '')})</option>`).join('')}
+           </select>
+           <button class="btn btn-sm" onclick="addConvMember()">Добавить</button>
+         </div>`
+      : '<div class="empty-state" style="padding:10px">Все сотрудники уже в чате</div>';
+  }
 }
 
 async function loadNewConvUserSelect() {
