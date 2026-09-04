@@ -28,6 +28,7 @@ from app.services.payment_service import (
 from app.services import document_service
 from app.services import contract_service
 from app.services import order_audit
+from app.services import client_object_service
 from app.services.actor_names import resolve_names as resolve_actor_names
 from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
 from app.services.client_context import get_client_context, get_user_organization_ids
@@ -605,6 +606,10 @@ async def create_order(
     # CRM-44: журнал действий — «кто создал заявку» (видит только админ)
     order_audit.record(db, order.id, actor, order_audit.ACTION_CREATED)
 
+    # CRM-45: адрес и контакт приёмки запоминаются на клиенте/организации,
+    # чтобы при следующей заявке их можно было выбрать из сохранённых объектов.
+    await client_object_service.remember_from_order(db, order, actor)
+
     await db.flush()
 
     # Auto-document: предварительный счёт при создании любой не-ttn_l заявки.
@@ -684,8 +689,12 @@ async def create_order(
 _CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
                     "client_comment", "contact_person_name", "contact_person_phone",
                     "organization_id"}
-# Поля, которые водитель может править в назначенной ему заявке
-_DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
+# Поля, которые водитель может править в назначенной ему заявке.
+# CRM-45: контакт приёмки и комментарии водитель заполняет с места — эти данные
+# он узнаёт первым, и до сих пор мог только позвонить менеджеру.
+_DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
+                    "contact_person_name", "contact_person_phone",
+                    "client_comment", "manager_comment"}
 # Статусы, в которых клиент/водитель ещё могут править заявку
 _EDITABLE_STATUSES = {OrderStatus.NEW, OrderStatus.AWAITING_MANAGER, OrderStatus.ACCEPTED}
 # Закрытые статусы (CRM-39): заявка уже отработана — правит только админ,
@@ -738,6 +747,35 @@ def _audit_diff(db: AsyncSession, order: Order, actor: TokenUser, before: dict) 
             db, order.id, actor, order_audit.ACTION_FIELD,
             field=field, old_value=before.get(field), new_value=new,
         )
+
+
+def _check_edit_permissions(order: Order, actor: TokenUser, requested_fields: set[str]) -> None:
+    """Матрица прав на правку заявки (чистая функция — БД не нужна).
+
+    staff — всё, с оговорками по закрытым статусам (CRM-39);
+    клиент — свою заявку и свой набор полей;
+    водитель — назначенную ему заявку и свой набор (CRM-45: плюс контакт
+    приёмки и комментарии, которые он узнаёт на месте).
+    """
+    if actor.role in (ROLE_MANAGER, ROLE_ADMIN):
+        _check_closed_order_edit(order, actor, requested_fields)
+        return
+
+    if actor.role == ROLE_CLIENT:
+        if order.client_id != actor.id:
+            raise ForbiddenError()
+        extra = requested_fields - _CLIENT_EDITABLE
+    elif actor.role == ROLE_DRIVER:
+        if order.driver_id != actor.id:
+            raise ForbiddenError("Редактировать можно только назначенную вам заявку")
+        extra = requested_fields - _DRIVER_EDITABLE
+    else:
+        raise ForbiddenError()
+
+    if extra:
+        raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
+    if order.status not in _EDITABLE_STATUSES:
+        raise ValidationError("Заявку в этом статусе редактировать нельзя")
 
 
 async def _fuel_subtotal_for(db: AsyncSession, order: Order, ctx, volume: float | None = None):
@@ -816,25 +854,7 @@ async def update_order(
     if organization_id_requested:
         requested_fields.add("organization_id")
 
-    # Матрица прав: staff — всё; клиент — свои заявки, ограниченные поля;
-    # водитель — назначенные ему, ограниченные поля.
-    if not is_staff:
-        if actor.role == ROLE_CLIENT:
-            if order.client_id != actor.id:
-                raise ForbiddenError()
-            extra = requested_fields - _CLIENT_EDITABLE
-        elif actor.role == ROLE_DRIVER:
-            if order.driver_id != actor.id:
-                raise ForbiddenError("Редактировать можно только назначенную вам заявку")
-            extra = requested_fields - _DRIVER_EDITABLE
-        else:
-            raise ForbiddenError()
-        if extra:
-            raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
-        if order.status not in _EDITABLE_STATUSES:
-            raise ValidationError("Заявку в этом статусе редактировать нельзя")
-    else:
-        _check_closed_order_edit(order, actor, requested_fields)
+    _check_edit_permissions(order, actor, requested_fields)
 
     # Минимальный объём — только клиентам и водителям; менеджер/админ правит на
     # любой объём (правка заказчика 2026-07-16), как и при создании заявки.
@@ -878,7 +898,11 @@ async def update_order(
 
     # Правка комментария сбрасывает подтверждение водителя (правки 2026-08-24):
     # у водителя снова загорается янтарный «!» и кнопка «Комментарий увидел».
+    # Правку водителя из этого исключаем (CRM-45): он сам её и внёс — требовать
+    # от него «подтвердите комментарий» бессмысленно.
     def _reset_comment_ack(old: str | None, new: str | None) -> None:
+        if actor.role == ROLE_DRIVER:
+            return
         if new and (new or "").strip() != (old or "").strip():
             order.driver_comment_ack_at = None
 
@@ -1039,6 +1063,9 @@ async def update_order(
         ))
         # CRM-44: поимённо, по каждому изменившемуся полю
         _audit_diff(db, order, actor, _audit_before)
+        # CRM-45: новый адрес/контакт запоминаем на клиенте и организации —
+        # правка карандашиком тоже пополняет справочник объектов.
+        await client_object_service.remember_from_order(db, order, actor)
 
     # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
     # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет

@@ -1,7 +1,7 @@
 import logging
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from app.models.client_object import ClientObject
@@ -36,24 +36,94 @@ async def list_objects(
     db: AsyncSession,
     actor: TokenUser,
     client_id: uuid.UUID | None,
+    organization_id: uuid.UUID | None = None,
 ) -> list[ClientObject]:
     """Вернуть список сохранённых объектов.
 
-    Клиент: всегда свои. Staff: по переданному client_id (если None → пустой список).
+    Клиент: всегда свои. Staff: по переданному client_id.
+    CRM-45: если передана организация — её объекты видны в дополнение к объектам
+    клиента (заявку на организацию мог оформлять другой человек, а адрес и
+    контакт приёмки у объекта общие).
     """
-    if not _is_staff(actor):
-        target = actor.id
-    else:
-        if client_id is None:
-            return []
-        target = client_id
+    target = actor.id if not _is_staff(actor) else client_id
+    if target is None and organization_id is None:
+        return []
+
+    conditions = []
+    if target is not None:
+        conditions.append(ClientObject.client_id == target)
+    if organization_id is not None:
+        conditions.append(ClientObject.organization_id == organization_id)
 
     result = await db.execute(
         select(ClientObject)
-        .where(ClientObject.client_id == target)
+        .where(or_(*conditions))
         .order_by(ClientObject.updated_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def remember_from_order(db: AsyncSession, order, actor: TokenUser) -> None:
+    """CRM-45: запомнить адрес и контакт приёмки заявки в объектах клиента.
+
+    Вызывается при создании и правке заявки. Ключ — (клиент, адрес): повторная
+    заявка на тот же адрес обновляет контакт и организацию, а не плодит записи.
+    Best-effort: журнал адресов не стоит того, чтобы из-за него падало
+    сохранение заявки, поэтому любые ошибки только логируются.
+
+    Коммита нет — запись уезжает вместе с транзакцией заявки.
+    """
+    address = (order.delivery_address or "").strip()
+    if not address:
+        return
+    try:
+        # Savepoint: конфликт уникальности (client_id, address) в гонке откатит
+        # только эту вставку, а не всю транзакцию заявки.
+        async with db.begin_nested():
+            await _upsert_object(db, order, actor)
+    except Exception as exc:
+        log.warning(
+            "remember_from_order: объект доставки не сохранён (не критично): %s", exc
+        )
+
+
+async def _upsert_object(db: AsyncSession, order, actor: TokenUser) -> None:
+    address = order.delivery_address.strip()
+    existing = await db.execute(
+        select(ClientObject).where(
+            ClientObject.client_id == order.client_id,
+            ClientObject.delivery_address == address,
+        )
+    )
+    obj = existing.scalar_one_or_none()
+
+    if obj is None:
+        count_result = await db.execute(
+            select(func.count()).where(ClientObject.client_id == order.client_id)
+        )
+        if count_result.scalar_one() >= _CAP:
+            # Лимит: молча не сохраняем — клиент почистит список сам.
+            return
+        obj = ClientObject(
+            client_id=order.client_id,
+            delivery_address=address,
+            created_by_id=actor.id,
+        )
+        db.add(obj)
+
+    if order.organization_id is not None:
+        obj.organization_id = order.organization_id
+    if order.delivery_lat is not None and order.delivery_lon is not None:
+        obj.delivery_lat = order.delivery_lat
+        obj.delivery_lon = order.delivery_lon
+    # Пустой контакт в заявке ранее сохранённый не затирает: заявку могли
+    # оформить «со слов», а справочник уже знает, кто принимает на объекте.
+    if order.contact_person_name:
+        obj.contact_person_name = order.contact_person_name
+    if order.contact_person_phone:
+        obj.contact_person_phone = order.contact_person_phone
+
+    await db.flush()
 
 
 async def create_object(

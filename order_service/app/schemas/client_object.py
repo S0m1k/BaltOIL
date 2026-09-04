@@ -26,8 +26,12 @@ class ClientObjectResponse(BaseModel):
 
     id: uuid.UUID
     client_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
     name: str | None
     delivery_address: str
     delivery_lat: Decimal | None
     delivery_lon: Decimal | None
+    # Контакт приёмки по этому адресу (CRM-45) — подставляется в новую заявку
+    contact_person_name: str | None = None
+    contact_person_phone: str | None = None
     created_at: datetime
