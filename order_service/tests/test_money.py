@@ -25,23 +25,34 @@ D = Decimal
 # ── price_first_breakdown ─────────────────────────────────────────────────────
 
 def test_reference_example_593l_from_task():
-    # Пример заказчика (CRM-27): 593 л × 90 ₽/л + доставка 3200, НДС 22%.
+    # Пример заказчика (CRM-27): 593 л × 90 ₽/л + доставка 3200 = 56 570 ₽.
+    # 56570 / 593 = 95,396290051 ₽/л — «таких денег физически нет»,
+    # значит цена 95,40 ₽/л и итог 95,40 × 593 = 56 572,20 ₽.
     bd = price_first_breakdown(D("56570.00"), 593, 22)
-    assert bd["unit_no_vat"] == D("78.19")
-    assert bd["sum_no_vat"] == D("46366.67")
-    assert bd["vat"] == D("10200.67")
-    assert bd["total"] == D("56567.34")
+    assert bd["unit_gross"] == D("95.40")
+    assert bd["total"] == D("56572.20")
+    assert bd["sum_no_vat"] == D("46370.66")
+    assert bd["vat"] == D("10201.54")
+    assert bd["unit_no_vat"] == D("78.20")
 
 
-def test_price_times_volume_equals_sum():
+def test_gross_price_times_volume_equals_total():
+    # Главный инвариант CRM-27: округлённая цена/л × литры = «Всего к оплате».
     bd = price_first_breakdown(D("56570.00"), 593, 22)
-    assert bd["unit_no_vat"] * D("593") == bd["sum_no_vat"]
+    assert bd["unit_gross"] * D("593") == bd["total"]
+
+
+def test_subtotal_plus_vat_equals_total():
+    # «Итого» + «НДС» = «Всего к оплате» — без копеечных расхождений в счёте.
+    bd = price_first_breakdown(D("56570.00"), 593, 22)
     assert bd["sum_no_vat"] + bd["vat"] == bd["total"]
 
 
 def test_zero_vat_rate_keeps_total():
     bd = price_first_breakdown(D("1000.00"), 100, 0)
+    assert bd["unit_gross"] == D("10.00")
     assert bd["unit_no_vat"] == D("10.00")
+    assert bd["sum_no_vat"] == D("1000.00")
     assert bd["vat"] == D("0.00")
     assert bd["total"] == D("1000.00")
 
@@ -58,13 +69,13 @@ def test_order_total_matches_invoice_total():
     # Итог заявки обязан совпасть с «Всего к оплате» счёта копейка в копейку.
     total = order_total(D("53370.00"), D("3200.00"), 593, 22)
     assert total == price_first_breakdown(D("56570.00"), 593, 22)["total"]
-    assert total == D("56567.34")
+    assert total == D("56572.20")
 
 
 def test_order_total_keeps_kopecks():
     # Правило «целыми рублями» (2026-08-24) отменено — копейки сохраняются.
     total = order_total(D("53370.00"), D("3200.00"), 593, 22)
-    assert total == D("56567.34")
+    assert total == D("56572.20")
     assert total != total.quantize(D("1"))
 
 
@@ -92,7 +103,8 @@ def test_invariant_total_is_reproducible_from_price(fuel, dlv, vol):
     bd = price_first_breakdown(total, vol, 22)
     # Пересчёт итога от него самого не «уплывает» — счёт стабилен при перевыпуске.
     assert bd["total"] == total
-    assert bd["unit_no_vat"] * D(str(vol)) == bd["sum_no_vat"]
+    assert bd["unit_gross"] * D(str(vol)) == bd["total"]
+    assert bd["sum_no_vat"] + bd["vat"] == bd["total"]
 
 
 # ── per_liter_with_delivery ───────────────────────────────────────────────────
@@ -103,6 +115,15 @@ def test_per_liter_with_delivery():
 
 def test_per_liter_with_delivery_rounds():
     assert per_liter_with_delivery(D("81732.00"), 1234) == D("66.23")
+
+
+def test_per_liter_with_delivery_matches_invoice_price():
+    # Цена/л с доставкой в карточке = та самая цена, из которой сложен итог.
+    total = order_total(D("53370.00"), D("3200.00"), 593, 22)
+    assert per_liter_with_delivery(total, 593) == D("95.40")
+    assert per_liter_with_delivery(total, 593) == price_first_breakdown(
+        total, 593, 22
+    )["unit_gross"]
 
 
 def test_per_liter_with_delivery_guards():
