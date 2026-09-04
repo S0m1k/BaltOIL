@@ -8,6 +8,7 @@ from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier, TariffPriceHistor
 from .fuel_type_catalog import FuelTypeCatalog
 from .idempotency_key import IdempotencyKey
 from .client_object import ClientObject
+from .order_audit_log import OrderAuditLog
 
 __all__ = [
     "Order", "OrderStatus", "OrderKind", "PaymentType",
@@ -20,4 +21,5 @@ __all__ = [
     "FuelTypeCatalog",
     "IdempotencyKey",
     "ClientObject",
+    "OrderAuditLog",
 ]

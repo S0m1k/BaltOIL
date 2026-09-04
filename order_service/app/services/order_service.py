@@ -27,6 +27,8 @@ from app.services.payment_service import (
 )
 from app.services import document_service
 from app.services import contract_service
+from app.services import order_audit
+from app.services.actor_names import resolve_names as resolve_actor_names
 from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
 from app.services.client_context import get_client_context, get_user_organization_ids
 from app.services.payment_type_rules import validate_payment_type
@@ -600,6 +602,8 @@ async def create_order(
         changed_by_role=actor.role,
         comment=create_comment,
     ))
+    # CRM-44: журнал действий — «кто создал заявку» (видит только админ)
+    order_audit.record(db, order.id, actor, order_audit.ACTION_CREATED)
 
     await db.flush()
 
@@ -707,6 +711,33 @@ def _check_closed_order_edit(order: Order, actor: TokenUser, requested_fields: s
         raise ForbiddenError(f"{accusative} заявку правит только администратор")
     if requested_fields & _FROZEN_IN_CLOSED:
         raise ValidationError(f"Объём и вид топлива {genitive} заявки не меняются")
+
+
+# Поля заявки, правки которых попадают в журнал действий (CRM-44).
+_AUDITED_FIELDS = (
+    "fuel_type", "volume_requested", "volume_delivered", "delivery_address",
+    "desired_date", "contact_person_name", "contact_person_phone",
+    "client_comment", "manager_comment", "driver_id", "expected_amount",
+    "final_amount", "delivery_cost", "payment_type", "organization_id",
+    "allow_delivery_unpaid", "trade_credit_contract_signed",
+)
+
+
+def _audit_snapshot(order: Order) -> dict[str, str | None]:
+    """Строковый снимок отслеживаемых полей — «было» для журнала."""
+    return {f: order_audit.stringify(getattr(order, f, None)) for f in _AUDITED_FIELDS}
+
+
+def _audit_diff(db: AsyncSession, order: Order, actor: TokenUser, before: dict) -> None:
+    """Записать в журнал все поля, изменившиеся с момента снимка."""
+    for field in _AUDITED_FIELDS:
+        new = order_audit.stringify(getattr(order, field, None))
+        if new == before.get(field):
+            continue
+        order_audit.record(
+            db, order.id, actor, order_audit.ACTION_FIELD,
+            field=field, old_value=before.get(field), new_value=new,
+        )
 
 
 async def _fuel_subtotal_for(db: AsyncSession, order: Order, ctx, volume: float | None = None):
@@ -834,6 +865,10 @@ async def update_order(
                 raise ValidationError(
                     "Указанная организация не найдена среди организаций клиента заявки"
                 )
+
+    # Снимок «до» для журнала действий (CRM-44) — снимаем ДО любых мутаций,
+    # чтобы в него попали и косвенные правки (пересчёт сумм по объёму).
+    _audit_before = _audit_snapshot(order)
 
     # Track if we need to set pending_driver_ack
     was_accepted = order.status == OrderStatus.ACCEPTED
@@ -1002,6 +1037,8 @@ async def update_order(
             changed_by_role=actor.role,
             comment="Заявка изменена",
         ))
+        # CRM-44: поимённо, по каждому изменившемуся полю
+        _audit_diff(db, order, actor, _audit_before)
 
     # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
     # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет
@@ -1015,6 +1052,44 @@ async def update_order(
     await attach_payment_totals_one(db, order)
     await attach_buyer_name_one(order)
     return order
+
+
+async def get_order_audit(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> list[dict]:
+    """CRM-44: журнал действий по заявке с ФИО и русскими формулировками.
+
+    Доступен только администратору: показывает внутренние правки поимённо.
+    """
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError("Журнал действий доступен только администратору")
+
+    # Проверяем существование заявки — 404 вместо пустого списка на чужой id
+    exists = await db.execute(select(Order.id).where(Order.id == order_id))
+    if exists.scalar_one_or_none() is None:
+        raise NotFoundError("Заявка не найдена")
+
+    entries = await order_audit.list_for_order(db, order_id)
+    names = await resolve_actor_names([e.actor_id for e in entries])
+    return [
+        {
+            "id": e.id,
+            "created_at": e.created_at,
+            "actor_id": e.actor_id,
+            "actor_role": e.actor_role,
+            "actor_name": names.get(str(e.actor_id)) if e.actor_id else None,
+            "action": e.action,
+            "field": e.field,
+            "old_value": e.old_value,
+            "new_value": e.new_value,
+            "message": order_audit.describe(
+                e, names.get(str(e.actor_id)) if e.actor_id else None
+            ),
+        }
+        for e in entries
+    ]
 
 
 async def claim_order(
@@ -1193,6 +1268,7 @@ async def reschedule_order(
     was_accepted = order.status == OrderStatus.ACCEPTED
     changed = False
     changed_keys: list[str] = []
+    _audit_before = _audit_snapshot(order)
 
     if data.desired_date is not None:
         order.desired_date = data.desired_date
@@ -1225,6 +1301,7 @@ async def reschedule_order(
         changed_by_role=actor.role,
         comment="Заявка перенесена",
     ))
+    _audit_diff(db, order, actor, _audit_before)
     await db.flush()
 
     # Уведомление водителю
@@ -1376,6 +1453,11 @@ async def transition_status(
         changed_by_role=actor.role,
         comment=data.comment,
     ))
+    # CRM-44: смена статуса в журнале действий («Сомов отметил заявку доставленной»)
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_STATUS,
+        old_value=prev_status, new_value=data.to_status,
+    )
     await db.flush()
 
     # Авто-генерация документов при доставке
@@ -1508,6 +1590,7 @@ async def hard_delete_order(
     """
     from app.models.document import Document
     from app.models.idempotency_key import IdempotencyKey
+    from app.models.order_audit_log import OrderAuditLog
     from app.models.payment import Payment
 
     if actor.role != ROLE_ADMIN:
@@ -1541,6 +1624,7 @@ async def hard_delete_order(
     await db.execute(sa_delete(Document).where(Document.order_id == order_id))
     await db.execute(sa_delete(Payment).where(Payment.order_id == order_id))
     await db.execute(sa_delete(OrderStatusLog).where(OrderStatusLog.order_id == order_id))
+    await db.execute(sa_delete(OrderAuditLog).where(OrderAuditLog.order_id == order_id))
     await db.execute(sa_delete(IdempotencyKey).where(IdempotencyKey.order_id == order_id))
     await db.execute(sa_delete(Order).where(Order.id == order_id))
     await db.commit()

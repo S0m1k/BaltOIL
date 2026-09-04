@@ -121,7 +121,8 @@ async def test_hard_delete_cascade_and_files(captured):
     res = await order_service.hard_delete_order(db, ORDER_ID, ADMIN)
 
     assert db.deleted_tables == [
-        "documents", "payments", "order_status_logs", "idempotency_keys", "orders",
+        "documents", "payments", "order_status_logs", "order_audit_logs",
+        "idempotency_keys", "orders",
     ]
     assert db.commits == 1
     assert captured.removed == [["documents/1/INV.pdf", "documents/1/TTN.pdf"]]

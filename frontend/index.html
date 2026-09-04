@@ -4806,6 +4806,7 @@ async function reloadOrdersKeepOpen(orderId) {
   await loadTimeline(orderId);
   const role = currentUser?.role;
   if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+  if (role === 'admin') loadOrderAudit(orderId);  // CRM-44: правка видна сразу в журнале
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -5075,6 +5076,10 @@ function orderCardHTML(o) {
         <div class="timeline-title">История статусов</div>
         <div class="loading"></div>
       </div>
+      ${currentUser?.role === 'admin' ? `<div class="timeline-section" id="audit-${o.id}">
+        <div class="timeline-title">История изменений</div>
+        <div class="loading"></div>
+      </div>` : ''}
       ${(isStaff || currentUser?.role === 'client') && o.order_kind !== 'individual' ? `<div class="timeline-section" id="docs-${o.id}">
         <div class="timeline-title">Документы</div>
         <div class="loading"></div>
@@ -5171,6 +5176,7 @@ async function toggleCard(orderId) {
     await loadTimeline(orderId);
     const role = currentUser?.role;
     if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+    if (role === 'admin') loadOrderAudit(orderId);  // CRM-44
   }
 }
 
@@ -5198,6 +5204,33 @@ async function loadTimeline(orderId) {
     el.innerHTML = `<div class="timeline-title">История статусов</div><div class="timeline">${items}</div>`;
   } catch (e) {
     el.innerHTML = `<div class="timeline-title">История статусов</div><div style="color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+  }
+}
+
+// CRM-44: журнал действий по заявке — кто создал, правил поля, отмечал оплату.
+// Виден только админу (бэкенд отдаёт 403 остальным), формулировки приходят
+// готовыми с сервера — там известны и метки полей, и ФИО.
+async function loadOrderAudit(orderId) {
+  const el = document.getElementById(`audit-${orderId}`);
+  if (!el) return;
+  const head = '<div class="timeline-title">История изменений</div>';
+  try {
+    const entries = await orderGet(`/orders/${orderId}/audit`);
+    if (!entries.length) {
+      el.innerHTML = head + '<div style="color:var(--text3);font-size:12px">Нет записей</div>';
+      return;
+    }
+    const items = entries.map(e => `
+      <div class="tl-item">
+        <div class="tl-time">${fmtDate(e.created_at)}</div>
+        <div class="tl-content">
+          <div class="tl-comment">${escHtml(e.message)}</div>
+        </div>
+        <div class="tl-role">${escHtml(e.actor_role || '')}</div>
+      </div>`).join('');
+    el.innerHTML = head + `<div class="timeline">${items}</div>`;
+  } catch (e) {
+    el.innerHTML = head + `<div style="color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
   }
 }
 

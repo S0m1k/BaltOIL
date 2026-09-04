@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 from app.models.order import Order, OrderStatus, OrderKind, PaymentType
 from app.models.order_status_log import OrderStatusLog
+from app.services import order_audit
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -224,6 +225,11 @@ async def cancel_payment(
         changed_by_role=actor.role,
         comment=f"платёж {float(payment.amount):.2f} ₽ отменён, оплата: {new_status}",
     ))
+    # CRM-44: отмена оплаты в журнале действий заявки
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_PAYMENT_CANCELLED,
+        old_value=payment.amount,
+    )
     await db.commit()
     await db.refresh(payment)
     return payment
@@ -465,6 +471,12 @@ async def record_payment(
             .values(payment_id=payment.id)
         )
     # ── End idempotency persist ────────────────────────────────────────────
+
+    # CRM-44: «кто отметил оплату» — в журнал действий заявки
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_PAYMENT,
+        field=method, new_value=amount,
+    )
 
     log.info("Payment recorded: order=%s amount=%s method=%s actor=%s", order_id, amount, method, actor.id)
     return payment

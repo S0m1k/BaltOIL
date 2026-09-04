@@ -12,6 +12,7 @@ from app.schemas.order import (
     RescheduleRequest, OrderResponse, OrderListResponse,
     PricePreviewRequest, PricePreviewResponse, ShipmentOverrideRequest,
 )
+from app.schemas.order_audit import OrderAuditLogResponse
 from app.services import order_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -103,6 +104,19 @@ async def get_order(
 ):
     order = await order_service.get_order(db, order_id, current_user)
     return _hide_internal(order, current_user, OrderResponse)
+
+
+@router.get("/{order_id}/audit", response_model=list[OrderAuditLogResponse])
+async def get_order_audit(
+    order_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """CRM-44: журнал действий по заявке — кто создал, менял поля, отмечал оплату.
+
+    Только администратор: журнал поимённый и содержит внутренние правки.
+    """
+    return await order_service.get_order_audit(db, order_id, current_user)
 
 
 @router.patch("/{order_id}", response_model=OrderResponse)

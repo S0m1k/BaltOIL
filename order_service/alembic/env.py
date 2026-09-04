@@ -11,6 +11,7 @@ from app.models import (  # noqa: F401
     Payment, PaymentStatus, PaymentMethod, PaymentKind,
     OrderKindCounter,
     FuelTypeCatalog,
+    OrderAuditLog,
 )
 from app.database import Base
 from app.config import get_settings
