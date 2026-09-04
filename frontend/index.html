@@ -5021,11 +5021,14 @@ function orderCardHTML(o) {
   // Нужна водителю-физику (сколько наличными собрать) и менеджеру (правка/скидка).
   const fuelCost    = o.expected_amount != null ? o.expected_amount - (o.delivery_cost || 0) : null;
   const rowClass    = _orderRowClass(o);
-  // Дата: желаемая — крупно (красная если просрочена), дата создания — мелко под ней
+  // Дата: желаемая — крупно (красная если просрочена), дата создания — мелко под ней.
+  // У доставленных крупной даты нет (CRM-49).
   const _today = new Date(); _today.setHours(0,0,0,0);
   const dateHtml = (() => {
     const createdSmall = `<div style="font-size:10px;color:var(--text3);margin-top:1px">${fmtDate(o.created_at)}</div>`;
-    if (o.desired_date) {
+    // CRM-49: в доставленных заявках крупная дата (зелёная/красная) не нужна —
+    // заявка уже закрыта, «просрочено» по ней ничего не значит. Мелкая дата создания остаётся.
+    if (o.desired_date && o.status !== 'delivered') {
       const d = new Date(o.desired_date); d.setHours(0,0,0,0);
       const overdue = d < _today;
       const dateStr = d.toLocaleDateString('ru-RU');
