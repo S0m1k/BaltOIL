@@ -16,6 +16,7 @@ from app.schemas.fuel_type import FuelTypeInfo
 from app.schemas.driver_report import DriverOrderInfo
 from app.services import fuel_type_service
 from app.services import driver_report_query
+from app.services.ttn_number import TtnKind
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,9 @@ async def internal_driver_delivered_orders(
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
     kind: OrderKind | None = Query(None, description="Вид заявки: individual|company|ttn_l"),
+    ttn_kind: TtnKind | None = Query(
+        None, description="Тип ТТН: company (Ю) | individual (Ф) | special (Л)"
+    ),
 ):
     """Заявки со статусом «Доставлена», подтверждённые этим водителем в периоде.
 
@@ -80,7 +84,8 @@ async def internal_driver_delivered_orders(
     Авторизацию актора выполняет delivery_service до вызова этого эндпоинта.
     """
     return await driver_report_query.list_driver_delivered_orders(
-        db, driver_id=driver_id, date_from=date_from, date_to=date_to, kind=kind,
+        db, driver_id=driver_id, date_from=date_from, date_to=date_to,
+        kind=kind, ttn_kind=ttn_kind,
     )
 
 

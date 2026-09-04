@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.order import Order, OrderKind, OrderStatus
 from app.models.order_status_log import OrderStatusLog
 from app.schemas.driver_report import DriverOrderInfo
+from app.services.ttn_number import TtnKind
 
 
 async def list_driver_delivered_orders(
@@ -22,6 +23,7 @@ async def list_driver_delivered_orders(
     date_from: datetime,
     date_to: datetime,
     kind: OrderKind | None = None,
+    ttn_kind: TtnKind | None = None,
 ) -> list[DriverOrderInfo]:
     log = OrderStatusLog
     stmt = (
@@ -38,6 +40,7 @@ async def list_driver_delivered_orders(
             log.created_at >= date_from,
             log.created_at <= date_to,
             *([Order.order_kind == kind] if kind else []),
+            *([Order.ttn_kind == ttn_kind.value] if ttn_kind else []),
         )
         .order_by(log.created_at.desc())
     )
@@ -61,6 +64,7 @@ async def list_driver_delivered_orders(
             order_number=order.order_number,
             order_kind=getattr(order.order_kind, "value", str(order.order_kind or "")),
             ttn_number=order.ttn_number,
+            ttn_kind=order.ttn_kind,
             fuel_type=order.fuel_type,
             volume_delivered=(
                 float(order.volume_delivered) if order.volume_delivered is not None else None

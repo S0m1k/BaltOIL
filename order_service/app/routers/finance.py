@@ -20,6 +20,7 @@ from app.models.payment import Payment, PaymentStatus
 from app.services.payment_service import get_paid_totals_map
 from app.services.buyer_info import attach_buyer_names
 from app.services.finance_export import finance_payments_xlsx
+from app.services.ttn_number import TtnKind
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -91,8 +92,17 @@ def _kind_conds(kind: OrderKind | None):
     return [Order.order_kind == kind] if kind else []
 
 
+def _ttn_kind_conds(ttn_kind: "TtnKind | None"):
+    """Фильтр по типу ТТН (Ю/Ф/Л) — CRM-42, для отчётов с колонкой ТТН."""
+    return [Order.ttn_kind == ttn_kind.value] if ttn_kind else []
+
+
 # Валидацию значения делает FastAPI по enum (невалидное → 422).
 KindQuery = Annotated[OrderKind | None, Query(description="Вид заявки: individual|company|ttn_l")]
+TtnKindQuery = Annotated[
+    TtnKind | None,
+    Query(description="Тип ТТН: company (Ю) | individual (Ф) | special (Л)"),
+]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -105,6 +115,7 @@ async def get_summary(
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
     kind: KindQuery = None,
+    ttn_kind: TtnKindQuery = None,
 ):
     """Сводка: кол-во заявок по статусу оплаты + суммы (ожидание / получено / долг)."""
     # Заявки в диапазоне дат (фильтр по created_at заявки)
@@ -116,6 +127,7 @@ async def get_summary(
     # Отклонённые/архивные заявки не учитываем в финансовых ожиданиях
     order_conds.extend(_active_order_conds())
     order_conds.extend(_kind_conds(kind))
+    order_conds.extend(_ttn_kind_conds(ttn_kind))
 
     orders_q = select(Order)
     if order_conds:
@@ -136,7 +148,7 @@ async def get_summary(
         by_type[key] = by_type.get(key, 0) + 1
 
     # Суммы платежей за период (фильтр по дате создания платежа)
-    pay_conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
+    pay_conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind) + _ttn_kind_conds(ttn_kind)
     paid_q = (
         select(func.coalesce(func.sum(Payment.amount), 0))
         .join(Order, Order.id == Payment.order_id)
@@ -193,11 +205,12 @@ async def list_payments(
     date_to:   datetime | None = Query(None),
     status: str | None = Query(None),
     kind: KindQuery = None,
+    ttn_kind: TtnKindQuery = None,
     offset: int = Query(0, ge=0),
     limit:  int = Query(100, ge=1, le=500),
 ):
     """Список платежей с фильтрацией — для таблицы на вкладке Финансы."""
-    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
+    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind) + _ttn_kind_conds(ttn_kind)
     if status:
         conds.append(Payment.status == status)
 
@@ -247,9 +260,10 @@ async def export_xlsx(
     date_from: datetime | None = Query(None),
     date_to:   datetime | None = Query(None),
     kind: KindQuery = None,
+    ttn_kind: TtnKindQuery = None,
 ):
     """Выгрузка платежей за период в Excel (.xlsx)."""
-    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind)
+    conds = _date_conditions(date_from, date_to) + _active_order_conds() + _kind_conds(kind) + _ttn_kind_conds(ttn_kind)
     q = (
         select(Payment, Order)
         .join(Order, Order.id == Payment.order_id)

@@ -14,6 +14,15 @@ class OrderKindFilter(str, Enum):
     TTN_L      = "ttn_l"
 
 
+class TtnKindFilter(str, Enum):
+    """Тип ТТН (CRM-42) — дублирует order_service TtnKind по той же причине,
+    что и OrderKindFilter: межсервисного импорта нет."""
+
+    COMPANY    = "company"      # Ю
+    INDIVIDUAL = "individual"   # Ф
+    SPECIAL    = "special"      # Л — зарезервирован, пока не выдаётся
+
+
 class DriverOrderItem(BaseModel):
     """Доставленная заявка в отчёте водителя."""
 
@@ -21,6 +30,7 @@ class DriverOrderItem(BaseModel):
     order_number: str
     order_kind: str = ""     # individual|company|ttn_l — секции отчёта
     ttn_number: str | None = None
+    ttn_kind: str | None = None   # company (Ю) | individual (Ф) | special (Л)
     fuel_type: str
     volume_delivered: float | None
     delivery_address: str

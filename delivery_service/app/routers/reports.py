@@ -9,7 +9,7 @@ import httpx
 from app.database import get_db
 from app.config import get_settings
 from app.core.dependencies import CurrentUser
-from app.schemas.report import DriverReportResponse, OrderKindFilter
+from app.schemas.report import DriverReportResponse, OrderKindFilter, TtnKindFilter
 from app.services import report_service
 from app.services.excel_service import driver_report_xlsx
 from app.services.fuel_catalog import get_fuel_labels
@@ -27,6 +27,9 @@ async def get_driver_report(
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
     kind: OrderKindFilter | None = Query(None, description="Вид заявки: individual|company|ttn_l"),
+    ttn_kind: TtnKindFilter | None = Query(
+        None, description="Тип ТТН: company (Ю) | individual (Ф) | special (Л)"
+    ),
 ):
     """
     Отчёт водителя за период: заявки, которые он доставил (список + литраж).
@@ -38,6 +41,7 @@ async def get_driver_report(
         date_from=date_from,
         date_to=date_to,
         kind=kind,
+        ttn_kind=ttn_kind,
     )
 
 
@@ -49,6 +53,9 @@ async def request_driver_report_xlsx(
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
     kind: OrderKindFilter | None = Query(None, description="Вид заявки: individual|company|ttn_l"),
+    ttn_kind: TtnKindFilter | None = Query(
+        None, description="Тип ТТН: company (Ю) | individual (Ф) | special (Л)"
+    ),
 ):
     """Сформировать XLSX-отчёт по доставленным заявкам и отправить уведомление со ссылкой."""
     rpt = await report_service.driver_report(
@@ -57,6 +64,7 @@ async def request_driver_report_xlsx(
         date_from=date_from,
         date_to=date_to,
         kind=kind,
+        ttn_kind=ttn_kind,
     )
 
     rpt_dict = rpt.model_dump(mode="json")

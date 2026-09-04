@@ -18,7 +18,8 @@ from app.core.status_machine import validate_transition
 from app.core.media import resolve_media_path
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest, PricePreviewRequest
-from app.services.order_number import generate_order_number, generate_ttn_number
+from app.services.order_number import generate_order_number
+from app.services.ttn_number import generate_ttn_number, resolve_ttn_kind
 from app.services.payment_service import (
     recompute_and_save,
     attach_payment_totals,
@@ -335,7 +336,8 @@ async def preview_price(
     fuel_subtotal = bd["fuel_subtotal"]
     unit_price_no_vat = None
     if fuel_subtotal is not None:
-        # Итог считаем от цены за литр без НДС — той же функцией, что и счёт (CRM-27)
+        # Итог считаем от округлённой цены за литр с доставкой — той же
+        # функцией, что и счёт (CRM-27)
         vat_rate = await get_seller_vat_rate(db)
         total = order_total(fuel_subtotal, delivery_cost, data.volume, vat_rate)
         breakdown = price_first_breakdown(total, data.volume, vat_rate)
@@ -1283,12 +1285,16 @@ async def transition_status(
         if actor.role == ROLE_DRIVER:
             if not order.driver_id or order.driver_id != actor.id:
                 raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
-        # Номер ТТН присваивается автоматически (сквозная нумерация ТТН-{год}-{N}).
-        # Ручной ввод сохранён для обратной совместимости (ttn_l / ручная коррекция).
+        # Номер ТТН присваивается автоматически: у каждого типа контрагента
+        # свой счётчик с годовым сбросом — ТТН-{год}-Ю{N} / ТТН-{год}-Ф{N}
+        # (CRM-42). Ручной ввод сохранён для обратной совместимости
+        # (ttn_l / ручная коррекция); тип всё равно фиксируем для отчётов.
+        ttn_kind = resolve_ttn_kind(order.order_kind)
         ttn = (data.ttn_number or "").strip()
         if not ttn:
-            ttn = await generate_ttn_number(db)
+            ttn = await generate_ttn_number(db, ttn_kind)
         order.ttn_number = ttn
+        order.ttn_kind = ttn_kind.value
 
         # Фиксируем доставленный объём: фактический из формы водителя
         # («сколько отгрузил», правки 2026-06-11) или заказанный по умолчанию.

@@ -12,5 +12,7 @@ class OrderKindCounter(Base):
     """
     __tablename__ = "order_kind_counters"
 
-    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # 40 символов: помимо видов заявок здесь живут ключи счётчиков ТТН
+    # вида 'ttn-2026-individual' (см. app/services/ttn_number.py).
+    kind: Mapped[str] = mapped_column(String(40), primary_key=True)
     last_seq: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

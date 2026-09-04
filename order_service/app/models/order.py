@@ -67,6 +67,11 @@ class Order(Base):
     # Номер ТТН — обязателен при переходе ACCEPTED→DELIVERED
     ttn_number: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Тип ТТН (CRM-42): company (Ю) / individual (Ф) / special (Л).
+    # Хранится отдельно от номера, чтобы отчёты фильтровались по индексу,
+    # а не разбором строки — исторические номера префикса не имеют.
+    ttn_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+
     # Флаг подтверждения изменений водителем (выставляется при edit/reschedule ACCEPTED-заявки)
     pending_driver_ack: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Какие поля изменены с момента последнего подтверждения водителем
