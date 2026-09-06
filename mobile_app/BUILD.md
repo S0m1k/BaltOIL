@@ -24,19 +24,29 @@ flutter pub get
 
 ### 2. Build the release APK
 ```
-flutter build apk --release \
-  --dart-define=API_HOST=<PROD_HOST> \
-  --dart-define=ALLOW_BAD_CERTS=false
+flutter build apk --release
 ```
 
-Replace `<PROD_HOST>` with the production hostname or IP (e.g. `baltoil.example.ru`).
-Do **not** include a scheme or port — the app appends them automatically:
-- Auth:          `https://<PROD_HOST>:8001/api/v1`
-- Orders:        `https://<PROD_HOST>:8002/api/v1`
-- Notifications: `https://<PROD_HOST>:8005/api/v1`
+**No `--dart-define` is required.** The defaults in `lib/core/app_config.dart`
+already point at production (`crm.9171517.ru`) through the single TLS gateway
+on port **443**, mirroring the web frontend:
 
-`ALLOW_BAD_CERTS=false` is the default and can be omitted. Pass `true` only if
-the prod TLS proxy uses a self-signed certificate (local dev stand only).
+| Service       | Base URL                                        |
+|---------------|-------------------------------------------------|
+| Auth          | `https://crm.9171517.ru/api/auth/api/v1`         |
+| Orders        | `https://crm.9171517.ru/api/order/api/v1`        |
+| Delivery      | `https://crm.9171517.ru/api/delivery/api/v1`     |
+| Chat (+ WS)   | `https://crm.9171517.ru/api/chat` / `wss://…`    |
+| Notifications | `https://crm.9171517.ru/api/notif/api/v1`        |
+| Calls         | `https://crm.9171517.ru/api/call`                |
+
+> **Do not build against ports 8001–8006.** They are open on the server, but
+> many ISPs and mobile carriers drop non-standard ports, so the app times out on
+> a real phone. That was the cause of the "app does not connect" report on
+> 1.1.1+3. Port 443 always gets through and carries a valid Let's Encrypt cert.
+
+To point at a different host (staging), pass `--dart-define=API_HOST=<host>` —
+the gateway path prefixes stay the same.
 
 ### 3. Find the APK
 ```
@@ -55,12 +65,18 @@ Or copy the APK to the device and open it in the Files app.
 
 ## Signing
 
-`build.gradle.kts` currently uses the debug signing key for release builds
-(`signingConfig = signingConfigs.getByName("debug")`). This is intentional for
-internal testing — it lets `flutter build apk --release` work without a keystore.
-The APK **cannot be published to Google Play** with the debug key. For Play Store
-distribution, add a proper signing config to `android/app/build.gradle.kts` and
-protect the keystore outside version control.
+Release builds are signed with the real keystore. `android/key.properties` is
+gitignored and must exist on the build machine:
+
+```properties
+storePassword=<see D:/BaltOIL/_keys/sztk-release-keystore-password.txt>
+keyPassword=<same>
+keyAlias=sztk
+storeFile=D:/BaltOIL/_keys/sztk-release.jks
+```
+
+Without `key.properties` the release build falls back to the debug key — such an
+APK will **not** install over an existing release install on users' devices.
 
 ---
 
@@ -108,9 +124,13 @@ See `DEV_SETUP.md` in the repo root for seed credentials (admin, manager, driver
 
 ## Local emulator (Android Studio)
 
-For local development against a backend running on the host machine:
+For local development against a backend running on the host machine, switch to
+direct service ports (no nginx gateway on a bare local stand):
 ```
-flutter run --dart-define=API_HOST=10.0.2.2 --dart-define=ALLOW_BAD_CERTS=true
+flutter run \
+  --dart-define=API_HOST=10.0.2.2 \
+  --dart-define=API_DIRECT_PORTS=true \
+  --dart-define=ALLOW_BAD_CERTS=true
 ```
 `10.0.2.2` is the Android emulator's loopback alias for the host. Physical devices
 must use the host's actual LAN IP or the prod hostname.
