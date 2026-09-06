@@ -69,6 +69,10 @@ setTimeout(function () {
     --red:   #ef4444;
     --green: #10b981;
 
+    /* Ссылки в тексте сообщений чата: темнее акцента — читаемо и на своих
+       (--amber-dim), и на чужих (--bg3) пузырях */
+    --msg-link: #0369a1;
+
     --s-new:      #3b82f6;
     --s-progress: #d97706;
     --s-transit:  #7c3aed;
@@ -103,6 +107,8 @@ setTimeout(function () {
 
     --red:   #f87171;
     --green: #34d399;
+
+    --msg-link: #7dd3fc;
 
     --grid-line: rgba(56,189,248,.04);
   }
@@ -1093,6 +1099,17 @@ setTimeout(function () {
      иначе многострочный текст (списки карт, реквизиты) схлопывался в абзац. */
   .msg-text { font-size: 13px; color: var(--text2); word-break: break-word; line-height: 1.5; white-space: pre-wrap; }
   .msg-row.mine .msg-text { color: var(--text); }
+  /* Кликабельные ссылки и телефоны в тексте сообщений (2026-09-06) */
+  .msg-text a.msg-link, .msg-reply-quote a.msg-link {
+    color: var(--msg-link); text-decoration: underline; text-underline-offset: 2px;
+    text-decoration-thickness: 1px; overflow-wrap: anywhere; cursor: pointer;
+  }
+  .msg-text a.msg-link:hover, .msg-reply-quote a.msg-link:hover {
+    color: var(--amber); text-decoration-thickness: 2px;
+  }
+  .msg-text a.msg-link:focus-visible, .msg-reply-quote a.msg-link:focus-visible {
+    outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 2px;
+  }
   .msg-time { font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 10px; color: var(--text3); margin-top: 4px; }
   /* ── System messages (call events) ── */
   .msg-row.msg-system { max-width: 100%; justify-content: center; }
@@ -9316,14 +9333,15 @@ function msgHTML(m) {
         </button>
       </div>`;
   } else {
-    bodyHtml = `<div class="msg-text">${escHtml(m.text)}</div>`;
+    // linkifyMessageText сам экранирует всё, что отдаёт (см. комментарий у функции)
+    bodyHtml = `<div class="msg-text">${linkifyMessageText(m.text)}</div>`;
   }
 
   // F7: цитата сообщения, на которое отвечаем (если есть)
   const replyQuoteHtml = m.reply_preview
     ? `<div class="msg-reply-quote" onclick="scrollToMessage('${escHtml(m.reply_preview.id)}')">
          <span class="rq-name">${escHtml(m.reply_preview.sender_name || '')}</span>
-         <span class="rq-text">${escHtml(m.reply_preview.text || '')}</span>
+         <span class="rq-text">${linkifyMessageText(m.reply_preview.text || '')}</span>
        </div>`
     : '';
 
@@ -9395,6 +9413,86 @@ function toggleMsgActions(ev, msgId) {
   const wasOpen = row.classList.contains('actions-open');
   document.querySelectorAll('.msg-row.actions-open').forEach(r => r.classList.remove('actions-open'));
   if (!wasOpen) row.classList.add('actions-open');
+}
+
+// ── Линкификация текста сообщений чата (2026-09-06) ──────────────
+// Делает ссылки и телефоны РФ кликабельными в один клик.
+//
+// БЕЗОПАСНОСТЬ: функция сама разбивает СЫРОЙ текст на куски и прогоняет
+// КАЖДЫЙ кусок (и обычный текст, и подпись ссылки, и значение href) через
+// escHtml. В результат не попадает ни одного неэкранированного байта
+// исходной строки, поэтому <script>, кавычки и прочее остаются текстом.
+// Регулярка распознаёт только http/https и голый www. — схему javascript:
+// она физически не может сматчить, а href для www. собирается как
+// 'https://' + текст, т.е. схему подделать нельзя.
+//
+// Первая ветка — URL, вторая — телефон РФ (+7/8/7 и 10 цифр с любыми
+// пробелами/скобками/дефисами). 10-значные номера без кода намеренно не
+// трогаем: слишком много ложных срабатываний на суммах и номерах заявок.
+const MSG_LINK_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:\+7|8|7)[ \u00A0.\-]?\(?\d{3}\)?[ \u00A0.\-]?\d{3}[ \u00A0.\-]?\d{2}[ \u00A0.\-]?\d{2}/gi;
+
+// Хвостовая пунктуация не должна попадать в ссылку: «см. http://a.ru/x.»
+function trimUrlTail(url) {
+  let u = url;
+  while (u.length && '.,;:!?»…'.includes(u[u.length - 1])) u = u.slice(0, -1);
+  // Закрывающая скобка — только если в ссылке есть парная открывающая
+  while (u.endsWith(')') && !u.includes('(')) u = u.slice(0, -1);
+  return u;
+}
+
+// '+7 (921) 917-15-17' / '89219171517' → '+79219171517'
+function normalizeRuPhone(raw) {
+  const d = raw.replace(/\D/g, '');
+  if (d.length !== 11) return null;
+  if (d[0] !== '7' && d[0] !== '8') return null;
+  return '+7' + d.slice(1);
+}
+
+function linkAnchor(href, label, isExternal) {
+  // event.stopPropagation() — чтобы клик по ссылке не разворачивал панель
+  // действий сообщения и не прыгал по цитате (toggleMsgActions/scrollToMessage)
+  const tgt = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
+  return '<a class="msg-link" href="' + escHtml(href) + '"' + tgt
+       + ' onclick="event.stopPropagation()">' + escHtml(label) + '</a>';
+}
+
+function linkifyMessageText(text) {
+  if (text == null) return '';
+  const src = String(text);
+  let out = '';
+  let pos = 0;
+  MSG_LINK_RE.lastIndex = 0;
+  let m;
+  while ((m = MSG_LINK_RE.exec(src)) !== null) {
+    const token = m[0];
+    const start = m.index;
+    const end = start + token.length;
+    const isUrl = /^(?:https?:\/\/|www\.)/i.test(token);
+
+    let html = null;
+    if (isUrl) {
+      const url = trimUrlTail(token);
+      const isBare = /^www\./i.test(url);
+      // После обрезки хвоста должно остаться хоть что-то кроме схемы
+      const rest = url.replace(/^(?:https?:\/\/|www\.)/i, '');
+      if (rest.length > 0) {
+        const href = isBare ? 'https://' + url : url;
+        html = linkAnchor(href, url, true) + escHtml(token.slice(url.length));
+      }
+    } else {
+      // Телефон: не должен быть куском более длинного числа
+      const before = start > 0 ? src[start - 1] : '';
+      const after = end < src.length ? src[end] : '';
+      const tel = (/\d/.test(before) || /\d/.test(after)) ? null : normalizeRuPhone(token);
+      if (tel) html = linkAnchor('tel:' + tel, token, false);
+    }
+
+    out += escHtml(src.slice(pos, start));
+    out += (html !== null) ? html : escHtml(token);
+    pos = end;
+  }
+  out += escHtml(src.slice(pos));
+  return out;
 }
 
 function escHtml(str) {
