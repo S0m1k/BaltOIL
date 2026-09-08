@@ -8,6 +8,9 @@ import '../common/copyable_phone.dart';
 import '../organizations/organizations_repository.dart';
 import 'delivery_dialog.dart';
 import 'order_create_screen.dart';
+import '../transport/transport_delivery_dialog.dart';
+import '../transport/transport_models.dart';
+import '../transport/transport_repository.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -88,10 +91,17 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       widget.user.role == 'manager' || widget.user.role == 'admin';
   bool get _isClient => widget.user.role == 'client';
 
+  /// Детали перевозки (ТЗ 09.2026) — грузятся только для order_kind=transport.
+  /// Блок 2 бэкенд отдаёт лишь staff, у водителя финансы приходят пустыми.
+  TransportDetail? _transport;
+
   // Документы видны staff и клиенту, но только для НЕ-физлиц (веб 4662):
   // order_kind != 'individual'. Загружаются после получения детали.
   bool _docsAllowed(OrderDetail o) =>
-      (_isStaff || _isClient) && o.orderKind != 'individual';
+      (_isStaff || _isClient) &&
+      o.orderKind != 'individual' &&
+      // У перевозки счетов и накладных нет — блок документов пуст (ТЗ 09.2026).
+      !o.isTransport;
 
   @override
   void initState() {
@@ -121,12 +131,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // Документы грузим после детали — их видимость зависит от order_kind.
     f
         .then((order) {
-          if (mounted && _docsAllowed(order)) {
+          if (!mounted) return;
+          if (_docsAllowed(order)) {
             setState(() {
               _docsFuture = OrdersRepository.instance.listDocuments(
                 widget.orderId,
               );
             });
+          }
+          // Перевозка: маршрут, количество и дата приходят отдельным запросом.
+          if (order.isTransport) {
+            TransportRepository.instance
+                .getDetail(widget.orderId)
+                .then((d) {
+                  if (mounted) setState(() => _transport = d);
+                })
+                .catchError((_) {});
           }
         })
         .catchError((_) {});
@@ -585,6 +605,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// оплаты. Отправку делает сам диалог.
   Future<void> _driverDeliver(OrderDetail order) async {
     if (_busy) return;
+    // Перевозка (ТЗ 09.2026): своё окно — маршрут и дата вместо литров и денег.
+    if (order.isTransport) return _driverDeliverTransport(order);
     setState(() => _busy = true);
     DeliveryResult? res;
     try {
@@ -607,6 +629,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _snack(res.paymentRecorded
         ? 'Доставлена, оплата зафиксирована'
         : 'Статус изменён → Доставлена');
+    _reload();
+  }
+
+  /// Перевозка: подтверждение маршрута и даты (ТЗ 09.2026, п. 3).
+  Future<void> _driverDeliverTransport(OrderDetail order) async {
+    setState(() => _busy = true);
+    Order? res;
+    try {
+      res = await showTransportDeliveryDialog(
+        context,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted || res == null) return;
+    _snack('Перевозка отмечена доставленной');
     _reload();
   }
 
@@ -678,8 +718,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             const SizedBox(height: 12),
             _buildCommentAckBlock(context, order, c),
           ],
-          const SizedBox(height: 12),
-          _buildPaymentSummary(context, order, c),
+          // Перевозка: маршрут и служебный блок вместо оплаты (ТЗ 09.2026).
+          if (order.isTransport) ...[
+            const SizedBox(height: 12),
+            _buildTransportBlock(context, order, c),
+          ] else ...[
+            const SizedBox(height: 12),
+            _buildPaymentSummary(context, order, c),
+          ],
           // Блок «Отгрузка» для staff (правки 2026-07-25).
           if (_isStaff) ...[
             const SizedBox(height: 12),
@@ -945,6 +991,90 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: rows.map((r) => _DetailsGridRow(row: r, colors: c)).toList(),
       ),
+    );
+  }
+
+  // ── Перевозка (ТЗ 09.2026) ────────────────────────────────────────────────
+
+  /// Маршрут, количество и дата перевозки. Служебный блок («куплено» /
+  /// «оплаты») показываем только staff — водителю бэкенд его не отдаёт.
+  Widget _buildTransportBlock(
+    BuildContext context,
+    OrderDetail order,
+    AppColors c,
+  ) {
+    final d = _transport;
+    if (d == null) {
+      return _Section(
+        title: 'Перевозка',
+        colors: c,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    String money(double? v) => v == null ? '—' : '$v ₽';
+    final rows = <_DetailRow>[
+      _DetailRow(label: 'Тип', text: TransportType.label(d.transportType)),
+      // Маршрут бэкенд кладёт в адрес доставки как «А → Б», поэтому названия
+      // точек видны и без доступа к справочникам.
+      _DetailRow(label: 'Маршрут', text: order.deliveryAddress),
+      if (d.amountKg != null) _DetailRow(label: 'Количество, кг', text: '${d.amountKg}'),
+      if (d.amountL != null) _DetailRow(label: 'Количество, л', text: '${d.amountL}'),
+      _DetailRow(label: 'Дата', text: d.desiredDateText ?? '—'),
+    ];
+
+    final financeRows = <_DetailRow>[
+      if (d.pricePerKg != null) _DetailRow(label: 'Цена, ₽/кг', text: '${d.pricePerKg}'),
+      if (d.pricePerL != null) _DetailRow(label: 'Цена, ₽/л', text: '${d.pricePerL}'),
+      if (d.density != null) _DetailRow(label: 'Плотность', text: '${d.density}'),
+      if (d.totalAmount != null) _DetailRow(label: 'Итого', text: money(d.totalAmount)),
+      for (var i = 0; i < d.supplierPayments.length; i++)
+        _DetailRow(
+          label: 'Поставщику ${i + 1}',
+          text: '${money(d.supplierPayments[i].amount)}'
+              '${d.supplierPayments[i].date != null ? ' от ${d.supplierPayments[i].date}' : ''}',
+        ),
+      if (d.deliveryPrice != null)
+        _DetailRow(label: 'Стоимость доставки', text: money(d.deliveryPrice)),
+      if (d.deliveryPrice != null)
+        _DetailRow(label: 'Оплата получена', text: d.deliveryPaid ? 'да' : 'нет'),
+      if (d.driverPaymentAmount != null)
+        _DetailRow(label: 'Водителю', text: money(d.driverPaymentAmount)),
+    ];
+
+    return Column(
+      children: [
+        _Section(
+          title: 'Перевозка',
+          colors: c,
+          child: Column(
+            children: [
+              for (final r in rows) _DetailsGridRow(row: r, colors: c),
+            ],
+          ),
+        ),
+        if (_isStaff && financeRows.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _Section(
+            title: 'Финансы перевозки',
+            colors: c,
+            child: Column(
+              children: [
+                for (final r in financeRows) _DetailsGridRow(row: r, colors: c),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 

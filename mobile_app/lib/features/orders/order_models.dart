@@ -25,7 +25,7 @@ class Order {
 
   final String id;
   final String orderNumber;
-  final String orderKind; // individual | company | ttn_l
+  final String orderKind; // individual | company | ttn_l | transport
   final String fuelType;
   final double volumeRequested;
   final String deliveryAddress;
@@ -54,6 +54,10 @@ class Order {
   final DateTime? driverCommentAckAt;
 
   bool get isIndividual => orderKind == 'individual';
+
+  /// Заявка на перевозку (ТЗ 09.2026): счетов и оплаты у неё нет,
+  /// вместо них маршрут и служебный блок, а «доставлено» — своё окно.
+  bool get isTransport => orderKind == 'transport';
 
   /// Есть непустой комментарий, который водитель ещё не подтвердил
   /// (правки 2026-07-25) — оранжевый «!» в списке и янтарный блок в детали.

@@ -7,6 +7,7 @@ import '../auth/auth_repository.dart';
 import '../tariffs/base_tariffs_sheet.dart';
 import 'delivery_dialog.dart';
 import 'order_detail_screen.dart';
+import '../transport/transport_delivery_dialog.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -150,6 +151,9 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
   /// диалог; здесь остаются только снекбар и перезагрузка списка.
   Future<void> _deliver(Order order) async {
     if (_busy) return;
+    // Перевозка (ТЗ 09.2026): своё окно — подтверждение маршрута и даты,
+    // без литров, ёмкостей и денег.
+    if (order.isTransport) return _deliverTransport(order);
     setState(() => _busy = true);
     DeliveryResult? res;
     try {
@@ -172,6 +176,24 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
     _snack(res.paymentRecorded
         ? 'Доставлена, оплата зафиксирована'
         : 'Статус изменён → Доставлена');
+    _reload();
+  }
+
+  /// Перевозка: маршрут и дата обязательны и правятся в окне (ТЗ 09.2026).
+  Future<void> _deliverTransport(Order order) async {
+    setState(() => _busy = true);
+    Order? res;
+    try {
+      res = await showTransportDeliveryDialog(
+        context,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted || res == null) return;
+    _snack('Перевозка отмечена доставленной');
     _reload();
   }
 
