@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 from app.models.order import Order, OrderStatus, OrderKind, PaymentType
 from app.models.order_status_log import OrderStatusLog
+from app.services import order_audit
 from app.models.payment import Payment, PaymentStatus, PaymentKind, PaymentMethod
 from app.models.legal_entity import LegalEntity
 from app.core.dependencies import TokenUser
@@ -22,6 +23,14 @@ from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 ROLE_ADMIN = "admin"
 ROLE_MANAGER = "manager"
 ROLE_DRIVER = "driver"
+
+# Кредитные типы оплаты: топливо отгружается до поступления денег
+# (в долг, товарный кредит, постоплата) — правки 2026-09-02.
+_CREDIT_PAYMENT_TYPES = frozenset({
+    PaymentType.DEBT,
+    PaymentType.TRADE_CREDIT,
+    PaymentType.POSTPAID,
+})
 
 
 async def get_seller_snapshot(db: AsyncSession) -> dict:
@@ -138,12 +147,18 @@ def compute_shipment_allowed(order: Order, paid_total: float) -> bool:
     Приоритет: ручное перекрытие админа (shipment_override), затем автоматика:
     «в долг» — разрешена; оплата при получении (физики) — разрешена;
     предоплата — разрешена только когда заявка фактически оплачена.
+
+    Кредитные типы оплаты (правки 2026-09-02): смысл «в долг»/«отсрочка» в том,
+    что топливо едет ДО денег — держать такую заявку в «ждём оплату» бессмысленно,
+    флаг allow_delivery_unpaid для них не требуется.
     """
     if order.shipment_override == "allow":
         return True
     if order.shipment_override == "hold":
         return False
     if order.allow_delivery_unpaid:
+        return True
+    if order.payment_type in _CREDIT_PAYMENT_TYPES:
         return True
     if order.payment_type == PaymentType.ON_DELIVERY:
         return True
@@ -210,6 +225,11 @@ async def cancel_payment(
         changed_by_role=actor.role,
         comment=f"платёж {float(payment.amount):.2f} ₽ отменён, оплата: {new_status}",
     ))
+    # CRM-44: отмена оплаты в журнале действий заявки
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_PAYMENT_CANCELLED,
+        old_value=payment.amount,
+    )
     await db.commit()
     await db.refresh(payment)
     return payment
@@ -451,6 +471,12 @@ async def record_payment(
             .values(payment_id=payment.id)
         )
     # ── End idempotency persist ────────────────────────────────────────────
+
+    # CRM-44: «кто отметил оплату» — в журнал действий заявки
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_PAYMENT,
+        field=method, new_value=amount,
+    )
 
     log.info("Payment recorded: order=%s amount=%s method=%s actor=%s", order_id, amount, method, actor.id)
     return payment

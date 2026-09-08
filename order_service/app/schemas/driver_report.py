@@ -8,6 +8,9 @@ class DriverOrderInfo(BaseModel):
 
     order_id: uuid.UUID
     order_number: str
+    order_kind: str      # вид заявки: individual|company|ttn_l — секции отчёта
+    ttn_number: str | None = None
+    ttn_kind: str | None = None  # тип ТТН: company (Ю) | individual (Ф) | special (Л)
     fuel_type: str
     volume_delivered: float | None
     delivery_address: str

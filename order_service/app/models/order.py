@@ -23,6 +23,7 @@ class OrderKind(str, enum.Enum):
     INDIVIDUAL = "individual"  # Физическое лицо
     COMPANY = "company"        # Юридическое лицо
     TTN_L = "ttn_l"            # Внутренняя ТТН-Л (только менеджер)
+    TRANSPORT = "transport"    # Заявка на перевозку (ТЗ 09.2026, только staff)
 
 
 class PaymentType(str, enum.Enum):
@@ -67,6 +68,11 @@ class Order(Base):
     # Номер ТТН — обязателен при переходе ACCEPTED→DELIVERED
     ttn_number: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Тип ТТН (CRM-42): company (Ю) / individual (Ф) / special (Л).
+    # Хранится отдельно от номера, чтобы отчёты фильтровались по индексу,
+    # а не разбором строки — исторические номера префикса не имеют.
+    ttn_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+
     # Флаг подтверждения изменений водителем (выставляется при edit/reschedule ACCEPTED-заявки)
     pending_driver_ack: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Какие поля изменены с момента последнего подтверждения водителем
@@ -109,6 +115,12 @@ class Order(Base):
     delivery_zone_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Стоимость доставки, заложенная в expected_amount (NULL = уточняется менеджером)
     delivery_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Доставка задана вручную (staff при создании или карандашиком в карточке).
+    # Пересчёт при смене объёма/топлива такую доставку НЕ перетирает зональной
+    # (правки 2026-08-24) — иначе ручная цена админа молча терялась.
+    delivery_cost_is_manual: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Комментарии
     client_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -161,4 +173,9 @@ class Order(Base):
         "Document", back_populates="order",
         order_by="Document.created_at",
         cascade="all, delete-orphan",
+    )
+    # Детали перевозки (order_kind='transport'); у остальных заявок — None.
+    transport: Mapped["TransportDetail | None"] = relationship(
+        "TransportDetail", uselist=False, cascade="all, delete-orphan",
+        primaryjoin="Order.id == TransportDetail.order_id",
     )

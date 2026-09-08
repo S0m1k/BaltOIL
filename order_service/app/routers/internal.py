@@ -5,14 +5,18 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.order import Order, OrderKind
 from app.config import get_settings
 from app.schemas.fuel_type import FuelTypeInfo
 from app.schemas.driver_report import DriverOrderInfo
 from app.services import fuel_type_service
 from app.services import driver_report_query
+from app.services.ttn_number import TtnKind
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +73,10 @@ async def internal_driver_delivered_orders(
     driver_id: uuid.UUID = Query(..., description="UUID водителя"),
     date_from: datetime = Query(..., description="Начало периода (ISO 8601)"),
     date_to: datetime = Query(..., description="Конец периода (ISO 8601)"),
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual|company|ttn_l"),
+    ttn_kind: TtnKind | None = Query(
+        None, description="Тип ТТН: company (Ю) | individual (Ф) | special (Л)"
+    ),
 ):
     """Заявки со статусом «Доставлена», подтверждённые этим водителем в периоде.
 
@@ -77,4 +85,37 @@ async def internal_driver_delivered_orders(
     """
     return await driver_report_query.list_driver_delivered_orders(
         db, driver_id=driver_id, date_from=date_from, date_to=date_to,
+        kind=kind, ttn_kind=ttn_kind,
     )
+
+
+# ── Номера ТТН батчем (складской отчёт delivery_service) ──────────────────────
+
+MAX_TTN_LOOKUP = 10_000
+
+
+class TtnLookupRequest(BaseModel):
+    order_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_TTN_LOOKUP)
+
+
+class TtnLookupItem(BaseModel):
+    order_id: uuid.UUID
+    ttn_number: str | None = None
+
+
+@router.post(
+    "/orders/ttn-numbers",
+    response_model=list[TtnLookupItem],
+    summary="Номера ТТН по списку заявок (батч, для складского отчёта)",
+)
+async def internal_ttn_numbers(
+    _: InternalDep,
+    payload: TtnLookupRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Один запрос на весь отчёт — вместо N обращений по каждой операции."""
+    if not payload.order_ids:
+        return []
+    stmt = select(Order.id, Order.ttn_number).where(Order.id.in_(payload.order_ids))
+    rows = (await db.execute(stmt)).all()
+    return [TtnLookupItem(order_id=oid, ttn_number=ttn) for oid, ttn in rows]

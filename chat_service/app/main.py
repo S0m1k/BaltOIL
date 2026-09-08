@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from fastapi import FastAPI
@@ -7,6 +8,7 @@ from app.config import settings
 from app.database import engine, Base
 from app.models import conversation, message  # noqa: F401 — register models
 from app.routers import conversations, websocket as ws_router, internal as internal_router
+from app.services.redis_subscriber import order_events_subscriber_task
 
 _DEFAULT_JWT_SECRET = "change-me-to-a-very-long-random-secret"
 _DEFAULT_INTERNAL_SECRET = "baltoil-internal-secret-2026"
@@ -46,9 +48,12 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await ensure_staff_groups(db)
 
+    events_task = asyncio.create_task(order_events_subscriber_task())
+
     try:
         yield
     finally:
+        events_task.cancel()
         await app.state.redis.aclose()
 
 

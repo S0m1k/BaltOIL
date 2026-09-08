@@ -427,6 +427,109 @@ async def set_private_group_members(
     return conv
 
 
+def check_group_manage_access(conv: Conversation, actor: TokenUser) -> None:
+    """Право управлять составом приватной группы (CRM-47).
+
+    Разрешено администратору и создателю чата (если он сотрудник). Остальным —
+    403, включая менеджеров-участников: состав группы вроде «СЗТК» меняет
+    только тот, кто за неё отвечает.
+    """
+    if actor.role == "admin":
+        return
+    if actor.role in MANAGER_ROLES and actor.id == conv.created_by_id:
+        return
+    raise ForbiddenError("Управлять участниками может администратор или создатель чата")
+
+
+async def _load_manageable_group(
+    db: AsyncSession, conv_id: uuid.UUID, actor: TokenUser
+) -> Conversation:
+    """Загрузить приватную группу и проверить право менять её состав."""
+    res = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.participants))
+        .where(Conversation.id == conv_id, Conversation.is_archived == False)  # noqa: E712
+    )
+    conv = res.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError("Диалог не найден")
+    if conv.kind != ConversationKind.STAFF_GROUP:
+        raise ForbiddenError("Управление участниками доступно только в групповых чатах")
+    if not _is_private_group(conv):
+        # work/accounting — членство ролевое, вычисляется на лету (см. get_conversation_members).
+        raise ForbiddenError("Состав этой группы определяется ролями сотрудников")
+    check_group_manage_access(conv, actor)
+    return conv
+
+
+async def add_group_member(
+    db: AsyncSession,
+    actor: TokenUser,
+    conv_id: uuid.UUID,
+    user_id: uuid.UUID,
+    redis: aioredis.Redis | None = None,
+) -> Conversation:
+    """Добавить участника в приватный групповой чат (CRM-47). Идемпотентно.
+
+    Новый участник видит историю целиком — как и при создании группы
+    (сообщения не привязаны к членству, last_read_at=None ⇒ всё непрочитано).
+    """
+    conv = await _load_manageable_group(db, conv_id, actor)
+    if user_id in {p.user_id for p in conv.participants}:
+        return conv  # уже в чате — молча возвращаем текущее состояние
+
+    contact = await auth_client.get_contact(user_id)
+    if not contact:
+        raise NotFoundError("Пользователь не найден")
+
+    db.add(ConversationParticipant(
+        conversation_id=conv.id,
+        user_id=user_id,
+        user_role=contact.get("role") or "manager",
+        last_read_at=None,
+    ))
+    await db.flush()
+
+    if redis is not None:
+        name = contact.get("full_name") or "Участник"
+        await _post_system_message_raw(db, conv.id, f"{name} добавлен(а) в чат", redis)
+    await db.commit()
+    await db.refresh(conv, ["participants"])
+    return conv
+
+
+async def remove_group_member(
+    db: AsyncSession,
+    actor: TokenUser,
+    conv_id: uuid.UUID,
+    user_id: uuid.UUID,
+    redis: aioredis.Redis | None = None,
+) -> Conversation:
+    """Удалить участника из приватного группового чата (CRM-47).
+
+    Удалённый теряет доступ: членство приватной группы = ConversationParticipant
+    (см. _check_access / list_conversations). Создателя удалить нельзя — иначе
+    группа осталась бы без владельца.
+    """
+    conv = await _load_manageable_group(db, conv_id, actor)
+    if user_id == conv.created_by_id:
+        raise ForbiddenError("Нельзя удалить создателя чата")
+
+    part = next((p for p in conv.participants if p.user_id == user_id), None)
+    if not part:
+        raise NotFoundError("Участник не найден в этом чате")
+    await db.delete(part)
+    await db.flush()
+
+    if redis is not None:
+        contact = await auth_client.get_contact(user_id)
+        name = (contact or {}).get("full_name") or "Участник"
+        await _post_system_message_raw(db, conv.id, f"{name} удалён(а) из чата", redis)
+    await db.commit()
+    await db.refresh(conv, ["participants"])
+    return conv
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────

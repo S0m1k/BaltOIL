@@ -1,6 +1,26 @@
 import uuid
 from datetime import datetime
+from enum import Enum
+
 from pydantic import BaseModel
+
+
+class OrderKindFilter(str, Enum):
+    """Вид заявки — дублирует order_service OrderKind: межсервисного импорта нет,
+    а FastAPI нужен enum, чтобы отбить неизвестное значение 422-й, а не запросом в БД."""
+
+    INDIVIDUAL = "individual"
+    COMPANY    = "company"
+    TTN_L      = "ttn_l"
+
+
+class TtnKindFilter(str, Enum):
+    """Тип ТТН (CRM-42) — дублирует order_service TtnKind по той же причине,
+    что и OrderKindFilter: межсервисного импорта нет."""
+
+    COMPANY    = "company"      # Ю
+    INDIVIDUAL = "individual"   # Ф
+    SPECIAL    = "special"      # Л — внутренние заявки (order_kind=ttn_l)
 
 
 class DriverOrderItem(BaseModel):
@@ -8,6 +28,9 @@ class DriverOrderItem(BaseModel):
 
     order_id: uuid.UUID
     order_number: str
+    order_kind: str = ""     # individual|company|ttn_l — секции отчёта
+    ttn_number: str | None = None
+    ttn_kind: str | None = None   # company (Ю) | individual (Ф) | special (Л)
     fuel_type: str
     volume_delivered: float | None
     delivery_address: str

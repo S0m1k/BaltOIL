@@ -17,6 +17,17 @@ class RefreshToken(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Когда токен был отозван. Проставляется и при ротации, и при logout/logout_all.
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # id токена-преемника. Проставляется ТОЛЬКО при штатной ротации — по нему
+    # отличаем «параллельный refresh из соседней вкладки» от повтора токена,
+    # убитого через logout (там rotated_to_id остаётся NULL).
+    # FK намеренно нет (см. миграцию 0013).
+    rotated_to_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)

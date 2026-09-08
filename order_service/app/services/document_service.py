@@ -30,6 +30,7 @@ from app.models.payment import Payment, PaymentStatus
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
 from app.services.legal_entity_service import get_seller_snapshot
+from app.services.money import DEFAULT_VAT_RATE, invoice_display_number, price_first_breakdown
 
 
 # ── Сумма прописью ────────────────────────────────────────────────────────────
@@ -185,6 +186,30 @@ async def _next_doc_number(db: AsyncSession, doc_type: DocumentType) -> str:
     return f"{prefix}-{year}-{seq2:06d}"
 
 
+def document_display_name(
+    doc_type,
+    doc_number: str | None,
+    buyer_snapshot: dict | None,
+    override: str | None = None,
+) -> str:
+    """Отображаемое имя документа (правки 2026-08-24).
+
+    Приоритет: ручное имя (Document.display_name, задаёт админ/менеджер) →
+    для счетов авто-«{номер без ведущих нулей} {короткое имя покупателя}»
+    («166 ОТК») → номер как есть. Используется для имени PDF-файла, вложения
+    письма, подписи в чате и в списках документов на фронте.
+    Официальный номер ВНУТРИ PDF не меняется.
+    """
+    if override and override.strip():
+        return override.strip()
+    dtype = doc_type.value if hasattr(doc_type, "value") else str(doc_type)
+    number = str(doc_number or "")
+    if dtype not in _INVOICE_DOC_TYPE_VALUES:
+        return number
+    buyer_name = (buyer_snapshot or {}).get("name")
+    return invoice_display_number(number, buyer_name) or number
+
+
 async def _existing_document(
     db: AsyncSession, order_id: uuid.UUID, doc_type: DocumentType
 ) -> Document | None:
@@ -215,9 +240,13 @@ def _render_pdf(template_name: str, context: dict) -> bytes:
 
 
 def _save_pdf(order_id: uuid.UUID, doc_number: str, pdf_bytes: bytes) -> str:
-    """Сохранить байты PDF на диск, вернуть относительный путь."""
-    # Безопасное имя файла
-    safe_name = re.sub(r"[^\w\-]", "_", doc_number) + ".pdf"
+    """Сохранить байты PDF на диск, вернуть относительный путь.
+
+    doc_number здесь — уже ОТОБРАЖАЕМОЕ имя («166 ОТК» для счетов), см.
+    document_display_name(); внутри PDF официальный номер остаётся прежним.
+    """
+    # Безопасное имя файла (пробелы разрешены, кириллица сохраняется)
+    safe_name = re.sub(r"[^\w\- ]", "_", doc_number).strip() + ".pdf"
     doc_dir = MEDIA_ROOT / "documents" / str(order_id)
     doc_dir.mkdir(parents=True, exist_ok=True)
     file_path = doc_dir / safe_name
@@ -251,9 +280,7 @@ def _order_amount(order: Order) -> float:
 
 # ── Invoice context (по образцу заказчика) ────────────────────────────────────
 
-# Дефолтная ставка НДС, если в seller-снимке не указано. Образец заказчика —
-# 22%. Когда в LegalEntity появится поле vat_rate, использовать оттуда.
-DEFAULT_VAT_RATE = 22
+# Дефолтная ставка НДС, если в seller-снимке не указано (money.DEFAULT_VAT_RATE).
 
 
 def _build_invoice_ctx(
@@ -283,7 +310,7 @@ def _build_invoice_ctx(
         "subtotal":        subtotal,      # пред-НДС
         "vat_rate":        vat_rate,
         "vat_amount":      vat_amount,
-        "total":           total,         # с НДС = total_amount (то, что платит клиент)
+        "total":           total,         # с НДС = цена за литр × объём + НДС (CRM-27)
         "amount_in_words": amount_to_words_ru(total),
         "seller_signature": seller_signature_data_uri(),
         "seller_stamp":      seller_stamp_data_uri(),
@@ -305,44 +332,50 @@ def _build_line_items(
 
     total_amount — сумма С НДС (то, что клиент платит, как order.expected/final_amount,
     на этой сумме строится учёт долга). В образце счёта строки и «Итого» показаны
-    БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС. Поэтому
-    раскладываем total_amount обратно на пред-НДС базу и налог.
+    БЕЗ НДС, НДС добавляется отдельной строкой, «Всего к оплате» = с НДС.
+
+    Первична ЦЕНА ЗА ЛИТР С УЧЁТОМ ДОСТАВКИ (CRM-27, заказчик 2026-09-04):
+    сумма/объём даёт нецелые копейки вида 95,396290051 ₽/л — «таких денег
+    физически нет». Цену за литр округляем до копейки, и уже от неё считаем
+    «Всего к оплате» (цена × литры) и разбивку НДС — всё в
+    `money.price_first_breakdown`, той же функцией, что и итог заявки, поэтому
+    «Всего к оплате» совпадает с expected/final_amount копейка в копейку, а
+    «Итого» + «НДС» = «Всего к оплате» без расхождений.
 
     Стоимость доставки уже включена в total_amount (Д3) и отдельной строкой не
     выводится — вся пред-НДС база ложится на единственную строку топлива.
 
-    Возвращает (items, subtotal_no_vat, vat_amount, total), где total == total_amount.
+    Возвращает (items, subtotal_no_vat, vat_amount, total).
     """
     rate = vat_rate or 0
-    pre_vat_total = round(total_amount / (1 + rate / 100), 2) if rate else total_amount
+    bd = price_first_breakdown(total_amount, volume, rate)
+    if bd is None:
+        # Объём нулевой/не задан — цену за литр вывести не из чего; показываем
+        # сумму одной строкой, чтобы документ всё же выпустился.
+        log.warning(
+            "Счёт по заявке %s: объём %s непригоден для расчёта цены за литр",
+            order.order_number, volume,
+        )
+        total = round(float(total_amount), 2)
+        pre_vat = round(total / (1 + rate / 100), 2) if rate else total
+        items = [{
+            "name": _fuel_name(order), "qty": volume, "unit": "л", "unit_code": "112",
+            "price": 0.0, "sum_no_vat": pre_vat, "vat": round(total - pre_vat, 2),
+            "sum": total,
+        }]
+        return items, pre_vat, round(total - pre_vat, 2), total
 
-    def _line(name: str, qty: float, unit: str, unit_code: str | None, sum_no_vat: float) -> dict:
-        vat = round(sum_no_vat * rate / 100, 2)
-        return {
-            "name":       name,
-            "qty":        qty,
-            "unit":       unit,
-            "unit_code":  unit_code,
-            "price":      round(sum_no_vat / qty, 2) if qty else 0.0,
-            "sum_no_vat": sum_no_vat,
-            "vat":        vat,
-            "sum":        round(sum_no_vat + vat, 2),
-        }
-
-    items = [_line(_fuel_name(order), volume, "л", "112", pre_vat_total)]
-
-    subtotal_no_vat = round(sum(i["sum_no_vat"] for i in items), 2)
-    # Налог считаем как разницу, чтобы «Всего» точно совпало с total_amount (учёт долга).
-    vat_amount = round(total_amount - subtotal_no_vat, 2)
-    # Согласуем построчный НДС с итоговым: остаток округления вешаем на последнюю
-    # строку, иначе сумма столбцов «НДС»/«Сумма с НДС» по строкам могла на копейку
-    # не совпасть с итоговой строкой (бухгалтер расценит как ошибку документа).
-    line_vat_sum = round(sum(i["vat"] for i in items), 2)
-    residual = round(vat_amount - line_vat_sum, 2)
-    if residual and items:
-        items[-1]["vat"] = round(items[-1]["vat"] + residual, 2)
-        items[-1]["sum"] = round(items[-1]["sum_no_vat"] + items[-1]["vat"], 2)
-    return items, subtotal_no_vat, vat_amount, total_amount
+    items = [{
+        "name":       _fuel_name(order),
+        "qty":        volume,
+        "unit":       "л",
+        "unit_code":  "112",
+        "price":      float(bd["unit_no_vat"]),
+        "sum_no_vat": float(bd["sum_no_vat"]),
+        "vat":        float(bd["vat"]),
+        "sum":        float(bd["total"]),
+    }]
+    return items, float(bd["sum_no_vat"]), float(bd["vat"]), float(bd["total"])
 
 
 def _build_upd_ctx(
@@ -810,7 +843,11 @@ async def generate_invoice(
 
     try:
         pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
-        file_path = _save_pdf(order.id, doc_number, pdf_bytes)
+        file_path = _save_pdf(
+            order.id,
+            document_display_name(DocumentType.INVOICE, doc_number, buyer),
+            pdf_bytes,
+        )
         status = DocumentStatus.READY
     except Exception as exc:
         log.error("Invoice PDF render failed for order %s: %s", order.id, exc)
@@ -866,7 +903,14 @@ async def regenerate_invoice(
 
     try:
         pdf_bytes = await asyncio.to_thread(_render_pdf, "invoice.html", ctx)
-        file_path = _save_pdf(order.id, existing.doc_number, pdf_bytes)
+        file_path = _save_pdf(
+            order.id,
+            document_display_name(
+                DocumentType.INVOICE, existing.doc_number, buyer,
+                override=existing.display_name,
+            ),
+            pdf_bytes,
+        )
         existing.file_path = file_path
         existing.status = DocumentStatus.READY
     except Exception as exc:
@@ -1016,7 +1060,11 @@ async def send_document_to_chat(
 
         doc_type_value = doc.doc_type.value if hasattr(doc.doc_type, "value") else doc.doc_type
         doc_type_label = _DOC_TYPE_LABELS_RU.get(doc_type_value, "Документ")
-        msg_text = f"📄 {doc_type_label} {doc.doc_number} по заявке {order.order_number}"
+        # Подпись документа в чате — отображаемое имя («Счёт 166 ОТК»)
+        doc_display = document_display_name(
+            doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
+        )
+        msg_text = f"📄 {doc_type_label} {doc_display} по заявке {order.order_number}"
 
         r3 = await client.post(
             f"{base}/api/v1/conversations/{conv_id}/messages",
@@ -1026,6 +1074,7 @@ async def send_document_to_chat(
                 "metadata": {
                     "document_id": str(doc.id),
                     "doc_number": doc.doc_number,
+                    "doc_display": doc_display,
                     "doc_type": doc_type_value,
                     "order_id": str(order.id),
                     "order_number": order.order_number,
@@ -1086,13 +1135,16 @@ async def send_document_by_email(db: AsyncSession, order: Order, doc: Document) 
     pdf_bytes = full_path.read_bytes()
     content_b64 = base64.b64encode(pdf_bytes).decode()
 
-    subject = f"Документ {doc.doc_number} по заявке {order.order_number}"
+    doc_display = document_display_name(
+        doc.doc_type, doc.doc_number, doc.buyer_snapshot, override=doc.display_name
+    )
+    subject = f"Документ {doc_display} по заявке {order.order_number}"
     body_text = (
         "Здравствуйте,\n\n"
         "Во вложении документ по вашей заявке.\n\n"
         "— СЗТК"
     )
-    filename = f"{doc.doc_number}.pdf"
+    filename = f"{doc_display}.pdf"
 
     notif_base = settings.notification_service_url.rstrip("/")
     sent = False

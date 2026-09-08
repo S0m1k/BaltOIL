@@ -15,10 +15,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.tariff import Tariff, TariffFuelPrice
+from app.services import tariff_formula
 
 log = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
+
+
+async def resolve_fuel_price(
+    db: AsyncSession, tariff: Tariff, fuel_type: str
+) -> Decimal | None:
+    """Действующая цена ₽/л по тарифу для вида топлива, либо None.
+
+    Учитывает правки CRM-33:
+    - скрытые виды («глазик» выключен) недоступны для заказа → None;
+    - формульный тариф считает цену от базового ПРИ ЧТЕНИИ, поэтому правка
+      цен базового тарифа автоматически двигает все формульные.
+    """
+    fuel_key = str(fuel_type).upper()
+
+    if tariff.base_tariff_id:
+        base = await get_tariff(db, tariff.base_tariff_id)
+        if base is None:
+            log.warning(
+                "Formula tariff %s: base tariff %s missing/archived",
+                tariff.id, tariff.base_tariff_id,
+            )
+            return None
+        rows = tariff_formula.derive_price_rows(
+            base.fuel_prices, tariff.fuel_prices, tariff.formula_type, tariff.formula_value
+        )
+    else:
+        rows = tariff_formula.normalize_rows(tariff.fuel_prices)
+
+    return tariff_formula.visible_prices(rows).get(fuel_key)
 
 
 async def get_default_tariff(db: AsyncSession, client_type: str | None = None) -> Tariff | None:
@@ -154,12 +184,8 @@ async def compute_price_breakdown(
             "base_delivery_cost": None,
         }
 
-    fuel_key = str(fuel_type).upper()
-    price_row = next(
-        (fp for fp in tariff.fuel_prices if fp.fuel_type.upper() == fuel_key),
-        None,
-    )
-    if price_row is None:
+    price = await resolve_fuel_price(db, tariff, fuel_type)
+    if price is None:
         return {
             "tariff_found": False,
             "price_per_liter": None,
@@ -169,7 +195,6 @@ async def compute_price_breakdown(
             "base_delivery_cost": Decimal(str(tariff.base_delivery_cost)) if tariff.base_delivery_cost else None,
         }
 
-    price = Decimal(str(price_row.price_per_liter))
     vol = Decimal(str(volume))
     fc = Decimal(str(fuel_coefficient))
 
@@ -214,20 +239,15 @@ async def compute_expected_amount(
         log.warning("No active tariff found (tariff_id=%s) — skipping expected_amount", tariff_id)
         return None
 
-    # Find price for this fuel type (fuel_type is now a plain str code)
-    fuel_key = str(fuel_type).upper()
-    price_row = next(
-        (fp for fp in tariff.fuel_prices if fp.fuel_type.upper() == fuel_key),
-        None,
-    )
-    if price_row is None:
+    # Find price for this fuel type (учитывает «глазик» и формульные тарифы)
+    price = await resolve_fuel_price(db, tariff, fuel_type)
+    if price is None:
         log.warning(
-            "Tariff %s has no price for fuel_type=%s — skipping expected_amount",
-            tariff.id, fuel_key,
+            "Tariff %s has no visible price for fuel_type=%s — skipping expected_amount",
+            tariff.id, str(fuel_type).upper(),
         )
         return None
 
-    price = Decimal(str(price_row.price_per_liter))
     vol = Decimal(str(volume))
     fc = Decimal(str(fuel_coefficient))
 

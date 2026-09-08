@@ -1,8 +1,9 @@
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal as _Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, delete as sa_delete
 from sqlalchemy.orm import selectinload
 
 import httpx
@@ -14,9 +15,11 @@ from app.services import fuel_type_service
 from app.models.order_status_log import OrderStatusLog
 from app.core.dependencies import TokenUser
 from app.core.status_machine import validate_transition
+from app.core.media import resolve_media_path
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError, StatusTransitionError
 from app.schemas.order import OrderCreateRequest, OrderUpdateRequest, OrderStatusTransitionRequest, RescheduleRequest, PricePreviewRequest
-from app.services.order_number import generate_order_number, generate_ttn_number
+from app.services.order_number import generate_order_number
+from app.services.ttn_number import generate_ttn_number, resolve_ttn_kind
 from app.services.payment_service import (
     recompute_and_save,
     attach_payment_totals,
@@ -24,11 +27,16 @@ from app.services.payment_service import (
 )
 from app.services import document_service
 from app.services import contract_service
+from app.services import order_audit
+from app.services import client_object_service
+from app.services.actor_names import resolve_names as resolve_actor_names
 from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
 from app.services.client_context import get_client_context, get_user_organization_ids
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
+from app.services.money import order_total, per_liter_with_delivery, price_first_breakdown
+from app.services.legal_entity_service import get_seller_vat_rate
 from app.core.events import publish_order_event
 
 log = logging.getLogger(__name__)
@@ -128,6 +136,16 @@ ROLE_MANAGER = "manager"
 ROLE_ADMIN = "admin"
 
 
+#: Виды заявок, которые водитель видит ТОЛЬКО назначенными лично ему и которые
+#: не попадают в «биржу» свободных NEW. ТТН-Л — внутренняя заявка; перевозка
+#: (ТЗ 09.2026) закреплена за одним водителем, остальные её не видят вовсе.
+_DRIVER_ASSIGNED_ONLY_KINDS = (OrderKind.TTN_L, OrderKind.TRANSPORT)
+
+#: Виды, которым счета не выставляются. ТТН-Л — внутренняя заявка; перевозка
+#: рассчитывается своими полями блока «куплено»/«оплаты», а не тарифом.
+_NO_INVOICE_KINDS = (OrderKind.TTN_L, OrderKind.TRANSPORT)
+
+
 def _with_logs(query):
     return query.options(selectinload(Order.status_logs))
 
@@ -151,11 +169,14 @@ async def get_order(
     # Клиент видит только свои заявки
     if actor.role == ROLE_CLIENT and order.client_id != actor.id:
         raise ForbiddenError()
-    # Водитель: ТТН-Л видна только назначенному; обычные — свои + пул NEW
+    # Перевозку (ТЗ 09.2026) клиент не видит никогда — это внутренний учёт.
+    if actor.role == ROLE_CLIENT and order.order_kind == OrderKind.TRANSPORT:
+        raise ForbiddenError()
+    # Водитель: ТТН-Л и перевозка видны только назначенному; обычные — свои + пул NEW
     if actor.role == ROLE_DRIVER:
-        if order.order_kind == OrderKind.TTN_L and order.driver_id != actor.id:
+        if order.order_kind in _DRIVER_ASSIGNED_ONLY_KINDS and order.driver_id != actor.id:
             raise ForbiddenError()
-        if order.order_kind != OrderKind.TTN_L:
+        if order.order_kind not in _DRIVER_ASSIGNED_ONLY_KINDS:
             # видна если назначена ему или это свободная NEW
             is_assigned = order.driver_id == actor.id
             is_free_new = order.status == OrderStatus.NEW and order.driver_id is None
@@ -167,15 +188,26 @@ async def get_order(
     return order
 
 
-def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> list:
+def _visibility_conditions(
+    actor: TokenUser,
+    org_ids: list | None = None,
+    kind: OrderKind | None = None,
+) -> list:
     """Условия видимости заявок по роли — общие для списка и счётчиков.
 
     Для клиента: свои заявки (client_id) + все заявки его организаций
     (organization_id ∈ org_ids) — member видит весь учёт по юрлицу.
+
+    kind — фильтр вида заявки (физ/юр/ТТН-Л) поверх видимости: сужает выдачу
+    для любой роли, прав не расширяет (правки 2026-09-02).
     """
     conditions = [Order.is_archived == False]  # noqa: E712
+    if kind is not None:
+        conditions.append(Order.order_kind == kind)
 
     if actor.role == ROLE_CLIENT:
+        # Перевозки — внутренний учёт: клиент их не видит ни в каком случае.
+        conditions.append(Order.order_kind != OrderKind.TRANSPORT)
         if org_ids:
             conditions.append(
                 or_(Order.client_id == actor.id, Order.organization_id.in_(org_ids))
@@ -184,15 +216,16 @@ def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> lis
             conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
         # Водитель видит:
-        # - свои заявки (driver_id == actor.id) всех видов
-        # - свободные NEW не-TTN-L (биржа: driver_id IS NULL, kind != ttn_l)
+        # - свои заявки (driver_id == actor.id) всех видов, включая перевозки,
+        #   назначенные лично ему (чужие перевозки не видит вовсе);
+        # - свободные NEW из «биржи» — кроме ТТН-Л и перевозок.
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
                     Order.status == OrderStatus.NEW,
                     Order.driver_id == None,  # noqa: E711
-                    Order.order_kind != OrderKind.TTN_L,
+                    Order.order_kind.notin_(_DRIVER_ASSIGNED_ONLY_KINDS),
                 ),
             )
         )
@@ -203,11 +236,13 @@ def _visibility_conditions(actor: TokenUser, org_ids: list | None = None) -> lis
 async def count_orders_by_status(
     db: AsyncSession,
     actor: TokenUser,
+    *,
+    kind: OrderKind | None = None,
 ) -> dict[str, int]:
     """Количество заявок по каждому статусу в пределах видимости роли.
     Используется для бейджей на вкладках реестра (правка заказчика 2026-06-16)."""
     org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
-    conditions = _visibility_conditions(actor, org_ids)
+    conditions = _visibility_conditions(actor, org_ids, kind)
     result = await db.execute(
         select(Order.status, func.count())
         .where(and_(*conditions))
@@ -240,11 +275,12 @@ async def list_orders(
     status: OrderStatus | None = None,
     driver_id: uuid.UUID | None = None,
     client_id: uuid.UUID | None = None,
+    kind: OrderKind | None = None,
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
     org_ids = await get_user_organization_ids(actor.id) if actor.role == ROLE_CLIENT else None
-    conditions = _visibility_conditions(actor, org_ids)
+    conditions = _visibility_conditions(actor, org_ids, kind)
 
     if status:
         conditions.append(Order.status == status)
@@ -272,7 +308,6 @@ async def preview_price(
     actor: TokenUser,
 ) -> dict:
     """Read-only price breakdown for the order create form. No DB writes."""
-    from decimal import Decimal as _Decimal
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
 
     if is_staff and not data.client_id:
@@ -310,9 +345,22 @@ async def preview_price(
     except Exception as exc:
         log.warning("preview_price: zone resolution failed (non-fatal): %s", exc)
 
+    # Ручная стоимость доставки в форме админа перекрывает зональный расчёт —
+    # иначе «Итого» в превью не совпадало с тем, что получится при создании.
+    manual_delivery = data.manual_delivery_cost if is_staff else None
+    delivery_is_manual = manual_delivery is not None
+    if delivery_is_manual:
+        delivery_cost = _Decimal(str(manual_delivery))
+
     fuel_subtotal = bd["fuel_subtotal"]
+    unit_price_no_vat = None
     if fuel_subtotal is not None:
-        total = fuel_subtotal + (delivery_cost or _Decimal("0"))
+        # Итог считаем от округлённой цены за литр с доставкой — той же
+        # функцией, что и счёт (CRM-27)
+        vat_rate = await get_seller_vat_rate(db)
+        total = order_total(fuel_subtotal, delivery_cost, data.volume, vat_rate)
+        breakdown = price_first_breakdown(total, data.volume, vat_rate)
+        unit_price_no_vat = breakdown["unit_no_vat"] if breakdown else None
     else:
         total = None
         pricing_warning = True
@@ -328,9 +376,25 @@ async def preview_price(
         "zone_cost_coefficient": zone_cost_coefficient,
         "base_delivery_cost": bd["base_delivery_cost"],
         "delivery_cost": delivery_cost,
+        "delivery_is_manual": delivery_is_manual,
         "total": total,
+        "price_per_liter_with_delivery": per_liter_with_delivery(total, data.volume),
+        "unit_price_no_vat": unit_price_no_vat,
         "pricing_warning": pricing_warning,
     }
+
+
+def _normalize_delivery_address(address: str | None, actor: TokenUser) -> str:
+    """CRM-37: адрес обязателен только клиенту.
+
+    Сотрудник и водитель оформляют заявку со слов — адрес уточняет менеджер.
+    Пустая строка (колонка NOT NULL) означает «адрес уточняется»: зона и
+    стоимость доставки останутся пустыми.
+    """
+    normalized = (address or "").strip()
+    if not normalized and actor.role == ROLE_CLIENT:
+        raise ValidationError("Укажите адрес доставки")
+    return normalized
 
 
 async def create_order(
@@ -389,6 +453,11 @@ async def create_order(
     if ctx.client_type == "individual":
         data.payment_type = PaymentType.ON_DELIVERY
     else:
+        # Юрлицо с разрешённым кредитом и без явного выбора типа оплаты работает
+        # «в долг» — иначе заявка молча уезжала предоплатой и вставала в «ждём
+        # оплату» (правки 2026-09-02). Сервер — источник истины, фронт лишь отражает.
+        if "payment_type" not in data.model_fields_set and ctx.credit_allowed:
+            data.payment_type = PaymentType.DEBT
         # Validate payment_type against role × client_type × credit_allowed matrix
         validate_payment_type(
             data.payment_type,
@@ -396,6 +465,8 @@ async def create_order(
             client_type=ctx.client_type,
             credit_allowed=ctx.credit_allowed,
         )
+
+    data.delivery_address = _normalize_delivery_address(data.delivery_address, actor)
 
     # Дата доставки не может быть в прошлом. Сравниваем календарные дни,
     # а не моменты времени: заявка «на сегодня» валидна весь день, даже если
@@ -426,7 +497,9 @@ async def create_order(
     delivery_lat = data.delivery_lat if data.delivery_lat is not None else None
     delivery_lon = data.delivery_lon if data.delivery_lon is not None else None
 
-    if delivery_lat is not None and delivery_lon is not None:
+    # Без адреса (CRM-37) зону не определяем даже при случайно пришедших
+    # координатах: считать доставку не к чему — её уточнит менеджер.
+    if data.delivery_address and delivery_lat is not None and delivery_lon is not None:
         try:
             zone_info = await resolve_zone(delivery_lat, delivery_lon)
             if zone_info:
@@ -453,21 +526,29 @@ async def create_order(
                             ctx.delivery_coefficient,
                             ctx.client_type,
                         )
-                if delivery_cost is not None:
-                    if expected_amount is not None:
-                        expected_amount = expected_amount + delivery_cost
-                    else:
-                        expected_amount = delivery_cost
         except Exception as exc:
             log.warning("Zone pricing failed for order (non-fatal): %s", exc)
 
     # Ручная стоимость доставки (правки 2026-07-25, только staff):
     # перекрывает зональный автосчёт — админ вводит цену прямо в форме.
-    if is_staff and data.manual_delivery_cost is not None:
-        if delivery_cost is not None and expected_amount is not None:
-            expected_amount = expected_amount - delivery_cost  # откатить автосчёт
+    delivery_is_manual = is_staff and data.manual_delivery_cost is not None
+    if delivery_is_manual:
         delivery_cost = data.manual_delivery_cost
-        expected_amount = (expected_amount or _Decimal("0")) + delivery_cost
+
+    # Итог = топливо + доставка, приведённый к цене за литр без НДС — той же
+    # функцией, что и счёт, чтобы «Всего к оплате» совпадало с заявкой (CRM-27).
+    # Если тариф не настроен (топливная часть не рассчитана) — итог остаётся NULL:
+    # выдавать одну лишь доставку за сумму заявки нельзя, менеджер проставит руками.
+    if expected_amount is not None:
+        expected_amount = order_total(
+            expected_amount, delivery_cost, data.volume_requested,
+            await get_seller_vat_rate(db),
+        )
+    elif delivery_cost is not None:
+        log.warning(
+            "Order create: тариф не рассчитан, итог оставлен пустым (доставка %s)",
+            delivery_cost,
+        )
 
     # Согласование заявок (правки 2026-06-16):
     # - Физ лица: ВСЕ заявки клиента уходят на согласование менеджера.
@@ -511,6 +592,7 @@ async def create_order(
         delivery_zone_id=resolved_zone_id,
         delivery_zone_name=resolved_zone_name,
         delivery_cost=delivery_cost,
+        delivery_cost_is_manual=bool(delivery_is_manual),
         # Only manager/admin may mark an order as debt (allow_delivery_unpaid)
         allow_delivery_unpaid=data.allow_delivery_unpaid if is_staff else False,
         # «Ждём оплату» при создании (правки 2026-07-25, только staff)
@@ -537,6 +619,12 @@ async def create_order(
         changed_by_role=actor.role,
         comment=create_comment,
     ))
+    # CRM-44: журнал действий — «кто создал заявку» (видит только админ)
+    order_audit.record(db, order.id, actor, order_audit.ACTION_CREATED)
+
+    # CRM-45: адрес и контакт приёмки запоминаются на клиенте/организации,
+    # чтобы при следующей заявке их можно было выбрать из сохранённых объектов.
+    await client_object_service.remember_from_order(db, order, actor)
 
     await db.flush()
 
@@ -617,25 +705,120 @@ async def create_order(
 _CLIENT_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
                     "client_comment", "contact_person_name", "contact_person_phone",
                     "organization_id"}
-# Поля, которые водитель может править в назначенной ему заявке
-_DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date"}
+# Поля, которые водитель может править в назначенной ему заявке.
+# CRM-45: контакт приёмки и комментарии водитель заполняет с места — эти данные
+# он узнаёт первым, и до сих пор мог только позвонить менеджеру.
+_DRIVER_EDITABLE = {"fuel_type", "volume_requested", "delivery_address", "desired_date",
+                    "contact_person_name", "contact_person_phone",
+                    "client_comment", "manager_comment"}
 # Статусы, в которых клиент/водитель ещё могут править заявку
 _EDITABLE_STATUSES = {OrderStatus.NEW, OrderStatus.AWAITING_MANAGER, OrderStatus.ACCEPTED}
+# Закрытые статусы (CRM-39): заявка уже отработана — правит только админ,
+# и только «бумажные» поля: объём и топливо после доставки не меняются
+# (по ним уже выписаны ТТН, счёт и списан склад).
+_CLOSED_STATUSES = {
+    OrderStatus.DELIVERED: ("Доставленную", "доставленной"),
+    OrderStatus.CANCELLED: ("Отменённую", "отменённой"),
+}
+_FROZEN_IN_CLOSED = {"fuel_type", "volume_requested"}
+
+
+def _check_closed_order_edit(order: Order, actor: TokenUser, requested_fields: set[str]) -> None:
+    """CRM-39: правка заявки в закрытом статусе (доставлена/отменена).
+
+    Менеджеру закрыто совсем, админу — всё, кроме объёма и вида топлива:
+    по ним уже выписаны ТТН со счётом и списан склад.
+    """
+    if order.status not in _CLOSED_STATUSES:
+        return
+    accusative, genitive = _CLOSED_STATUSES[order.status]
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError(f"{accusative} заявку правит только администратор")
+    if requested_fields & _FROZEN_IN_CLOSED:
+        raise ValidationError(f"Объём и вид топлива {genitive} заявки не меняются")
+
+
+# Поля заявки, правки которых попадают в журнал действий (CRM-44).
+_AUDITED_FIELDS = (
+    "fuel_type", "volume_requested", "volume_delivered", "delivery_address",
+    "desired_date", "contact_person_name", "contact_person_phone",
+    "client_comment", "manager_comment", "driver_id", "expected_amount",
+    "final_amount", "delivery_cost", "payment_type", "organization_id",
+    "allow_delivery_unpaid", "trade_credit_contract_signed",
+)
+
+
+def _audit_snapshot(order: Order) -> dict[str, str | None]:
+    """Строковый снимок отслеживаемых полей — «было» для журнала."""
+    return {f: order_audit.stringify(getattr(order, f, None)) for f in _AUDITED_FIELDS}
+
+
+def _audit_diff(db: AsyncSession, order: Order, actor: TokenUser, before: dict) -> None:
+    """Записать в журнал все поля, изменившиеся с момента снимка."""
+    for field in _AUDITED_FIELDS:
+        new = order_audit.stringify(getattr(order, field, None))
+        if new == before.get(field):
+            continue
+        order_audit.record(
+            db, order.id, actor, order_audit.ACTION_FIELD,
+            field=field, old_value=before.get(field), new_value=new,
+        )
+
+
+def _check_edit_permissions(order: Order, actor: TokenUser, requested_fields: set[str]) -> None:
+    """Матрица прав на правку заявки (чистая функция — БД не нужна).
+
+    staff — всё, с оговорками по закрытым статусам (CRM-39);
+    клиент — свою заявку и свой набор полей;
+    водитель — назначенную ему заявку и свой набор (CRM-45: плюс контакт
+    приёмки и комментарии, которые он узнаёт на месте).
+    """
+    if actor.role in (ROLE_MANAGER, ROLE_ADMIN):
+        _check_closed_order_edit(order, actor, requested_fields)
+        return
+
+    if actor.role == ROLE_CLIENT:
+        if order.client_id != actor.id:
+            raise ForbiddenError()
+        extra = requested_fields - _CLIENT_EDITABLE
+    elif actor.role == ROLE_DRIVER:
+        if order.driver_id != actor.id:
+            raise ForbiddenError("Редактировать можно только назначенную вам заявку")
+        extra = requested_fields - _DRIVER_EDITABLE
+    else:
+        raise ForbiddenError()
+
+    if extra:
+        raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
+    if order.status not in _EDITABLE_STATUSES:
+        raise ValidationError("Заявку в этом статусе редактировать нельзя")
+
+
+async def _fuel_subtotal_for(db: AsyncSession, order: Order, ctx, volume: float | None = None):
+    """Топливная часть суммы заявки по тарифу клиента (без доставки)."""
+    vol = float(order.volume_requested) if volume is None else float(volume)
+    return await compute_expected_amount(
+        db, order.fuel_type, vol, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
+    )
 
 
 async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
     """Пересчитать expected_amount и delivery_cost после смены топлива/объёма.
 
-    Fail-open: при недоступности auth/delivery сервисов суммы остаются прежними.
+    Fail-open по сервисам: при недоступности auth/delivery суммы остаются прежними.
+    Но если тариф не нашёлся — итог честно сбрасывается в NULL (правки 2026-08-24):
+    показать прочерк лучше, чем оставить сумму от прежнего объёма/топлива.
+    Ручную стоимость доставки (delivery_cost_is_manual) зональной НЕ перетираем.
     """
     try:
         ctx = await get_client_context(order.client_id, order.organization_id)
-        expected = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_requested),
-            ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient,
-        )
+        expected = await _fuel_subtotal_for(db, order, ctx)
         delivery_cost = order.delivery_cost
-        if order.delivery_lat is not None and order.delivery_lon is not None:
+        if (
+            not order.delivery_cost_is_manual
+            and order.delivery_lat is not None
+            and order.delivery_lon is not None
+        ):
             zone_info = await resolve_zone(order.delivery_lat, order.delivery_lon)
             if zone_info:
                 base_rate = None
@@ -654,8 +837,17 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
                 if recalc_delivery is not None:
                     delivery_cost = recalc_delivery
                     order.delivery_cost = recalc_delivery
-        if expected is not None:
-            order.expected_amount = expected + (delivery_cost or 0)
+        if expected is None:
+            log.warning(
+                "recompute_expected_amount: тариф не найден для заявки %s "
+                "(fuel=%s) — итог сброшен в NULL", order.id, order.fuel_type,
+            )
+            order.expected_amount = None
+            return
+        order.expected_amount = order_total(
+            expected, delivery_cost, float(order.volume_requested or 0),
+            await get_seller_vat_rate(db),
+        )
     except Exception as exc:
         log.warning("recompute_expected_amount failed for order %s (non-fatal): %s",
                     order.id, exc)
@@ -678,23 +870,7 @@ async def update_order(
     if organization_id_requested:
         requested_fields.add("organization_id")
 
-    # Матрица прав: staff — всё; клиент — свои заявки, ограниченные поля;
-    # водитель — назначенные ему, ограниченные поля.
-    if not is_staff:
-        if actor.role == ROLE_CLIENT:
-            if order.client_id != actor.id:
-                raise ForbiddenError()
-            extra = requested_fields - _CLIENT_EDITABLE
-        elif actor.role == ROLE_DRIVER:
-            if order.driver_id != actor.id:
-                raise ForbiddenError("Редактировать можно только назначенную вам заявку")
-            extra = requested_fields - _DRIVER_EDITABLE
-        else:
-            raise ForbiddenError()
-        if extra:
-            raise ForbiddenError(f"Недоступные для редактирования поля: {', '.join(sorted(extra))}")
-        if order.status not in _EDITABLE_STATUSES:
-            raise ValidationError("Заявку в этом статусе редактировать нельзя")
+    _check_edit_permissions(order, actor, requested_fields)
 
     # Минимальный объём — только клиентам и водителям; менеджер/админ правит на
     # любой объём (правка заказчика 2026-07-16), как и при создании заявки.
@@ -726,13 +902,28 @@ async def update_order(
                     "Указанная организация не найдена среди организаций клиента заявки"
                 )
 
+    # Снимок «до» для журнала действий (CRM-44) — снимаем ДО любых мутаций,
+    # чтобы в него попали и косвенные правки (пересчёт сумм по объёму).
+    _audit_before = _audit_snapshot(order)
+
     # Track if we need to set pending_driver_ack
     was_accepted = order.status == OrderStatus.ACCEPTED
     changed = False
     # Ключи изменённых полей для индикации «что поменялось» (правки 2026-06-11)
     changed_keys: list[str] = []
 
+    # Правка комментария сбрасывает подтверждение водителя (правки 2026-08-24):
+    # у водителя снова загорается янтарный «!» и кнопка «Комментарий увидел».
+    # Правку водителя из этого исключаем (CRM-45): он сам её и внёс — требовать
+    # от него «подтвердите комментарий» бессмысленно.
+    def _reset_comment_ack(old: str | None, new: str | None) -> None:
+        if actor.role == ROLE_DRIVER:
+            return
+        if new and (new or "").strip() != (old or "").strip():
+            order.driver_comment_ack_at = None
+
     if data.manager_comment is not None:
+        _reset_comment_ack(order.manager_comment, data.manager_comment)
         order.manager_comment = data.manager_comment
         changed = True
         changed_keys.append("comment")
@@ -767,6 +958,7 @@ async def update_order(
         order.payment_type = data.payment_type
         changed = True
     if data.client_comment is not None:
+        _reset_comment_ack(order.client_comment, data.client_comment)
         order.client_comment = data.client_comment
         changed = True
         changed_keys.append("comment")
@@ -780,15 +972,57 @@ async def update_order(
         order.organization_id = data.organization_id
         changed = True
         changed_keys.append("organization")
+    _final_amount_touched = False
     if data.delivery_cost is not None:
-        # Перекладываем долю доставки в expected_amount: топливная часть
-        # (expected_amount − старый delivery_cost) сохраняется, доставка заменяется.
-        # Пропускаем, если staff задал expected_amount явно (имеет приоритет) или
-        # сумма ещё не рассчитана (нет тарифа — заполнит менеджер вручную).
-        if data.expected_amount is None and order.expected_amount is not None:
-            fuel_part = order.expected_amount - (order.delivery_cost or 0)
-            order.expected_amount = fuel_part + data.delivery_cost
+        # Перекладываем долю доставки в суммы заявки: топливная часть
+        # (сумма − старый delivery_cost) сохраняется, доставка заменяется.
+        # Ручной ввод помечаем флагом — пересчёт по объёму его не перетрёт.
+        order.delivery_cost_is_manual = True
+        old_delivery = order.delivery_cost or _Decimal("0")
+
+        fuel_expected = None
+        if order.expected_amount is not None:
+            fuel_expected = order.expected_amount - old_delivery
+        else:
+            # Итог не рассчитан (заявка ушла на согласование из-за нерассчитанной
+            # доставки) — восстанавливаем топливную часть по тарифу клиента,
+            # иначе ввод цены доставки не давал итога вовсе (баг 2026-08-24).
+            try:
+                _ctx = await get_client_context(order.client_id, order.organization_id)
+                fuel_expected = await _fuel_subtotal_for(db, order, _ctx)
+            except Exception as exc:
+                log.warning(
+                    "delivery_cost edit: не удалось пересчитать топливо по тарифу "
+                    "для заявки %s: %s", order.id, exc,
+                )
+            if fuel_expected is None:
+                log.warning(
+                    "delivery_cost edit: тариф не найден для заявки %s — итог "
+                    "остаётся пустым", order.id,
+                )
+
+        fuel_final = (
+            order.final_amount - old_delivery if order.final_amount is not None else None
+        )
+
+        # Доставка сохраняется как введена: копеечный остаток она больше не
+        # «поглощает» — итог сводится ценой за литр (CRM-27, 2026-09-02).
         order.delivery_cost = data.delivery_cost
+
+        _vat_rate = await get_seller_vat_rate(db)
+        _vol_req = float(order.volume_requested or 0)
+        if data.expected_amount is None and fuel_expected is not None:
+            order.expected_amount = order_total(
+                fuel_expected, order.delivery_cost, _vol_req, _vat_rate,
+            )
+        # Доставленная заявка: долг и счёт считаются от final_amount — его тоже
+        # надо подвинуть на дельту доставки (баг 2026-08-24).
+        if data.final_amount is None and fuel_final is not None:
+            order.final_amount = order_total(
+                fuel_final, order.delivery_cost,
+                float(order.volume_delivered or 0) or _vol_req, _vat_rate,
+            )
+            _final_amount_touched = True
         changed = True
         changed_keys.append("amount")
     if data.allow_delivery_unpaid is not None:
@@ -807,13 +1041,17 @@ async def update_order(
         await recompute_and_save(db, order)
         changed = True
         changed_keys.append("amount")
+    elif _final_amount_touched:
+        # final_amount сдвинулся из-за правки стоимости доставки — статус оплаты
+        # (долг/переплата) считается от него, поэтому пересчитываем и здесь.
+        await recompute_and_save(db, order)
 
     # Единый счёт (Д4 2026-06-23): если staff поменял объём/стоимость/сумму —
     # перевыпускаем счёт с теми же номером и датой, но новыми цифрами. Только для
     # staff и только если суммовые поля затронуты (карандашики клиента/водителя
     # сумму не меняют до согласования). Ошибка не блокирует сохранение заявки.
     _amount_touched = bool({"amount", "volume", "fuel_type"} & set(changed_keys))
-    if is_staff and _amount_touched and order.order_kind != OrderKind.TTN_L:
+    if is_staff and _amount_touched and order.order_kind not in _NO_INVOICE_KINDS:
         try:
             async with db.begin_nested():
                 await document_service.regenerate_invoice(db, order, actor)
@@ -839,6 +1077,11 @@ async def update_order(
             changed_by_role=actor.role,
             comment="Заявка изменена",
         ))
+        # CRM-44: поимённо, по каждому изменившемуся полю
+        _audit_diff(db, order, actor, _audit_before)
+        # CRM-45: новый адрес/контакт запоминаем на клиенте и организации —
+        # правка карандашиком тоже пополняет справочник объектов.
+        await client_object_service.remember_from_order(db, order, actor)
 
     # Re-fetch с eager-загрузкой status_logs (как в create/transition): иначе после
     # flush server-side updated_at (onupdate) протухает и сериализация ответа лезет
@@ -852,6 +1095,44 @@ async def update_order(
     await attach_payment_totals_one(db, order)
     await attach_buyer_name_one(order)
     return order
+
+
+async def get_order_audit(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> list[dict]:
+    """CRM-44: журнал действий по заявке с ФИО и русскими формулировками.
+
+    Доступен только администратору: показывает внутренние правки поимённо.
+    """
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError("Журнал действий доступен только администратору")
+
+    # Проверяем существование заявки — 404 вместо пустого списка на чужой id
+    exists = await db.execute(select(Order.id).where(Order.id == order_id))
+    if exists.scalar_one_or_none() is None:
+        raise NotFoundError("Заявка не найдена")
+
+    entries = await order_audit.list_for_order(db, order_id)
+    names = await resolve_actor_names([e.actor_id for e in entries])
+    return [
+        {
+            "id": e.id,
+            "created_at": e.created_at,
+            "actor_id": e.actor_id,
+            "actor_role": e.actor_role,
+            "actor_name": names.get(str(e.actor_id)) if e.actor_id else None,
+            "action": e.action,
+            "field": e.field,
+            "old_value": e.old_value,
+            "new_value": e.new_value,
+            "message": order_audit.describe(
+                e, names.get(str(e.actor_id)) if e.actor_id else None
+            ),
+        }
+        for e in entries
+    ]
 
 
 async def claim_order(
@@ -1030,6 +1311,7 @@ async def reschedule_order(
     was_accepted = order.status == OrderStatus.ACCEPTED
     changed = False
     changed_keys: list[str] = []
+    _audit_before = _audit_snapshot(order)
 
     if data.desired_date is not None:
         order.desired_date = data.desired_date
@@ -1062,6 +1344,7 @@ async def reschedule_order(
         changed_by_role=actor.role,
         comment="Заявка перенесена",
     ))
+    _audit_diff(db, order, actor, _audit_before)
     await db.flush()
 
     # Уведомление водителю
@@ -1122,12 +1405,16 @@ async def transition_status(
         if actor.role == ROLE_DRIVER:
             if not order.driver_id or order.driver_id != actor.id:
                 raise StatusTransitionError("Сначала возьмите заявку через кнопку «Взять»")
-        # Номер ТТН присваивается автоматически (сквозная нумерация ТТН-{год}-{N}).
-        # Ручной ввод сохранён для обратной совместимости (ttn_l / ручная коррекция).
+        # Номер ТТН присваивается автоматически: у каждого типа контрагента
+        # свой счётчик с годовым сбросом — ТТН-{год}-Ю{N} / ТТН-{год}-Ф{N} /
+        # ТТН-{год}-Л{N} для внутренних заявок (CRM-42). Ручной ввод сохранён
+        # для обратной совместимости; тип всё равно фиксируем для отчётов.
+        ttn_kind = resolve_ttn_kind(order.order_kind)
         ttn = (data.ttn_number or "").strip()
         if not ttn:
-            ttn = await generate_ttn_number(db)
+            ttn = await generate_ttn_number(db, ttn_kind)
         order.ttn_number = ttn
+        order.ttn_kind = ttn_kind.value
 
         # Фиксируем доставленный объём: фактический из формы водителя
         # («сколько отгрузил», правки 2026-06-11) или заказанный по умолчанию.
@@ -1137,14 +1424,45 @@ async def transition_status(
             else float(order.volume_requested)
         )
 
-        # Пересчитываем final_amount по фактическому объёму (+ стоимость доставки)
-        ctx = await get_client_context(order.client_id, order.organization_id)
-        recalc = await compute_expected_amount(
-            db, order.fuel_type, float(order.volume_delivered), ctx.tariff_id, ctx.client_type,
-            ctx.fuel_coefficient,
-        )
-        if recalc is not None:
-            order.final_amount = recalc + (order.delivery_cost or 0)
+        # Итог по факту (правки заказчицы 2026-08-24, скрины ю187/ю194):
+        # 1) объём НЕ изменился → факт = ожидаемому, никакого пересчёта.
+        #    Раньше пересчитывали по ТЕКУЩЕМУ тарифу — если цена для клиента
+        #    менялась после создания заявки, «Факт» расходился с «Ожидалось»
+        #    и со счётом при том же литраже (600 л: 58 270 → 52 270).
+        # 2) объём изменился → цена за литр берётся из УСЛОВИЙ ЗАЯВКИ:
+        #    (expected − доставка) / заказанный объём. Текущий прайс — только
+        #    fallback, когда ожидаемой суммы вообще нет (тариф не был настроен).
+        vol_req = float(order.volume_requested or 0)
+        vol_fact = float(order.volume_delivered)
+        if order.order_kind == OrderKind.TRANSPORT:
+            # Перевозка не тарифицируется по литрам: её деньги — блок «куплено»
+            # (расход поставщику) и «оплаты» (приход за доставку). Лезть за
+            # тарифом клиента здесь незачем, и клиента-то у неё нет.
+            pass
+        elif order.expected_amount is not None and abs(vol_fact - vol_req) < 1e-9:
+            order.final_amount = order.expected_amount
+        else:
+            recalc = None
+            if order.expected_amount is not None and vol_req > 0:
+                delivery_dec = _Decimal(str(order.delivery_cost)) if order.delivery_cost is not None else _Decimal("0")
+                fuel_expected = _Decimal(str(order.expected_amount)) - delivery_dec
+                recalc = fuel_expected * _Decimal(str(vol_fact)) / _Decimal(str(vol_req))
+            else:
+                ctx = await get_client_context(order.client_id, order.organization_id)
+                recalc = await compute_expected_amount(
+                    db, order.fuel_type, vol_fact, ctx.tariff_id, ctx.client_type,
+                    ctx.fuel_coefficient,
+                )
+            if recalc is not None:
+                # Итог сводим через цену за литр без НДС — как в счёте (CRM-27)
+                order.final_amount = order_total(
+                    recalc, order.delivery_cost, vol_fact, await get_seller_vat_rate(db),
+                )
+            else:
+                log.warning(
+                    "DELIVERED: тариф не найден для заявки %s — final_amount не пересчитан",
+                    order.id,
+                )
 
     if data.to_status == OrderStatus.CANCELLED:
         if data.rejection_reason:
@@ -1152,16 +1470,28 @@ async def transition_status(
 
     prev_status = order.status
     order.status = data.to_status
+    invoice_error: str | None = None
 
     # Согласование крупной заявки менеджером (правки 2026-06-11): при одобрении
     # выставляем единый счёт — заказчик подтвердил «выставляется счёт».
     # Ошибка генерации не блокирует согласование (менеджер выставит вручную).
     if prev_status == OrderStatus.AWAITING_MANAGER and data.to_status == OrderStatus.NEW:
+        # Перед выпуском счёта пересчитываем итог: на согласование заявка могла
+        # уйти именно из-за нерассчитанной суммы/доставки (правки 2026-08-24).
+        if order.expected_amount is None:
+            await _recompute_expected_amount(db, order)
         try:
             async with db.begin_nested():
                 await document_service.regenerate_invoice(db, order, actor)
-        except Exception as exc:
+        except ValidationError as exc:
+            # Типовая причина — не рассчитана сумма заявки (нет тарифа/доставки).
+            # Раньше это молча уходило в log.warning, и менеджер думал, что счёт
+            # выставлен. Согласование не откатываем, но говорим об этом явно.
             log.warning("Auto-invoice on approval failed for order %s: %s", order.id, exc)
+            invoice_error = str(exc)
+        except Exception as exc:
+            log.error("Auto-invoice on approval failed for order %s: %s", order.id, exc)
+            invoice_error = "Счёт не выпущен — повторите выставление вручную."
 
     db.add(OrderStatusLog(
         order_id=order.id,
@@ -1171,12 +1501,22 @@ async def transition_status(
         changed_by_role=actor.role,
         comment=data.comment,
     ))
+    # CRM-44: смена статуса в журнале действий («Сомов отметил заявку доставленной»)
+    order_audit.record(
+        db, order.id, actor, order_audit.ACTION_STATUS,
+        old_value=prev_status, new_value=data.to_status,
+    )
     await db.flush()
 
     # Авто-генерация документов при доставке
     # ttn_l заявки не генерят счета (Д4 полностью закроет это; здесь предотвращаем
     # генерацию invoice_final для внутренних ТТН-Л)
-    if data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
+    if data.to_status == OrderStatus.DELIVERED and order.order_kind == OrderKind.TRANSPORT:
+        # Перевозка (ТЗ 09.2026): ни счёта, ни складской проводки. Мы не продаём
+        # топливо со своего склада — мы везём чужое, и деньги по перевозке
+        # считаются полями блока «куплено»/«оплаты», а не тарифом.
+        pass
+    elif data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
         # Порог 3000 л (Д4): крупные заявки финальный счёт не выставляют
         # автоматически — менеджеру уходит уведомление для ручного выставления.
         delivered_volume = float(order.volume_delivered or order.volume_requested)
@@ -1234,6 +1574,9 @@ async def transition_status(
 
     await attach_payment_totals_one(db, order)
     await attach_buyer_name_one(order)
+    # Предупреждение о невыпущенном счёте едет в ответе — переход состоялся,
+    # но менеджер должен узнать, что счёт выставить не удалось.
+    order.invoice_warning = invoice_error
 
     # Строка идемпотентности с order_id уже записана gate'ом в начале функции —
     # повторная вставка не нужна.
@@ -1267,3 +1610,99 @@ async def archive_order(
         changed_by_role=actor.role,
         comment="Заявка архивирована",
     ))
+
+
+def _remove_document_files(file_paths: list[str]) -> None:
+    """Удалить PDF-файлы документов с диска. Ошибки логируем, но не падаем:
+    строки в БД уже удалены, осиротевший файл менее вреден, чем 500 на удалении."""
+    from app.services.document_service import MEDIA_ROOT
+
+    for rel_path in file_paths:
+        try:
+            path = resolve_media_path(MEDIA_ROOT, rel_path)
+            path.unlink(missing_ok=True)
+        except Exception:
+            log.warning("Не удалось удалить файл документа %s", rel_path, exc_info=True)
+
+
+async def hard_delete_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    actor: TokenUser,
+) -> dict:
+    """Полное удаление заявки со всеми связанными данными (только админ).
+
+    Архивирование (archive_order) остаётся мягким удалением; это — необратимое.
+    Каскад в order_service: документы (+ PDF с диска), платежи, лог статусов,
+    ключи идемпотентности, сама заявка. Счётчики номеров заявок и ТТН НЕ трогаем —
+    номера не переиспользуются.
+
+    Данные в других сервисах (рейсы и складские проводки delivery_service, чат
+    заявки, уведомления) удаляются подписчиками события `order_deleted`
+    в канале events:orders.
+    """
+    from app.models.document import Document
+    from app.models.idempotency_key import IdempotencyKey
+    from app.models.order_audit_log import OrderAuditLog
+    from app.models.payment import Payment
+
+    if actor.role != ROLE_ADMIN:
+        raise ForbiddenError("Полное удаление заявки доступно только администратору")
+
+    # Архивные заявки тоже удаляем — удаление доступно в любом статусе.
+    result = await db.execute(select(Order).where(Order.id == order_id))
+    order = result.scalar_one_or_none()
+    if not order:
+        raise NotFoundError("Заявка не найдена")
+
+    order_number = order.order_number
+    ttn_number = order.ttn_number
+    status_value = order.status.value
+    client_id = str(order.client_id) if order.client_id else None
+    driver_id = str(order.driver_id) if order.driver_id else None
+    # Сколько литров вернётся на склад: фактически доставленный объём.
+    stock_restored_l = (
+        float(order.volume_delivered) if order.volume_delivered is not None else None
+    )
+
+    doc_paths = [
+        p for p in (
+            await db.execute(
+                select(Document.file_path).where(Document.order_id == order_id)
+            )
+        ).scalars().all()
+        if p
+    ]
+
+    await db.execute(sa_delete(Document).where(Document.order_id == order_id))
+    await db.execute(sa_delete(Payment).where(Payment.order_id == order_id))
+    await db.execute(sa_delete(OrderStatusLog).where(OrderStatusLog.order_id == order_id))
+    await db.execute(sa_delete(OrderAuditLog).where(OrderAuditLog.order_id == order_id))
+    await db.execute(sa_delete(IdempotencyKey).where(IdempotencyKey.order_id == order_id))
+    await db.execute(sa_delete(Order).where(Order.id == order_id))
+    await db.commit()
+
+    _remove_document_files(doc_paths)
+
+    log.warning(
+        "action=order.hard_deleted order_id=%s order_number=%s actor_id=%s status=%s",
+        order_id, order_number, actor.id, status_value,
+    )
+
+    # Событие — только после успешного commit: подписчики (delivery/chat/
+    # notification) чистят свои данные и откатить их вместе с нами нельзя.
+    await publish_order_event({
+        "event": "order_deleted",
+        "order_id": str(order_id),
+        "order_number": order_number,
+        "ttn_number": ttn_number,
+        "actor_id": str(actor.id),
+        "client_id": client_id,
+        "driver_id": driver_id,
+    })
+
+    return {
+        "deleted": True,
+        "order_number": order_number,
+        "stock_restored_l": stock_restored_l,
+    }

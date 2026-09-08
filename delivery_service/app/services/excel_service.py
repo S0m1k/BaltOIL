@@ -63,6 +63,42 @@ def _cell(ws, row: int, col: int, value, fill=None, bold=False, fmt=None, align=
 
 # ── Отчёт водителя (доставленные заявки) ───────────────────────────────────────
 
+# Виды заявок (order_service OrderKind) в порядке секций отчёта.
+ORDER_KIND_SECTIONS = (
+    ("individual", "Физические лица",  "Физ"),
+    ("company",    "Юридические лица", "Юр"),
+    ("ttn_l",      "ТТН-Л",            "Л"),
+)
+_KIND_SHORT_RU = {code: short for code, _, short in ORDER_KIND_SECTIONS}
+# Вид может быть пустым (старые заявки) — такие строки не выбрасываем, иначе
+# сумма секций перестанет сходиться с общим объёмом отчёта.
+_OTHER_SECTION = ("Прочие", "—")
+
+
+def _driver_report_sections(orders: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Заявки по видам; пустые секции не возвращаются."""
+    buckets: dict[str, list[dict]] = {code: [] for code, _, _ in ORDER_KIND_SECTIONS}
+    other: list[dict] = []
+    for o in orders:
+        code = str(o.get("order_kind") or "")
+        (buckets[code] if code in buckets else other).append(o)
+
+    sections = [(title, buckets[code]) for code, title, _ in ORDER_KIND_SECTIONS if buckets[code]]
+    if other:
+        sections.append((_OTHER_SECTION[0], other))
+    return sections
+
+
+def _volume_sum(orders: list[dict]) -> float:
+    total = 0.0
+    for o in orders:
+        try:
+            total += float(o.get("volume_delivered") or 0)
+        except (TypeError, ValueError):
+            continue
+    return round(total, 2)
+
+
 def driver_report_xlsx(report: dict) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -70,13 +106,13 @@ def driver_report_xlsx(report: dict) -> bytes:
     ws.sheet_view.showGridLines = False
 
     # Title
-    ws.merge_cells("A1:F1")
+    ws.merge_cells("A1:H1")
     title_cell = ws["A1"]
     title_cell.value = "Отчёт водителя — доставленные заявки"
     title_cell.font  = _TITLE_FONT
     title_cell.alignment = _CENTER
 
-    ws.merge_cells("A2:F2")
+    ws.merge_cells("A2:H2")
     period = ws["A2"]
     period.value = (
         f"Период: {_fmt(report['period_from'])} — {_fmt(report['period_to'])}"
@@ -93,7 +129,7 @@ def driver_report_xlsx(report: dict) -> bytes:
         ("Доставлено заявок", report["total_orders"]),
         ("Объём, л",          report["total_volume_delivered"]),
     ]
-    ws.merge_cells(f"A{kpi_row}:F{kpi_row}")
+    ws.merge_cells(f"A{kpi_row}:H{kpi_row}")
     hdr = ws[f"A{kpi_row}"]
     hdr.value     = "Итоги"
     hdr.font      = _LABEL_FONT
@@ -104,14 +140,14 @@ def driver_report_xlsx(report: dict) -> bytes:
     for i, (label, value) in enumerate(kpis):
         r = kpi_row + 1 + i
         _cell(ws, r, 1, label, fill=_SUMMARY_FILL, bold=True)
-        ws.merge_cells(f"B{r}:F{r}")
+        ws.merge_cells(f"B{r}:H{r}")
         val_cell = _cell(ws, r, 2, value)
         val_cell.alignment = _LEFT
 
     # Orders table
     orders = report.get("orders", [])
     tbl_start = kpi_row + 1 + len(kpis) + 2
-    ws.merge_cells(f"A{tbl_start}:F{tbl_start}")
+    ws.merge_cells(f"A{tbl_start}:H{tbl_start}")
     hdr2 = ws[f"A{tbl_start}"]
     hdr2.value     = f"Заявки за период ({len(orders)})"
     hdr2.font      = _LABEL_FONT
@@ -120,20 +156,47 @@ def driver_report_xlsx(report: dict) -> bytes:
     hdr2.border    = _THIN_B
 
     col_hdr = tbl_start + 1
-    _header_row(ws, ["Дата доставки", "Заявка №", "Топливо", "Объём (л)", "Адрес", "Комментарий"],
+    _header_row(ws, ["Дата доставки", "Заявка №", "Вид", "№ ТТН", "Топливо", "Объём (л)",
+                     "Адрес", "Комментарий"],
                 row=col_hdr)
 
-    for i, o in enumerate(orders, 1):
-        r = col_hdr + i
-        _cell(ws, r, 1, _fmt(o.get("delivered_at")), fill=_ARRIVAL_FILL)
-        _cell(ws, r, 2, o.get("order_number", ""), fill=_ARRIVAL_FILL)
-        _cell(ws, r, 3, o.get("fuel_label") or o.get("fuel_type", ""), fill=_ARRIVAL_FILL)
-        _cell(ws, r, 4, float(o["volume_delivered"]) if o.get("volume_delivered") else "—",
-              fill=_ARRIVAL_FILL, fmt="#,##0.00")
-        _cell(ws, r, 5, o.get("delivery_address", ""), fill=_ARRIVAL_FILL)
-        _cell(ws, r, 6, o.get("comment") or "", fill=_ARRIVAL_FILL)
+    # Секции по виду заявки (правки заказчика 2026-09-02): физлица, юрлица,
+    # ТТН-Л — у каждой подытог по объёму, общий итог в конце.
+    r = col_hdr
+    for section_title, section_orders in _driver_report_sections(orders):
+        r += 1
+        ws.merge_cells(f"A{r}:H{r}")
+        sec = ws[f"A{r}"]
+        sec.value     = f"{section_title} ({len(section_orders)})"
+        sec.font      = _LABEL_FONT
+        sec.fill      = _SUMMARY_FILL
+        sec.alignment = _LEFT
+        sec.border    = _THIN_B
 
-    _set_col_widths(ws, [18, 16, 18, 14, 44, 40])
+        for o in section_orders:
+            r += 1
+            _cell(ws, r, 1, _fmt(o.get("delivered_at")), fill=_ARRIVAL_FILL)
+            _cell(ws, r, 2, o.get("order_number", ""), fill=_ARRIVAL_FILL)
+            _cell(ws, r, 3, _KIND_SHORT_RU.get(str(o.get("order_kind") or ""), _OTHER_SECTION[1]),
+                  fill=_ARRIVAL_FILL)
+            _cell(ws, r, 4, o.get("ttn_number") or "—", fill=_ARRIVAL_FILL)
+            _cell(ws, r, 5, o.get("fuel_label") or o.get("fuel_type", ""), fill=_ARRIVAL_FILL)
+            _cell(ws, r, 6, float(o["volume_delivered"]) if o.get("volume_delivered") else "—",
+                  fill=_ARRIVAL_FILL, fmt="#,##0.00")
+            _cell(ws, r, 7, o.get("delivery_address", ""), fill=_ARRIVAL_FILL)
+            _cell(ws, r, 8, o.get("comment") or "", fill=_ARRIVAL_FILL)
+
+        r += 1
+        _cell(ws, r, 1, f"Итого: {section_title}", fill=_SUMMARY_FILL, bold=True)
+        _cell(ws, r, 6, _volume_sum(section_orders), fill=_SUMMARY_FILL, bold=True, fmt="#,##0.00")
+
+    r += 1
+    _cell(ws, r, 1, "Итого по всем видам, л", fill=_SUMMARY_FILL, bold=True)
+    _cell(ws, r, 6, _volume_sum(orders), fill=_SUMMARY_FILL, bold=True, fmt="#,##0.00")
+
+    # Шапка таблицы остаётся видимой при прокрутке.
+    ws.freeze_panes = ws.cell(row=col_hdr + 1, column=1)
+    _set_col_widths(ws, [18, 16, 8, 22, 18, 14, 44, 40])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -152,13 +215,13 @@ def inventory_report_xlsx(report: dict) -> bytes:
     ws.sheet_view.showGridLines = False
 
     # Title
-    ws.merge_cells("A1:H1")
+    ws.merge_cells("A1:I1")
     title_cell = ws["A1"]
     title_cell.value = "Сводный складской отчёт"
     title_cell.font  = _TITLE_FONT
     title_cell.alignment = _CENTER
 
-    ws.merge_cells("A2:H2")
+    ws.merge_cells("A2:I2")
     period_cell = ws["A2"]
     fuel_filter = report.get("fuel_type_filter")
     period_cell.value = (
@@ -172,7 +235,7 @@ def inventory_report_xlsx(report: dict) -> bytes:
 
     # Summary table
     row = 4
-    ws.merge_cells(f"A{row}:H{row}")
+    ws.merge_cells(f"A{row}:I{row}")
     sh = ws[f"A{row}"]
     sh.value     = "Сводка по видам топлива"
     sh.font      = _LABEL_FONT
@@ -196,7 +259,7 @@ def inventory_report_xlsx(report: dict) -> bytes:
     drivers = report.get("driver_summary", [])
     if drivers:
         row += 2
-        ws.merge_cells(f"A{row}:H{row}")
+        ws.merge_cells(f"A{row}:I{row}")
         dh0 = ws[f"A{row}"]
         dh0.value     = "Итоги по водителям"
         dh0.font      = _LABEL_FONT
@@ -213,7 +276,7 @@ def inventory_report_xlsx(report: dict) -> bytes:
 
     # Transactions table
     row += 2
-    ws.merge_cells(f"A{row}:H{row}")
+    ws.merge_cells(f"A{row}:I{row}")
     dh = ws[f"A{row}"]
     dh.value     = f"Детализация операций ({len(report.get('transactions', []))})"
     dh.font      = _LABEL_FONT
@@ -223,7 +286,7 @@ def inventory_report_xlsx(report: dict) -> bytes:
 
     row += 1
     _header_row(ws, ["Дата", "Тип", "Топливо", "Объём (л)",
-                      "Заявка №", "Клиент", "Водитель", "Поставщик / Накладная"],
+                      "Заявка №", "№ ТТН", "Клиент", "Водитель", "Поставщик / Накладная"],
                 row=row)
     for tx in report.get("transactions", []):
         row += 1
@@ -238,13 +301,15 @@ def inventory_report_xlsx(report: dict) -> bytes:
         _cell(ws, row, 3, tx.get("fuel_label", tx.get("fuel_type", "")), fill=fill)
         _cell(ws, row, 4, float(tx.get("volume", 0)), fill=fill, fmt="#,##0.00")
         _cell(ws, row, 5, tx.get("order_number") or "—", fill=fill)
-        _cell(ws, row, 6, tx.get("client_name") or "—",  fill=fill)
-        _cell(ws, row, 7, tx.get("driver_name") or "—",  fill=fill)
+        # ТТН есть только у расходов по заявкам (приход/в бак/иное — прочерк).
+        _cell(ws, row, 6, tx.get("ttn_number") or "—", fill=fill)
+        _cell(ws, row, 7, tx.get("client_name") or "—",  fill=fill)
+        _cell(ws, row, 8, tx.get("driver_name") or "—",  fill=fill)
         supplier = tx.get("supplier_name") or ""
         invoice  = tx.get("invoice_number") or ""
-        _cell(ws, row, 8, f"{supplier} {invoice}".strip() or "—", fill=fill)
+        _cell(ws, row, 9, f"{supplier} {invoice}".strip() or "—", fill=fill)
 
-    _set_col_widths(ws, [18, 10, 16, 14, 16, 22, 22, 24])
+    _set_col_widths(ws, [18, 10, 16, 14, 16, 22, 22, 22, 24])
 
     buf = io.BytesIO()
     wb.save(buf)

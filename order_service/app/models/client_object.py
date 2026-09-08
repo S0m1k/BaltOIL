@@ -26,8 +26,20 @@ class ClientObject(Base):
         UUID(as_uuid=True), nullable=False, index=True
     )
 
+    # Организация, на которую оформлялась заявка с этим адресом (CRM-45).
+    # NULL = объект физлица. Позволяет предложить адрес и контакт при следующей
+    # заявке на ту же организацию, даже если её оформляет другой сотрудник.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+
     # Необязательное название: «Склад на Невском». Если не задано, показывается адрес.
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Контактное лицо приёмки по этому адресу (CRM-45) — подставляется в форму
+    # новой заявки вместе с адресом.
+    contact_person_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    contact_person_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
 

@@ -317,6 +317,41 @@ async def update_staff_group_members(
     return _conv_list_response(conv)
 
 
+class GroupMemberRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+@router.post("/staff-group/{conv_id}/members/add", response_model=list[ConversationMember])
+async def add_staff_group_member(
+    conv_id: uuid.UUID,
+    body: GroupMemberRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Добавить участника в приватную группу (CRM-47) — админ или создатель чата.
+
+    Возвращает обновлённый состав. В чат уходит системное сообщение.
+    """
+    await conversation_service.add_group_member(db, actor, conv_id, body.user_id, redis=redis)
+    rows = await conversation_service.get_conversation_members(db, conv_id, actor)
+    return [ConversationMember(**r) for r in rows]
+
+
+@router.delete("/staff-group/{conv_id}/members/{user_id}", response_model=list[ConversationMember])
+async def remove_staff_group_member(
+    conv_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Удалить участника из приватной группы (CRM-47) — админ или создатель чата."""
+    await conversation_service.remove_group_member(db, actor, conv_id, user_id, redis=redis)
+    rows = await conversation_service.get_conversation_members(db, conv_id, actor)
+    return [ConversationMember(**r) for r in rows]
+
+
 class PinRequest(BaseModel):
     is_pinned: bool
 

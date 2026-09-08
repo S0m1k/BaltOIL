@@ -16,8 +16,13 @@ async def list_client_objects(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     client_id: uuid.UUID | None = Query(None),
+    organization_id: uuid.UUID | None = Query(
+        None, description="CRM-45: добавить к списку объекты этой организации"
+    ),
 ):
-    return await client_object_service.list_objects(db, current_user, client_id)
+    return await client_object_service.list_objects(
+        db, current_user, client_id, organization_id
+    )
 
 
 @router.post("", response_model=ClientObjectResponse, status_code=201)

@@ -4,20 +4,28 @@ from .payment import Payment, PaymentStatus, PaymentMethod, PaymentKind
 from .order_counter import OrderKindCounter
 from .legal_entity import LegalEntity
 from .document import Document, DocumentType, DocumentStatus
-from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier
+from .tariff import Tariff, TariffFuelPrice, TariffVolumeTier, TariffPriceHistory
 from .fuel_type_catalog import FuelTypeCatalog
 from .idempotency_key import IdempotencyKey
 from .client_object import ClientObject
+from .order_audit_log import OrderAuditLog
+from .transport import (
+    TransportBase, TransportClientObject, TransportClientAddress,
+    TransportDetail, TransportType, RoutePointKind,
+)
 
 __all__ = [
+    "TransportBase", "TransportClientObject", "TransportClientAddress",
+    "TransportDetail", "TransportType", "RoutePointKind",
     "Order", "OrderStatus", "OrderKind", "PaymentType",
     "OrderStatusLog",
     "Payment", "PaymentStatus", "PaymentMethod", "PaymentKind",
     "OrderKindCounter",
     "LegalEntity",
     "Document", "DocumentType", "DocumentStatus",
-    "Tariff", "TariffFuelPrice", "TariffVolumeTier",
+    "Tariff", "TariffFuelPrice", "TariffVolumeTier", "TariffPriceHistory",
     "FuelTypeCatalog",
     "IdempotencyKey",
     "ClientObject",
+    "OrderAuditLog",
 ]
