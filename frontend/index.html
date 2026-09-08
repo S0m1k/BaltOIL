@@ -1949,6 +1949,7 @@ setTimeout(function () {
       <button class="nav-tab" data-tab="users" id="tab-users-btn" onclick="switchTab('users')">Пользователи</button>
       <button class="nav-tab" data-tab="legal-entity" id="tab-legal-entity-btn" onclick="switchTab('legal-entity')" style="display:none">Реквизиты</button>
       <button class="nav-tab" data-tab="zones" id="tab-zones-btn" onclick="switchTab('zones')" style="display:none">Зоны</button>
+      <button class="nav-tab" data-tab="transport" id="tab-transport-btn" onclick="switchTab('transport')" style="display:none">Перевозка</button>
       <button class="nav-tab" data-tab="chat" id="tab-chat-btn" onclick="switchTab('chat')">Чат<span class="chat-tab-badge" id="chat-tab-badge" style="display:none"></span></button>
       <!-- Hidden tabs (accessible via JS) -->
       <button class="nav-tab" data-tab="vehicles" id="tab-vehicles-btn" onclick="switchTab('vehicles')" style="display:none">ТС</button>
@@ -2031,10 +2032,15 @@ setTimeout(function () {
         <button class="kind-chip"        data-kind="individual" onclick="switchOrderKind('individual')">Физ</button>
         <button class="kind-chip"        data-kind="company"    onclick="switchOrderKind('company')">Юр</button>
         <button class="kind-chip"        data-kind="ttn_l"      onclick="switchOrderKind('ttn_l')">Л</button>
+        <button class="kind-chip"        data-kind="transport"  onclick="switchOrderKind('transport')">Перевозка</button>
       </div>
       <button id="orders-new-btn" class="btn btn-primary"
         style="width:100%;margin:4px 0 14px;font-size:15px;padding:14px;display:none"
         onclick="switchTab('create')">+ Новая заявка</button>
+      <!-- Перевозка (ТЗ 09.2026): кнопка под «+ Новая заявка», только staff -->
+      <button id="orders-transport-btn" class="btn btn-primary"
+        style="width:100%;margin:0 0 14px;font-size:15px;padding:14px;display:none"
+        onclick="openTransportCreate()">перевозка</button>
       <div id="orders-registry-legend" class="registry-legend" style="display:none;padding-left:2px">
         <span><span class="legend-dot" style="background:#10b981"></span>Оплачено</span>
         <span><span class="legend-dot" style="background:rgba(107,114,128,.4)"></span>Не оплачено</span>
@@ -2943,6 +2949,178 @@ setTimeout(function () {
       </div>
     </div>
 
+    <!-- TRANSPORT DIRECTORY TAB (ТЗ 09.2026) -->
+    <div class="tab-pane" id="pane-transport">
+      <div class="toolbar">
+        <div class="toolbar-title">Перевозка — справочники</div>
+        <button class="btn btn-sm btn-ghost" onclick="loadTransportDirectory()" style="margin-left:auto">↻ Обновить</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;align-items:start">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-weight:600;font-size:14px">Нефтебазы</span>
+            <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="promptTransportBase()">+</button>
+          </div>
+          <div id="transport-bases-list" style="display:flex;flex-direction:column;gap:8px">
+            <div class="empty-state"><div class="loading"></div></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-weight:600;font-size:14px">Объекты клиентов</span>
+            <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="promptTransportObject()">+</button>
+          </div>
+          <div id="transport-objects-list" style="display:flex;flex-direction:column;gap:8px">
+            <div class="empty-state"><div class="loading"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TRANSPORT CREATE TAB (ТЗ 09.2026) -->
+    <div class="tab-pane" id="pane-transport-create">
+      <div class="form-card">
+        <div class="form-card-title">Создать заявку <span style="color:var(--red)">на перевозку</span></div>
+
+        <div class="section-divider">информация о доставке</div>
+
+        <div class="form-group">
+          <label class="form-label">Тип перевозки</label>
+          <select id="tr-type" class="form-input" onchange="onTransportTypeChange()">
+            <option value="to_base">Доставка на базу</option>
+            <option value="to_client">Услуга доставки клиенту</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="tr-client-group" style="display:none">
+          <label class="form-label">Клиент (объект)</label>
+          <select id="tr-client-object" class="form-input" onchange="renderTransportRoute()">
+            <option value="">— выберите клиента —</option>
+          </select>
+        </div>
+
+        <div class="section-divider">маршрут</div>
+        <div class="form-group">
+          <label class="form-label">откуда</label>
+          <div id="tr-from-wrap"></div>
+        </div>
+        <div id="tr-waypoints"></div>
+        <div class="form-group">
+          <label class="form-label">куда</label>
+          <div id="tr-to-wrap"></div>
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost" id="tr-add-waypoint"
+          style="color:var(--red);margin-bottom:14px" onclick="addTransportWaypoint()">
+          + промежуточная точка
+        </button>
+
+        <div class="section-divider">количество</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">кг</label>
+            <input type="number" id="tr-kg" class="form-input" step="0.001" min="0"
+              oninput="recalcTransportBlock2()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">л</label>
+            <input type="number" id="tr-l" class="form-input" step="0.001" min="0"
+              oninput="onTransportLitersEdited()">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">вид топлива</label>
+          <select id="tr-fuel" class="form-input">
+            <option value="">— не указан —</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">желаемая дата доставки</label>
+          <input type="text" id="tr-date" class="form-input" placeholder="например, до 15 сентября">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">комментарий</label>
+          <textarea id="tr-comment" class="form-input" rows="2"></textarea>
+        </div>
+
+        <!-- ── БЛОК 2: только менеджер и админ ── -->
+        <div id="tr-block2">
+          <!-- Тип «доставка на базу»: раздел «куплено» -->
+          <div id="tr-bought">
+            <div class="section-divider">куплено</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">цена, ₽/кг</label>
+                <input type="number" id="tr-price-kg" class="form-input" step="0.0001" min="0"
+                  oninput="recalcTransportBlock2()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">цена, ₽/л</label>
+                <input type="number" id="tr-price-l" class="form-input" step="0.0001" min="0"
+                  oninput="recalcTransportBlock2()">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">плотность</label>
+                <input type="number" id="tr-density" class="form-input" step="0.0001" min="0"
+                  placeholder="0.84" oninput="recalcTransportBlock2()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">кол-во, л (кг × плотность)</label>
+                <input type="text" id="tr-l-computed" class="form-input" readonly
+                  style="background:var(--bg3)">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">итого, ₽ (кол-во × стоимость)</label>
+              <input type="number" id="tr-total" class="form-input" step="0.01" min="0"
+                oninput="onTransportTotalEdited()">
+            </div>
+
+            <div class="section-divider">оплаты поставщику</div>
+            <div id="tr-supplier-payments"></div>
+          </div>
+
+          <!-- Тип «услуга доставки клиенту»: раздел «оплаты» -->
+          <div id="tr-service" style="display:none">
+            <div class="section-divider">оплаты</div>
+            <div class="form-group">
+              <label class="form-label">стоимость доставки, ₽</label>
+              <input type="number" id="tr-delivery-price" class="form-input" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label" style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="tr-delivery-paid">
+                <span>получили оплату</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="section-divider">водителю</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">сумма, ₽</label>
+              <input type="number" id="tr-driver-amount" class="form-input" step="0.01" min="0"
+                oninput="onTransportDriverAmountEdited()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">%</label>
+              <input type="number" id="tr-driver-percent" class="form-input" step="0.01"
+                min="0" max="100" value="25" oninput="recalcTransportBlock2()">
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:18px">
+          <button class="btn btn-primary" id="tr-submit" onclick="submitTransportOrder()">Создать заявку на перевозку</button>
+          <button class="btn btn-ghost" onclick="switchTab('orders')">Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <!-- PROFILE TAB -->
     <div class="tab-pane" id="pane-profile">
       <div class="profile-card">
@@ -3244,6 +3422,7 @@ function buildBurgerMenu() {
     { tab: 'users',     label: 'Пользователи',         show: role === 'admin' },
     { tab: 'legal-entity', label: 'Реквизиты',         show: role === 'admin' },
     { tab: 'zones',     label: 'Зоны',                show: role === 'admin' },
+    { tab: 'transport', label: 'Перевозка',           show: role === 'manager' || role === 'admin' },
     { tab: 'chat',      label: 'Чат',                 show: true },
     // Профиль: на мобиле user-badge скрыт, бургер — единственный путь к нему
     { tab: 'profile',   label: 'Мой профиль',          show: true },
@@ -4093,6 +4272,13 @@ async function initApp() {
   document.getElementById('tab-zones-btn').style.display =
     role === 'admin' ? '' : 'none';
 
+  // Перевозка (ТЗ 09.2026): справочники и создание заявок — менеджер и админ.
+  // Водитель перевозок видит только сами заявки в общем реестре.
+  const transportTabBtn = document.getElementById('tab-transport-btn');
+  if (transportTabBtn) transportTabBtn.style.display = isStaff ? '' : 'none';
+  const transportNewBtn = document.getElementById('orders-transport-btn');
+  if (transportNewBtn) transportNewBtn.style.display = isStaff ? '' : 'none';
+
   // Режим «только чаты» (правки 2026-07-14): клиенту с флагом остаётся
   // только мессенджер (+ профиль через бургер/меню) — прочие вкладки скрываем.
   if (_isChatsOnly()) {
@@ -4187,6 +4373,7 @@ function switchTab(tab) {
   if (tab === 'users')     loadUsers();
   if (tab === 'legal-entity') loadLegalEntity();
   if (tab === 'zones')       initZones();
+  if (tab === 'transport')   loadTransportDirectory();
   // Stop chat poll when leaving the chat tab
   if (tab !== 'chat') stopChatPoll();
 }
@@ -4745,7 +4932,7 @@ let _activeOrderStatus = 'new';
 // Фильтр по виду заявки (правки 2026-09-02): '' = все. Переживает перезагрузку —
 // менеджер, работающий только с юрлицами, не переключает его каждый раз заново.
 const ORDER_KIND_FILTER_KEY = 'orders.kindFilter';
-const _ORDER_KINDS = ['individual', 'company', 'ttn_l'];
+const _ORDER_KINDS = ['individual', 'company', 'ttn_l', 'transport'];
 let _activeOrderKind = (() => {
   try {
     const v = localStorage.getItem(ORDER_KIND_FILTER_KEY);
@@ -5105,7 +5292,11 @@ function orderCardHTML(o) {
         ${_shipmentControlsHTML(o)}
         ${o.rejection_reason ? `<div class="detail-item"><div class="detail-label">Причина отклонения</div><div class="detail-value" style="color:var(--red)">${escHtml(o.rejection_reason)}</div></div>` : ''}
       </div>
-      ${paymentSummaryHTML(o)}
+      ${o.order_kind === 'transport' ? `<div class="timeline-section" id="tr-detail-${o.id}">
+        <div class="timeline-title">Перевозка</div>
+        <div class="loading"></div>
+      </div>` : ''}
+      ${o.order_kind === 'transport' ? '' : paymentSummaryHTML(o)}
       ${actionBarHTML(o)}
       <div class="timeline-section" id="timeline-${o.id}">
         <div class="timeline-title">История статусов</div>
@@ -5210,7 +5401,13 @@ async function toggleCard(orderId) {
     card.classList.add('expanded');
     await loadTimeline(orderId);
     const role = currentUser?.role;
-    if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') loadDocs(orderId);
+    // Перевозка (ТЗ 09.2026): счетов и документов у неё нет, вместо них —
+    // детали маршрута и (для staff) блок «куплено»/«оплаты».
+    if (card.dataset.orderKind === 'transport') {
+      loadTransportDetail(orderId);
+    } else if ((role === 'manager' || role === 'admin' || role === 'client') && card.dataset.orderKind !== 'individual') {
+      loadDocs(orderId);
+    }
     if (role === 'admin') loadOrderAudit(orderId);  // CRM-44
   }
 }
@@ -5721,9 +5918,12 @@ function actionBarHTML(o) {
     // Назначенная заявка NEW — водитель принимает напрямую
     if (s === 'new' && o.driver_id === currentUser?.id)
       btns.push(`<button class="btn btn-sm btn-success" onclick="transitionOrder('${o.id}','accepted',{comment:'Принята водителем'})">${icon('check',14)} Принять</button>`);
-    // Своя заявка ACCEPTED — можно отметить доставку (требует номер ТТН)
+    // Своя заявка ACCEPTED — можно отметить доставку (требует номер ТТН).
+    // У перевозки своё окно: подтверждение маршрута и даты (ТЗ 09.2026).
     if (s === 'accepted' && o.driver_id === currentUser?.id)
-      btns.push(`<button class="btn btn-sm btn-warn" onclick="promptDeliver('${o.id}')">✓ Доставлена</button>`);
+      btns.push(o.order_kind === 'transport'
+        ? `<button class="btn btn-sm btn-warn" onclick="promptDeliverTransport('${o.id}')">✓ Доставлена</button>`
+        : `<button class="btn btn-sm btn-warn" onclick="promptDeliver('${o.id}')">✓ Доставлена</button>`);
     if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести дату</button>`);
     // Driver delivery readiness note for individual orders (DECISION 2)
@@ -13457,6 +13657,714 @@ window._handleNotifForCalls = function (n) {
     _handleCallEnded(n.call_id || n.entity_id);
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ПЕРЕВОЗКА (ТЗ 09.2026): справочники, форма заявки, окно доставки
+// ═══════════════════════════════════════════════════════════════
+// Заявка на перевозку — подвид заявки (order_kind='transport'). Блок 1 виден
+// водителю, блок 2 (куплено/оплаты) — только менеджеру и админу. Маршрут
+// собирается из справочников: нефтебазы, наша база, объекты клиентов.
+
+let _trBases = [];        // [{id,name,default_delivery_cost,is_active}]
+let _trObjects = [];      // [{id,name,client_id,addresses:[],has_contract}]
+let _trWaypoints = [];    // черновик маршрута: [{kind,id,text}]
+let _trEditingId = null;  // id редактируемой перевозки (null = создание)
+// Пользователь тронул поле руками → формулы его больше не перетирают.
+const _trTouched = { l: false, total: false, driver: false };
+
+function _trIsStaff() {
+  const r = currentUser?.role;
+  return r === 'manager' || r === 'admin';
+}
+
+function _trNum(id) {
+  const raw = document.getElementById(id)?.value;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _trStr(id) {
+  const raw = document.getElementById(id)?.value;
+  const s = (raw || '').trim();
+  return s === '' ? null : s;
+}
+
+// ── Справочники ───────────────────────────────────────────────────────────────
+
+async function loadTransportDirectory() {
+  const basesEl = document.getElementById('transport-bases-list');
+  const objsEl = document.getElementById('transport-objects-list');
+  if (!basesEl || !objsEl) return;
+  basesEl.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  objsEl.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    const [bases, objects] = await Promise.all([
+      orderGet('/transport/bases'),
+      orderGet('/transport/client-objects'),
+    ]);
+    _trBases = bases || [];
+    _trObjects = objects || [];
+    renderTransportBases();
+    renderTransportObjects();
+  } catch (e) {
+    basesEl.innerHTML = '<div class="empty-state">' + escHtml(e.message) + '</div>';
+    objsEl.innerHTML = '';
+  }
+}
+
+function renderTransportBases() {
+  const el = document.getElementById('transport-bases-list');
+  if (!el) return;
+  if (!_trBases.length) {
+    el.innerHTML = '<div class="empty-state">Нефтебаз пока нет</div>';
+    return;
+  }
+  el.innerHTML = _trBases.map(function (b) {
+    const cost = b.default_delivery_cost != null
+      ? '<div class="muted" style="font-size:12px">доставка по умолчанию: ' + escHtml(String(b.default_delivery_cost)) + ' ₽</div>'
+      : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border-radius:10px">'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:500">' + escHtml(b.name) + '</div>' + cost + '</div>'
+      + '<button class="btn btn-sm btn-ghost" onclick="promptTransportBase(\'' + b.id + '\')">Изменить</button>'
+      + '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteTransportBase(\'' + b.id + '\')">Удалить</button>'
+      + '</div>';
+  }).join('');
+}
+
+function renderTransportObjects() {
+  const el = document.getElementById('transport-objects-list');
+  if (!el) return;
+  if (!_trObjects.length) {
+    el.innerHTML = '<div class="empty-state">Объектов клиентов пока нет</div>';
+    return;
+  }
+  el.innerHTML = _trObjects.map(function (o) {
+    const addrs = (o.addresses || []).map(function (a) { return escHtml(a.address); }).join('<br>');
+    const contract = o.has_contract
+      ? '<a href="#" onclick="downloadTransportContract(\'' + o.id + '\');return false">договор: ' + escHtml(o.contract_file_name || 'файл') + '</a>'
+      : 'договор не прикреплён';
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--bg2);border-radius:10px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-weight:500">' + escHtml(o.name) + '</div>'
+      + (addrs ? '<div class="muted" style="font-size:12px;margin-top:2px">' + addrs + '</div>' : '')
+      + '<div class="muted" style="font-size:12px;margin-top:2px">' + contract + '</div>'
+      + '</div>'
+      + '<button class="btn btn-sm btn-ghost" onclick="uploadTransportContract(\'' + o.id + '\')">Договор</button>'
+      + '<button class="btn btn-sm btn-ghost" onclick="promptTransportObject(\'' + o.id + '\')">Изменить</button>'
+      + '<button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="deleteTransportObject(\'' + o.id + '\')">Удалить</button>'
+      + '</div>';
+  }).join('');
+}
+
+function promptTransportBase(id) {
+  const base = id ? _trBases.find(function (b) { return b.id === id; }) : null;
+  openModal(base ? 'Изменить нефтебазу' : 'Новая нефтебаза',
+    '<div class="form-group"><label class="form-label">Название</label>'
+    + '<input type="text" id="tb-name" class="form-input" value="' + escHtml(base ? base.name : '') + '"></div>'
+    + '<div class="form-group"><label class="form-label">Стоимость доставки по умолчанию, ₽</label>'
+    + '<input type="number" id="tb-cost" class="form-input" step="0.01" min="0" value="'
+    + (base && base.default_delivery_cost != null ? escHtml(String(base.default_delivery_cost)) : '') + '"></div>',
+    async function () {
+      const name = (document.getElementById('tb-name').value || '').trim();
+      if (!name) return toast('Укажите название', 'error');
+      const cost = _trNum('tb-cost');
+      try {
+        const body = { name: name, default_delivery_cost: cost };
+        if (base) await orderPatch('/transport/bases/' + base.id, body);
+        else await orderPost('/transport/bases', body);
+        closeModal();
+        toast(base ? 'Нефтебаза изменена' : 'Нефтебаза добавлена');
+        loadTransportDirectory();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+async function deleteTransportBase(id) {
+  const base = _trBases.find(function (b) { return b.id === id; });
+  if (!confirm('Удалить нефтебазу «' + (base ? base.name : '') + '»?')) return;
+  try {
+    await api(ORDER_URL + '/transport/bases/' + id, { method: 'DELETE' });
+    toast('Нефтебаза удалена');
+    loadTransportDirectory();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function promptTransportObject(id) {
+  const obj = id ? _trObjects.find(function (o) { return o.id === id; }) : null;
+  // Клиентов подгружаем для привязки объекта (ТЗ: «клиента чтобы можно было
+  // прикрепить к этой организации»).
+  let list = [];
+  try {
+    const clients = await authGet('/users?role=client&limit=200&include_inactive=false');
+    list = Array.isArray(clients) ? clients : (clients && clients.items ? clients.items : []);
+  } catch (e) { /* привязку можно задать позже */ }
+  const opts = ['<option value="">— без клиента —</option>'].concat(list.map(function (c) {
+    const sel = obj && obj.client_id === c.id ? ' selected' : '';
+    return '<option value="' + c.id + '"' + sel + '>' + escHtml(c.full_name || c.phone || c.email || c.id) + '</option>';
+  })).join('');
+  const addrText = (obj && obj.addresses ? obj.addresses : []).map(function (a) { return a.address; }).join('\n');
+  openModal(obj ? 'Изменить объект клиента' : 'Новый объект клиента',
+    '<div class="form-group"><label class="form-label">Название организации / объекта</label>'
+    + '<input type="text" id="to-name" class="form-input" value="' + escHtml(obj ? obj.name : '') + '"></div>'
+    + '<div class="form-group"><label class="form-label">Клиент</label>'
+    + '<select id="to-client" class="form-input">' + opts + '</select></div>'
+    + '<div class="form-group"><label class="form-label">Адреса (по одному в строке)</label>'
+    + '<textarea id="to-addresses" class="form-input" rows="4">' + escHtml(addrText) + '</textarea></div>',
+    async function () {
+      const name = (document.getElementById('to-name').value || '').trim();
+      if (!name) return toast('Укажите название', 'error');
+      const addresses = (document.getElementById('to-addresses').value || '')
+        .split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      const body = {
+        name: name,
+        client_id: document.getElementById('to-client').value || null,
+        addresses: addresses,
+      };
+      try {
+        if (obj) await orderPatch('/transport/client-objects/' + obj.id, body);
+        else await orderPost('/transport/client-objects', body);
+        closeModal();
+        toast(obj ? 'Объект изменён' : 'Объект добавлен');
+        loadTransportDirectory();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+async function deleteTransportObject(id) {
+  const obj = _trObjects.find(function (o) { return o.id === id; });
+  if (!confirm('Удалить объект «' + (obj ? obj.name : '') + '»?')) return;
+  try {
+    await api(ORDER_URL + '/transport/client-objects/' + id, { method: 'DELETE' });
+    toast('Объект удалён');
+    loadTransportDirectory();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Договор объекта: multipart — Content-Type проставляет браузер, поэтому
+// идём мимо api() (он всегда шлёт application/json).
+function uploadTransportContract(id) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.doc,.docx,.jpg,.jpeg,.png';
+  inp.onchange = async function () {
+    const file = inp.files && inp.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(ORDER_URL + '/transport/client-objects/' + id + '/contract', {
+        method: 'POST',
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(function () { return {}; });
+        throw new Error(_formatApiError(d.detail) || ('HTTP ' + res.status));
+      }
+      toast('Договор загружен');
+      loadTransportDirectory();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  inp.click();
+}
+
+async function downloadTransportContract(id) {
+  try {
+    const token = localStorage.getItem('access_token');
+    const res = await fetch(ORDER_URL + '/transport/client-objects/' + id + '/contract', {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const obj = _trObjects.find(function (o) { return o.id === id; });
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (obj && obj.contract_file_name) || 'договор';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Форма заявки на перевозку ────────────────────────────────────────────────
+
+// Варианты точек по ТЗ:
+//   «доставка на базу»      → откуда: нефтебазы;                куда: база
+//   «услуга доставки клиенту» → откуда: нефтебазы + база + объекты клиентов;
+//                             куда и промежуточные: объекты клиентов
+function _trPointOptions(slot) {
+  const type = document.getElementById('tr-type')?.value || 'to_base';
+  const out = [];
+  if (type === 'to_base') {
+    if (slot === 'from') {
+      _trBases.forEach(function (b) { out.push({ kind: 'oil_depot', id: b.id, label: b.name }); });
+    } else {
+      out.push({ kind: 'base', id: null, label: 'База' });
+    }
+    return out;
+  }
+  if (slot === 'from') {
+    _trBases.forEach(function (b) { out.push({ kind: 'oil_depot', id: b.id, label: b.name }); });
+    out.push({ kind: 'base', id: null, label: 'База' });
+  }
+  _trObjects.forEach(function (o) { out.push({ kind: 'client_object', id: o.id, label: o.name }); });
+  return out;
+}
+
+function _trPointSelectHTML(slot, elId, current) {
+  const opts = _trPointOptions(slot);
+  const curKey = current ? (current.kind + ':' + (current.id || '')) : '';
+  const body = ['<option value="">— выберите —</option>'].concat(opts.map(function (o) {
+    const key = o.kind + ':' + (o.id || '');
+    return '<option value="' + key + '"' + (key === curKey ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+  })).join('');
+  return '<select id="' + elId + '" class="form-input">' + body + '</select>';
+}
+
+function _trReadPoint(elId) {
+  const raw = document.getElementById(elId)?.value || '';
+  if (!raw) return null;
+  const sep = raw.indexOf(':');
+  const kind = raw.slice(0, sep);
+  const id = raw.slice(sep + 1);
+  const point = { kind: kind, id: id || null };
+  if (kind === 'base') point.text = 'База';
+  return point;
+}
+
+function renderTransportRoute() {
+  const fromWrap = document.getElementById('tr-from-wrap');
+  const toWrap = document.getElementById('tr-to-wrap');
+  if (!fromWrap || !toWrap) return;
+  const prevFrom = _trReadPoint('tr-from');
+  const prevTo = _trReadPoint('tr-to');
+  fromWrap.innerHTML = _trPointSelectHTML('from', 'tr-from', prevFrom);
+  toWrap.innerHTML = _trPointSelectHTML('to', 'tr-to', prevTo);
+  // Для доставки на базу «куда» всегда База — выбирать не из чего.
+  const type = document.getElementById('tr-type')?.value || 'to_base';
+  const toSel = document.getElementById('tr-to');
+  if (type === 'to_base' && toSel) {
+    toSel.value = 'base:';
+    toSel.disabled = true;
+  } else if (toSel) {
+    toSel.disabled = false;
+  }
+  renderTransportWaypoints();
+}
+
+function renderTransportWaypoints() {
+  const wrap = document.getElementById('tr-waypoints');
+  if (!wrap) return;
+  wrap.innerHTML = _trWaypoints.map(function (wp, i) {
+    return '<div class="form-group">'
+      + '<label class="form-label">промежуточная точка ' + (i + 1) + '</label>'
+      + '<div style="display:flex;gap:8px;align-items:center">'
+      + '<div style="flex:1">' + _trPointSelectHTML('waypoint', 'tr-wp-' + i, wp) + '</div>'
+      + '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="removeTransportWaypoint(' + i + ')">✕</button>'
+      + '</div></div>';
+  }).join('');
+  const addBtn = document.getElementById('tr-add-waypoint');
+  if (addBtn) addBtn.style.display = _trWaypoints.length >= 3 ? 'none' : '';
+}
+
+function addTransportWaypoint() {
+  if (_trWaypoints.length >= 3) return toast('Промежуточных точек не больше трёх', 'error');
+  _trSyncWaypointsFromDom();
+  _trWaypoints.push(null);
+  renderTransportWaypoints();
+}
+
+function removeTransportWaypoint(i) {
+  _trSyncWaypointsFromDom();
+  _trWaypoints.splice(i, 1);
+  renderTransportWaypoints();
+}
+
+// Перед перерисовкой сохраняем то, что уже выбрано в селектах.
+function _trSyncWaypointsFromDom() {
+  _trWaypoints = _trWaypoints.map(function (wp, i) {
+    const el = document.getElementById('tr-wp-' + i);
+    return el ? _trReadPoint('tr-wp-' + i) : wp;
+  });
+}
+
+function onTransportTypeChange() {
+  const type = document.getElementById('tr-type')?.value || 'to_base';
+  const clientGroup = document.getElementById('tr-client-group');
+  if (clientGroup) clientGroup.style.display = type === 'to_client' ? '' : 'none';
+  // Блок 2 зависит от типа: «куплено» для базы, «оплаты» для услуги клиенту.
+  const bought = document.getElementById('tr-bought');
+  const service = document.getElementById('tr-service');
+  if (bought) bought.style.display = type === 'to_base' ? '' : 'none';
+  if (service) service.style.display = type === 'to_client' ? '' : 'none';
+  renderTransportRoute();
+  recalcTransportBlock2();
+}
+
+// ── Формулы блока 2 (сервер — источник истины, тут живая подсказка) ───────────
+
+function onTransportLitersEdited() { _trTouched.l = true; recalcTransportBlock2(); }
+function onTransportTotalEdited() { _trTouched.total = true; recalcTransportBlock2(); }
+function onTransportDriverAmountEdited() { _trTouched.driver = true; }
+
+function recalcTransportBlock2() {
+  const kg = _trNum('tr-kg');
+  const density = _trNum('tr-density');
+  // кол-во кг × плотность = кол-во литров
+  const computedL = (kg != null && density != null) ? +(kg * density).toFixed(3) : null;
+  const computedEl = document.getElementById('tr-l-computed');
+  if (computedEl) computedEl.value = computedL != null ? computedL : '';
+  // Литры подставляем, пока пользователь не ввёл их вручную.
+  const lEl = document.getElementById('tr-l');
+  if (lEl && computedL != null && !_trTouched.l) lEl.value = computedL;
+
+  // итого = кол-во × стоимость (приоритет у пары «кг», как на бэке)
+  const l = _trNum('tr-l');
+  const priceKg = _trNum('tr-price-kg');
+  const priceL = _trNum('tr-price-l');
+  let total = null;
+  if (kg != null && priceKg != null) total = +(kg * priceKg).toFixed(2);
+  else if (l != null && priceL != null) total = +(l * priceL).toFixed(2);
+  const totalEl = document.getElementById('tr-total');
+  if (totalEl && total != null && !_trTouched.total) totalEl.value = total;
+
+  // водителю = итого × процент (по умолчанию 25 %), можно ввести самому
+  const base = _trNum('tr-total');
+  const pct = _trNum('tr-driver-percent');
+  const driverEl = document.getElementById('tr-driver-amount');
+  if (driverEl && base != null && !_trTouched.driver) {
+    driverEl.value = +(base * (pct == null ? 25 : pct) / 100).toFixed(2);
+  }
+}
+
+function renderTransportSupplierPayments(rows) {
+  const wrap = document.getElementById('tr-supplier-payments');
+  if (!wrap) return;
+  const data = rows && rows.length ? rows : [];
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    const r = data[i] || {};
+    html += '<div class="form-row">'
+      + '<div class="form-group"><label class="form-label">поставщику, ₽</label>'
+      + '<input type="number" id="tr-sp-amount-' + i + '" class="form-input" step="0.01" min="0" value="'
+      + (r.amount != null ? escHtml(String(r.amount)) : '') + '"></div>'
+      + '<div class="form-group"><label class="form-label">дата</label>'
+      + '<input type="date" id="tr-sp-date-' + i + '" class="form-input" value="'
+      + (r.date ? escHtml(String(r.date).slice(0, 10)) : '') + '"></div>'
+      + '</div>';
+  }
+  wrap.innerHTML = html;
+}
+
+function _trCollectSupplierPayments() {
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const amount = _trNum('tr-sp-amount-' + i);
+    const date = _trStr('tr-sp-date-' + i);
+    if (amount == null && !date) continue;
+    out.push({ amount: amount, date: date });
+  }
+  return out;
+}
+
+// ── Открытие формы ───────────────────────────────────────────────────────────
+
+async function openTransportCreate(orderId) {
+  if (!_trIsStaff()) return toast('Перевозки заводят менеджер и админ', 'error');
+  _trEditingId = orderId || null;
+  _trWaypoints = [];
+  _trTouched.l = false; _trTouched.total = false; _trTouched.driver = false;
+  switchTab('transport-create');
+  // Справочники нужны для селектов маршрута.
+  if (!_trBases.length && !_trObjects.length) await loadTransportDirectory();
+  _trFillFuelSelect();
+  _trFillClientObjects();
+
+  const titleEl = document.querySelector('#pane-transport-create .form-card-title');
+  const submitEl = document.getElementById('tr-submit');
+  if (orderId) {
+    if (titleEl) titleEl.innerHTML = 'Заявка <span style="color:var(--red)">на перевозку</span> — изменение';
+    if (submitEl) submitEl.textContent = 'Сохранить изменения';
+    await _trLoadIntoForm(orderId);
+  } else {
+    if (titleEl) titleEl.innerHTML = 'Создать заявку <span style="color:var(--red)">на перевозку</span>';
+    if (submitEl) submitEl.textContent = 'Создать заявку на перевозку';
+    _trResetForm();
+  }
+}
+
+function _trResetForm() {
+  ['tr-kg', 'tr-l', 'tr-date', 'tr-comment', 'tr-price-kg', 'tr-price-l',
+    'tr-density', 'tr-total', 'tr-delivery-price', 'tr-driver-amount'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const paid = document.getElementById('tr-delivery-paid');
+  if (paid) paid.checked = false;
+  const pct = document.getElementById('tr-driver-percent');
+  if (pct) pct.value = 25;
+  const fuel = document.getElementById('tr-fuel');
+  if (fuel) fuel.value = '';
+  const type = document.getElementById('tr-type');
+  if (type) type.value = 'to_base';
+  renderTransportSupplierPayments([]);
+  onTransportTypeChange();
+}
+
+function _trFillFuelSelect() {
+  const sel = document.getElementById('tr-fuel');
+  if (!sel) return;
+  const active = (_fuelCatalog || []).filter(function (f) { return f.is_active !== false; });
+  sel.innerHTML = ['<option value="">— не указан —</option>'].concat(active.map(function (f) {
+    return '<option value="' + escHtml(f.code) + '">' + escHtml(f.label) + '</option>';
+  })).join('');
+}
+
+function _trFillClientObjects() {
+  const sel = document.getElementById('tr-client-object');
+  if (!sel) return;
+  sel.innerHTML = ['<option value="">— выберите клиента —</option>'].concat(
+    _trObjects.map(function (o) {
+      return '<option value="' + o.id + '">' + escHtml(o.name) + '</option>';
+    })
+  ).join('');
+}
+
+async function _trLoadIntoForm(orderId) {
+  try {
+    const d = await orderGet('/transport/orders/' + orderId);
+    const setv = function (id, v) {
+      const el = document.getElementById(id);
+      if (el && v != null) el.value = v;
+    };
+    const type = document.getElementById('tr-type');
+    if (type) type.value = d.transport_type || 'to_base';
+    const clientSel = document.getElementById('tr-client-object');
+    if (clientSel && d.client_object_id) clientSel.value = d.client_object_id;
+    _trWaypoints = (d.waypoints || []).slice(0, 3);
+    onTransportTypeChange();
+    // Точки маршрута выставляем после перерисовки селектов.
+    const fromSel = document.getElementById('tr-from');
+    if (fromSel && d.route_from) fromSel.value = d.route_from.kind + ':' + (d.route_from.id || '');
+    const toSel = document.getElementById('tr-to');
+    if (toSel && d.route_to) toSel.value = d.route_to.kind + ':' + (d.route_to.id || '');
+    _trWaypoints.forEach(function (wp, i) {
+      const el = document.getElementById('tr-wp-' + i);
+      if (el && wp) el.value = wp.kind + ':' + (wp.id || '');
+    });
+    setv('tr-kg', d.amount_kg); setv('tr-l', d.amount_l);
+    setv('tr-date', d.desired_date_text); setv('tr-comment', d.comment);
+    setv('tr-price-kg', d.price_per_kg); setv('tr-price-l', d.price_per_l);
+    setv('tr-density', d.density); setv('tr-total', d.total_amount);
+    setv('tr-delivery-price', d.delivery_price);
+    setv('tr-driver-amount', d.driver_payment_amount);
+    setv('tr-driver-percent', d.driver_payment_percent != null ? d.driver_payment_percent : 25);
+    const paid = document.getElementById('tr-delivery-paid');
+    if (paid) paid.checked = !!d.delivery_paid;
+    renderTransportSupplierPayments(d.supplier_payments || []);
+    // Загруженные значения — уже введённые, формулы их не перетирают.
+    _trTouched.l = d.amount_l != null;
+    _trTouched.total = d.total_amount != null;
+    _trTouched.driver = d.driver_payment_amount != null;
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitTransportOrder() {
+  const type = document.getElementById('tr-type')?.value || 'to_base';
+  _trSyncWaypointsFromDom();
+  const body = {
+    transport_type: type,
+    client_object_id: type === 'to_client' ? (document.getElementById('tr-client-object')?.value || null) : null,
+    route_from: _trReadPoint('tr-from'),
+    route_to: type === 'to_base' ? { kind: 'base', id: null, text: 'База' } : _trReadPoint('tr-to'),
+    waypoints: _trWaypoints.filter(Boolean),
+    amount_kg: _trNum('tr-kg'),
+    amount_l: _trNum('tr-l'),
+    fuel_type: _trStr('tr-fuel'),
+    desired_date_text: _trStr('tr-date'),
+    comment: _trStr('tr-comment'),
+    price_per_kg: _trNum('tr-price-kg'),
+    price_per_l: _trNum('tr-price-l'),
+    density: _trNum('tr-density'),
+    total_amount: _trNum('tr-total'),
+    supplier_payments: _trCollectSupplierPayments(),
+    delivery_price: _trNum('tr-delivery-price'),
+    delivery_paid: !!document.getElementById('tr-delivery-paid')?.checked,
+    driver_payment_amount: _trNum('tr-driver-amount'),
+    driver_payment_percent: _trNum('tr-driver-percent'),
+  };
+  const btn = document.getElementById('tr-submit');
+  if (btn) btn.disabled = true;
+  try {
+    if (_trEditingId) {
+      await orderPatch('/transport/orders/' + _trEditingId, body);
+      toast('Заявка на перевозку обновлена');
+    } else {
+      await orderPost('/transport/orders', body);
+      toast('Заявка на перевозку создана');
+    }
+    _trEditingId = null;
+    switchTab('orders');
+    loadOrders();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Детали перевозки в карточке заявки ───────────────────────────────────────
+
+function _trPointLabel(p) {
+  if (!p) return '—';
+  if (p.kind === 'base') return p.text || 'База';
+  if (p.kind === 'oil_depot') {
+    const b = _trBases.find(function (x) { return x.id === p.id; });
+    return b ? b.name : (p.text || '—');
+  }
+  const o = _trObjects.find(function (x) { return x.id === p.id; });
+  return o ? o.name : (p.text || '—');
+}
+
+function _trRouteLine(d) {
+  const parts = [_trPointLabel(d.route_from)];
+  (d.waypoints || []).forEach(function (wp) { parts.push(_trPointLabel(wp)); });
+  parts.push(_trPointLabel(d.route_to));
+  return parts.filter(function (s) { return s && s !== '—'; }).join(' → ');
+}
+
+async function loadTransportDetail(orderId) {
+  const box = document.getElementById('tr-detail-' + orderId);
+  if (!box) return;
+  try {
+    // Справочники нужны, чтобы показать названия точек, а не UUID.
+    if (!_trBases.length && !_trObjects.length && _trIsStaff()) await loadTransportDirectory();
+    const d = await orderGet('/transport/orders/' + orderId);
+    const row = function (label, value) {
+      if (value === null || value === undefined || value === '') return '';
+      return '<div class="detail-item"><div class="detail-label">' + escHtml(label) + '</div>'
+        + '<div class="detail-value">' + escHtml(String(value)) + '</div></div>';
+    };
+    const typeLabel = d.transport_type === 'to_base' ? 'Доставка на базу' : 'Услуга доставки клиенту';
+    let html = '<div class="timeline-title">Перевозка</div><div class="detail-grid">'
+      + row('Тип перевозки', typeLabel)
+      + row('Маршрут', _trRouteLine(d))
+      + row('Количество, кг', d.amount_kg)
+      + row('Количество, л', d.amount_l)
+      + row('Желаемая дата', d.desired_date_text)
+      + '</div>';
+
+    // Блок 2 сервер отдаёт только staff — водителю эти поля приходят пустыми.
+    if (_trIsStaff()) {
+      const payments = (d.supplier_payments || []).map(function (p, i) {
+        const amt = p.amount != null ? p.amount + ' ₽' : '—';
+        return row('Оплата поставщику ' + (i + 1), amt + (p.date ? ' от ' + String(p.date).slice(0, 10) : ''));
+      }).join('');
+      const money = row('Цена, ₽/кг', d.price_per_kg)
+        + row('Цена, ₽/л', d.price_per_l)
+        + row('Плотность', d.density)
+        + row('Итого, ₽', d.total_amount)
+        + payments
+        + row('Оплачено поставщику, ₽', d.supplier_paid_total)
+        + row('Стоимость доставки, ₽', d.delivery_price)
+        + (d.delivery_price != null ? row('Оплата получена', d.delivery_paid ? 'да' : 'нет') : '')
+        + row('Оплата водителю, ₽', d.driver_payment_amount);
+      if (money) html += '<div class="timeline-title" style="margin-top:12px">Финансы перевозки</div>'
+        + '<div class="detail-grid">' + money + '</div>';
+      html += '<div style="margin-top:12px"><button class="btn btn-sm btn-ghost" onclick="openTransportCreate(\'' + orderId + '\')">Изменить перевозку</button></div>';
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<div class="timeline-title">Перевозка</div><div class="muted">' + escHtml(e.message) + '</div>';
+  }
+}
+
+// ── Окно «Доставлена» у водителя ─────────────────────────────────────────────
+// ТЗ: те же поля маршрута и дата, все обязательны и доступны к правке;
+// комментарий — единственное необязательное поле.
+
+async function promptDeliverTransport(orderId) {
+  try {
+    if (!_trBases.length && !_trObjects.length) await loadTransportDirectory();
+  } catch (e) { /* справочники могут быть недоступны водителю — селекты соберём из текущих данных */ }
+  let d = {};
+  try { d = await orderGet('/transport/orders/' + orderId); } catch (e) { toast(e.message, 'error'); return; }
+
+  const type = d.transport_type || 'to_base';
+  const optsFor = function (slot, current) {
+    const out = [];
+    if (type === 'to_base') {
+      if (slot === 'from') _trBases.forEach(function (b) { out.push({ kind: 'oil_depot', id: b.id, label: b.name }); });
+      else out.push({ kind: 'base', id: null, label: 'База' });
+    } else {
+      if (slot === 'from') {
+        _trBases.forEach(function (b) { out.push({ kind: 'oil_depot', id: b.id, label: b.name }); });
+        out.push({ kind: 'base', id: null, label: 'База' });
+      }
+      _trObjects.forEach(function (o) { out.push({ kind: 'client_object', id: o.id, label: o.name }); });
+    }
+    // Текущее значение может ссылаться на объект вне справочника (у водителя
+    // нет доступа к нему) — добавляем его отдельным пунктом, чтобы не потерять.
+    if (current && !out.some(function (o) { return o.kind === current.kind && (o.id || '') === (current.id || ''); })) {
+      out.unshift({ kind: current.kind, id: current.id, label: _trPointLabel(current) });
+    }
+    return out;
+  };
+  const selHTML = function (elId, slot, current) {
+    const curKey = current ? current.kind + ':' + (current.id || '') : '';
+    const body = optsFor(slot, current).map(function (o) {
+      const key = o.kind + ':' + (o.id || '');
+      return '<option value="' + key + '"' + (key === curKey ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+    }).join('');
+    return '<select id="' + elId + '" class="form-input">' + body + '</select>';
+  };
+
+  let wpHTML = '';
+  (d.waypoints || []).forEach(function (wp, i) {
+    wpHTML += '<div class="form-group"><label class="form-label">Промежуточная точка ' + (i + 1) + '</label>'
+      + selHTML('dtr-wp-' + i, 'waypoint', wp) + '</div>';
+  });
+
+  openModal('Доставлена — перевозка',
+    '<div class="form-group"><label class="form-label">Откуда</label>' + selHTML('dtr-from', 'from', d.route_from) + '</div>'
+    + wpHTML
+    + '<div class="form-group"><label class="form-label">Куда</label>' + selHTML('dtr-to', 'to', d.route_to) + '</div>'
+    + '<div class="form-group"><label class="form-label">Дата</label>'
+    + '<input type="text" id="dtr-date" class="form-input" value="' + escHtml(d.desired_date_text || '') + '"></div>'
+    + '<div class="form-group"><label class="form-label">Комментарий</label>'
+    + '<textarea id="dtr-comment" class="form-input" rows="2"></textarea></div>',
+    async function () {
+      const from = _trReadPoint('dtr-from');
+      const to = _trReadPoint('dtr-to');
+      const date = (document.getElementById('dtr-date').value || '').trim();
+      // По ТЗ все окна должны быть заполнены — комментарий исключение.
+      if (!from || !to) return toast('Укажите маршрут: откуда и куда', 'error');
+      if (!date) return toast('Укажите дату', 'error');
+      const waypoints = [];
+      for (let i = 0; i < (d.waypoints || []).length; i++) {
+        const wp = _trReadPoint('dtr-wp-' + i);
+        if (!wp) return toast('Заполните промежуточную точку ' + (i + 1), 'error');
+        waypoints.push(wp);
+      }
+      const body = {
+        route_from: from,
+        route_to: to,
+        waypoints: waypoints,
+        desired_date_text: date,
+        comment: (document.getElementById('dtr-comment').value || '').trim() || null,
+        idempotency_key: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+      };
+      try {
+        await orderPost('/transport/orders/' + orderId + '/deliver', body);
+        closeModal();
+        toast('Перевозка отмечена доставленной');
+        loadOrders();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
 
 // Последняя строка скрипта. Если она выполнилась — блок дошёл целиком и все
 // обработчики определены. Страж целостности в <head> проверяет этот флаг.

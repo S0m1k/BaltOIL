@@ -43,7 +43,7 @@ async def list_orders(
     status: OrderStatus | None = Query(None),
     driver_id: uuid.UUID | None = Query(None),
     client_id: uuid.UUID | None = Query(None),
-    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l"),
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l | transport"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -58,7 +58,7 @@ async def list_orders(
 async def count_orders(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l"),
+    kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l | transport"),
 ):
     """Счётчики заявок по статусам (в пределах видимости роли) — для бейджей вкладок."""
     return await order_service.count_orders_by_status(db, current_user, kind=kind)
