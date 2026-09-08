@@ -9,8 +9,14 @@ from .fuel_type_catalog import FuelTypeCatalog
 from .idempotency_key import IdempotencyKey
 from .client_object import ClientObject
 from .order_audit_log import OrderAuditLog
+from .transport import (
+    TransportBase, TransportClientObject, TransportClientAddress,
+    TransportDetail, TransportType, RoutePointKind,
+)
 
 __all__ = [
+    "TransportBase", "TransportClientObject", "TransportClientAddress",
+    "TransportDetail", "TransportType", "RoutePointKind",
     "Order", "OrderStatus", "OrderKind", "PaymentType",
     "OrderStatusLog",
     "Payment", "PaymentStatus", "PaymentMethod", "PaymentKind",

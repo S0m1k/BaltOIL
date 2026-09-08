@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     # Required (no default): refuse to boot without an explicit inter-service secret.
     internal_api_secret: str
 
+    # Перевозки видит и выполняет ровно один водитель (ТЗ Ирины, 09.2026).
+    # TRANSPORT_DRIVER_ID — жёсткая привязка по UUID, если он известен;
+    # иначе водитель резолвится по фамилии из TRANSPORT_DRIVER_NAME через
+    # auth_service. Ни то, ни другое в коде не зашито — настройка окружения.
+    transport_driver_id: str | None = None
+    transport_driver_name: str = "Бурнаев"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
