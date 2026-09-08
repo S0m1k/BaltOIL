@@ -342,6 +342,96 @@ def finance_payments_xlsx(report: dict) -> bytes:
     ws.freeze_panes = ws.cell(row=col_hdr + 1, column=1)
     _set_col_widths(ws, _COL_WIDTHS)
 
+    # Перевозки (ТЗ 09.2026) — отдельный лист. У перевозки нет платежей, её
+    # деньги лежат в transport_details, поэтому подмешивать их в таблицу
+    # платежей нельзя: итоги «Оплачено, ₽» перестали бы биться.
+    _transport_sheet(wb, report.get("transport") or [])
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ── Лист «Перевозки» ─────────────────────────────────────────────────────────
+
+_TRANSPORT_COLUMNS = [
+    "Дата создания", "Раздел", "Заявка №", "№ ТТН", "Тип перевозки", "Маршрут",
+    "Статья", "Расход, ₽", "Приход, ₽", "Дата оплаты", "Статус",
+]
+_TRANSPORT_COL_WIDTHS = [18, 14, 14, 20, 26, 46, 22, 14, 14, 16, 16]
+_TRANSPORT_LAST_COL = get_column_letter(len(_TRANSPORT_COLUMNS))
+
+_TRANSPORT_TYPE_RU = {
+    "to_base": "Доставка на базу",
+    "to_client": "Услуга доставки клиенту",
+}
+
+_TRANSPORT_STATUS_RU = {
+    "new": "Новая",
+    "awaiting_manager": "На согласовании",
+    "accepted": "Принята водителем",
+    "delivered": "Доставлена",
+    "cancelled": "Отменена",
+}
+
+
+def _transport_sheet(wb, rows: list[dict]) -> None:
+    """Лист «Перевозки»: каждая строка помечена разделом «Перевозка».
+
+    Лист создаётся всегда — пустой он честно говорит «за период перевозок нет»,
+    а его отсутствие менеджер прочитал бы как «выгрузка сломалась».
+    """
+    ws = wb.create_sheet("Перевозки")
+    ws.sheet_view.showGridLines = False
+
+    ws.merge_cells(f"A1:{_TRANSPORT_LAST_COL}1")
+    title = ws["A1"]
+    title.value = "Перевозки — расход и приход"
+    title.font = _TITLE_FONT
+    title.alignment = _CENTER
+    ws.row_dimensions[1].height = 24
+
+    expense = sum(_as_float(r.get("amount")) for r in rows if r.get("direction") == "expense")
+    income = sum(_as_float(r.get("amount")) for r in rows if r.get("direction") == "income")
+
+    kpi_row = 3
+    for i, (label, value) in enumerate((
+        ("Расход, ₽", round(expense, 2)),
+        ("Приход, ₽", round(income, 2)),
+        ("Сальдо, ₽", round(income - expense, 2)),
+    )):
+        r = kpi_row + i
+        _cell(ws, r, 1, label, fill=_SUMMARY_FILL, bold=True)
+        ws.merge_cells(f"B{r}:{_TRANSPORT_LAST_COL}{r}")
+        _cell(ws, r, 2, value, fmt=_MONEY_FMT)
+
+    col_hdr = kpi_row + 4
+    _header_row(ws, _TRANSPORT_COLUMNS, row=col_hdr)
+
+    r = col_hdr
+    for row in sorted(rows, key=lambda x: _order_number_key(x.get("order_number"))):
+        r += 1
+        is_income = row.get("direction") == "income"
+        fill = _PAID_FILL if row.get("is_paid") else _PENDING_FILL
+        amount = round(_as_float(row.get("amount")), 2)
+
+        _cell(ws, r, 1, _naive(_as_dt(row.get("created_at"))), fill=fill, fmt="DD.MM.YYYY HH:MM")
+        _cell(ws, r, 2, "Перевозка", fill=fill, bold=True)
+        _cell(ws, r, 3, row.get("order_number") or "—", fill=fill)
+        _cell(ws, r, 4, row.get("ttn_number") or "—", fill=fill)
+        _cell(ws, r, 5, _TRANSPORT_TYPE_RU.get(str(row.get("transport_type") or ""), "—"), fill=fill)
+        _cell(ws, r, 6, row.get("route") or "—", fill=fill)
+        _cell(ws, r, 7, row.get("article") or "—", fill=fill)
+        _cell(ws, r, 8, None if is_income else amount, fill=fill, fmt=_MONEY_FMT)
+        _cell(ws, r, 9, amount if is_income else None, fill=fill, fmt=_MONEY_FMT)
+        _cell(ws, r, 10, row.get("paid_at") or "—", fill=fill)
+        _cell(ws, r, 11, _TRANSPORT_STATUS_RU.get(str(row.get("status") or ""),
+                                                  str(row.get("status") or "—")), fill=fill)
+
+    r += 1
+    _cell(ws, r, 1, f"Итого перевозок: {len(rows)}", fill=_SUMMARY_FILL, bold=True)
+    _cell(ws, r, 8, round(expense, 2), fill=_SUMMARY_FILL, bold=True, fmt=_MONEY_FMT)
+    _cell(ws, r, 9, round(income, 2), fill=_SUMMARY_FILL, bold=True, fmt=_MONEY_FMT)
+
+    ws.freeze_panes = ws.cell(row=col_hdr + 1, column=1)
+    _set_col_widths(ws, _TRANSPORT_COL_WIDTHS)

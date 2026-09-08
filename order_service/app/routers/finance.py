@@ -17,10 +17,13 @@ from app.core.dependencies import CurrentUser, require_roles
 from app.core.exceptions import ForbiddenError
 from app.models.order import Order, OrderKind, OrderStatus, PaymentType
 from app.models.payment import Payment, PaymentStatus
+from app.models.transport import TransportDetail
 from app.services.payment_service import get_paid_totals_map
 from app.services.buyer_info import attach_buyer_names
 from app.services.finance_export import finance_payments_xlsx
 from app.services.ttn_number import TtnKind
+from app.services import transport_finance
+from app.schemas.transport import TransportFinanceRow
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -49,6 +52,13 @@ class PaymentSummary(BaseModel):
 
     # Разбивка по типам оплаты
     by_payment_type: dict[str, int]  # payment_type → кол-во заявок
+
+    # Перевозки (ТЗ 09.2026). Считаются отдельно от платежей: у перевозки нет
+    # строк в payments, её деньги лежат в transport_details. Смешивать их с
+    # суммами выше нельзя — итог «получено» перестал бы сходиться с платежами.
+    transport_expense_amount: float = 0.0   # оплаты поставщику + водителю
+    transport_income_amount: float = 0.0    # стоимость доставки клиенту
+    transport_orders_count: int = 0
 
 
 class PaymentRow(BaseModel):
@@ -85,6 +95,34 @@ def _active_order_conds():
         Order.is_archived == False,  # noqa: E712
         Order.status != OrderStatus.CANCELLED,
     ]
+
+
+async def _transport_pairs(
+    db: AsyncSession,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    kind: OrderKind | None,
+) -> list[tuple[Order, TransportDetail]]:
+    """Пары (заявка-перевозка, её детали) за период — источник строк отчёта.
+
+    Фильтр по виду заявки: если запрошен конкретный вид и это не перевозка,
+    возвращаем пусто — иначе выборка «только физлица» тянула бы за собой
+    перевозки и ломала подсчёт.
+    """
+    if kind is not None and kind != OrderKind.TRANSPORT:
+        return []
+    conds = [Order.order_kind == OrderKind.TRANSPORT, *_active_order_conds()]
+    if date_from:
+        conds.append(Order.created_at >= date_from)
+    if date_to:
+        conds.append(Order.created_at <= date_to)
+    result = await db.execute(
+        select(Order, TransportDetail)
+        .join(TransportDetail, TransportDetail.order_id == Order.id)
+        .where(and_(*conds))
+        .order_by(Order.created_at.desc())
+    )
+    return [(order, detail) for order, detail in result.all()]
 
 
 def _kind_conds(kind: OrderKind | None):
@@ -180,6 +218,12 @@ async def get_summary(
         if o.payment_status in ("unpaid", "partially_paid"):
             total_debt += max(target_f - order_paid, 0.0)
 
+    # Перевозки: расход (оплаты поставщику и водителю) и приход (доставка).
+    # ttn_kind-фильтр к ним не применяем — он про ряд ТТН контрагента.
+    transport_pairs = await _transport_pairs(db, date_from, date_to, kind)
+    transport_rows = transport_finance.build_rows(transport_pairs)
+    transport_totals = transport_finance.totals(transport_rows)
+
     return PaymentSummary(
         total_orders=len(orders),
         unpaid_count=unpaid,
@@ -193,7 +237,28 @@ async def get_summary(
         total_debt_amount=round(total_debt, 2),
         orders_without_pricing=no_pricing,
         by_payment_type=by_type,
+        transport_expense_amount=float(transport_totals["expense_total"]),
+        transport_income_amount=float(transport_totals["income_total"]),
+        transport_orders_count=len(transport_pairs),
     )
+
+
+@router.get("/transport", response_model=list[TransportFinanceRow])
+async def list_transport_finance(
+    _: StaffOnly,
+    actor: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    date_from: datetime | None = Query(None),
+    date_to:   datetime | None = Query(None),
+):
+    """Строки перевозок для вкладки Финансы: расход и приход по каждой заявке.
+
+    Отдельный эндпоинт, а не строки в /finance/payments: у перевозки нет
+    платежей, и подмешивать её суммы в таблицу платежей значило бы сломать
+    сходимость итогов «Оплачено, ₽» с таблицей payments.
+    """
+    pairs = await _transport_pairs(db, date_from, date_to, None)
+    return transport_finance.build_rows(pairs)
 
 
 @router.get("/payments", response_model=list[PaymentRow])
@@ -304,10 +369,18 @@ async def export_xlsx(
         for p, order in rows
     ]
 
+    # Перевозки — отдельным листом книги (ТЗ 09.2026): расход по оплатам
+    # поставщику, приход по стоимости доставки, каждая строка помечена
+    # разделом «Перевозка».
+    transport_rows = transport_finance.build_rows(
+        await _transport_pairs(db, date_from, date_to, kind)
+    )
+
     report = {
         "period_from": date_from,
         "period_to":   date_to,
         "payments":    payments,
+        "transport":   transport_rows,
     }
     # openpyxl синхронен — уводим в тред, чтобы не блокировать event loop.
     xlsx_bytes = await asyncio.to_thread(finance_payments_xlsx, report)
