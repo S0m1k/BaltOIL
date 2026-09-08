@@ -23,6 +23,7 @@ class OrderKind(str, enum.Enum):
     INDIVIDUAL = "individual"  # Физическое лицо
     COMPANY = "company"        # Юридическое лицо
     TTN_L = "ttn_l"            # Внутренняя ТТН-Л (только менеджер)
+    TRANSPORT = "transport"    # Заявка на перевозку (ТЗ 09.2026, только staff)
 
 
 class PaymentType(str, enum.Enum):
@@ -172,4 +173,9 @@ class Order(Base):
         "Document", back_populates="order",
         order_by="Document.created_at",
         cascade="all, delete-orphan",
+    )
+    # Детали перевозки (order_kind='transport'); у остальных заявок — None.
+    transport: Mapped["TransportDetail | None"] = relationship(
+        "TransportDetail", uselist=False, cascade="all, delete-orphan",
+        primaryjoin="Order.id == TransportDetail.order_id",
     )

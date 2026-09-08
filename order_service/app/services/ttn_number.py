@@ -72,10 +72,14 @@ TTN_SEQ_WIDTH = 6
 _LEGACY_KEY_KIND = TtnKind.COMPANY
 
 #: Вид заявки → вид ТТН. Внутренняя заявка (ttn_l) = Л со своим счётчиком.
+#: Перевозка (ТЗ 09.2026) ТТН получает **в общем ряду с юрлицами** — Ю, не Л:
+#: для заказчицы это такая же внешняя перевозка, что и поставка юрлицу, и
+#: нумерация должна идти подряд. Отдельного «П»-ряда заводить не просили.
 _ORDER_KIND_TO_TTN_KIND: dict[str, TtnKind] = {
     OrderKind.COMPANY.value: TtnKind.COMPANY,
     OrderKind.INDIVIDUAL.value: TtnKind.INDIVIDUAL,
     OrderKind.TTN_L.value: TtnKind.SPECIAL,
+    OrderKind.TRANSPORT.value: TtnKind.COMPANY,
 }
 
 

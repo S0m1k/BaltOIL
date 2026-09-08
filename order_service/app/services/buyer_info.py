@@ -44,16 +44,32 @@ def _key(client_id: uuid.UUID, organization_id: uuid.UUID | None) -> str:
     return f"{client_id}|{organization_id or ''}"
 
 
+#: Подпись перевозки в общем списке заявок вместо названия организации
+#: (ТЗ 09.2026: «вместо названия организации — ПЕРЕВОЗКА»).
+TRANSPORT_BUYER_LABEL = "ПЕРЕВОЗКА"
+
+
+def _is_transport(order) -> bool:
+    kind = getattr(order, "order_kind", None)
+    return str(getattr(kind, "value", kind) or "") == "transport"
+
+
 async def attach_buyer_names(orders: list) -> None:
-    """Навесить order.buyer_name на каждую заявку списка (один батч-запрос)."""
+    """Навесить order.buyer_name на каждую заявку списка (один батч-запрос).
+
+    Перевозка подписывается словом «ПЕРЕВОЗКА» и в auth не ходит: организации
+    у неё нет, а client_id — это оформивший менеджер, чьё ФИО в списке заявок
+    выглядело бы как заказчик.
+    """
     for o in orders:
-        o.buyer_name = None
-    if not orders:
+        o.buyer_name = TRANSPORT_BUYER_LABEL if _is_transport(o) else None
+    lookup = [o for o in orders if not _is_transport(o)]
+    if not lookup:
         return
     # Уникальные пары (client, org) — чтобы не дублировать в запросе.
     seen: set[str] = set()
     items: list[dict] = []
-    for o in orders:
+    for o in lookup:
         k = _key(o.client_id, o.organization_id)
         if k in seen:
             continue
@@ -67,7 +83,7 @@ async def attach_buyer_names(orders: list) -> None:
     except Exception as exc:
         log.warning("attach_buyer_names failed (non-fatal): %s", exc)
         return
-    for o in orders:
+    for o in lookup:
         o.buyer_name = names.get(_key(o.client_id, o.organization_id))
 
 

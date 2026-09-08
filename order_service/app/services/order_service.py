@@ -136,6 +136,16 @@ ROLE_MANAGER = "manager"
 ROLE_ADMIN = "admin"
 
 
+#: Виды заявок, которые водитель видит ТОЛЬКО назначенными лично ему и которые
+#: не попадают в «биржу» свободных NEW. ТТН-Л — внутренняя заявка; перевозка
+#: (ТЗ 09.2026) закреплена за одним водителем, остальные её не видят вовсе.
+_DRIVER_ASSIGNED_ONLY_KINDS = (OrderKind.TTN_L, OrderKind.TRANSPORT)
+
+#: Виды, которым счета не выставляются. ТТН-Л — внутренняя заявка; перевозка
+#: рассчитывается своими полями блока «куплено»/«оплаты», а не тарифом.
+_NO_INVOICE_KINDS = (OrderKind.TTN_L, OrderKind.TRANSPORT)
+
+
 def _with_logs(query):
     return query.options(selectinload(Order.status_logs))
 
@@ -159,11 +169,14 @@ async def get_order(
     # Клиент видит только свои заявки
     if actor.role == ROLE_CLIENT and order.client_id != actor.id:
         raise ForbiddenError()
-    # Водитель: ТТН-Л видна только назначенному; обычные — свои + пул NEW
+    # Перевозку (ТЗ 09.2026) клиент не видит никогда — это внутренний учёт.
+    if actor.role == ROLE_CLIENT and order.order_kind == OrderKind.TRANSPORT:
+        raise ForbiddenError()
+    # Водитель: ТТН-Л и перевозка видны только назначенному; обычные — свои + пул NEW
     if actor.role == ROLE_DRIVER:
-        if order.order_kind == OrderKind.TTN_L and order.driver_id != actor.id:
+        if order.order_kind in _DRIVER_ASSIGNED_ONLY_KINDS and order.driver_id != actor.id:
             raise ForbiddenError()
-        if order.order_kind != OrderKind.TTN_L:
+        if order.order_kind not in _DRIVER_ASSIGNED_ONLY_KINDS:
             # видна если назначена ему или это свободная NEW
             is_assigned = order.driver_id == actor.id
             is_free_new = order.status == OrderStatus.NEW and order.driver_id is None
@@ -193,6 +206,8 @@ def _visibility_conditions(
         conditions.append(Order.order_kind == kind)
 
     if actor.role == ROLE_CLIENT:
+        # Перевозки — внутренний учёт: клиент их не видит ни в каком случае.
+        conditions.append(Order.order_kind != OrderKind.TRANSPORT)
         if org_ids:
             conditions.append(
                 or_(Order.client_id == actor.id, Order.organization_id.in_(org_ids))
@@ -201,15 +216,16 @@ def _visibility_conditions(
             conditions.append(Order.client_id == actor.id)
     elif actor.role == ROLE_DRIVER:
         # Водитель видит:
-        # - свои заявки (driver_id == actor.id) всех видов
-        # - свободные NEW не-TTN-L (биржа: driver_id IS NULL, kind != ttn_l)
+        # - свои заявки (driver_id == actor.id) всех видов, включая перевозки,
+        #   назначенные лично ему (чужие перевозки не видит вовсе);
+        # - свободные NEW из «биржи» — кроме ТТН-Л и перевозок.
         conditions.append(
             or_(
                 Order.driver_id == actor.id,
                 and_(
                     Order.status == OrderStatus.NEW,
                     Order.driver_id == None,  # noqa: E711
-                    Order.order_kind != OrderKind.TTN_L,
+                    Order.order_kind.notin_(_DRIVER_ASSIGNED_ONLY_KINDS),
                 ),
             )
         )
@@ -1035,7 +1051,7 @@ async def update_order(
     # staff и только если суммовые поля затронуты (карандашики клиента/водителя
     # сумму не меняют до согласования). Ошибка не блокирует сохранение заявки.
     _amount_touched = bool({"amount", "volume", "fuel_type"} & set(changed_keys))
-    if is_staff and _amount_touched and order.order_kind != OrderKind.TTN_L:
+    if is_staff and _amount_touched and order.order_kind not in _NO_INVOICE_KINDS:
         try:
             async with db.begin_nested():
                 await document_service.regenerate_invoice(db, order, actor)
@@ -1418,7 +1434,12 @@ async def transition_status(
         #    fallback, когда ожидаемой суммы вообще нет (тариф не был настроен).
         vol_req = float(order.volume_requested or 0)
         vol_fact = float(order.volume_delivered)
-        if order.expected_amount is not None and abs(vol_fact - vol_req) < 1e-9:
+        if order.order_kind == OrderKind.TRANSPORT:
+            # Перевозка не тарифицируется по литрам: её деньги — блок «куплено»
+            # (расход поставщику) и «оплаты» (приход за доставку). Лезть за
+            # тарифом клиента здесь незачем, и клиента-то у неё нет.
+            pass
+        elif order.expected_amount is not None and abs(vol_fact - vol_req) < 1e-9:
             order.final_amount = order.expected_amount
         else:
             recalc = None
@@ -1490,7 +1511,12 @@ async def transition_status(
     # Авто-генерация документов при доставке
     # ttn_l заявки не генерят счета (Д4 полностью закроет это; здесь предотвращаем
     # генерацию invoice_final для внутренних ТТН-Л)
-    if data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
+    if data.to_status == OrderStatus.DELIVERED and order.order_kind == OrderKind.TRANSPORT:
+        # Перевозка (ТЗ 09.2026): ни счёта, ни складской проводки. Мы не продаём
+        # топливо со своего склада — мы везём чужое, и деньги по перевозке
+        # считаются полями блока «куплено»/«оплаты», а не тарифом.
+        pass
+    elif data.to_status == OrderStatus.DELIVERED and order.order_kind != OrderKind.TTN_L:
         # Порог 3000 л (Д4): крупные заявки финальный счёт не выставляют
         # автоматически — менеджеру уходит уведомление для ручного выставления.
         delivered_volume = float(order.volume_delivered or order.volume_requested)

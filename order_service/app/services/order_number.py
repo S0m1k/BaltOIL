@@ -8,6 +8,10 @@ Number format:
   individual → ф{n}
   company    → ю{n}
   ttn_l      → л{n}
+  transport  → п{n}   (заявка на перевозку, ТЗ 09.2026)
+
+Номер заявки и номер ТТН — разные ряды: перевозка нумеруется своим «п»-рядом,
+но ТТН получает в общем ряду с юрлицами (см. app.services.ttn_number).
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -19,6 +23,7 @@ _KIND_PREFIX: dict[str, str] = {
     OrderKind.INDIVIDUAL.value: "ф",
     OrderKind.COMPANY.value:    "ю",
     OrderKind.TTN_L.value:      "л",
+    OrderKind.TRANSPORT.value:  "п",
 }
 
 
