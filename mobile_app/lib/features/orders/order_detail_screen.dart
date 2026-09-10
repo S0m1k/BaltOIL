@@ -8,6 +8,7 @@ import '../common/copyable_phone.dart';
 import '../organizations/organizations_repository.dart';
 import 'delivery_dialog.dart';
 import 'order_create_screen.dart';
+import '../transport/transport_create_screen.dart';
 import '../transport/transport_delivery_dialog.dart';
 import '../transport/transport_models.dart';
 import '../transport/transport_repository.dart';
@@ -1074,8 +1075,32 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ),
           ),
         ],
+        // ТЗ, п. 3: после отправки заявки правятся все поля перевозки.
+        if (_isStaff) ...[
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => _editTransport(order),
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Изменить перевозку'),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  Future<void> _editTransport(OrderDetail order) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TransportCreateScreen(
+          user: widget.user,
+          orderId: order.id,
+        ),
+      ),
+    );
+    if (changed == true) _reload();
   }
 
   // ── Payment summary ───────────────────────────────────────────────────────

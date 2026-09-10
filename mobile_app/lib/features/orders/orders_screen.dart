@@ -4,6 +4,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../auth/auth_repository.dart';
 import '../tariffs/base_tariffs_sheet.dart';
+import '../transport/transport_create_screen.dart';
 import 'order_create_screen.dart';
 import 'order_detail_screen.dart';
 import 'order_models.dart';
@@ -75,6 +76,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
     if (created == true) _reload();
   }
 
+  /// Перевозку заводят менеджер и админ (ТЗ 09.2026) — как кнопка
+  /// «перевозка» под «+ Новая заявка» на вебе.
+  Future<void> _createTransport() async {
+    var user = _user;
+    user ??= await AuthRepository.instance.me();
+    if (!mounted) return;
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => TransportCreateScreen(user: user!)),
+    );
+    if (created == true) _reload();
+  }
+
+  bool _isStaffRole() =>
+      _user?.role == 'manager' || _user?.role == 'admin';
+
   bool _isDriverRole() => _user?.role == 'driver' || widget.user?.role == 'driver';
 
   List<({String? status, String label})> _visibleTabs() {
@@ -87,6 +103,40 @@ class _OrdersScreenState extends State<OrdersScreen> {
   List<Order> _applyFilter(List<Order> orders) {
     if (_selectedStatus == null) return orders;
     return orders.where((o) => o.status == _selectedStatus).toList();
+  }
+
+  /// Кнопки создания: клиенту — «Заявка», staff — ещё и «Перевозка».
+  Widget? _buildFab() {
+    final canTransport = _isStaffRole();
+    if (!widget.canCreate && !canTransport) return null;
+    if (!canTransport) {
+      return FloatingActionButton.extended(
+        onPressed: _create,
+        icon: const Icon(Icons.add),
+        label: const Text('Заявка'),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: 'fab-transport',
+          onPressed: _createTransport,
+          icon: const Icon(Icons.local_shipping_outlined),
+          label: const Text('Перевозка'),
+        ),
+        if (widget.canCreate) ...[
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'fab-order',
+            onPressed: _create,
+            icon: const Icon(Icons.add),
+            label: const Text('Заявка'),
+          ),
+        ],
+      ],
+    );
   }
 
   @override
@@ -102,13 +152,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
 
     return Scaffold(
-      floatingActionButton: widget.canCreate
-          ? FloatingActionButton.extended(
-              onPressed: _create,
-              icon: const Icon(Icons.add),
-              label: const Text('Заявка'),
-            )
-          : null,
+      floatingActionButton: _buildFab(),
       body: Column(
         children: [
           // «₽ Базовые тарифы» — водители/менеджеры/админы (веб 435d822);
