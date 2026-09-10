@@ -21,14 +21,34 @@ from app.models.client_profile import ClientProfile
 from app.models.organization import Organization, OrganizationMember, MemberStatus, MemberRole
 
 
+async def _membership_not_required(db: AsyncSession, client_id: uuid.UUID) -> bool:
+    """Кому контекст организации отдаём без проверки членства.
+
+    - staff (manager/admin) — ведёт заявки по «ничейным» организациям, созданным
+      без клиента-владельца (правки 2026-07-22);
+    - разовый клиент (is_one_off, заведён из формы заявки по имени+телефону) —
+      он не состоит ни в одной организации и войти в систему не может: заявку
+      от юрлица на него оформляет сотрудник. Без этого исключения контекст
+      организации не отдавался вовсе, и разовая заявка от юрлица считалась по
+      тарифам физлица (баг 2026-09-10).
+    """
+    user = await db.get(User, client_id)
+    if user is None:
+        return False
+    if user.role in (UserRole.MANAGER, UserRole.ADMIN):
+        return True
+    res = await db.execute(
+        select(ClientProfile.is_one_off).where(ClientProfile.user_id == client_id)
+    )
+    return bool(res.scalar_one_or_none())
+
+
 async def _load_member_org(
     db: AsyncSession, client_id: uuid.UUID, organization_id: uuid.UUID
 ) -> Organization:
     """Загрузить организацию, проверив активное членство клиента. 404 иначе.
 
-    Для staff (manager/admin) членство не требуется (правки 2026-07-22):
-    сотрудник ведёт заявки по «ничейным» организациям — созданным без
-    клиента-владельца, — не будучи их участником.
+    Исключения из проверки членства — см. _membership_not_required.
     """
     res = await db.execute(
         select(Organization)
@@ -43,8 +63,7 @@ async def _load_member_org(
     if org:
         return org
 
-    user = await db.get(User, client_id)
-    if user is not None and user.role in (UserRole.MANAGER, UserRole.ADMIN):
+    if await _membership_not_required(db, client_id):
         org_res = await db.execute(
             select(Organization).where(
                 Organization.id == organization_id,

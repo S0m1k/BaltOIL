@@ -310,15 +310,21 @@ async def preview_price(
     """Read-only price breakdown for the order create form. No DB writes."""
     is_staff = actor.role in (ROLE_MANAGER, ROLE_ADMIN)
 
-    if is_staff and not data.client_id:
-        # Менеджер без выбранного клиента (напр. разовый клиент ещё не создан):
-        # у самого менеджера client_profile нет — считаем по default-тарифу физлица.
+    if is_staff and not data.client_id and not data.organization_id:
+        # Менеджер без выбранного клиента и без организации (напр. разовый клиент
+        # ещё не создан): у самого менеджера client_profile нет — считаем по
+        # default-тарифу физлица.
         from app.services.client_context import ClientContext
         ctx = ClientContext(
             user_id=actor.id, client_type="individual", credit_allowed=False,
             tariff_id=None, credit_limit=None,
         )
     else:
+        # Выбрана организация — цена ВСЕГДА по тарифу юрлица, даже если клиента
+        # ещё нет (разовый клиент создаётся при сабмите, у заявки «от
+        # организации» клиента нет вовсе). Раньше такая заявка попадала в ветку
+        # выше и превью показывало тарифы физлица (баг 2026-09-10). Членство в
+        # организации auth проверит по самому сотруднику — ему открыты все.
         client_id = data.client_id if (is_staff and data.client_id) else actor.id
         ctx = await get_client_context(client_id, data.organization_id)
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)

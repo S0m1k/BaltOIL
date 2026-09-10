@@ -6784,9 +6784,9 @@ function toggleOneOffFields(show) {
     const container = document.getElementById('payment-radio-group');
     if (container) container.innerHTML =
       `<label class="radio-label selected"><input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()"></label>`;
-    // Селектор организации разовому не нужен
-    const orgGroup = document.getElementById('c-org-group');
-    if (orgGroup) orgGroup.style.display = 'none';
+    // Селектор организации разовому НУЖЕН: разовая заявка бывает и от юрлица
+    // (менеджер вводит имя+телефон получателя, а заказчик — организация).
+    // Список организаций и видимость блока обновит loadOrganizationSelectForOrder.
   }
 }
 
