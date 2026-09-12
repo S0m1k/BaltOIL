@@ -143,11 +143,16 @@ POST  /api/v1/trips/{id}/cancel  — Отменить рейс
 GET   /api/v1/vehicles           — Список ТС
 POST  /api/v1/vehicles           — Добавить ТС (admin)
 GET   /api/v1/reports/driver     — Отчёт водителя за период
+POST  /api/v1/gps/ingest         — Приём точки от трекера (без авторизации, порт 8010)
+GET   /api/v1/gps/live           — Текущие позиции машин (admin)
+GET   /api/v1/gps/track          — Маршрут за дату/период (admin)
+GET   /api/v1/gps/devices        — Трекеры (admin)
 ```
 
 **Модели:**
 - `Trip` — рейс (order_id, driver_id, vehicle_id, volume_planned, volume_actual, odometer_start/end, status)
 - `Vehicle` — транспортное средство (plate, model, capacity_liters, assigned_driver_id)
+- `GpsDevice` / `GpsPosition` — трекер и его точки; история 31 день, чистится фоновой задачей
 
 ---
 
@@ -227,6 +232,7 @@ delivery_service     0.0.0.0:8003
 chat_service         0.0.0.0:8004
 notification_service 0.0.0.0:8005
 frontend (nginx)     0.0.0.0:8080
+gps ingest (nginx)   0.0.0.0:8010    plain HTTP: GSM-модем трекера TLS не умеет
 ```
 
 ### БД на старте

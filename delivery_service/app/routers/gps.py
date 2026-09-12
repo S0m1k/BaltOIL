@@ -50,7 +50,17 @@ async def ingest(request: Request, db: Annotated[AsyncSession, Depends(get_db)])
     залита в устройства, подстраивается сервер, а не трекер.
     """
     source = _client_ip(request)
-    raw_body = (await request.body())[:_MAX_BODY_BYTES]
+
+    # Выключатель приёма проверяем до любых обращений к БД: иначе поток мусора
+    # дёргал бы базу даже при выключенном GPS.
+    if not settings.gps_enabled:
+        return PlainTextResponse(f"ERR:{proto.ERR_INACTIVE}\n", status_code=200)
+
+    raw_body = await _read_capped_body(request)
+    if raw_body is None:
+        gps_service.log_raw(source, "<тело больше лимита>", proto.ERR_BADFMT, "слишком большое тело")
+        return PlainTextResponse(f"ERR:{proto.ERR_BADFMT}\n", status_code=413)
+
     text = raw_body.decode("utf-8", "replace").strip()
     query = dict(request.query_params)
     payload_for_log = text or (json.dumps(query, ensure_ascii=False) if query else "")
@@ -60,10 +70,11 @@ async def ingest(request: Request, db: Annotated[AsyncSession, Depends(get_db)])
     except proto.ProtocolError as e:
         gps_service.log_raw(source, payload_for_log, e.code, e.detail)
         # Трекер жив, но фикса нет — отмечаем контакт, если номер разобрать
-        # всё-таки удалось.
+        # всё-таки удалось. Через тот же антифлуд: поток «нет фикса» иначе давал
+        # бы неограниченный UPDATE в БД в обход всех лимитов.
         if e.code == proto.ERR_NOFIX:
             device_hint = _device_hint(text, query)
-            if device_hint:
+            if device_hint and gps_service.allow_contact(device_hint):
                 await gps_service.mark_seen(db, device_hint)
         return PlainTextResponse(f"ERR:{e.code}\n", status_code=200)
 
@@ -76,11 +87,37 @@ async def ingest(request: Request, db: Annotated[AsyncSession, Depends(get_db)])
     return PlainTextResponse("OK\n", status_code=200)
 
 
+async def _read_capped_body(request: Request) -> bytes | None:
+    """Читает тело, обрывая чтение на лимите. None — тело слишком большое.
+
+    `request.body()` втянул бы в память всё, что пропустил nginx, а лимит
+    применялся бы уже после чтения — на открытом в интернет порту так нельзя.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+        return None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _client_ip(request: Request) -> str:
-    # За nginx реальный адрес приходит в X-Forwarded-For.
+    """Реальный адрес отправителя.
+
+    nginx ДОПИСЫВАЕТ адрес клиента в конец X-Forwarded-For, а левую часть
+    цепочки полностью контролирует отправитель — берём последний элемент,
+    иначе в журнале приёма оказывался бы адрес, который придумал атакующий.
+    """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
     return request.client.host if request.client else "?"
 
 
@@ -102,9 +139,9 @@ def _device_hint(text: str, query: dict) -> str:
     for key in ("device", "device_id", "id", "node", "imei", "dev"):
         if key in query and str(query[key]).strip():
             candidate = str(query[key]).strip()
-            return candidate if proto._DEVICE_RE.match(candidate) else ""
+            return candidate if proto.is_valid_device_number(candidate) else ""
     first = text.replace(",", " ").split()
-    if first and proto._DEVICE_RE.match(first[0]):
+    if first and proto.is_valid_device_number(first[0]):
         return first[0]
     return ""
 

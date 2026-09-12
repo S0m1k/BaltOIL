@@ -91,6 +91,11 @@ class ParsedPoint:
     token: str | None = None
 
 
+def is_valid_device_number(value: str) -> bool:
+    """Номер устройства: латиница, цифры и «-_.:» до 32 символов."""
+    return bool(_DEVICE_RE.match((value or "").strip()))
+
+
 def accuracy_for_sats(sats: int) -> int | None:
     """Условная погрешность в метрах; None — фикса нет."""
     if sats < MIN_SATS_FOR_FIX:

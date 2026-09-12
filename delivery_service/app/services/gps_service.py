@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import secrets
 import time
 import uuid
@@ -33,6 +34,17 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _rate_limiter = proto.RateLimiter(settings.gps_min_interval_sec)
+# Отдельный лимитер на «контакт без точки» (нет фикса): эта ветка не доходит до
+# сохранения, а базу дёргает — без своего лимита её можно было бы долбить.
+_contact_limiter = proto.RateLimiter(settings.gps_min_interval_sec)
+# Новые устройства заводятся редко и вручную. Чаще раза в минуту с одного
+# адреса — это не сборка трекеров, а перебор номеров, чтобы выжечь потолок
+# автозаведения и заблокировать регистрацию настоящих машин.
+_register_limiter = proto.RateLimiter(60.0)
+
+# Значения токенов не должны оседать в журнале сырых сообщений.
+_TOKENISH_KEY = re.compile(r"(?i)\b(token|key|secret|auth)\s*[=:]\s*[^&;,\s\"']+")
+_TOKENISH_HEX = re.compile(r"\b[0-9a-fA-F]{16,64}\b")
 
 # Кольцевой журнал последних сообщений — и принятых, и отвергнутых. Нужен, пока
 # точный формат трекера не зафиксирован: админ открывает вкладку «Трекеры» и
@@ -45,11 +57,22 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def mask_secrets(payload: str) -> str:
+    """Прячет токены в сыром сообщении перед записью в журнал."""
+    masked = _TOKENISH_KEY.sub(lambda m: m.group(0).split("=")[0].split(":")[0] + "=***", payload or "")
+    return _TOKENISH_HEX.sub("***", masked)
+
+
+def allow_contact(device_number: str) -> bool:
+    """Антифлуд для отметки «трекер жив» (точка не сохраняется)."""
+    return _contact_limiter.allow(device_number, time.monotonic())
+
+
 def log_raw(source: str, payload: str, result: str, detail: str = "", device: str = "") -> None:
     _raw_log.appendleft({
         "at": _now(),
         "source": source[:45],
-        "payload": (payload or "")[:400],
+        "payload": mask_secrets(payload or "")[:400],
         "result": result,
         "detail": detail[:200],
         "device": device[:32],
@@ -75,7 +98,7 @@ async def ingest_point(db: AsyncSession, point: ParsedPoint, *, source: str) -> 
     if not settings.gps_enabled:
         raise ProtocolError(proto.ERR_INACTIVE, "приём точек выключен")
 
-    device = await _resolve_device(db, point)
+    device = await _resolve_device(db, point, source)
 
     if device.token_hash and hash_token(point.token or "") != device.token_hash:
         raise ProtocolError(proto.ERR_AUTH, "неверный токен устройства")
@@ -131,7 +154,7 @@ async def mark_seen(db: AsyncSession, device_number: str) -> None:
         await db.commit()
 
 
-async def _resolve_device(db: AsyncSession, point: ParsedPoint) -> GpsDevice:
+async def _resolve_device(db: AsyncSession, point: ParsedPoint, source: str) -> GpsDevice:
     result = await db.execute(
         select(GpsDevice).where(GpsDevice.device_number == point.device)
     )
@@ -141,6 +164,12 @@ async def _resolve_device(db: AsyncSession, point: ParsedPoint) -> GpsDevice:
 
     if not settings.gps_auto_register:
         raise ProtocolError(proto.ERR_AUTH, "трекер не зарегистрирован")
+
+    # Перебор новых номеров с одного адреса режем до обращения к БД: иначе
+    # потолок автозаведения выжигается за секунды, и настоящий новый трекер
+    # получает отказ. Настоящая сборка трекеров так быстро не происходит.
+    if not _register_limiter.allow("reg:" + source, time.monotonic()):
+        raise ProtocolError(proto.ERR_AUTH, "слишком много новых устройств с одного адреса")
 
     # Потолок на самозаведение: без него любой сканер интернета, случайно
     # попавший в формат, наплодит устройств.
@@ -251,7 +280,7 @@ async def create_device(
     number = (device_number or "").strip()
     if not number:
         raise ValidationError("Укажите номер устройства")
-    if not proto._DEVICE_RE.match(number):
+    if not proto.is_valid_device_number(number):
         raise ValidationError("Номер устройства: латиница, цифры, «-», «_», «.», «:» до 32 символов")
 
     exists = await db.execute(select(GpsDevice).where(GpsDevice.device_number == number))
@@ -353,7 +382,9 @@ async def get_track(
         raise ValidationError("Конец периода должен быть позже начала")
     if (date_to - date_from).days > MAX_RANGE_DAYS:
         raise ValidationError(f"Период не больше {MAX_RANGE_DAYS} дней")
-    if date_from < _now() - timedelta(days=settings.gps_retention_days):
+    # Сутки +1: самая ранняя доступная дата начинается за 31 день до «сейчас»
+    # минус часовой пояс, и без запаса она бы упиралась в эту же границу.
+    if date_from < _now() - timedelta(days=settings.gps_retention_days + 1):
         raise ValidationError(
             f"История хранится {settings.gps_retention_days} дней — более ранние точки удалены"
         )
