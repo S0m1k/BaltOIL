@@ -146,6 +146,7 @@ services:
       - "8005:8005"       # notification (TLS, SSE-friendly)
       - "8006:8006"       # call (TLS)
       - "7880:7880"       # livekit signalling (WSS)
+      - "8010:8010"       # приём точек GPS-трекеров (plain HTTP: модем без TLS)
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
       - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro

@@ -310,6 +310,72 @@ setTimeout(function () {
   .inv-pane { display: none; }
   .inv-pane.active { display: block; }
 
+  /* ── GPS-МОНИТОРИНГ ── */
+  .gps-bar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .gps-modes { display: inline-flex; border: 1px solid var(--border2); border-radius: 8px; overflow: hidden; }
+  .gps-mode {
+    padding: 7px 16px; border: none; background: transparent; cursor: pointer;
+    font-size: 12px; color: var(--text2); transition: all .15s;
+  }
+  .gps-mode + .gps-mode { border-left: 1px solid var(--border2); }
+  .gps-mode.active { background: var(--amber); color: #1a1205; font-weight: 600; }
+  .gps-mode:hover:not(.active) { color: var(--amber); }
+  .gps-track-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gps-live-note { font-size: 11px; color: var(--text3); margin-left: auto; }
+
+  .gps-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+  .gps-side { display: flex; flex-direction: column; gap: 8px; max-height: 560px; overflow-y: auto; }
+  .gps-map-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  #gps-map { height: 560px; width: 100%; }
+
+  .gps-card {
+    background: var(--bg2); border: 1px solid var(--border); border-left-width: 3px;
+    border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color .15s;
+  }
+  .gps-card:hover { border-color: var(--amber); }
+  .gps-card.selected { border-color: var(--amber); background: rgba(245,158,11,.06); }
+  .gps-card.st-online  { border-left-color: var(--green); }
+  .gps-card.st-stale   { border-left-color: var(--amber); }
+  .gps-card.st-offline,
+  .gps-card.st-never   { border-left-color: var(--text3); }
+  .gps-card-top { display: flex; align-items: center; gap: 8px; }
+  .gps-plate { font-weight: 700; font-size: 14px; letter-spacing: .5px; }
+  .gps-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .gps-dot.st-online  { background: var(--green); }
+  .gps-dot.st-stale   { background: var(--amber); }
+  .gps-dot.st-offline, .gps-dot.st-never { background: var(--text3); }
+  .gps-card-meta { font-size: 11px; color: var(--text3); margin-top: 4px; line-height: 1.6; }
+  .gps-acc { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border2); color: var(--text2); }
+  .gps-acc.q-good { color: var(--green); border-color: var(--green); }
+  .gps-acc.q-fair { color: var(--amber); border-color: var(--amber); }
+  .gps-acc.q-poor, .gps-acc.q-no_fix { color: var(--red); border-color: var(--red); }
+
+  .gps-summary {
+    display: flex; gap: 22px; flex-wrap: wrap; background: var(--bg2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;
+  }
+  .gps-summary-item { display: flex; flex-direction: column; gap: 2px; }
+  .gps-summary-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); }
+  .gps-summary-value { font-size: 16px; font-weight: 600; }
+
+  /* Подпись госномера прямо на карте — без неё маркеры неразличимы. */
+  .gps-marker-label {
+    background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px;
+    padding: 2px 7px; font-size: 11px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25);
+  }
+  /* Хвостик подсказки Leaflet тянет свой цвет фона и в тёмной теме выглядит
+     оторванным от плашки — прячем. */
+  .leaflet-tooltip.gps-marker-label:before { display: none; }
+  @media (max-width: 900px) {
+    .gps-layout { grid-template-columns: 1fr; }
+    .gps-side { max-height: 220px; }
+    #gps-map { height: 420px; }
+    .gps-live-note { margin-left: 0; width: 100%; }
+  }
+
   .stock-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
     margin-bottom: 24px;
@@ -2239,10 +2305,72 @@ setTimeout(function () {
       <div class="toolbar">
         <div class="toolbar-title">Транспортные средства</div>
         <button class="btn btn-sm btn-warn" id="btn-add-vehicle" onclick="promptAddVehicle()" style="margin-left:auto">+ Добавить ТС</button>
-        <button class="btn btn-sm btn-ghost" onclick="loadVehicles()">↻ Обновить</button>
+        <button class="btn btn-sm btn-warn" id="btn-add-device" onclick="promptAddGpsDevice()" style="display:none;margin-left:auto">+ Трекер</button>
+        <button class="btn btn-sm btn-ghost" onclick="refreshVehiclesActive()">↻ Обновить</button>
       </div>
-      <div id="vehicles-list" class="vehicles-grid">
-        <div class="empty-state"><div class="loading"></div></div>
+
+      <!-- Подвкладки: список ТС / карта GPS / трекеры (последние две — admin) -->
+      <div class="inv-subtabs" id="veh-subtabs">
+        <button class="inv-subtab active" data-veh="list"    onclick="switchVehTab('list')">Список ТС</button>
+        <button class="inv-subtab" data-veh="map"     id="veh-subtab-map"     style="display:none" onclick="switchVehTab('map')">GPS-мониторинг</button>
+        <button class="inv-subtab" data-veh="devices" id="veh-subtab-devices" style="display:none" onclick="switchVehTab('devices')">Трекеры</button>
+      </div>
+
+      <!-- SUB: СПИСОК ТС -->
+      <div class="inv-pane active" id="veh-pane-list">
+        <div id="vehicles-list" class="vehicles-grid">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+      </div>
+
+      <!-- SUB: GPS-МОНИТОРИНГ -->
+      <div class="inv-pane" id="veh-pane-map">
+        <div class="gps-bar">
+          <div class="gps-modes">
+            <button class="gps-mode active" data-mode="live"  onclick="switchGpsMode('live')">Сейчас</button>
+            <button class="gps-mode"        data-mode="track" onclick="switchGpsMode('track')">Маршрут за дату</button>
+          </div>
+          <div class="gps-track-controls" id="gps-track-controls" style="display:none">
+            <select id="gps-track-device" class="filter-select" onchange="loadGpsTrack()"></select>
+            <input type="date" id="gps-track-date" class="filter-select" onchange="loadGpsTrack()">
+          </div>
+          <div class="gps-live-note" id="gps-live-note">Обновляется автоматически раз в 20 секунд</div>
+        </div>
+
+        <div id="gps-track-summary" class="gps-summary" style="display:none"></div>
+
+        <div class="gps-layout">
+          <div class="gps-side" id="gps-side">
+            <div class="empty-state"><div class="loading"></div></div>
+          </div>
+          <div class="gps-map-wrap"><div id="gps-map"></div></div>
+        </div>
+      </div>
+
+      <!-- SUB: ТРЕКЕРЫ -->
+      <div class="inv-pane" id="veh-pane-devices">
+        <div id="gps-devices-list" style="display:flex;flex-direction:column;gap:10px">
+          <div class="empty-state"><div class="loading"></div></div>
+        </div>
+
+        <div class="inv-section-title" style="margin-top:24px;display:flex;align-items:center;gap:10px">
+          Журнал приёма
+          <button class="btn btn-sm btn-ghost" onclick="loadGpsRaw()">↻ Показать последние сообщения</button>
+        </div>
+        <p style="font-size:11px;color:var(--text3);margin:0 0 10px">
+          Последние сообщения, пришедшие на порт приёма, — как есть, до разбора.
+          Нужен, когда трекер «молчит»: видно, дошёл ли пакет и что в нём.
+        </p>
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr><th>Время</th><th>Откуда</th><th>Сообщение</th><th>Результат</th></tr>
+            </thead>
+            <tbody id="gps-raw-body">
+              <tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">—</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -4360,7 +4488,7 @@ function switchTab(tab) {
   if (tab === 'orders')    loadOrders();
   if (tab === 'create')    { loadClientSelectForOrder(); loadDriverSelectForOrder(); populateOrderFuelSelect(); initClientZoneMap(); }
   if (tab === 'orgs')      loadMyOrganizations();
-  if (tab === 'vehicles')  loadVehicles();
+  if (tab === 'vehicles')  initVehicles();
   if (tab === 'trips')     loadTrips();
   if (tab === 'report')    initReport();
   if (tab === 'inventory') initInventory();
@@ -4376,6 +4504,8 @@ function switchTab(tab) {
   if (tab === 'transport')   loadTransportDirectory();
   // Stop chat poll when leaving the chat tab
   if (tab !== 'chat') stopChatPoll();
+  // Автообновление карты GPS не должно жить в фоне на других вкладках
+  if (tab !== 'vehicles') stopGpsAutoRefresh();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -8119,6 +8249,529 @@ async function archiveVehicle(id) {
       } catch (e) { toast(e.message, 'error'); }
     }
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GPS-МОНИТОРИНГ (подвкладки «Транспортные средства», только admin)
+// ═══════════════════════════════════════════════════════════════
+// Карта Leaflet в скрытом контейнере считает свой размер нулевым, поэтому
+// после показа подвкладки обязателен invalidateSize() — иначе тайлы рисуются
+// в углу. Сама карта, как и в зонах, создаётся один раз (singleton).
+let _vehSubtab = 'list';
+let _gpsMap = null;
+let _gpsLayer = null;      // всё нарисованное: маркеры, круги погрешности, трек
+let _gpsTimer = null;      // автообновление режима «Сейчас»
+let _gpsMode = 'live';
+let _gpsDevices = [];
+let _gpsSelectedId = null;
+
+const GPS_REFRESH_MS = 20000;
+const GPS_STATUS_LABELS = {
+  online: 'на связи', stale: 'давно не выходил', offline: 'нет связи', never: 'точек не было',
+};
+const GPS_QUALITY_LABELS = {
+  good: 'сигнал хороший', fair: 'сигнал средний', poor: 'сигнал слабый', no_fix: 'нет фикса',
+};
+
+function initVehicles() {
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  document.getElementById('veh-subtab-map').style.display = isAdmin ? '' : 'none';
+  document.getElementById('veh-subtab-devices').style.display = isAdmin ? '' : 'none';
+  if (!isAdmin && _vehSubtab !== 'list') _vehSubtab = 'list';
+  switchVehTab(_vehSubtab);
+}
+
+function switchVehTab(tab) {
+  _vehSubtab = tab;
+  document.querySelectorAll('#veh-subtabs .inv-subtab').forEach(b =>
+    b.classList.toggle('active', b.dataset.veh === tab));
+  document.querySelectorAll('#pane-vehicles .inv-pane').forEach(p =>
+    p.classList.toggle('active', p.id === `veh-pane-${tab}`));
+
+  const isStaff = currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager');
+  document.getElementById('btn-add-vehicle').style.display = (tab === 'list' && isStaff) ? '' : 'none';
+  document.getElementById('btn-add-device').style.display = (tab === 'devices') ? '' : 'none';
+
+  if (tab !== 'map') stopGpsAutoRefresh();
+  if (tab === 'list')    loadVehicles();
+  if (tab === 'map')     initGpsMapPane();
+  if (tab === 'devices') loadGpsDevices();
+}
+
+function refreshVehiclesActive() {
+  if (_vehSubtab === 'list')    return loadVehicles();
+  if (_vehSubtab === 'devices') return loadGpsDevices();
+  return _gpsMode === 'live' ? loadGpsLive() : loadGpsTrack();
+}
+
+// ── Карта ─────────────────────────────────────────────────────────────────────
+
+function initGpsMapPane() {
+  if (!_gpsMap) {
+    _gpsMap = L.map('gps-map').setView([59.94, 30.31], 10);
+    L.tileLayer(MAP_TILE.url, MAP_TILE.options).addTo(_gpsMap);
+    _gpsLayer = L.layerGroup().addTo(_gpsMap);
+
+    const dateEl = document.getElementById('gps-track-date');
+    dateEl.value = _gpsLocalDate(0);
+    dateEl.max = _gpsLocalDate(0);
+    dateEl.min = _gpsLocalDate(-31);   // глубже месяца история уже удалена
+  }
+  // Контейнер только что показали — пересчитываем размеры до отрисовки данных.
+  setTimeout(() => _gpsMap.invalidateSize(), 0);
+  if (_gpsMode === 'live') { loadGpsLive(); startGpsAutoRefresh(); }
+  else loadGpsTrack();
+}
+
+function _gpsLocalDate(offsetDays) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function startGpsAutoRefresh() {
+  stopGpsAutoRefresh();
+  _gpsTimer = setInterval(() => {
+    // Вкладку могли переключить — лишних запросов не делаем.
+    if (_vehSubtab === 'map' && _gpsMode === 'live') loadGpsLive();
+    else stopGpsAutoRefresh();
+  }, GPS_REFRESH_MS);
+}
+
+function stopGpsAutoRefresh() {
+  if (_gpsTimer) { clearInterval(_gpsTimer); _gpsTimer = null; }
+}
+
+function switchGpsMode(mode) {
+  _gpsMode = mode;
+  document.querySelectorAll('.gps-mode').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  document.getElementById('gps-track-controls').style.display = mode === 'track' ? '' : 'none';
+  document.getElementById('gps-live-note').style.display     = mode === 'live'  ? '' : 'none';
+  document.getElementById('gps-track-summary').style.display = 'none';
+  if (mode === 'live') { loadGpsLive(); startGpsAutoRefresh(); }
+  else { stopGpsAutoRefresh(); loadGpsTrack(); }
+}
+
+async function loadGpsLive() {
+  const side = document.getElementById('gps-side');
+  try {
+    _gpsDevices = await deliveryGet('/gps/live');
+  } catch (e) {
+    side.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+    return;
+  }
+  _fillGpsTrackDeviceSelect();
+
+  if (!_gpsDevices.length) {
+    side.innerHTML = `<div class="empty-state" style="padding:24px 10px;font-size:12px">
+      Точек ещё не было.<br>Проверьте трекеры на вкладке «Трекеры».</div>`;
+    _gpsLayer.clearLayers();
+    return;
+  }
+
+  side.innerHTML = _gpsDevices.map(d => gpsCardHTML(d)).join('');
+
+  _gpsLayer.clearLayers();
+  const bounds = [];
+  _gpsDevices.forEach(d => {
+    const lat = Number(d.last_lat), lon = Number(d.last_lon);
+    if (!isFinite(lat) || !isFinite(lon)) return;
+    bounds.push([lat, lon]);
+    const color = d.status === 'online' ? '#10b981' : (d.status === 'stale' ? '#f59e0b' : '#9ca3af');
+    if (d.accuracy_m) {
+      // Круг погрешности — честная картина: точка не «вот здесь», а «где-то тут».
+      L.circle([lat, lon], { radius: d.accuracy_m, color, weight: 1, fillOpacity: 0.08 })
+        .addTo(_gpsLayer);
+    }
+    L.circleMarker([lat, lon], {
+      radius: 7, color, fillColor: color, fillOpacity: 0.9, weight: 2,
+    })
+      .bindTooltip(escHtml(_gpsTitle(d)), { permanent: true, direction: 'top', className: 'gps-marker-label' })
+      .bindPopup(_gpsPopupHTML(d))
+      .addTo(_gpsLayer);
+  });
+  if (bounds.length && !_gpsSelectedId) {
+    _gpsMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  }
+}
+
+function _gpsTitle(d) {
+  return d.vehicle_plate || d.label || d.device_number;
+}
+
+function _gpsPopupHTML(d) {
+  const acc = d.accuracy_m ? `±${d.accuracy_m} м` : 'нет фикса';
+  return `<div style="font-size:12px;line-height:1.7">
+    <b>${escHtml(_gpsTitle(d))}</b><br>
+    ${d.vehicle_model ? escHtml(d.vehicle_model) + '<br>' : ''}
+    Трекер: ${escHtml(d.device_number)}<br>
+    Спутников: ${d.last_sats ?? '—'} (${acc})<br>
+    Скорость: ${d.last_speed_kmh != null ? Number(d.last_speed_kmh).toFixed(0) + ' км/ч' : '—'}<br>
+    Точка: ${fmtDate(d.last_fix_at)}<br>
+    Связь: ${fmtDate(d.last_seen_at)}
+  </div>`;
+}
+
+function gpsCardHTML(d) {
+  const acc = d.accuracy_m ? `±${d.accuracy_m} м` : 'нет фикса';
+  const speed = d.last_speed_kmh != null ? `${Number(d.last_speed_kmh).toFixed(0)} км/ч` : '—';
+  const selected = _gpsSelectedId === d.id ? ' selected' : '';
+  return `
+    <div class="gps-card st-${d.status}${selected}" onclick="focusGpsDevice('${d.id}')">
+      <div class="gps-card-top">
+        <span class="gps-dot st-${d.status}"></span>
+        <span class="gps-plate">${escHtml(_gpsTitle(d))}</span>
+        <span class="gps-acc q-${d.quality}" style="margin-left:auto">${acc}</span>
+      </div>
+      <div class="gps-card-meta">
+        ${GPS_STATUS_LABELS[d.status] || d.status} · ${escHtml(GPS_QUALITY_LABELS[d.quality] || '')}<br>
+        Точка: ${fmtDate(d.last_fix_at)} · ${speed}<br>
+        Спутников: ${d.last_sats ?? '—'} · трекер ${escHtml(d.device_number)}
+      </div>
+    </div>`;
+}
+
+function gpsFocusPoint(lat, lon) {
+  if (_gpsMap) _gpsMap.setView([lat, lon], 16);
+}
+
+function focusGpsDevice(id) {
+  const d = _gpsDevices.find(x => x.id === id);
+  if (!d || d.last_lat == null) return;
+  _gpsSelectedId = id;
+  document.querySelectorAll('.gps-card').forEach(c => c.classList.remove('selected'));
+  _gpsMap.setView([Number(d.last_lat), Number(d.last_lon)], 15);
+  // Снимаем «залипание» выбора, чтобы следующее автообновление снова
+  // показало все машины целиком.
+  setTimeout(() => { _gpsSelectedId = null; }, 60000);
+  if (_gpsMode === 'live') loadGpsLive();
+}
+
+function _fillGpsTrackDeviceSelect() {
+  const sel = document.getElementById('gps-track-device');
+  if (!sel) return;
+  const prev = sel.value;
+  const options = _gpsDevices.map(d =>
+    `<option value="${d.id}">${escHtml(_gpsTitle(d))}</option>`).join('');
+  sel.innerHTML = options || '<option value="">— трекеров нет —</option>';
+  if (prev && _gpsDevices.some(d => d.id === prev)) sel.value = prev;
+}
+
+async function loadGpsTrack() {
+  const side = document.getElementById('gps-side');
+  const summaryEl = document.getElementById('gps-track-summary');
+  const deviceId = document.getElementById('gps-track-device').value;
+  const date = document.getElementById('gps-track-date').value;
+
+  if (!deviceId) {
+    // Список устройств могли ещё не загрузить (вошли сразу в режим маршрута).
+    try {
+      _gpsDevices = await deliveryGet('/gps/devices');
+      _fillGpsTrackDeviceSelect();
+    } catch (e) { /* покажем сообщение ниже */ }
+  }
+  const id = document.getElementById('gps-track-device').value;
+  if (!id || !date) {
+    side.innerHTML = '<div class="empty-state" style="padding:24px 10px;font-size:12px">Выберите машину и дату</div>';
+    return;
+  }
+
+  side.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  const tz = -new Date().getTimezoneOffset();   // сутки считаем по времени пользователя
+  let data;
+  try {
+    data = await deliveryGet(`/gps/track?device_id=${encodeURIComponent(id)}&date=${date}&tz_offset_minutes=${tz}`);
+  } catch (e) {
+    side.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+    summaryEl.style.display = 'none';
+    return;
+  }
+
+  _gpsLayer.clearLayers();
+  const s = data.summary;
+  const pts = data.points.map(p => [p.lat, p.lon]);
+
+  if (!pts.length) {
+    summaryEl.style.display = 'none';
+    side.innerHTML = '<div class="empty-state" style="padding:24px 10px;font-size:12px">За эту дату точек нет</div>';
+    return;
+  }
+
+  L.polyline(pts, { color: '#f59e0b', weight: 4, opacity: 0.85 }).addTo(_gpsLayer);
+  L.circleMarker(pts[0], { radius: 8, color: '#10b981', fillColor: '#10b981', fillOpacity: 0.9, weight: 2 })
+    .bindTooltip(`Старт ${fmtDate(data.points[0].recorded_at)}`, { direction: 'top' })
+    .addTo(_gpsLayer);
+  L.circleMarker(pts[pts.length - 1], { radius: 8, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.9, weight: 2 })
+    .bindTooltip(`Финиш ${fmtDate(data.points[pts.length - 1].recorded_at)}`, { direction: 'top' })
+    .addTo(_gpsLayer);
+
+  // Промежуточные отметки: тысячи кружков карту вешают, поэтому не больше 50.
+  const step = Math.max(1, Math.ceil(data.points.length / 50));
+  for (let i = step; i < data.points.length - 1; i += step) {
+    const p = data.points[i];
+    L.circleMarker([p.lat, p.lon], { radius: 3, color: '#f59e0b', fillOpacity: 0.9, weight: 1 })
+      .bindTooltip(`${fmtDate(p.recorded_at)}<br>${p.speed_kmh != null ? p.speed_kmh + ' км/ч · ' : ''}±${p.accuracy_m || '?'} м, ${p.sats} спутн.`)
+      .addTo(_gpsLayer);
+  }
+
+  _gpsMap.fitBounds(pts, { padding: [40, 40] });
+
+  summaryEl.style.display = '';
+  summaryEl.innerHTML = [
+    ['Пробег', `${s.distance_km} км`],
+    ['В движении', `${Math.floor(s.moving_minutes / 60)} ч ${s.moving_minutes % 60} мин`],
+    ['Макс. скорость', s.max_speed_kmh != null ? `${s.max_speed_kmh} км/ч` : '—'],
+    ['Средняя скорость', s.avg_speed_kmh != null ? `${s.avg_speed_kmh} км/ч` : '—'],
+    ['Погрешность', s.avg_accuracy_m != null ? `±${s.avg_accuracy_m} м` : '—'],
+    ['Точек', `${s.points}${s.shown_points < s.points ? ` (на карте ${s.shown_points})` : ''}`],
+    ['Первая', fmtDate(s.first_at)],
+    ['Последняя', fmtDate(s.last_at)],
+  ].map(([label, value]) => `
+    <div class="gps-summary-item">
+      <span class="gps-summary-label">${label}</span>
+      <span class="gps-summary-value">${escHtml(String(value))}</span>
+    </div>`).join('');
+
+  side.innerHTML = data.points.slice(-40).reverse().map(p => `
+    <div class="gps-card st-online" onclick="gpsFocusPoint(${p.lat}, ${p.lon})">
+      <div class="gps-card-top">
+        <span class="gps-plate" style="font-size:12px">${fmtDate(p.recorded_at)}</span>
+        <span class="gps-acc" style="margin-left:auto">${p.accuracy_m ? '±' + p.accuracy_m + ' м' : '—'}</span>
+      </div>
+      <div class="gps-card-meta">
+        ${p.speed_kmh != null ? p.speed_kmh + ' км/ч · ' : ''}спутников ${p.sats}<br>
+        ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}
+      </div>
+    </div>`).join('');
+}
+
+// ── Трекеры ───────────────────────────────────────────────────────────────────
+
+async function loadGpsDevices() {
+  const el = document.getElementById('gps-devices-list');
+  el.innerHTML = '<div class="empty-state"><div class="loading"></div></div>';
+  try {
+    _gpsDevices = await deliveryGet('/gps/devices');
+  } catch (e) {
+    el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
+    return;
+  }
+  if (!_gpsDevices.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:30px">
+      Трекеров нет. Устройство появится здесь само, как только пришлёт первую точку,
+      либо заведите его вручную кнопкой «+ Трекер».</div>`;
+    return;
+  }
+  el.innerHTML = _gpsDevices.map(d => gpsDeviceRowHTML(d)).join('');
+}
+
+function gpsDeviceRowHTML(d) {
+  const newBadge = d.auto_registered
+    ? '<span class="vehicle-badge" style="border-color:var(--amber);color:var(--amber)">новый — подтвердите</span>' : '';
+  const activeBadge = d.is_active
+    ? '<span class="vehicle-badge active">Включён</span>'
+    : '<span class="vehicle-badge inactive">Отключён</span>';
+  const vehicleBadge = d.vehicle_plate
+    ? `<span class="vehicle-badge">${escHtml(d.vehicle_plate)}</span>`
+    : '<span class="vehicle-badge">не привязан к ТС</span>';
+  return `
+    <div class="vehicle-card" style="cursor:default">
+      <div class="gps-card-top">
+        <span class="gps-dot st-${d.status}"></span>
+        <span class="gps-plate">${escHtml(d.device_number)}</span>
+        ${d.label ? `<span style="color:var(--text3);font-size:12px">${escHtml(d.label)}</span>` : ''}
+      </div>
+      <div class="vehicle-meta" style="margin-top:8px">
+        ${activeBadge}${vehicleBadge}${newBadge}
+        <span class="vehicle-badge">${GPS_STATUS_LABELS[d.status] || d.status}</span>
+        ${d.has_token ? '<span class="vehicle-badge">с токеном</span>' : ''}
+      </div>
+      <div class="gps-card-meta">
+        Связь: ${fmtDate(d.last_seen_at)} · точка: ${fmtDate(d.last_fix_at)}
+        ${d.last_sats != null ? ` · спутников ${d.last_sats}` : ''}
+        ${d.sim_phone ? ` · SIM ${escHtml(d.sim_phone)}` : ''}
+      </div>
+      ${d.notes ? `<div style="font-size:12px;color:var(--text3);margin-top:6px">${escHtml(d.notes)}</div>` : ''}
+      <div class="vehicle-actions">
+        <button class="btn btn-sm btn-ghost" onclick="promptEditGpsDevice('${d.id}')">Настроить</button>
+        ${d.auto_registered ? `<button class="btn btn-sm btn-success" onclick="confirmGpsDevice('${d.id}')">Подтвердить</button>` : ''}
+        <button class="btn btn-sm btn-ghost" onclick="toggleGpsDevice('${d.id}', ${d.is_active ? 'false' : 'true'})">${d.is_active ? 'Отключить' : 'Включить'}</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteGpsDevice('${d.id}')">Удалить</button>
+      </div>
+    </div>`;
+}
+
+async function _gpsVehicleOptions(selectedId) {
+  let vehicles = [];
+  try { vehicles = await deliveryGet('/vehicles'); } catch (e) { vehicles = []; }
+  const opts = vehicles.map(v =>
+    `<option value="${v.id}"${v.id === selectedId ? ' selected' : ''}>${escHtml(v.plate_number)} — ${escHtml(v.model)}</option>`).join('');
+  return `<option value=""${selectedId ? '' : ' selected'}>— не привязан —</option>${opts}`;
+}
+
+async function promptAddGpsDevice() {
+  const options = await _gpsVehicleOptions(null);
+  openModal('Новый трекер',
+    `<div class="form-group">
+      <label class="form-label">Номер устройства (как в прошивке)</label>
+      <input type="text" id="mg-number" class="form-input" placeholder="SZTK-01" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Машина</label>
+      <select id="mg-vehicle" class="form-input">${options}</select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Название (необязательно)</label>
+        <input type="text" id="mg-label" class="form-input" placeholder="Трекер на КАМАЗе">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Номер SIM (необязательно)</label>
+        <input type="tel" id="mg-sim" class="form-input" placeholder="+7 900 000 00 00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечания</label>
+      <input type="text" id="mg-notes" class="form-input" placeholder="...">
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer">
+      <input type="checkbox" id="mg-token"> Выдать токен (только если прошивка умеет его слать)
+    </label>`,
+    async () => {
+      const body = {
+        device_number: document.getElementById('mg-number').value.trim(),
+        vehicle_id:    document.getElementById('mg-vehicle').value || null,
+        label:         document.getElementById('mg-label').value.trim() || null,
+        sim_phone:     document.getElementById('mg-sim').value.trim() || null,
+        notes:         document.getElementById('mg-notes').value.trim() || null,
+        with_token:    document.getElementById('mg-token').checked,
+      };
+      if (!body.device_number) return toast('Укажите номер устройства', 'error');
+      try {
+        const res = await deliveryPost('/gps/devices', body);
+        closeModal();
+        toast('Трекер заведён');
+        if (res.token) _showGpsToken(res.token);
+        loadGpsDevices();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+function _showGpsToken(token) {
+  // Токен хранится только хэшем — второй раз показать его будет неоткуда.
+  openModal('Токен трекера',
+    `<p style="font-size:13px;color:var(--text2)">Скопируйте и пропишите в прошивку.
+      Показывается один раз — потом только замена.</p>
+     <div style="font-family:ui-monospace,monospace;font-size:15px;background:var(--bg3);
+                 border:1px solid var(--border2);border-radius:8px;padding:12px;
+                 word-break:break-all;user-select:all">${escHtml(token)}</div>`,
+    null);
+}
+
+async function promptEditGpsDevice(id) {
+  const d = _gpsDevices.find(x => x.id === id);
+  if (!d) return;
+  const options = await _gpsVehicleOptions(d.vehicle_id);
+  openModal(`Трекер ${d.device_number}`,
+    `<div class="form-group">
+      <label class="form-label">Машина</label>
+      <select id="mg-vehicle" class="form-input">${options}</select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Название</label>
+        <input type="text" id="mg-label" class="form-input" value="${escHtml(d.label || '')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Номер SIM</label>
+        <input type="tel" id="mg-sim" class="form-input" value="${escHtml(d.sim_phone || '')}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Примечания</label>
+      <input type="text" id="mg-notes" class="form-input" value="${escHtml(d.notes || '')}">
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer">
+      <input type="checkbox" id="mg-rotate"> Выдать новый токен (старый перестанет работать)
+    </label>`,
+    async () => {
+      const body = {
+        vehicle_id:   document.getElementById('mg-vehicle').value || null,
+        label:        document.getElementById('mg-label').value.trim() || null,
+        sim_phone:    document.getElementById('mg-sim').value.trim() || null,
+        notes:        document.getElementById('mg-notes').value.trim() || null,
+        rotate_token: document.getElementById('mg-rotate').checked,
+      };
+      try {
+        const res = await deliveryPatch(`/gps/devices/${id}`, body);
+        closeModal();
+        toast('Сохранено');
+        if (res.token) _showGpsToken(res.token);
+        loadGpsDevices();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+async function confirmGpsDevice(id) {
+  try {
+    await deliveryPatch(`/gps/devices/${id}`, { confirm: true });
+    toast('Трекер подтверждён');
+    loadGpsDevices();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function toggleGpsDevice(id, active) {
+  try {
+    await deliveryPatch(`/gps/devices/${id}`, { is_active: active });
+    toast(active ? 'Трекер включён' : 'Трекер отключён');
+    loadGpsDevices();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function deleteGpsDevice(id) {
+  const d = _gpsDevices.find(x => x.id === id);
+  openModal('Удалить трекер?',
+    `<p style="color:var(--text2);font-size:13px">Трекер ${escHtml(d ? d.device_number : '')}
+      и вся его история точек будут удалены без возможности восстановления.</p>`,
+    async () => {
+      closeModal();
+      try {
+        await deliveryDelete(`/gps/devices/${id}`);
+        toast('Трекер удалён');
+        loadGpsDevices();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  );
+}
+
+async function loadGpsRaw() {
+  const body = document.getElementById('gps-raw-body');
+  body.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px"><div class="loading"></div></td></tr>';
+  let rows;
+  try {
+    rows = await deliveryGet('/gps/raw');
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="4" style="color:var(--red);padding:16px">${escHtml(e.message)}</td></tr>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">Сообщений ещё не было</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const ok = r.result === 'ok';
+    const color = ok ? 'var(--green)' : 'var(--red)';
+    const detail = r.detail ? ` — ${escHtml(r.detail)}` : '';
+    return `<tr>
+      <td style="white-space:nowrap">${fmtDate(r.at)}</td>
+      <td style="white-space:nowrap">${escHtml(r.source)}</td>
+      <td style="font-family:ui-monospace,monospace;font-size:11px;word-break:break-all">${escHtml(r.payload)}</td>
+      <td style="color:${color};white-space:nowrap">${escHtml(ok ? 'принято' : r.result)}${detail}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -8,8 +8,10 @@ from app.database import engine, Base
 from app.routers import vehicles, trips, reports, inventory, downloads
 from app.routers import internal as internal_router
 from app.routers import zones as zones_router
+from app.routers import gps as gps_router
 from app.routers import tanks as tanks_router
 from app.routers.downloads import _purge_loop
+from app.services.gps_service import purge_loop as gps_purge_loop
 from app.services.redis_subscriber import order_events_subscriber_task
 
 settings = get_settings()
@@ -39,9 +41,12 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     purge_task = asyncio.create_task(_purge_loop())
     events_task = asyncio.create_task(order_events_subscriber_task())
+    # История GPS хранится месяц — чистим её сами, cron на сервере не нужен.
+    gps_task = asyncio.create_task(gps_purge_loop())
     yield
     purge_task.cancel()
     events_task.cancel()
+    gps_task.cancel()
     await engine.dispose()
 
 
@@ -67,6 +72,7 @@ app.include_router(inventory.router,  prefix="/api/v1")
 app.include_router(downloads.router,     prefix="/api/v1")
 app.include_router(internal_router.router, prefix="/api/v1")
 app.include_router(zones_router.router,   prefix="/api/v1")
+app.include_router(gps_router.router,     prefix="/api/v1")
 
 
 @app.get("/health")

@@ -18,6 +18,25 @@ class Settings(BaseSettings):
     public_delivery_url: str = "http://localhost:8003"
     dadata_api_key: str | None = None
 
+    # ── GPS-мониторинг (спринт 2026-09-12) ────────────────────────────────
+    # Приём точек от самодельных трекеров. Канал открытый (модем без TLS),
+    # поэтому защита — регистрация устройства, антифлуд и отсев мусора.
+    gps_enabled: bool = True
+    # Неизвестный номер устройства заводится сам при первой точке, чтобы не
+    # терять данные только что собранного трекера. Админ потом привязывает
+    # его к машине. Выключить, когда все трекеры заведены.
+    gps_auto_register: bool = True
+    gps_max_auto_devices: int = 50
+    # Не чаще одной точки в N секунд с устройства.
+    gps_min_interval_sec: float = 3.0
+    # Глубина истории: хранить месяц, чистить раз в сутки.
+    gps_retention_days: int = 31
+    # На карте: до N минут — «на связи», до M — «давно не выходил».
+    gps_online_minutes: int = 10
+    gps_stale_minutes: int = 60
+    # Потолок точек в ответе трека — дальше равномерное прореживание.
+    gps_max_track_points: int = 5000
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
