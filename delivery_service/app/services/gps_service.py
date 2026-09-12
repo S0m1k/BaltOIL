@@ -176,6 +176,9 @@ async def _resolve_device(db: AsyncSession, point: ParsedPoint, source: str) -> 
     auto_count = await db.scalar(
         select(func.count()).select_from(GpsDevice).where(GpsDevice.auto_registered.is_(True))
     )
+    # Проверка и вставка не атомарны: при одновременных запросах с разных
+    # адресов потолок можно немного перескочить. Живём с этим — лимитер выше
+    # уже режет перебор, а точное значение потолка здесь не принципиально.
     if (auto_count or 0) >= settings.gps_max_auto_devices:
         raise ProtocolError(proto.ERR_AUTH, "лимит автозаведения исчерпан")
 

@@ -392,7 +392,10 @@ class RateLimiter:
         if last is not None and now - last < self.min_interval:
             return False
         if len(self._last) >= self.max_entries and key not in self._last:
-            # Защита от разрастания словаря на мусорных номерах устройств.
-            self._last.clear()
+            # Вытесняем самые старые записи, а не чистим словарь целиком:
+            # полная очистка разом снимала бы выдержку со ВСЕХ устройств.
+            oldest = sorted(self._last.items(), key=lambda kv: kv[1])[: self.max_entries // 2]
+            for stale_key, _ in oldest:
+                del self._last[stale_key]
         self._last[key] = now
         return True

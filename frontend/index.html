@@ -8264,6 +8264,7 @@ let _gpsTimer = null;      // автообновление режима «Сей
 let _gpsMode = 'live';
 let _gpsDevices = [];
 let _gpsSelectedId = null;
+let _gpsSelectTimer = null;  // сброс «залипания» выбранной машины
 
 const GPS_REFRESH_MS = 20000;
 const GPS_STATUS_LABELS = {
@@ -8442,9 +8443,11 @@ function focusGpsDevice(id) {
   _gpsSelectedId = id;
   document.querySelectorAll('.gps-card').forEach(c => c.classList.remove('selected'));
   _gpsMap.setView([Number(d.last_lat), Number(d.last_lon)], 15);
-  // Снимаем «залипание» выбора, чтобы следующее автообновление снова
-  // показало все машины целиком.
-  setTimeout(() => { _gpsSelectedId = null; }, 60000);
+  // Снимаем «залипание» выбора, чтобы следующее автообновление снова показало
+  // все машины целиком. Прошлый таймер гасим: иначе клик по второй машине
+  // сбрасывался бы по таймеру от первой, и карта убегала бы на общий вид.
+  if (_gpsSelectTimer) clearTimeout(_gpsSelectTimer);
+  _gpsSelectTimer = setTimeout(() => { _gpsSelectedId = null; }, 60000);
   if (_gpsMode === 'live') loadGpsLive();
 }
 
