@@ -17,6 +17,7 @@ import '../auth/auth_repository.dart';
 import '../calls/call_repository.dart';
 import '../calls/call_screen.dart';
 import '../calls/incoming_call_watcher.dart';
+import '../common/photo_viewer_screen.dart';
 import 'chat_models.dart';
 import 'chat_repository.dart';
 
@@ -1268,9 +1269,16 @@ class _AuthImageState extends State<_AuthImage> {
     if (_error || _file == null) {
       return const Icon(Icons.broken_image_outlined, size: 48);
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Image.file(_file!, width: 200, fit: BoxFit.cover),
+    final file = _file!;
+    // Тап открывает фото на весь экран с зумом (правки 2026-09-14): превью
+    // 200 px не позволяло разглядеть накладную. Долгое нажатие по-прежнему
+    // уходит в меню сообщения — жесты не конфликтуют.
+    return GestureDetector(
+      onTap: () => PhotoViewerScreen.open(context, file),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(file, width: 200, fit: BoxFit.cover),
+      ),
     );
   }
 }

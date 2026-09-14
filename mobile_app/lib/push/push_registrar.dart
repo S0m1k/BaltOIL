@@ -7,11 +7,13 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../core/app_config.dart';
+import '../features/auth/auth_repository.dart';
 import '../features/calls/callkit_service.dart';
 import '../features/calls/incoming_call_watcher.dart';
 import '../features/chat/chat_models.dart';
 import '../features/chat/chat_repository.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/orders/order_detail_screen.dart';
 
 /// Фоновый обработчик FCM (top-level, отдельный изолят). Для data-only пуша
 /// call_initiated показывает нативный экран входящего звонка — работает даже
@@ -145,6 +147,14 @@ class PushRegistrar {
       _navigateToChat(convId);
     }
 
+    // Пуш о заявке (новая / статус / изменения / перенос) — открываем
+    // карточку заявки (правки 2026-09-14: раньше тап только запускал
+    // приложение, и заявку приходилось искать в списке вручную).
+    if (entityType == 'order' && convId != null && convId.isNotEmpty) {
+      // ignore: discarded_futures
+      _navigateToOrder(convId);
+    }
+
     // Входящий звонок (2026-07-17): в data только call_id (entity_id) —
     // room_name и статус добираются через GET /calls/{id}.
     if (type == 'call_initiated' &&
@@ -152,6 +162,23 @@ class PushRegistrar {
         convId != null &&
         convId.isNotEmpty) {
       IncomingCallWatcher.instance.openFromPush(convId);
+    }
+  }
+
+  Future<void> _navigateToOrder(String orderId) async {
+    final nav = navigatorKey?.currentState;
+    if (nav == null) return;
+    try {
+      // Экрану заявки нужна роль: от неё зависят права и кнопки действий.
+      final user = await AuthRepository.instance.me();
+      await nav.push(MaterialPageRoute(
+        builder: (_) => OrderDetailScreen(orderId: orderId, user: user),
+      ));
+    } on Object catch (e) {
+      // Не залогинен или заявка недоступна — остаёмся там, где открылось
+      // приложение.
+      developer.log('PushRegistrar: не удалось открыть заявку $orderId: $e',
+          name: 'push');
     }
   }
 

@@ -270,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _Dest.requisites => RequisitesScreen(user: user),
       _Dest.zones => ZonesScreen(user: user),
       _Dest.chat => const ConversationsScreen(),
-      _Dest.notifications => const NotificationsScreen(),
+      _Dest.notifications => NotificationsScreen(user: user),
       _Dest.profile => ProfileScreen(user: user),
     };
   }
