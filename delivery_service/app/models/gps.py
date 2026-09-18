@@ -34,6 +34,10 @@ class GpsDevice(Base):
     # Трекер завёлся сам, прислав первую точку: админ его ещё не подтверждал и
     # к машине не привязывал. В списке такие подсвечиваются как «новый».
     auto_registered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Секрет TOTP (спринт 2026-09-19), зашифрованный ключом из .env — см.
+    # services/gps_totp. Не отпечаток, как у токена: для проверки кода
+    # серверу нужен сам секрет. NULL = трекер кодом не подтверждается.
+    totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     sim_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
 

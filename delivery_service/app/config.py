@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     gps_stale_minutes: int = 60
     # Потолок точек в ответе трека — дальше равномерное прореживание.
     gps_max_track_points: int = 5000
+    # Ключ шифрования секретов TOTP в БД. Не задан — выводится из
+    # JWT_SECRET_KEY. Менять только вместе с перевыдачей секретов всем
+    # трекерам: старые перестанут расшифровываться.
+    gps_secret_key: str | None = None
+    # Защита кода от перебора: после N неверных кодов за окно трекер до конца
+    # окна не проверяется (ERR:AUTH).
+    gps_totp_max_failures: int = 10
+    gps_totp_failure_window_sec: int = 600
+
+    @property
+    def gps_secret_master_key(self) -> str:
+        return self.gps_secret_key or self.jwt_secret_key
 
     @property
     def cors_origins(self) -> list[str]:

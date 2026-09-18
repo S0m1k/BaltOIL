@@ -8589,6 +8589,7 @@ function gpsDeviceRowHTML(d) {
         ${activeBadge}${vehicleBadge}${newBadge}
         <span class="vehicle-badge">${GPS_STATUS_LABELS[d.status] || d.status}</span>
         ${d.has_token ? '<span class="vehicle-badge">с токеном</span>' : ''}
+        ${d.has_totp ? '<span class="vehicle-badge active">TOTP</span>' : ''}
       </div>
       <div class="gps-card-meta">
         Связь: ${fmtDate(d.last_seen_at)} · точка: ${fmtDate(d.last_fix_at)}
@@ -8640,6 +8641,9 @@ async function promptAddGpsDevice() {
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer">
       <input type="checkbox" id="mg-token"> Выдать токен (только если прошивка умеет его слать)
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;margin-top:6px">
+      <input type="checkbox" id="mg-totp"> Выдать секрет TOTP (прошивка шлёт 8-значный код после номера)
     </label>`,
     async () => {
       const body = {
@@ -8649,28 +8653,48 @@ async function promptAddGpsDevice() {
         sim_phone:     document.getElementById('mg-sim').value.trim() || null,
         notes:         document.getElementById('mg-notes').value.trim() || null,
         with_token:    document.getElementById('mg-token').checked,
+        with_totp:     document.getElementById('mg-totp').checked,
       };
       if (!body.device_number) return toast('Укажите номер устройства', 'error');
       try {
         const res = await deliveryPost('/gps/devices', body);
         closeModal();
         toast('Трекер заведён');
-        if (res.token) _showGpsToken(res.token);
+        _showGpsCredentials(res);
         loadGpsDevices();
       } catch (e) { toast(e.message, 'error'); }
     }
   );
 }
 
-function _showGpsToken(token) {
-  // Токен хранится только хэшем — второй раз показать его будет неоткуда.
-  openModal('Токен трекера',
-    `<p style="font-size:13px;color:var(--text2)">Скопируйте и пропишите в прошивку.
-      Показывается один раз — потом только замена.</p>
-     <div style="font-family:ui-monospace,monospace;font-size:15px;background:var(--bg3);
-                 border:1px solid var(--border2);border-radius:8px;padding:12px;
-                 word-break:break-all;user-select:all">${escHtml(token)}</div>`,
-    null);
+// Токен хранится только хэшем, секрет TOTP — зашифрованным: второй раз
+// показать их будет неоткуда, поэтому окно одно и сразу со всем нужным.
+function _showGpsCredentials(res) {
+  if (!res || (!res.token && !res.totp)) return;
+  const box = 'font-family:ui-monospace,monospace;font-size:13px;background:var(--bg3);'
+    + 'border:1px solid var(--border2);border-radius:8px;padding:10px 12px;'
+    + 'word-break:break-all;user-select:all;margin:4px 0 12px';
+  const num = res.device ? escHtml(res.device.device_number) : '';
+  let html = `<p style="font-size:13px;color:var(--text2);margin-top:0">
+    Скопируйте и передайте тому, кто прошивает трекер. Показывается один раз —
+    потом только перевыдача.</p>`;
+  if (res.totp) {
+    html += `
+      <div class="form-label">Секрет TOTP — массив для Arduino</div>
+      <div style="${box}">${escHtml(res.totp.arduino)}</div>
+      <div class="form-label">Тот же секрет в base32 (для проверки в приложении-аутентификаторе)</div>
+      <div style="${box}">${escHtml(res.totp.base32)}</div>
+      <p style="font-size:12px;color:var(--text3);margin:0 0 12px">
+        RFC 6238: HMAC-SHA1, шаг ${res.totp.period} с, ${res.totp.digits} цифр, время — UTC с GPS.
+        Строка трекера: <code>${num || 'НОМЕР'} КОД широта долгота спутники</code>.
+        Со старым кодом точки этого трекера больше не принимаются.</p>`;
+  }
+  if (res.token) {
+    html += `
+      <div class="form-label">Токен</div>
+      <div style="${box}">${escHtml(res.token)}</div>`;
+  }
+  openModal('Секреты трекера', html, null);
 }
 
 async function promptEditGpsDevice(id) {
@@ -8698,7 +8722,16 @@ async function promptEditGpsDevice(id) {
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer">
       <input type="checkbox" id="mg-rotate"> Выдать новый токен (старый перестанет работать)
-    </label>`,
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;margin-top:6px">
+      <input type="checkbox" id="mg-totp"> ${d.has_totp
+        ? 'Перевыдать секрет TOTP (старый перестанет работать)'
+        : 'Выдать секрет TOTP (прошивка шлёт 8-значный код после номера)'}
+    </label>
+    ${d.has_totp ? `
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);cursor:pointer;margin-top:6px">
+      <input type="checkbox" id="mg-totp-off"> Отключить проверку TOTP (точки снова без кода)
+    </label>` : ''}`,
     async () => {
       const body = {
         vehicle_id:   document.getElementById('mg-vehicle').value || null,
@@ -8706,12 +8739,16 @@ async function promptEditGpsDevice(id) {
         sim_phone:    document.getElementById('mg-sim').value.trim() || null,
         notes:        document.getElementById('mg-notes').value.trim() || null,
         rotate_token: document.getElementById('mg-rotate').checked,
+        enable_totp:  document.getElementById('mg-totp').checked,
+        disable_totp: !!document.getElementById('mg-totp-off')?.checked,
       };
+      if (body.enable_totp && body.disable_totp)
+        return toast('Выберите одно: перевыдать или отключить TOTP', 'error');
       try {
         const res = await deliveryPatch(`/gps/devices/${id}`, body);
         closeModal();
         toast('Сохранено');
-        if (res.token) _showGpsToken(res.token);
+        _showGpsCredentials(res);
         loadGpsDevices();
       } catch (e) { toast(e.message, 'error'); }
     }

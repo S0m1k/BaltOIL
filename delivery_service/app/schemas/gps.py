@@ -16,6 +16,8 @@ class GpsDeviceResponse(BaseModel):
     # Трекер завёлся сам, прислав точку, и ещё не подтверждён админом.
     auto_registered: bool
     has_token: bool
+    # Трекер подтверждает точки кодом TOTP.
+    has_totp: bool = False
     vehicle_id: uuid.UUID | None = None
     vehicle_plate: str | None = None
     vehicle_model: str | None = None
@@ -32,10 +34,21 @@ class GpsDeviceResponse(BaseModel):
     created_at: datetime
 
 
+class GpsTotpSecret(BaseModel):
+    """Секрет TOTP для прошивки — показывается один раз при выдаче."""
+
+    hex: str
+    base32: str
+    arduino: str
+    digits: int
+    period: int
+
+
 class GpsDeviceCreated(BaseModel):
     device: GpsDeviceResponse
     # Показывается один раз при выдаче; в БД хранится только sha256.
     token: str | None = None
+    totp: GpsTotpSecret | None = None
 
 
 class GpsDeviceCreateRequest(BaseModel):
@@ -46,6 +59,8 @@ class GpsDeviceCreateRequest(BaseModel):
     notes: str | None = None
     # Токен нужен только прошивкам, которые умеют его слать.
     with_token: bool = False
+    # Секрет TOTP — для прошивок, которые шлют код после номера устройства.
+    with_totp: bool = False
 
 
 class GpsDeviceUpdateRequest(BaseModel):
@@ -57,6 +72,9 @@ class GpsDeviceUpdateRequest(BaseModel):
     confirm: bool = False
     rotate_token: bool = False
     drop_token: bool = False
+    # Выдать (или перевыдать) секрет TOTP / перестать проверять код.
+    enable_totp: bool = False
+    disable_totp: bool = False
 
 
 class GpsTrackPoint(BaseModel):

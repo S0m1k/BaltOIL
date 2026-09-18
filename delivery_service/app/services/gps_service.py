@@ -17,6 +17,7 @@ import secrets
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select, func
@@ -28,6 +29,7 @@ from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.gps import GpsDevice, GpsPosition
 from app.models.vehicle import Vehicle
 from app.services import gps_protocol as proto
+from app.services import gps_totp
 from app.services.gps_protocol import ParsedPoint, ProtocolError
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,10 @@ _contact_limiter = proto.RateLimiter(settings.gps_min_interval_sec)
 # адреса — это не сборка трекеров, а перебор номеров, чтобы выжечь потолок
 # автозаведения и заблокировать регистрацию настоящих машин.
 _register_limiter = proto.RateLimiter(60.0)
+# Перебор кода TOTP: после N неверных кодов за окно трекер не проверяется.
+_totp_throttle = proto.FailureThrottle(
+    settings.gps_totp_max_failures, settings.gps_totp_failure_window_sec
+)
 
 # Значения токенов не должны оседать в журнале сырых сообщений.
 _TOKENISH_KEY = re.compile(r"(?i)\b(token|key|secret|auth)\s*[=:]\s*[^&;,\s\"']+")
@@ -100,8 +106,7 @@ async def ingest_point(db: AsyncSession, point: ParsedPoint, *, source: str) -> 
 
     device = await _resolve_device(db, point, source)
 
-    if device.token_hash and hash_token(point.token or "") != device.token_hash:
-        raise ProtocolError(proto.ERR_AUTH, "неверный токен устройства")
+    _authenticate(device, point)
     if not device.is_active:
         raise ProtocolError(proto.ERR_INACTIVE, "трекер отключён в админке")
 
@@ -139,6 +144,36 @@ async def ingest_point(db: AsyncSession, point: ParsedPoint, *, source: str) -> 
     log_raw(source, f"{point.device} {point.lat} {point.lon} {point.sats}",
             "ok", "", point.device)
     return position
+
+
+def _authenticate(device: GpsDevice, point: ParsedPoint) -> None:
+    """Подтверждение, что точку прислал именно этот трекер.
+
+    Порядок: TOTP → статический токен → ничего (старые прошивки, риск принят).
+    У трекера с секретом TOTP точки без верного кода не принимаются вовсе.
+    """
+    if device.totp_secret_enc:
+        key = str(device.id)
+        now_mono = time.monotonic()
+        if _totp_throttle.is_blocked(key, now_mono):
+            raise ProtocolError(proto.ERR_AUTH, "много неверных кодов — проверка приостановлена")
+        try:
+            secret = gps_totp.decrypt_secret(device.totp_secret_enc, settings.gps_secret_master_key)
+        except gps_totp.SecretDecryptError:
+            logger.error("GPS: секрет TOTP трекера %s не расшифровывается — ключ в .env "
+                         "сменился? Перевыдайте секрет в админке", device.device_number)
+            raise ProtocolError(proto.ERR_AUTH, "секрет трекера не расшифровывается")
+        if not point.code:
+            # Без кода — прошивка старая. В счётчик перебора не идёт: подобрать
+            # так ничего нельзя, а блокировать трекер из-за этого незачем.
+            raise ProtocolError(proto.ERR_AUTH, "нет кода TOTP")
+        if not gps_totp.verify_totp(secret, point.code, int(time.time())):
+            _totp_throttle.record_failure(key, now_mono)
+            raise ProtocolError(proto.ERR_AUTH, "неверный или просроченный код TOTP")
+        return
+
+    if device.token_hash and hash_token(point.token or "") != device.token_hash:
+        raise ProtocolError(proto.ERR_AUTH, "неверный токен устройства")
 
 
 async def mark_seen(db: AsyncSession, device_number: str) -> None:
@@ -244,6 +279,7 @@ def _device_dict(device: GpsDevice, vehicle: Vehicle | None, now: datetime) -> d
         "is_active": device.is_active,
         "auto_registered": device.auto_registered,
         "has_token": device.token_hash is not None,
+        "has_totp": device.totp_secret_enc is not None,
         "vehicle_id": device.vehicle_id,
         "vehicle_plate": vehicle.plate_number if vehicle else None,
         "vehicle_model": vehicle.model if vehicle else None,
@@ -274,12 +310,26 @@ async def get_device(db: AsyncSession, device_id: uuid.UUID) -> GpsDevice:
     return device
 
 
+@dataclass(frozen=True)
+class IssuedCredentials:
+    """Секреты, которые показываются админу один раз — в БД их не прочитать."""
+
+    token: str | None = None
+    totp: dict | None = None  # gps_totp.secret_formats(...)
+
+
+def _issue_totp(device: GpsDevice) -> dict:
+    secret = gps_totp.generate_secret()
+    device.totp_secret_enc = gps_totp.encrypt_secret(secret, settings.gps_secret_master_key)
+    return gps_totp.secret_formats(secret)
+
+
 async def create_device(
     db: AsyncSession, *, device_number: str, label: str | None,
     vehicle_id: uuid.UUID | None, sim_phone: str | None, notes: str | None,
-    with_token: bool,
-) -> tuple[GpsDevice, str | None]:
-    """Заводит трекер вручную. Токен (если запрошен) возвращается один раз."""
+    with_token: bool, with_totp: bool = False,
+) -> tuple[GpsDevice, IssuedCredentials]:
+    """Заводит трекер вручную. Токен и секрет TOTP возвращаются один раз."""
     number = (device_number or "").strip()
     if not number:
         raise ValidationError("Укажите номер устройства")
@@ -303,16 +353,17 @@ async def create_device(
         token_hash=hash_token(token) if token else None,
         auto_registered=False,
     )
+    totp = _issue_totp(device) if with_totp else None
     db.add(device)
     await db.commit()
     await db.refresh(device)
-    return device, token
+    return device, IssuedCredentials(token=token, totp=totp)
 
 
 async def update_device(
     db: AsyncSession, device_id: uuid.UUID, data: dict
-) -> tuple[GpsDevice, str | None]:
-    """Правка трекера. Возвращает новый токен, если запрошена ротация."""
+) -> tuple[GpsDevice, IssuedCredentials]:
+    """Правка трекера. Возвращает новые токен/секрет, если их перевыдали."""
     device = await get_device(db, device_id)
 
     if "vehicle_id" in data:
@@ -339,9 +390,17 @@ async def update_device(
     elif data.get("drop_token"):
         device.token_hash = None
 
+    # Перевыдача секрета сразу отключает старый: трекер со старой прошивкой
+    # получает ERR:AUTH, пока в него не зальют новый массив.
+    totp: dict | None = None
+    if data.get("enable_totp"):
+        totp = _issue_totp(device)
+    elif data.get("disable_totp"):
+        device.totp_secret_enc = None
+
     await db.commit()
     await db.refresh(device)
-    return device, token
+    return device, IssuedCredentials(token=token, totp=totp)
 
 
 async def delete_device(db: AsyncSession, device_id: uuid.UUID) -> None:

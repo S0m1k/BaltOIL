@@ -105,3 +105,15 @@ docker compose up -d --force-recreate --no-deps notification_service
   на IP и обрезка тела до чтения.
 * Один операторский NAT на весь автопарк упрётся в лимит nginx по IP — если машин станет
   много и в журнале приёма появятся 429, поднять `rate` у `gps_zone`.
+
+## GPS: подтверждение трекера кодом TOTP (19.09.2026)
+
+* Миграция delivery `008_gps_totp` (колонка `gps_devices.totp_secret_enc`) применяется сама
+  при старте контейнера. Деплой: `git pull` + `docker compose up -d --force-recreate delivery_service`
+  (frontend — bind-mount, пересоздавать не нужно). Новых pip-зависимостей нет.
+* Секреты шифруются ключом `GPS_SECRET_KEY` из `delivery_service/.env`; если он не задан —
+  ключ выводится из `JWT_SECRET_KEY`. **Менять любой из них = перевыдать секреты всем
+  трекерам с TOTP** (старые перестанут расшифровываться, в логе будет «секрет TOTP … не
+  расшифровывается»).
+* Трекеры без выданного секрета работают как раньше. Инструкция для прошивки —
+  `docs/gps_tracker_totp.md`.

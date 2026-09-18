@@ -159,7 +159,7 @@ async def create_device(
     current_user: AdminOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    device, token = await gps_service.create_device(
+    device, issued = await gps_service.create_device(
         db,
         device_number=data.device_number,
         label=data.label,
@@ -167,8 +167,9 @@ async def create_device(
         sim_phone=data.sim_phone,
         notes=data.notes,
         with_token=data.with_token,
+        with_totp=data.with_totp,
     )
-    return await _created(db, device, token)
+    return await _created(db, device, issued)
 
 
 @router.patch("/devices/{device_id}", response_model=GpsDeviceCreated)
@@ -178,10 +179,10 @@ async def update_device(
     current_user: AdminOnly,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    device, token = await gps_service.update_device(
+    device, issued = await gps_service.update_device(
         db, device_id, data.model_dump(exclude_unset=True)
     )
-    return await _created(db, device, token)
+    return await _created(db, device, issued)
 
 
 @router.delete("/devices/{device_id}", status_code=204)
@@ -193,11 +194,12 @@ async def delete_device(
     await gps_service.delete_device(db, device_id)
 
 
-async def _created(db: AsyncSession, device, token: str | None) -> dict:
+async def _created(db: AsyncSession, device, issued: gps_service.IssuedCredentials) -> dict:
     vehicle = await db.get(Vehicle, device.vehicle_id) if device.vehicle_id else None
     return {
         "device": gps_service._device_dict(device, vehicle, datetime.now(timezone.utc)),
-        "token": token,
+        "token": issued.token,
+        "totp": issued.totp,
     }
 
 
