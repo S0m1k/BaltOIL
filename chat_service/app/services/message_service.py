@@ -1,6 +1,7 @@
 import uuid
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +10,8 @@ import redis.asyncio as aioredis
 from app.models.conversation import Conversation, ConversationParticipant
 from app.models.message import Message
 from app.core.dependencies import TokenUser
-from app.core.exceptions import NotFoundError, ForbiddenError
-from app.services.conversation_service import _check_access
+from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
+from app.services.conversation_service import _check_access, conversation_visibility
 from app.services import ws_manager, auth_client
 from app.config import settings
 
@@ -400,3 +401,71 @@ async def delete_message(
             }))
         except Exception:
             logger.warning("delete_message publish failed for conv %s", conv_id, exc_info=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Поиск по сообщениям (правки 2026-09-21)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Короче двух символов искать бессмысленно: выдача — вся переписка.
+MIN_SEARCH_LEN = 2
+MAX_SEARCH_RESULTS = 100
+DEFAULT_SEARCH_LIMIT = 50
+
+_LIKE_SPECIAL = re.compile(r"([%_\\])")
+
+
+def escape_like(value: str) -> str:
+    """Экранирует спецсимволы LIKE, чтобы «100%» искалось как текст."""
+    return _LIKE_SPECIAL.sub(r"\\\1", value)
+
+
+async def search_messages(
+    db: AsyncSession,
+    actor: TokenUser,
+    query: str,
+    conversation_id: uuid.UUID | None = None,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+) -> list[dict]:
+    """Ищет текст по всем диалогам, доступным этому человеку.
+
+    Область поиска — ровно то же условие видимости, что и у списка чатов:
+    ни приватная группа, ни личный чат чужими глазами не видны.
+    """
+    text = (query or "").strip()
+    if len(text) < MIN_SEARCH_LEN:
+        raise ValidationError(f"Запрос короче {MIN_SEARCH_LEN} символов")
+    limit = max(1, min(limit, MAX_SEARCH_RESULTS))
+
+    pattern = f"%{escape_like(text)}%"
+    stmt = (
+        select(Message, Conversation)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Message.is_archived == False,  # noqa: E712
+            Conversation.is_archived == False,  # noqa: E712
+            conversation_visibility(actor),
+            Message.text.ilike(pattern, escape="\\"),
+        )
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    if conversation_id is not None:
+        stmt = stmt.where(Message.conversation_id == conversation_id)
+
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "id": msg.id,
+            "conversation_id": msg.conversation_id,
+            "conversation_kind": conv.kind.value if hasattr(conv.kind, "value") else conv.kind,
+            "conversation_title": conv.title,
+            "conversation_group_code": conv.group_code,
+            "sender_id": msg.sender_id,
+            "sender_name": msg.sender_name,
+            "msg_type": msg.msg_type,
+            "text": msg.text,
+            "created_at": msg.created_at,
+        }
+        for msg, conv in rows
+    ]

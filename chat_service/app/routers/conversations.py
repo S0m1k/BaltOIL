@@ -19,7 +19,7 @@ from app.schemas.conversation import (
     ConversationResponse, ConversationListResponse, ConversationMember,
     EnsureClientManagerRequest,
 )
-from app.schemas.message import MessageResponse, SendMessageRequest
+from app.schemas.message import MessageResponse, MessageSearchResult, SendMessageRequest
 from app.services import conversation_service, message_service, auth_client
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -170,6 +170,23 @@ async def list_conversations(
 ):
     rows = await conversation_service.list_conversations(db, actor, order_id)
     return [ConversationListResponse(**r) for r in rows]
+
+
+# ВАЖНО: маршрут объявлен до "/{conv_id}" — иначе FastAPI примет "search"
+# за идентификатор диалога и вернёт 422 вместо результатов.
+@router.get("/search", response_model=list[MessageSearchResult])
+async def search_messages(
+    q: str,
+    conversation_id: uuid.UUID | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    actor: TokenUser = Depends(get_current_user),
+):
+    """Поиск по тексту сообщений во всех доступных диалогах."""
+    rows = await message_service.search_messages(
+        db, actor, q, conversation_id=conversation_id, limit=limit
+    )
+    return [MessageSearchResult(**r) for r in rows]
 
 
 @router.post("/ensure-client-manager", response_model=ConversationListResponse)

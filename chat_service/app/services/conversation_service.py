@@ -644,20 +644,15 @@ async def get_conversation_members(
     return members
 
 
-async def list_conversations(
-    db: AsyncSession,
-    actor: TokenUser,
-    order_id: uuid.UUID | None = None,  # kept for API compatibility, not used in new model
-) -> list[dict]:
-    """List conversations visible to this actor with unread counts and last message."""
+def conversation_visibility(actor: TokenUser):
+    """Условие «какие диалоги видит этот человек».
+
+    Одно на список чатов и на поиск по сообщениям: иначе поиск легко стал бы
+    дырой, показывающей куски чужой переписки (правки 2026-09-21).
+    """
     role = actor.role
 
-    # ── Build visibility filter ───────────────────────────────────────────────
     if role == "client":
-        # Auto-create client_manager if it doesn't exist yet
-        cm = await ensure_client_manager(db, actor.id)
-        await db.commit()
-
         visibility = or_(
             and_(
                 Conversation.kind.in_([
@@ -725,9 +720,23 @@ async def list_conversations(
             ),
         )
 
+    return or_(visibility, direct_vis, private_vis)
+
+
+async def list_conversations(
+    db: AsyncSession,
+    actor: TokenUser,
+    order_id: uuid.UUID | None = None,  # kept for API compatibility, not used in new model
+) -> list[dict]:
+    """List conversations visible to this actor with unread counts and last message."""
+    if actor.role == "client":
+        # Auto-create client_manager if it doesn't exist yet
+        await ensure_client_manager(db, actor.id)
+        await db.commit()
+
     q = (
         select(Conversation)
-        .where(Conversation.is_archived == False, or_(visibility, direct_vis, private_vis))  # noqa: E712
+        .where(Conversation.is_archived == False, conversation_visibility(actor))  # noqa: E712
         .order_by(Conversation.updated_at.desc())
     )
     result = await db.execute(q)

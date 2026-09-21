@@ -45,3 +45,19 @@ class MessageResponse(BaseModel):
     status: Literal["sent", "delivered", "read"] | None = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class MessageSearchResult(BaseModel):
+    """Найденное сообщение вместе с диалогом, чтобы список можно было
+    показать без дополнительного запроса за названием чата."""
+
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    conversation_kind: str
+    conversation_title: str | None = None
+    conversation_group_code: str | None = None
+    sender_id: uuid.UUID
+    sender_name: str
+    msg_type: str
+    text: str
+    created_at: datetime

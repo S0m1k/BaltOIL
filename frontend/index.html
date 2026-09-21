@@ -2970,6 +2970,11 @@ setTimeout(function () {
                 title="Начать чат по номеру телефона"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="vertical-align:middle;flex-shrink:0"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg> По номеру</button>
             </div>
           </div>
+          <div style="padding:8px 10px;border-bottom:1px solid var(--border)">
+            <input type="search" id="conv-search" class="form-input" autocomplete="off"
+                   placeholder="Поиск по сообщениям" style="padding:6px 10px;font-size:12px"
+                   oninput="onConvSearchInput(this.value)">
+          </div>
           <div class="conv-list" id="conv-list">
             <div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>
           </div>
@@ -9836,6 +9841,81 @@ async function startChatWithUser(userId) {
   }
 }
 
+// ── Поиск по сообщениям (правки 2026-09-21) ───────────────────────────────
+// Пока в поле меньше двух символов — обычный список диалогов; дальше список
+// подменяется найденными сообщениями. Запрос уходит не на каждую букву:
+// печатать быстрее, чем раз в 300 мс, человек всё равно не перестаёт.
+const CONV_SEARCH_MIN = 2;
+let _convSearchQuery = '';
+let _convSearchTimer = null;
+
+function onConvSearchInput(value) {
+  _convSearchQuery = (value || '').trim();
+  if (_convSearchTimer) clearTimeout(_convSearchTimer);
+  if (_convSearchQuery.length < CONV_SEARCH_MIN) {
+    loadConversations();
+    return;
+  }
+  _convSearchTimer = setTimeout(runConvSearch, 300);
+}
+
+async function runConvSearch() {
+  const query = _convSearchQuery;
+  if (query.length < CONV_SEARCH_MIN) return;
+  const el = document.getElementById('conv-list');
+  el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
+  let found;
+  try {
+    found = await chatGet(`/conversations/search?q=${encodeURIComponent(query)}`);
+  } catch (e) {
+    el.innerHTML = `<div style="padding:16px;color:var(--red);font-size:12px">${escHtml(e.message)}</div>`;
+    return;
+  }
+  // Пока ходили на сервер, человек мог дописать или стереть запрос.
+  if (query !== _convSearchQuery) return;
+  renderConvSearchResults(found, query);
+}
+
+function renderConvSearchResults(results, query) {
+  const el = document.getElementById('conv-list');
+  const head = `<div style="padding:8px 12px;font-size:10px;color:var(--text3);
+      text-transform:uppercase;letter-spacing:.5px">
+      ${results.length ? `Найдено: ${results.length}` : 'Ничего не найдено'}</div>`;
+  if (!results.length) {
+    el.innerHTML = head;
+    return;
+  }
+  el.innerHTML = head + results.map(r => `
+    <div class="conv-item" onclick="openConversation('${r.conversation_id}')">
+      <div class="conv-item-title" style="display:flex;align-items:center;gap:6px">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${escHtml(searchConvTitle(r))}</span>
+        <span class="conv-item-time">${fmtTime(r.created_at)}</span>
+      </div>
+      <div class="conv-item-meta" style="display:block">
+        <span style="color:var(--text3)">${escHtml(r.sender_name || '')}:</span>
+        <span class="conv-item-last">${highlightMatch(r.text || '', query)}</span>
+      </div>
+    </div>`).join('');
+}
+
+// Название чата для строки результата: у поиска нет полей диалога, которыми
+// оперирует convTitle, поэтому собираем из того, что вернул сервер.
+function searchConvTitle(r) {
+  if (r.conversation_title) return r.conversation_title;
+  const code = r.conversation_group_code || '';
+  if (code === 'work') return 'Работа';
+  if (code === 'accounting') return 'Бухгалтерия';
+  return CONV_KIND_LABELS[r.conversation_kind] || 'Чат';
+}
+
+// Подсветка совпадения. Экранируем ДО подстановки <mark>, иначе текст
+// сообщения попал бы в разметку как есть.
+function highlightMatch(text, query) {
+  const safeText = escHtml(text.length > 160 ? text.slice(0, 160) + '…' : text);
+  const safeQuery = escHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return safeText.replace(new RegExp(safeQuery, 'gi'), m => `<mark>${m}</mark>`);
+}
+
 async function loadConversations() {
   const el = document.getElementById('conv-list');
   el.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="loading"></div></div>';
@@ -10049,6 +10129,12 @@ function _lastMsgPreview(m) {
 let _openConvSeq = 0;
 
 async function openConversation(convId) {
+  // Пришли из результатов поиска — возвращаем обычный список диалогов.
+  if (_convSearchQuery) {
+    _convSearchQuery = '';
+    const searchInput = document.getElementById('conv-search');
+    if (searchInput) searchInput.value = '';
+  }
   const seq = ++_openConvSeq;
   activeConvId = convId;
   // F7: переключение диалога сбрасывает незавершённый ответ на сообщение
