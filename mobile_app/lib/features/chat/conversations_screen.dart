@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
@@ -57,6 +59,13 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   CurrentUser? _user;
   String _folder = 'all';
 
+  // Поиск по сообщениям (правки 2026-09-21). Пока в поле меньше двух символов —
+  // обычный список чатов; дальше он подменяется найденными сообщениями.
+  static const _searchMinLen = 2;
+  final _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  Future<List<MessageSearchResult>>? _searchFuture;
+
   /// Bearer для загрузки аватарок чатов через Image.network
   /// (правки 2026-07-25): грузим один раз, чтобы не дёргать storage на тайл.
   String? _token;
@@ -71,10 +80,58 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   void _load() {
     setState(() {
       _future = ChatRepository.instance.listConversations();
     });
+  }
+
+  /// Запрос уходит не на каждую букву: печатать быстрее, чем раз в 300 мс,
+  /// человек всё равно не перестаёт, а трафик в поле — дорогой.
+  void _onSearchChanged(String value) {
+    final query = value.trim();
+    _searchDebounce?.cancel();
+    // setState на каждый символ — из-за крестика «очистить»: он зависит от
+    // текста поля, а не от результатов поиска.
+    if (query.length < _searchMinLen) {
+      setState(() => _searchFuture = null);
+      return;
+    }
+    setState(() {});
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _searchFuture = ChatRepository.instance.searchMessages(query);
+      });
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchCtrl.clear();
+    setState(() => _searchFuture = null);
+  }
+
+  /// Открыть чат из результата поиска.
+  Future<void> _openFoundChat(MessageSearchResult result) async {
+    final convs = await _future;
+    Conversation? conv;
+    for (final c in convs) {
+      if (c.id == result.conversationId) {
+        conv = c;
+        break;
+      }
+    }
+    if (conv == null || !mounted) return;
+    _clearSearch();
+    _openChat(conv);
   }
 
   Future<void> _loadUser() async {
@@ -298,6 +355,27 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 onPressed: _startByPhone,
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: _onSearchChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search, size: 20),
+                hintText: 'Поиск по сообщениям',
+                border: const OutlineInputBorder(),
+                suffixIcon: _searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Очистить',
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: _clearSearch,
+                      ),
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
           // Чипы папок — как на вебе: клиент видит только «Все» и «Личные».
           Padding(
@@ -328,59 +406,140 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               ),
             ),
           ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () async => _load(),
-              child: FutureBuilder<List<Conversation>>(
-                future: _future,
-                builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snap.hasError) {
-                    return _ErrorRetry(
-                      message: apiErrorMessage(snap.error!),
-                      onRetry: _load,
+          if (_searchFuture != null)
+            Expanded(child: _buildSearchResults())
+          else
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async => _load(),
+                child: FutureBuilder<List<Conversation>>(
+                  future: _future,
+                  builder: (context, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snap.hasError) {
+                      return _ErrorRetry(
+                        message: apiErrorMessage(snap.error!),
+                        onRetry: _load,
+                      );
+                    }
+                    final convs = snap.data ?? const [];
+                    final visible = _folder == 'all'
+                        ? convs
+                        : convs
+                              .where((c) => _convFolderOf(c, role) == _folder)
+                              .toList();
+                    if (visible.isEmpty) {
+                      return ListView(
+                        children: const [
+                          SizedBox(height: 120),
+                          Center(child: Text('Нет диалогов')),
+                        ],
+                      );
+                    }
+                    // Закреплённые — первыми
+                    final sorted = [...visible]
+                      ..sort((a, b) {
+                        if (a.isPinned == b.isPinned) {
+                          return b.updatedAt.compareTo(a.updatedAt);
+                        }
+                        return a.isPinned ? -1 : 1;
+                      });
+                    return ListView.separated(
+                      itemCount: sorted.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, i) => _ConvTile(
+                        conv: sorted[i],
+                        token: _token,
+                        onTap: () => _openChat(sorted[i]),
+                      ),
                     );
-                  }
-                  final convs = snap.data ?? const [];
-                  final visible = _folder == 'all'
-                      ? convs
-                      : convs
-                            .where((c) => _convFolderOf(c, role) == _folder)
-                            .toList();
-                  if (visible.isEmpty) {
-                    return ListView(
-                      children: const [
-                        SizedBox(height: 120),
-                        Center(child: Text('Нет диалогов')),
-                      ],
-                    );
-                  }
-                  // Закреплённые — первыми
-                  final sorted = [...visible]
-                    ..sort((a, b) {
-                      if (a.isPinned == b.isPinned) {
-                        return b.updatedAt.compareTo(a.updatedAt);
-                      }
-                      return a.isPinned ? -1 : 1;
-                    });
-                  return ListView.separated(
-                    itemCount: sorted.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, i) => _ConvTile(
-                      conv: sorted[i],
-                      token: _token,
-                      onTap: () => _openChat(sorted[i]),
-                    ),
-                  );
-                },
+                  },
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
+  }
+}
+
+extension _ConversationsSearchView on _ConversationsScreenState {
+  Widget _buildSearchResults() {
+    return FutureBuilder<List<MessageSearchResult>>(
+      future: _searchFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return _ErrorRetry(
+            message: apiErrorMessage(snap.error!),
+            onRetry: () => _onSearchChanged(_searchCtrl.text),
+          );
+        }
+        final found = snap.data ?? const <MessageSearchResult>[];
+        if (found.isEmpty) {
+          return ListView(
+            children: const [
+              SizedBox(height: 120),
+              Center(child: Text('Ничего не найдено')),
+            ],
+          );
+        }
+        return ListView.separated(
+          itemCount: found.length + 1,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                child: Text(
+                  'Найдено: ${found.length}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              );
+            }
+            final r = found[i - 1];
+            return ListTile(
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      r.chatTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(
+                    _fmtSearchTime(r.createdAt),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+              subtitle: Text(
+                '${r.senderName}: ${r.text}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _openFoundChat(r),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _fmtSearchTime(DateTime dt) {
+    final d = dt.day.toString().padLeft(2, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final mi = dt.minute.toString().padLeft(2, '0');
+    return dt.year == DateTime.now().year
+        ? '$d.$mo $h:$mi'
+        : '$d.$mo.${(dt.year % 100).toString().padLeft(2, '0')}';
   }
 }
 
@@ -451,9 +610,7 @@ class _ConvAvatar extends StatelessWidget {
     final letter = CircleAvatar(
       backgroundColor: theme.colorScheme.primaryContainer,
       child: Text(
-        conv.displayTitle.isNotEmpty
-            ? conv.displayTitle[0].toUpperCase()
-            : '?',
+        conv.displayTitle.isNotEmpty ? conv.displayTitle[0].toUpperCase() : '?',
         style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
       ),
     );

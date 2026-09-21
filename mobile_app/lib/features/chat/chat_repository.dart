@@ -18,6 +18,26 @@ class ChatRepository {
         .toList();
   }
 
+  /// Поиск по тексту сообщений во всех доступных диалогах (правки 2026-09-21).
+  /// Область поиска сервер ограничивает сам — тем же, что видно в списке чатов.
+  Future<List<MessageSearchResult>> searchMessages(
+    String query, {
+    String? conversationId,
+    int limit = 50,
+  }) async {
+    final resp = await _dio.get(
+      '$_base/conversations/search',
+      queryParameters: {
+        'q': query,
+        'limit': limit,
+        if (conversationId != null) 'conversation_id': conversationId,
+      },
+    );
+    return (resp.data as List)
+        .map((e) => MessageSearchResult.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// История последних [limit] сообщений. Бэк принимает limit и before_id.
   Future<List<ChatMessage>> fetchHistory(
     String convId, {

@@ -179,3 +179,65 @@ class Conversation {
     );
   }
 }
+
+const _kSearchKindLabels = {
+  'client_manager': 'Поддержка',
+  'client_accountant': 'Бухгалтерия',
+  'client_driver_order': 'Заявка',
+  'staff_group': 'Группа',
+  'direct': 'Личный',
+};
+
+/// Найденное сообщение (поиск по чатам, правки 2026-09-21). Вместе с самим
+/// сообщением сервер отдаёт диалог, чтобы список результатов можно было
+/// показать без второго запроса за названием чата.
+class MessageSearchResult {
+  const MessageSearchResult({
+    required this.id,
+    required this.conversationId,
+    required this.conversationKind,
+    required this.senderName,
+    required this.text,
+    required this.createdAt,
+    this.conversationTitle,
+    this.conversationGroupCode,
+  });
+
+  final String id;
+  final String conversationId;
+  final String conversationKind;
+  final String senderName;
+  final String text;
+  final DateTime createdAt;
+  final String? conversationTitle;
+  final String? conversationGroupCode;
+
+  /// Название чата для строки результата.
+  String get chatTitle {
+    final title = conversationTitle;
+    if (title != null && title.isNotEmpty) return title;
+    switch (conversationGroupCode) {
+      case 'work':
+        return 'Работа';
+      case 'accounting':
+        return 'Бухгалтерия';
+    }
+    return _kSearchKindLabels[conversationKind] ?? 'Чат';
+  }
+
+  factory MessageSearchResult.fromJson(Map<String, dynamic> json) =>
+      MessageSearchResult(
+        id: json['id'] as String,
+        conversationId: json['conversation_id'] as String,
+        conversationKind: (json['conversation_kind'] ?? '') as String,
+        conversationTitle: json['conversation_title'] as String?,
+        conversationGroupCode: json['conversation_group_code'] as String?,
+        senderName: (json['sender_name'] ?? '') as String,
+        text: (json['text'] ?? '') as String,
+        createdAt:
+            DateTime.tryParse(
+              json['created_at']?.toString() ?? '',
+            )?.toLocal() ??
+            DateTime.now(),
+      );
+}
