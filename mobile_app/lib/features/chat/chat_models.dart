@@ -138,6 +138,16 @@ class Conversation {
   final String? avatarPath;
 
   /// Человекочитаемое название диалога (fallback: kind).
+  /// Приватная группа сотрудников (веб _isPrivateGroupConv, CRM-47): состав
+  /// хранится явно и редактируется. Штатные «Работа»/«Бухгалтерия» — ролевые.
+  bool get isPrivateGroup =>
+      kind == 'staff_group' && (groupCode?.startsWith('custom-') ?? false);
+
+  /// Может ли пользователь менять состав группы — админ или создатель чата
+  /// (те же права, что `check_group_manage_access` на бэке).
+  bool canManageMembers({required String userId, required String role}) =>
+      isPrivateGroup && (role == 'admin' || createdById == userId);
+
   String get displayTitle {
     if (title != null && title!.isNotEmpty) return title!;
     if (peerName != null && peerName!.isNotEmpty) return peerName!;
@@ -240,4 +250,22 @@ class MessageSearchResult {
             )?.toLocal() ??
             DateTime.now(),
       );
+}
+
+/// Участник чата (GET /conversations/{id} → participants).
+class ChatMember {
+  const ChatMember({required this.userId, required this.role, this.fullName});
+
+  final String userId;
+  final String role;
+  final String? fullName;
+
+  String get label =>
+      (fullName?.isNotEmpty ?? false) ? fullName! : userId.substring(0, 8);
+
+  factory ChatMember.fromJson(Map<String, dynamic> json) => ChatMember(
+    userId: json['user_id'].toString(),
+    role: (json['user_role'] ?? '') as String,
+    fullName: json['full_name'] as String?,
+  );
 }

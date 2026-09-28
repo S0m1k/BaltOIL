@@ -615,6 +615,175 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+  }
+
+  static String _memberSubtitle(ChatMember m, Conversation conv) {
+    final role = UserBrief(id: m.userId, fullName: '', role: m.role).roleLabel;
+    return m.userId == conv.createdById ? '$role · создатель' : role;
+  }
+
+  /// Состав приватной группы (веб showConvParticipants, CRM-47). Админ и
+  /// создатель удаляют участников (кроме создателя) и добавляют сотрудников.
+  Future<void> _showMembers() async {
+    final conv = widget.conversation;
+    final canManage = _myUserId != null &&
+        _myRole != null &&
+        conv.canManageMembers(userId: _myUserId!, role: _myRole!);
+    List<ChatMember> members;
+    try {
+      members = await ChatRepository.instance.members(conv.id);
+    } on Object catch (e) {
+      _showError(e);
+      return;
+    }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setS) {
+          Future<void> reload() async {
+            try {
+              final fresh = await ChatRepository.instance.members(conv.id);
+              setS(() => members = fresh);
+            } on Object catch (e) {
+              _showError(e);
+            }
+          }
+
+          Future<void> remove(ChatMember m) async {
+            final ok = await showDialog<bool>(
+              context: sheetCtx,
+              builder: (ctx) => AlertDialog(
+                title: Text('Удалить ${m.label} из чата?'),
+                content: const Text('Участник потеряет доступ к этому чату.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Отмена'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Удалить'),
+                  ),
+                ],
+              ),
+            );
+            if (ok != true) return;
+            try {
+              await ChatRepository.instance
+                  .removeGroupMember(conv.id, m.userId);
+              await reload();
+            } on Object catch (e) {
+              _showError(e);
+            }
+          }
+
+          Future<void> add() async {
+            List<UserBrief> all;
+            try {
+              all = await AuthRepository.instance.directory();
+            } on Object catch (e) {
+              _showError(e);
+              return;
+            }
+            final inChat = members.map((m) => m.userId).toSet();
+            // Как на вебе: в группу добавляются админы, менеджеры и водители.
+            final candidates = all
+                .where((u) =>
+                    !inChat.contains(u.id) &&
+                    const {'admin', 'manager', 'driver'}.contains(u.role))
+                .toList();
+            if (!mounted || !sheetCtx.mounted) return;
+            if (candidates.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Все сотрудники уже в чате')));
+              return;
+            }
+            final picked = await showDialog<UserBrief>(
+              context: sheetCtx,
+              builder: (ctx) => SimpleDialog(
+                title: const Text('Добавить участника'),
+                children: [
+                  for (final u in candidates)
+                    SimpleDialogOption(
+                      onPressed: () => Navigator.pop(ctx, u),
+                      child: Text('${u.fullName} (${u.roleLabel})'),
+                    ),
+                ],
+              ),
+            );
+            if (picked == null) return;
+            try {
+              await ChatRepository.instance.addGroupMember(conv.id, picked.id);
+              await reload();
+            } on Object catch (e) {
+              _showError(e);
+            }
+          }
+
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.7,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      'Участники · ${members.length}',
+                      style: Theme.of(sheetCtx).textTheme.titleMedium,
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final m in members)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.person_outline),
+                            title: Text(m.label),
+                            subtitle: Text(_memberSubtitle(m, conv)),
+                            trailing: canManage && m.userId != conv.createdById
+                                ? IconButton(
+                                    tooltip: 'Удалить из чата',
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () => remove(m),
+                                  )
+                                : null,
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (canManage)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: add,
+                          icon: const Icon(Icons.person_add_alt),
+                          label: const Text('Добавить участника'),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   /// Очистить историю сообщений (admin, веб doClearConv, 2026-07-22).
   Future<void> _clearConversation() async {
     final ok = await showDialog<bool>(
@@ -749,6 +918,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(widget.conversation.displayTitle),
         actions: [
+          // CRM-47: состав приватной группы — смотреть всем участникам,
+          // менять — админу и создателю чата.
+          if (widget.conversation.isPrivateGroup)
+            IconButton(
+              tooltip: 'Участники',
+              icon: const Icon(Icons.group_outlined),
+              onPressed: _showMembers,
+            ),
           IconButton(
             tooltip: 'Позвонить',
             icon: const Icon(Icons.call_outlined),

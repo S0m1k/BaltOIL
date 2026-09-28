@@ -153,6 +153,29 @@ class ChatRepository {
     return Conversation.fromJson(resp.data as Map<String, dynamic>);
   }
 
+  /// Участники диалога (веб showConvParticipants).
+  Future<List<ChatMember>> members(String convId) async {
+    final resp = await _dio.get('$_base/conversations/$convId');
+    final data = resp.data as Map<String, dynamic>;
+    return ((data['participants'] as List?) ?? const [])
+        .map((e) => ChatMember.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Добавить участника в приватную группу (CRM-47) — админ или создатель.
+  Future<void> addGroupMember(String convId, String userId) async {
+    await _dio.post(
+      '$_base/conversations/staff-group/$convId/members/add',
+      data: {'user_id': userId},
+    );
+  }
+
+  /// Удалить участника из приватной группы (CRM-47) — админ или создатель.
+  /// Создателя бэк удалить не даст.
+  Future<void> removeGroupMember(String convId, String userId) async {
+    await _dio.delete('$_base/conversations/staff-group/$convId/members/$userId');
+  }
+
   /// Загрузить файл вложения, получить metadata, затем отправить сообщение.
   ///
   /// [filePath] — локальный путь к файлу.
