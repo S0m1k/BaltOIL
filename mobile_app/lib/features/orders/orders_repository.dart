@@ -454,10 +454,18 @@ class OrdersRepository {
 
   /// Сохранённые объекты доставки клиента (веб b815cf1, c-saved-object).
   /// Клиент — свои; staff — объекты выбранного клиента.
-  Future<List<ClientObject>> clientObjects({String? clientId}) async {
+  /// Сохранённые объекты доставки клиента и/или организации (CRM-45:
+  /// объекты организации видны любому сотруднику, даже без клиента).
+  Future<List<ClientObject>> clientObjects({
+    String? clientId,
+    String? organizationId,
+  }) async {
     final resp = await _dio.get(
       '$_base/client-objects',
-      queryParameters: {if (clientId != null) 'client_id': clientId},
+      queryParameters: {
+        if (clientId != null) 'client_id': clientId,
+        if (organizationId != null) 'organization_id': organizationId,
+      },
     );
     return (resp.data as List)
         .map((e) => ClientObject.fromJson(e as Map<String, dynamic>))
@@ -475,11 +483,17 @@ class ClientObject {
     required this.id,
     required this.deliveryAddress,
     this.name,
+    this.contactPersonName,
+    this.contactPersonPhone,
   });
 
   final String id;
   final String deliveryAddress;
   final String? name;
+
+  /// Контакт приёмки, запомненный по этому адресу (CRM-45).
+  final String? contactPersonName;
+  final String? contactPersonPhone;
 
   String get label =>
       name == null ? deliveryAddress : '$name — $deliveryAddress';
@@ -488,5 +502,7 @@ class ClientObject {
     id: (json['id'] as Object).toString(),
     deliveryAddress: (json['delivery_address'] ?? '') as String,
     name: json['name'] as String?,
+    contactPersonName: json['contact_person_name'] as String?,
+    contactPersonPhone: json['contact_person_phone'] as String?,
   );
 }

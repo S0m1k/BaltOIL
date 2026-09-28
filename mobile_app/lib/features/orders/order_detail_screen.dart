@@ -8,6 +8,7 @@ import '../common/copyable_phone.dart';
 import '../organizations/organizations_repository.dart';
 import 'delivery_dialog.dart';
 import 'order_create_screen.dart';
+import 'order_edit_rules.dart';
 import '../transport/transport_create_screen.dart';
 import '../transport/transport_delivery_dialog.dart';
 import '../transport/transport_models.dart';
@@ -185,11 +186,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _reload();
   });
 
-  // ── Inline-правки staff (веб _editPencilStaff / promptEditOrderField) ──────
-  // Доступно только для статусов new/awaiting_manager/accepted.
-  bool _staffEditable(OrderDetail o) =>
-      _isStaff &&
-      const ['new', 'awaiting_manager', 'accepted'].contains(o.status);
+  // ── Inline-правки (веб _editPencil* / promptEditOrderField) ──────────────
+  // Матрица прав — order_edit_rules.dart: админ правит и закрытые заявки
+  // (кроме объёма и топлива, CRM-39), водитель — контакт, адрес и
+  // комментарии назначенной ему заявки (CRM-45).
+  bool _can(OrderDetail o, String field) => canEditOrderField(
+    field,
+    role: widget.user.role,
+    userId: widget.user.id,
+    status: o.status,
+    clientId: o.clientId,
+    driverId: o.driverId,
+  );
+
+  /// Колбэк карандаша: null — карандаш не рисуется.
+  VoidCallback? _editIf(OrderDetail o, String field, VoidCallback action) =>
+      _can(o, field) ? action : null;
 
   Future<void> _patchAndReload(String id, Map<String, dynamic> body) =>
       _run(() async {
@@ -205,6 +217,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     required String field,
     required String initial,
     bool number = false,
+    bool clearable = false,
+    bool multiline = false,
     String? hint,
   }) async {
     final ctrl = TextEditingController(text: initial);
@@ -217,8 +231,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           autofocus: true,
           keyboardType: number
               ? const TextInputType.numberWithOptions(decimal: true)
-              : TextInputType.text,
-          decoration: InputDecoration(hintText: hint),
+              : (multiline ? TextInputType.multiline : TextInputType.text),
+          minLines: multiline ? 3 : 1,
+          maxLines: multiline ? 6 : 1,
+          decoration: InputDecoration(
+            hintText: hint,
+            helperText: clearable ? 'Пустое поле очистит значение' : null,
+          ),
         ),
         actions: [
           TextButton(
@@ -247,13 +266,173 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       }
       value = v;
     } else {
-      if (raw.isEmpty) {
+      if (raw.isEmpty && !clearable) {
         _snack('Укажите значение');
         return;
       }
       value = raw;
     }
     await _patchAndReload(o.id, {field: value});
+  }
+
+  /// Комментарий клиента или менеджера (CRM-39/45): staff и водитель,
+  /// пустое поле очищает комментарий.
+  Future<void> _editComment(OrderDetail o, {required bool manager}) =>
+      _editField(
+        o,
+        title: manager
+            ? 'Комментарий менеджера (внутренний)'
+            : 'Комментарий клиента',
+        field: manager ? 'manager_comment' : 'client_comment',
+        initial: (manager ? o.managerComment : o.clientComment) ?? '',
+        clearable: true,
+        multiline: true,
+        hint: manager
+            ? 'Видят водитель и сотрудники, клиент — нет'
+            : 'Виден всем участникам заявки',
+      );
+
+  /// Контакт приёмки (CRM-45): имя и телефон одной формой. Сохраняется и в
+  /// справочник объектов организации — следующая заявка подставит его сама.
+  Future<void> _editContact(OrderDetail o) async {
+    final nameCtrl = TextEditingController(text: o.contactPersonName ?? '');
+    final phoneCtrl = TextEditingController(text: o.contactPersonPhone ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Контакт для приёмки'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              maxLength: 120,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Имя',
+                hintText: 'ФИО принимающего',
+              ),
+            ),
+            TextField(
+              controller: phoneCtrl,
+              maxLength: 20,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Телефон',
+                hintText: '+7 999 000 00 00',
+                helperText: 'Пустое поле очистит значение',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final body = <String, dynamic>{};
+    final name = nameCtrl.text.trim();
+    final phone = phoneCtrl.text.trim();
+    if (name != (o.contactPersonName ?? '')) body['contact_person_name'] = name;
+    if (phone != (o.contactPersonPhone ?? '')) {
+      body['contact_person_phone'] = phone;
+    }
+    if (body.isEmpty) return;
+    await _patchAndReload(o.id, body);
+  }
+
+  /// Стоимость доставки с кнопкой «Добавить НДС» (правки 2026-09-28):
+  /// одноразово ×1,22; после нажатия кнопка гаснет до ручной правки поля,
+  /// чтобы НДС не начислили дважды.
+  Future<void> _editDeliveryCost(OrderDetail o) async {
+    final ctrl = TextEditingController(
+      text: o.deliveryCost != null
+          ? formatDeliveryCostInput(o.deliveryCost!)
+          : '',
+    );
+    var vatAdded = false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Стоимость доставки'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                onChanged: (_) {
+                  if (vatAdded) setD(() => vatAdded = false);
+                },
+                decoration: const InputDecoration(
+                  hintText: '0',
+                  suffixText: '₽',
+                  helperText:
+                      'Например, при переадресации на 2 адреса. Сумма '
+                      'заявки пересчитается, счёт перевыпустится с тем же '
+                      'номером.',
+                  helperMaxLines: 3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton(
+                  onPressed: vatAdded
+                      ? null
+                      : () {
+                          final next = withDeliveryVat(ctrl.text);
+                          if (next == null) {
+                            _snack('Сначала укажите стоимость доставки');
+                            return;
+                          }
+                          ctrl.text = formatDeliveryCostInput(next);
+                          setD(() => vatAdded = true);
+                        },
+                  child: Text(
+                    vatAdded
+                        ? 'НДС $kDeliveryVatPercent% добавлен'
+                        : 'Добавить НДС',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final raw = ctrl.text.trim();
+    final v = raw.isEmpty ? 0.0 : double.tryParse(raw.replaceAll(',', '.'));
+    if (v == null || v < 0) {
+      _snack('Некорректное число');
+      return;
+    }
+    await _patchAndReload(o.id, {'delivery_cost': v});
   }
 
   /// Правка стоимости топлива: бэк хранит бандл expected_amount = топливо+доставка.
@@ -796,15 +975,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       }
     }
 
-    final canEdit = _staffEditable(order);
-
     // Заказчик — имя организации/клиента, как на вебе (d29807a).
     if (order.buyerName != null || _isStaff) {
       rows.add(
         _DetailRow(
           label: 'Заказчик',
           text: order.buyerName ?? 'Физлицо',
-          onEdit: canEdit ? () => _changeCustomer(order) : null,
+          onEdit: _editIf(order, 'organization_id', () => _changeCustomer(order)),
         ),
       );
     }
@@ -813,7 +990,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       _DetailRow(
         label: 'Топливо',
         text: FuelCatalog.label(order.fuelType),
-        onEdit: canEdit ? () => _editFuelType(order) : null,
+        onEdit: _editIf(order, 'fuel_type', () => _editFuelType(order)),
       ),
     );
 
@@ -821,16 +998,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       _DetailRow(
         label: 'Объём заказан',
         text: '${_fmtNum(order.volumeRequested)} л',
-        onEdit: canEdit
-            ? () => _editField(
-                order,
-                title: 'Изменить объём',
-                field: 'volume_requested',
-                initial: order.volumeRequested.toStringAsFixed(0),
-                number: true,
-                hint: 'литры',
-              )
-            : null,
+        onEdit: _editIf(
+          order,
+          'volume_requested',
+          () => _editField(
+            order,
+            title: 'Изменить объём',
+            field: 'volume_requested',
+            initial: order.volumeRequested.toStringAsFixed(0),
+            number: true,
+            hint: 'литры',
+          ),
+        ),
       ),
     );
 
@@ -843,18 +1022,25 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       );
     }
 
+    // CRM-37: сотрудник и водитель могут оформить заявку без адреса —
+    // тогда вместо пустоты «Адрес уточняется» с карандашом.
     rows.add(
       _DetailRow(
         label: 'Адрес доставки',
-        text: order.deliveryAddress,
-        onEdit: canEdit
-            ? () => _editField(
-                order,
-                title: 'Изменить адрес доставки',
-                field: 'delivery_address',
-                initial: order.deliveryAddress,
-              )
+        text: order.deliveryAddress.trim().isEmpty ? null : order.deliveryAddress,
+        child: order.deliveryAddress.trim().isEmpty
+            ? Text('Адрес уточняется', style: TextStyle(color: c.text3))
             : null,
+        onEdit: _editIf(
+          order,
+          'delivery_address',
+          () => _editField(
+            order,
+            title: 'Изменить адрес доставки',
+            field: 'delivery_address',
+            initial: order.deliveryAddress,
+          ),
+        ),
       ),
     );
 
@@ -865,23 +1051,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
 
     // Стоимость доставки: staff видит/правит даже когда пусто (веб _editPencilStaff).
-    if (order.deliveryCost != null || canEdit) {
+    if (order.deliveryCost != null || _can(order, 'delivery_cost')) {
       rows.add(
         _DetailRow(
           label: 'Стоимость доставки',
           text: order.deliveryCost != null
               ? '${_fmtNum(order.deliveryCost!)} ₽'
               : '—',
-          onEdit: canEdit
-              ? () => _editField(
-                  order,
-                  title: 'Изменить стоимость доставки',
-                  field: 'delivery_cost',
-                  initial: order.deliveryCost?.toStringAsFixed(0) ?? '',
-                  number: true,
-                  hint: '₽ (например, при переадресации на 2 адреса)',
-                )
-              : null,
+          onEdit: _editIf(
+            order,
+            'delivery_cost',
+            () => _editDeliveryCost(order),
+          ),
         ),
       );
     }
@@ -890,20 +1071,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       _DetailRow(
         label: 'Желаемая дата',
         text: order.desiredDate != null ? _fmtDate(order.desiredDate!) : '—',
-        onEdit: canEdit ? () => _editDesiredDate(order) : null,
+        onEdit: _editIf(order, 'desired_date', () => _editDesiredDate(order)),
       ),
     );
 
-    if (order.contactPersonName != null || order.contactPersonPhone != null) {
+    // CRM-45: строка есть и у пустого контакта — иначе его нечем добавить.
+    final hasContact = (order.contactPersonName?.isNotEmpty ?? false) ||
+        (order.contactPersonPhone?.isNotEmpty ?? false);
+    final canEditContact = _can(order, 'contact_person_name');
+    if (hasContact || canEditContact) {
       rows.add(
         _DetailRow(
           label: 'Контакт для приёмки',
-          child: _ContactCell(
-            name: order.contactPersonName,
-            phone: order.contactPersonPhone,
-            accentColor: c.accent,
-            onSnack: _snack,
-          ),
+          child: hasContact
+              ? _ContactCell(
+                  name: order.contactPersonName,
+                  phone: order.contactPersonPhone,
+                  accentColor: c.accent,
+                  onSnack: _snack,
+                )
+              : Text('не указан', style: TextStyle(color: c.text3)),
+          onEdit: canEditContact ? () => _editContact(order) : null,
         ),
       );
     }
@@ -943,7 +1131,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           label: 'Суммы',
           text: parts.join('  '),
           // Правка стоимости топлива (без доставки) — например скидка клиенту.
-          onEdit: canEdit ? () => _editFuelCost(order) : null,
+          onEdit: _editIf(order, 'fuel_cost', () => _editFuelCost(order)),
         ),
       );
     }
@@ -966,15 +1154,37 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     // блоке с кнопкой (правки 2026-07-25) — тут не дублируем.
     final inAckBlock = _driverAckNeeded(order);
 
-    if (!inAckBlock && order.clientComment?.isNotEmpty == true) {
+    // Пустой комментарий тоже показываем тем, кто может его добавить (CRM-45).
+    Widget commentText(String? v) => v?.isNotEmpty == true
+        ? Text(v!, style: TextStyle(fontSize: 13, color: c.text))
+        : Text('—', style: TextStyle(color: c.text3));
+
+    final canClientComment = _can(order, 'client_comment');
+    if (!inAckBlock &&
+        (order.clientComment?.isNotEmpty == true || canClientComment)) {
       rows.add(
-        _DetailRow(label: 'Комментарий клиента', text: order.clientComment!),
+        _DetailRow(
+          label: 'Комментарий клиента',
+          child: commentText(order.clientComment),
+          onEdit: canClientComment
+              ? () => _editComment(order, manager: false)
+              : null,
+        ),
       );
     }
 
-    if (!inAckBlock && order.managerComment?.isNotEmpty == true) {
+    final canManagerComment = _can(order, 'manager_comment');
+    if (!inAckBlock &&
+        !_isClient &&
+        (order.managerComment?.isNotEmpty == true || canManagerComment)) {
       rows.add(
-        _DetailRow(label: 'Комментарий менеджера', text: order.managerComment!),
+        _DetailRow(
+          label: 'Комментарий менеджера',
+          child: commentText(order.managerComment),
+          onEdit: canManagerComment
+              ? () => _editComment(order, manager: true)
+              : null,
+        ),
       );
     }
 

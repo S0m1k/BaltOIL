@@ -4,6 +4,7 @@ import '../../core/api_client.dart';
 import '../auth/auth_repository.dart';
 import '../organizations/organizations_repository.dart';
 import 'order_models.dart';
+import 'order_edit_rules.dart';
 import 'orders_repository.dart';
 
 /// Подписи типов оплаты (веб PAYMENT_TYPE_LABELS_ALL).
@@ -64,6 +65,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   /// CRM-37: водитель оформляет заявку «с колёс» и адрес может не знать —
   /// поле необязательное, пустое уходит как "" (менеджер уточнит).
   bool get _isDriver => widget.user.role == 'driver';
+
+  /// Адрес обязателен только клиенту: сотрудник и водитель принимают заказ
+  /// по телефону и могут не знать его (CRM-37).
+  bool get _addressRequired => widget.user.role == 'client';
   List<UserBrief>? _clients;
   List<UserBrief>? _drivers;
   String? _clientId;
@@ -75,6 +80,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   // водителю (shipment_hold); ручная стоимость доставки — пусто = автосчёт.
   bool _shipmentHold = false;
   final _manualDeliveryCost = TextEditingController();
+
+  /// «Добавить НДС» уже нажата для текущего значения ручной доставки —
+  /// кнопка гаснет до ручной правки поля (правки 2026-09-28).
+  bool _manualVatAdded = false;
 
   // Разовый клиент (веб __oneoff__, правки 2026-07-11): имя+телефон,
   // всегда физлицо с оплатой по факту; дедуп по номеру на бэке.
@@ -131,6 +140,46 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     }
   }
 
+  /// Сохранённые объекты для выбранных клиента и организации (веб
+  /// loadSavedObjects, CRM-45): у организации свои объекты с контактами
+  /// приёмки — они видны и без клиента.
+  Future<void> _reloadSavedObjects() async {
+    final cid = _clientId;
+    final realClient = _isStaff &&
+        cid != null &&
+        cid != _kNoClientId &&
+        cid != _kOneOffClientId;
+    if (_isStaff && !realClient && _organizationId == null) {
+      if (mounted) setState(() => _savedObjects = const []);
+      return;
+    }
+    try {
+      final objs = await OrdersRepository.instance.clientObjects(
+        clientId: realClient ? cid : null,
+        organizationId: _organizationId,
+      );
+      if (mounted) setState(() => _savedObjects = objs);
+    } on Object catch (_) {
+      if (mounted) setState(() => _savedObjects = const []);
+    }
+  }
+
+  /// Выбор сохранённого объекта: адрес + контакт приёмки (CRM-45). Уже
+  /// введённый контакт не перетираем — оператор мог знать другого.
+  void _applySavedObject(ClientObject obj) {
+    setState(() {
+      _address.text = obj.deliveryAddress;
+      if (_contactName.text.trim().isEmpty &&
+          (obj.contactPersonName?.isNotEmpty ?? false)) {
+        _contactName.text = obj.contactPersonName!;
+      }
+      if (_contactPhone.text.trim().isEmpty &&
+          (obj.contactPersonPhone?.isNotEmpty ?? false)) {
+        _contactPhone.text = obj.contactPersonPhone!;
+      }
+    });
+  }
+
   /// Организации + сохранённые объекты + типы оплаты выбранного клиента.
   /// Ошибки не блокируют форму (как на вебе) — просто прячем блоки.
   Future<void> _loadClientContext(String clientId,
@@ -147,13 +196,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     } on Object catch (_) {
       if (mounted) setState(() => _orgs = const []);
     }
-    try {
-      final objs = await OrdersRepository.instance
-          .clientObjects(clientId: isSelf ? null : clientId);
-      if (mounted) setState(() => _savedObjects = objs);
-    } on Object catch (_) {
-      if (mounted) setState(() => _savedObjects = const []);
-    }
+    await _reloadSavedObjects();
     try {
       final opts = await OrdersRepository.instance.paymentOptions(clientId);
       if (!mounted) return;
@@ -293,6 +336,19 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     }
   }
 
+  void _addManualDeliveryVat() {
+    final next = withDeliveryVat(_manualDeliveryCost.text);
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Сначала укажите стоимость доставки')));
+      return;
+    }
+    setState(() {
+      _manualDeliveryCost.text = formatDeliveryCostInput(next);
+      _manualVatAdded = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final types = _fuelTypes;
@@ -335,7 +391,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                             ),
                           ),
                       ],
-                      onChanged: (v) => setState(() => _organizationId = v),
+                      onChanged: (v) {
+                        setState(() => _organizationId = v);
+                        _reloadSavedObjects();
+                      },
                       decoration: const InputDecoration(
                           labelText: 'Оформить от имени'),
                     ),
@@ -393,10 +452,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                         final obj = _savedObjects
                             .where((o) => o.id == id)
                             .firstOrNull;
-                        if (obj != null) {
-                          setState(
-                              () => _address.text = obj.deliveryAddress);
-                        }
+                        if (obj != null) _applySavedObject(obj);
                       },
                       decoration: const InputDecoration(
                           labelText: 'Сохранённые объекты'),
@@ -406,14 +462,17 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                   TextFormField(
                     controller: _address,
                     decoration: InputDecoration(
-                      labelText: _isDriver
-                          ? 'Адрес доставки (необязательно)'
-                          : 'Адрес доставки',
-                      helperText:
-                          _isDriver ? 'Адрес уточнит менеджер' : null,
+                      labelText: _addressRequired
+                          ? 'Адрес доставки'
+                          : 'Адрес доставки (необязательно)',
+                      helperText: _isDriver
+                          ? 'Адрес уточнит менеджер'
+                          : (_addressRequired
+                              ? null
+                              : 'Можно добавить позже в карточке заявки'),
                     ),
                     validator: (v) {
-                      if (_isDriver) return null;
+                      if (!_addressRequired) return null;
                       return (v == null || v.trim().length < 5)
                           ? 'Укажите адрес'
                           : null;
@@ -540,7 +599,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                 // Подгружаем организации/объекты/типы оплаты выбранного
                 // клиента — как на вебе при смене c-client-id.
                 if (v == _kNoClientId) {
-                  // Без клиента: все организации (включая «ничейные»)
+                  // Без клиента: все организации (включая «ничейные»);
+                  // объекты появятся после выбора организации.
+                  setState(() => _savedObjects = const []);
                   _loadAllOrgsForStaff();
                 } else if (v != null && v != _kOneOffClientId) {
                   _loadClientContext(v, isSelf: false);
@@ -644,6 +705,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       TextFormField(
         controller: _manualDeliveryCost,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: (_) {
+          if (_manualVatAdded) setState(() => _manualVatAdded = false);
+        },
         decoration: const InputDecoration(
           labelText: 'Стоимость доставки вручную, ₽',
           hintText: 'Пусто — автоматический расчёт',
@@ -655,6 +719,17 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
           if (n == null || n < 0) return 'Некорректная сумма';
           return null;
         },
+      ),
+      // «Добавить НДС» (правки 2026-09-28): одноразово ×1,22 к введённой
+      // стоимости доставки — 3 500 → 4 270 в итоге заявки.
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: _manualVatAdded ? null : _addManualDeliveryVat,
+          child: Text(_manualVatAdded
+              ? 'НДС $kDeliveryVatPercent% добавлен'
+              : 'Добавить НДС'),
+        ),
       ),
       const Divider(height: 32),
     ];

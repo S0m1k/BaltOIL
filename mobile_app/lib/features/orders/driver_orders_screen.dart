@@ -551,7 +551,7 @@ class _DriverOrderCard extends StatelessWidget {
               '${order.volumeRequested.toStringAsFixed(0)} л',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            Text(order.deliveryAddress),
+            Text(order.addressLabel),
             if (order.desiredDate != null)
               Text(
                   'Желаемая дата: ${order.desiredDate!.day}.${order.desiredDate!.month}.${order.desiredDate!.year}',

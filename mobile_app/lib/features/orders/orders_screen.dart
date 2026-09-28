@@ -313,7 +313,7 @@ class _OrderTile extends StatelessWidget {
           '${order.volumeRequested.toStringAsFixed(0)} л'),
       // Как на вебе (d29807a): имя организации/клиента жирным перед адресом.
       subtitle: order.buyerName == null
-          ? Text(order.deliveryAddress,
+          ? Text(order.addressLabel,
               maxLines: 1, overflow: TextOverflow.ellipsis)
           : Text.rich(
               TextSpan(children: [
@@ -321,7 +321,7 @@ class _OrderTile extends StatelessWidget {
                   text: order.buyerName,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
-                TextSpan(text: ' · ${order.deliveryAddress}'),
+                TextSpan(text: ' · ${order.addressLabel}'),
               ]),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

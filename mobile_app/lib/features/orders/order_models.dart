@@ -29,6 +29,11 @@ class Order {
   final String fuelType;
   final double volumeRequested;
   final String deliveryAddress;
+
+  /// Адрес для списков: заявку сотрудника или водителя могли оформить без
+  /// адреса (CRM-37) — тогда «Адрес уточняется», а не пустая строка.
+  String get addressLabel =>
+      deliveryAddress.trim().isEmpty ? 'Адрес уточняется' : deliveryAddress;
   final String status;
   final String paymentStatus;
   final bool pendingDriverAck;
