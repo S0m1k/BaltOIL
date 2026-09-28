@@ -2181,7 +2181,10 @@ setTimeout(function () {
           <!-- Ручная стоимость доставки (правки 2026-07-25): перекрывает автосчёт по зоне -->
           <div class="form-group">
             <label class="form-label">Стоимость доставки вручную, ₽ <span style="color:var(--text3);font-weight:400">(пусто = автосчёт по зоне)</span></label>
-            <input type="number" id="c-manual-delivery-cost" class="form-input" min="0" step="100" placeholder="Например: 4000" oninput="updatePricePreview()">
+            <div style="display:flex;gap:8px;align-items:stretch">
+              <input type="number" id="c-manual-delivery-cost" class="form-input" min="0" step="100" placeholder="Например: 4000" oninput="resetDeliveryVatBtn('c-dc-vat-btn');updatePricePreview()" style="flex:1">
+              <button type="button" id="c-dc-vat-btn" class="btn btn-ghost" style="white-space:nowrap" onclick="addDeliveryVat('c-manual-delivery-cost', this)">Добавить НДС</button>
+            </div>
           </div>
           <div class="section-divider">Данные заявки</div>
         </div>
@@ -6155,6 +6158,35 @@ function promptCancel(orderId) {
   );
 }
 
+// @pure:delivery-vat — правки 2026-09-28: «Добавить НДС» к ручной стоимости доставки.
+// Одноразово умножает введённое число на 1,22 (3 500 → 4 270); флаг в заявке не
+// хранится, поэтому кнопка гаснет до следующей ручной правки поля — чтобы не
+// начислить НДС дважды. Считаем в копейках, чтобы не ловить хвосты float.
+const DELIVERY_VAT_PERCENT = 22;
+function withDeliveryVat(value) {
+  if (value === '' || value == null) return null;
+  const v = Number(value);
+  if (!isFinite(v) || v <= 0) return null;
+  const cents = Math.round(v * 100);
+  return Math.round(cents * (100 + DELIVERY_VAT_PERCENT) / 100) / 100;
+}
+// @end:delivery-vat
+
+function addDeliveryVat(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const next = withDeliveryVat(inp?.value);
+  if (next == null) { toast('Сначала укажите стоимость доставки', 'error'); return; }
+  inp.value = next;
+  // input сбросит кнопку и пересчитает превью — гасим кнопку уже после него
+  inp.dispatchEvent(new Event('input'));
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.textContent = `НДС ${DELIVERY_VAT_PERCENT}% добавлен`; }
+}
+
+function resetDeliveryVatBtn(btnId) {
+  const btn = document.getElementById(btnId);
+  if (btn && btn.disabled) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Добавить НДС'; }
+}
+
 // Инлайн-редактирование поля заявки «карандашиком» (правки 2026-06-11).
 // PATCH /orders/{id}; права (клиент — свои, водитель — назначенные) проверяет бэкенд.
 async function promptEditOrderField(orderId, field) {
@@ -6189,7 +6221,10 @@ async function promptEditOrderField(orderId, field) {
     inputHtml = `<input type="date" id="eof-value" class="form-input" value="${cur}">`;
   } else if (field === 'delivery_cost') {
     title = 'Изменить стоимость доставки';
-    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${order.delivery_cost != null ? Number(order.delivery_cost) : ''}" placeholder="0">
+    inputHtml = `<div style="display:flex;gap:8px;align-items:stretch">
+        <input type="number" id="eof-value" class="form-input" min="0" step="100" value="${order.delivery_cost != null ? Number(order.delivery_cost) : ''}" placeholder="0" oninput="resetDeliveryVatBtn('eof-vat-btn')" style="flex:1">
+        <button type="button" id="eof-vat-btn" class="btn btn-ghost" style="white-space:nowrap" onclick="addDeliveryVat('eof-value', this)">Добавить НДС</button>
+      </div>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Например, при переадресации на 2 адреса. Сумма заявки пересчитается, счёт перевыпустится с тем же номером.</div>`;
   } else if (field === 'fuel_cost') {
     title = 'Изменить стоимость топлива';
@@ -7654,6 +7689,9 @@ async function doCreateOrder() {
     }
 
     // Reset form
+    const _dcInput = document.getElementById('c-manual-delivery-cost');
+    if (_dcInput) _dcInput.value = '';
+    resetDeliveryVatBtn('c-dc-vat-btn');
     document.getElementById('c-contact-name').value = '';
     document.getElementById('c-contact-phone').value = '';
     const selfCb = document.getElementById('c-contact-self');
