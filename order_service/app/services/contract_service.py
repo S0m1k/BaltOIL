@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.config import settings
 from app.core.dependencies import TokenUser
 from app.core.exceptions import NotFoundError, ValidationError
+from app.core.media import resolve_media_path
 from app.models.contract import Contract, ContractMonthCounter, ContractStatus
 from app.services.document_service import (  # переиспользуем Jinja+WeasyPrint
     _render_pdf,
@@ -65,6 +66,16 @@ async def _next_contract_number(db: AsyncSession) -> str:
     result = await db.execute(stmt)
     seq: int = result.scalar_one()
     return f"{seq:03d}/{now.month:02d}"
+
+
+async def _ensure_number_free(
+    db: AsyncSession, number: str, exclude_id: uuid.UUID | None = None
+) -> None:
+    conds = [Contract.contract_number == number]
+    if exclude_id is not None:
+        conds.append(Contract.id != exclude_id)
+    if (await db.execute(select(Contract.id).where(*conds))).first() is not None:
+        raise ValidationError("Договор с таким номером уже существует")
 
 
 # ── Реквизиты покупателя из auth_service ───────────────────────────────────────
@@ -300,8 +311,14 @@ async def create_contract(
     client_id: uuid.UUID,
     actor: TokenUser,
     organization_id: uuid.UUID | None = None,
+    *,
+    contract_number: str | None = None,
+    signed_at: date | None = None,
 ) -> Contract:
     """Сформировать договор поставки для юрлица.
+
+    contract_number / signed_at — необязательные ручные значения (окно реквизитов
+    при создании организации); без них — следующий номер по счётчику и сегодняшняя дата.
 
     При organization_id — договор на организацию (реквизиты из неё). Иначе legacy:
     company-профиль клиента. Идемпотентно: активный договор на ту же пару
@@ -325,8 +342,11 @@ async def create_contract(
         raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
     buyer = await _fetch_buyer_legal_profile(client_id, organization_id)
 
-    contract_number = await _next_contract_number(db)
-    signed_at = datetime.now(timezone.utc).date()
+    if contract_number:
+        await _ensure_number_free(db, contract_number)
+    else:
+        contract_number = await _next_contract_number(db)
+    signed_at = signed_at or datetime.now(timezone.utc).date()
     effective_until = _plus_five_years(signed_at)
 
     ctx = _build_contract_ctx(seller, buyer, contract_number, signed_at, effective_until)
@@ -416,15 +436,9 @@ async def regenerate_contract(
     Реквизиты продавца снимаются заново (могли измениться); реквизиты
     покупателя берутся из уже сохранённого снимка договора.
     """
+    old_file_path = contract.file_path
     if new_number is not None and new_number != contract.contract_number:
-        result = await db.execute(
-            select(Contract).where(
-                Contract.contract_number == new_number,
-                Contract.id != contract.id,
-            )
-        )
-        if result.scalar_one_or_none() is not None:
-            raise ValidationError("Договор с таким номером уже существует")
+        await _ensure_number_free(db, new_number, exclude_id=contract.id)
         contract.contract_number = new_number
 
     if new_signed_at is not None:
@@ -435,6 +449,14 @@ async def regenerate_contract(
     if not seller:
         raise ValidationError("Реквизиты продавца не заданы — договор сформировать нельзя")
     contract.seller_snapshot = seller
+    # Реквизиты покупателя тоже подтягиваем заново, чтобы перевыпущенный документ
+    # не остался со старыми данными; при недоступности auth — прежний снимок.
+    try:
+        contract.buyer_snapshot = await _fetch_buyer_legal_profile(
+            contract.client_id, contract.organization_id
+        )
+    except Exception as exc:
+        log.warning("contract.regenerate: buyer refresh failed for %s: %s", contract.id, exc)
     buyer = contract.buyer_snapshot
 
     ctx = _build_contract_ctx(
@@ -444,6 +466,12 @@ async def regenerate_contract(
     pdf_bytes = await asyncio.to_thread(_render_pdf, "contract.html", ctx)
     file_path = _save_contract_pdf(contract.client_id, contract.contract_number, pdf_bytes)
     contract.file_path = file_path
+    if old_file_path and old_file_path != file_path:
+        # Иначе после смены номера на диске остаётся PDF со старым номером.
+        try:
+            resolve_media_path(MEDIA_ROOT, old_file_path).unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            log.warning("contract.regenerate: old pdf cleanup failed %s: %s", old_file_path, exc)
 
     await db.flush()
 

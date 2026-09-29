@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import 'deliver_dialog.dart';
 import 'order_models.dart';
 import 'orders_repository.dart';
 
@@ -67,34 +68,53 @@ class _DriverOrdersScreenState extends State<DriverOrdersScreen> {
       });
 
   Future<void> _deliver(Order order) async {
-    // Как на вебе: сначала модалка подтверждения «Отметить доставку».
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Отметить доставку'),
-        content: const Text(
-            'Подтвердите доставку. Номер ТТН будет присвоен автоматически.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('ОК'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    // Как на вебе: одно окно — фактический объём, ёмкость/счётчик и (для физлиц) оплата.
+    List<Tank> tanks = const [];
+    try {
+      tanks = await OrdersRepository.instance.activeTanks();
+    } catch (_) {
+      // Ёмкости недоступны — окно откроется без блока ёмкости.
+    }
+    if (!mounted) return;
+    final result = await showDeliverDialog(context, order: order, tanks: tanks);
+    if (result == null) return;
 
     await _run(() async {
-      final delivered = await OrdersRepository.instance.markDelivered(order.id);
+      final delivered = await OrdersRepository.instance.markDelivered(
+        order.id,
+        volume: result.volume,
+        comment: result.comment,
+      );
       if (!mounted) return;
       _snack('Статус изменён → Доставлена');
-      // Д5: фиксация оплаты — только у физлиц; у юрлиц водитель денег не видит.
-      if (delivered.isIndividual) {
-        await _showPaymentDialog(delivered);
+      // Ошибка списания/оплаты не отменяет доставку — расхождение исправит админ.
+      if (result.tankId != null && result.counterAfter != null) {
+        try {
+          await OrdersRepository.instance.issueFromTank(
+            tankId: result.tankId!,
+            counterAfter: result.counterAfter!,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            volume: result.volume,
+          );
+        } catch (e) {
+          if (mounted) {
+            _snack('Доставка отмечена, но ёмкость не списана: ${apiErrorMessage(e)}');
+          }
+        }
+      }
+      if (result.payAmount != null) {
+        try {
+          await OrdersRepository.instance.recordPayment(
+              orderId: delivered.id,
+              amount: result.payAmount!,
+              method: result.payMethod ?? 'cash');
+          if (mounted) _snack('Оплата зафиксирована');
+        } catch (e) {
+          if (mounted) {
+            _snack('Доставка отмечена, но оплата не зафиксирована: ${apiErrorMessage(e)}');
+          }
+        }
       }
     });
   }

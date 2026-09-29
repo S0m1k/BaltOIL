@@ -7395,6 +7395,12 @@ function openCreateOrgStep2() {
       <input id="co-corr" class="form-input" value="${escHtml(b.correspondent_account || '')}"></div>
     <div class="form-group"><label class="form-label">Email для счетов <span style="color:var(--red)">*</span></label>
       <input id="co-email" class="form-input" type="email" placeholder="на эту почту уйдут счета и документы"></div>
+    ${staff ? `
+    <div class="form-group"><label class="form-label">Договор № <span style="color:var(--text3);font-weight:400">(необязательно)</span></label>
+      <input id="co-contract-num" class="form-input" placeholder="пусто — следующий по счётчику"></div>
+    <div class="form-group"><label class="form-label">Дата договора <span style="color:var(--text3);font-weight:400">(необязательно)</span></label>
+      <input id="co-contract-date" type="date" class="form-input">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Договор формируется сразу при создании, если выбран клиент-владелец. Пустая дата — сегодня.</div></div>` : ''}
   `, submitCreateOrg);
   _setModalConfirmText('Создать');
   // Кнопка «назад» к шагу 1
@@ -7445,9 +7451,22 @@ async function submitCreateOrg() {
   };
   if (ownerClientId) body.owner_client_id = ownerClientId;
   try {
-    await authPost('/organizations', body);
+    const org = await authPost('/organizations', body);
     closeModal();
     toast('Организация добавлена');
+    // Договор сразу при заведении (правка 2026-09-29): без клиента-владельца
+    // договор не на кого оформить — он сформируется позже кнопкой «Договор».
+    if (_isOrgStaff() && ownerClientId && org?.id) {
+      try {
+        const num = (document.getElementById('co-contract-num')?.value || '').trim();
+        const date = document.getElementById('co-contract-date')?.value || '';
+        const c = await orderPost(`/clients/${ownerClientId}/contracts?organization_id=${org.id}`,
+          { contract_number: num || null, signed_at: date || null });
+        toast(`Договор № ${c.contract_number} сформирован`, 'success');
+      } catch (ce) {
+        toast('Организация создана, но договор не сформирован: ' + ce.message, 'error');
+      }
+    }
     loadMyOrganizations();
   } catch (e) { toast(e.message, 'error'); }
 }

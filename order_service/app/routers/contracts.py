@@ -62,6 +62,12 @@ class ContractResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CreateContractRequest(BaseModel):
+    """Ручные номер/дата; пусто — следующий номер по счётчику и сегодняшняя дата."""
+    contract_number: str | None = None
+    signed_at: date | None = None
+
+
 class RegenerateContractRequest(BaseModel):
     contract_number: str | None = None
     signed_at: date | None = None
@@ -86,11 +92,16 @@ async def create_contract(
     client_id: uuid.UUID,
     actor: CurrentUser,
     _: ManagerOrAdmin,
+    payload: CreateContractRequest | None = None,
     db: AsyncSession = Depends(get_db),
     organization_id: uuid.UUID | None = Query(None, description="Организация (юрлицо) договора"),
 ):
     """Сформировать договор для клиента/организации (идемпотентно — вернёт активный)."""
-    contract = await contract_service.create_contract(db, client_id, actor, organization_id)
+    contract = await contract_service.create_contract(
+        db, client_id, actor, organization_id,
+        contract_number=((payload.contract_number or "").strip() or None) if payload else None,
+        signed_at=payload.signed_at if payload else None,
+    )
     await db.commit()
     await db.refresh(contract)
     return contract
@@ -248,6 +259,7 @@ async def download_contract(
         path=str(full_path),
         media_type="application/pdf",
         filename=f"contract_{contract.contract_number.replace('/', '-')}.pdf",
+        headers={"Cache-Control": "no-store"},
     )
 
 

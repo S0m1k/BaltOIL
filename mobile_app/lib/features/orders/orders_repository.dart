@@ -36,18 +36,50 @@ class OrdersRepository {
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }
 
-  /// Водитель: отметить доставку (accepted → delivered). ТТН бэк сгенерирует сам.
+  /// Водитель: отметить доставку (accepted → delivered) с фактическим объёмом.
+  /// ТТН бэк сгенерирует сам.
   ///
   /// Тяжёлый эндпоинт: бэк синхронно создаёт счёт и списывает топливо через
   /// delivery_service — на холодном старте может идти десятки секунд.
-  Future<Order> markDelivered(String orderId) async {
+  Future<Order> markDelivered(
+    String orderId, {
+    required double volume,
+    String? comment,
+  }) async {
     final resp = await _dio.post(
       '$_base/orders/$orderId/transition',
-      data: {'to_status': 'delivered'},
+      data: {
+        'to_status': 'delivered',
+        'volume_delivered': volume,
+        if (comment != null && comment.isNotEmpty) 'comment': comment,
+      },
       options: Options(receiveTimeout: const Duration(seconds: 60)),
     );
     return Order.fromJson(resp.data as Map<String, dynamic>);
   }
+
+  /// Активные ёмкости склада (пусто, если не заведены).
+  Future<List<Tank>> activeTanks() async {
+    final resp = await _dio.get('${AppConfig.deliveryBase}/inventory/tanks');
+    return (resp.data as List)
+        .map((e) => Tank.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Списание из ёмкости по новому показанию счётчика.
+  Future<void> issueFromTank({
+    required String tankId,
+    required int counterAfter,
+    required String orderId,
+    required String orderNumber,
+    required double volume,
+  }) =>
+      _dio.post('${AppConfig.deliveryBase}/inventory/tanks/$tankId/issue', data: {
+        'counter_after': counterAfter,
+        'order_id': orderId,
+        'order_number': orderNumber,
+        'volume_hint': volume,
+      });
 
   /// Водитель: подтвердить изменения менеджера (pending_driver_ack → false).
   Future<void> ackChanges(String orderId) =>
