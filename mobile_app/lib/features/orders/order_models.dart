@@ -13,7 +13,6 @@ class Order {
     this.driverId,
     this.expectedAmount,
     this.finalAmount,
-    this.deliveryCost,
     this.desiredDate,
     this.createdAt,
     this.clientComment,
@@ -32,7 +31,6 @@ class Order {
   final String? driverId;
   final double? expectedAmount;
   final double? finalAmount;
-  final double? deliveryCost;
   final DateTime? desiredDate;
   final DateTime? createdAt;
   final String? clientComment;
@@ -57,9 +55,6 @@ class Order {
         finalAmount: json['final_amount'] == null
             ? null
             : double.tryParse(json['final_amount'].toString()),
-        deliveryCost: json['delivery_cost'] == null
-            ? null
-            : double.tryParse(json['delivery_cost'].toString()),
         desiredDate: json['desired_date'] == null
             ? null
             : DateTime.tryParse(json['desired_date'] as String),
@@ -129,33 +124,5 @@ class FuelType {
   factory FuelType.fromJson(Map<String, dynamic> json) => FuelType(
         code: json['code'] as String,
         label: json['label'] as String,
-      );
-}
-
-/// Ёмкость (резервуар) склада — для списания по счётчику при доставке.
-class Tank {
-  Tank({
-    required this.id,
-    required this.name,
-    required this.fuelType,
-    required this.fuelLabel,
-    required this.currentVolume,
-    required this.counter,
-  });
-
-  final String id;
-  final String name;
-  final String fuelType;
-  final String fuelLabel;
-  final double currentVolume;
-  final int counter;
-
-  factory Tank.fromJson(Map<String, dynamic> json) => Tank(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        fuelType: json['fuel_type'] as String,
-        fuelLabel: (json['fuel_label'] ?? json['fuel_type']) as String,
-        currentVolume: double.tryParse('${json['current_volume']}') ?? 0,
-        counter: (json['counter'] as num?)?.toInt() ?? 0,
       );
 }
