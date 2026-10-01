@@ -47,6 +47,7 @@ class RoutePointKind(str, enum.Enum):
     OIL_DEPOT = "oil_depot"          # нефтебаза из справочника
     BASE = "base"                    # наша база
     CLIENT_OBJECT = "client_object"  # объект клиента из справочника
+    CUSTOM = "custom"                # введено вручную (нет в справочнике), только text
 
 
 class TransportBase(Base):

@@ -3138,9 +3138,9 @@ setTimeout(function () {
 
         <div class="form-group" id="tr-client-group" style="display:none">
           <label class="form-label">Клиент (объект)</label>
-          <select id="tr-client-object" class="form-input" onchange="renderTransportRoute()">
-            <option value="">— выберите клиента —</option>
-          </select>
+          <input type="text" id="tr-client-object" class="form-input" list="tr-client-object-dl" autocomplete="off"
+            placeholder="Выберите из списка или введите вручную" onchange="renderTransportRoute()">
+          <datalist id="tr-client-object-dl"></datalist>
         </div>
 
         <div class="section-divider">маршрут</div>
@@ -14851,25 +14851,28 @@ function _trPointOptions(slot) {
   return out;
 }
 
+// Точка маршрута — «список + ручной ввод» (правка 2026-10-01): выбрать из заведённых
+// или вписать свой текст; вручную введённая точка уходит как kind='custom'.
 function _trPointSelectHTML(slot, elId, current) {
   const opts = _trPointOptions(slot);
-  const curKey = current ? (current.kind + ':' + (current.id || '')) : '';
-  const body = ['<option value="">— выберите —</option>'].concat(opts.map(function (o) {
-    const key = o.kind + ':' + (o.id || '');
-    return '<option value="' + key + '"' + (key === curKey ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-  })).join('');
-  return '<select id="' + elId + '" class="form-input">' + body + '</select>';
+  const options = opts.map(function (o) { return '<option value="' + escHtml(o.label) + '"></option>'; }).join('');
+  return '<input type="text" id="' + elId + '" class="form-input" list="' + elId + '-dl" data-slot="' + slot + '"'
+    + ' autocomplete="off" placeholder="Выберите из списка или введите вручную" value="' + escHtml(current ? _trPointLabel(current) : '') + '">'
+    + '<datalist id="' + elId + '-dl">' + options + '</datalist>';
 }
 
 function _trReadPoint(elId) {
-  const raw = document.getElementById(elId)?.value || '';
-  if (!raw) return null;
-  const sep = raw.indexOf(':');
-  const kind = raw.slice(0, sep);
-  const id = raw.slice(sep + 1);
-  const point = { kind: kind, id: id || null };
-  if (kind === 'base') point.text = 'База';
-  return point;
+  const el = document.getElementById(elId);
+  const text = (el?.value || '').trim();
+  if (!text) return null;
+  const opts = _trPointOptions(el.dataset.slot || 'from');
+  const hit = opts.find(function (o) { return o.label.toLowerCase() === text.toLowerCase(); });
+  if (hit) {
+    const point = { kind: hit.kind, id: hit.id || null };
+    if (hit.kind === 'base') point.text = 'База';
+    return point;
+  }
+  return { kind: 'custom', id: null, text: text };
 }
 
 function renderTransportRoute() {
@@ -14884,7 +14887,7 @@ function renderTransportRoute() {
   const type = document.getElementById('tr-type')?.value || 'to_base';
   const toSel = document.getElementById('tr-to');
   if (type === 'to_base' && toSel) {
-    toSel.value = 'base:';
+    toSel.value = 'База';
     toSel.disabled = true;
   } else if (toSel) {
     toSel.disabled = false;
@@ -15061,13 +15064,19 @@ function _trFillFuelSelect() {
 }
 
 function _trFillClientObjects() {
-  const sel = document.getElementById('tr-client-object');
-  if (!sel) return;
-  sel.innerHTML = ['<option value="">— выберите клиента —</option>'].concat(
-    _trObjects.map(function (o) {
-      return '<option value="' + o.id + '">' + escHtml(o.name) + '</option>';
-    })
-  ).join('');
+  const dl = document.getElementById('tr-client-object-dl');
+  if (!dl) return;
+  dl.innerHTML = _trObjects.map(function (o) {
+    return '<option value="' + escHtml(o.name) + '"></option>';
+  }).join('');
+}
+
+// Клиент: заведённый объект -> его id; вписанный вручную -> без id (текст уйдёт точкой маршрута).
+function _trReadClient() {
+  const text = (document.getElementById('tr-client-object')?.value || '').trim();
+  if (!text) return { id: null, text: '' };
+  const hit = _trObjects.find(function (o) { return o.name.toLowerCase() === text.toLowerCase(); });
+  return { id: hit ? hit.id : null, text: hit ? '' : text };
 }
 
 async function _trLoadIntoForm(orderId) {
@@ -15080,17 +15089,20 @@ async function _trLoadIntoForm(orderId) {
     const type = document.getElementById('tr-type');
     if (type) type.value = d.transport_type || 'to_base';
     const clientSel = document.getElementById('tr-client-object');
-    if (clientSel && d.client_object_id) clientSel.value = d.client_object_id;
+    if (clientSel && d.client_object_id) {
+      const co = _trObjects.find(function (o) { return o.id === d.client_object_id; });
+      if (co) clientSel.value = co.name;
+    }
     _trWaypoints = (d.waypoints || []).slice(0, 3);
     onTransportTypeChange();
     // Точки маршрута выставляем после перерисовки селектов.
     const fromSel = document.getElementById('tr-from');
-    if (fromSel && d.route_from) fromSel.value = d.route_from.kind + ':' + (d.route_from.id || '');
+    if (fromSel && d.route_from) fromSel.value = _trPointLabel(d.route_from);
     const toSel = document.getElementById('tr-to');
-    if (toSel && d.route_to) toSel.value = d.route_to.kind + ':' + (d.route_to.id || '');
+    if (toSel && d.route_to) toSel.value = _trPointLabel(d.route_to);
     _trWaypoints.forEach(function (wp, i) {
       const el = document.getElementById('tr-wp-' + i);
-      if (el && wp) el.value = wp.kind + ':' + (wp.id || '');
+      if (el && wp) el.value = _trPointLabel(wp);
     });
     setv('tr-kg', d.amount_kg); setv('tr-l', d.amount_l);
     setv('tr-date', d.desired_date_text); setv('tr-comment', d.comment);
@@ -15114,7 +15126,7 @@ async function submitTransportOrder() {
   _trSyncWaypointsFromDom();
   const body = {
     transport_type: type,
-    client_object_id: type === 'to_client' ? (document.getElementById('tr-client-object')?.value || null) : null,
+    client_object_id: type === 'to_client' ? _trReadClient().id : null,
     route_from: _trReadPoint('tr-from'),
     route_to: type === 'to_base' ? { kind: 'base', id: null, text: 'База' } : _trReadPoint('tr-to'),
     waypoints: _trWaypoints.filter(Boolean),
@@ -15133,6 +15145,10 @@ async function submitTransportOrder() {
     driver_payment_amount: _trNum('tr-driver-amount'),
     driver_payment_percent: _trNum('tr-driver-percent'),
   };
+  // Клиент вписан вручную (нет в справочнике): отдельного поля под него нет,
+  // поэтому, если «куда» не выбрано, клиентом становится точка назначения.
+  const manualClient = type === 'to_client' ? _trReadClient().text : '';
+  if (manualClient && !body.route_to) body.route_to = { kind: 'custom', id: null, text: manualClient };
   const btn = document.getElementById('tr-submit');
   if (btn) btn.disabled = true;
   try {
