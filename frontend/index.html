@@ -14667,8 +14667,19 @@ async function promptTransportObject(id) {
   // (при правке прежняя привязка не трогается — поле client_id не шлём).
   _toRows = (obj && obj.addresses ? obj.addresses : []).map(function (a) { return { name: a.name || '', address: a.address }; });
   if (!_toRows.length) _toRows.push({ name: '', address: '' });
+  // Организации, уже заведённые в системе, — для выбора из списка.
+  try {
+    const orgs = await authGet('/organizations');
+    _toOrgs = Array.isArray(orgs) ? orgs : [];
+  } catch (e) { _toOrgs = []; }
+  const orgOptions = _toOrgs.map(function (o) {
+    return '<option value="' + escHtml(_toOrgLabel(o)) + '"></option>';
+  }).join('');
   openModal(obj ? 'Изменить объект клиента' : 'Новый объект клиента',
-    '<div class="form-group"><label class="form-label">ИНН организации</label>'
+    '<div class="form-group"><label class="form-label">Организация из системы</label>'
+    + '<input type="text" id="to-org" class="form-input" list="to-org-dl" autocomplete="off" placeholder="Выберите из списка или введите ИНН ниже вручную" oninput="onTransportOrgPick(this.value)">'
+    + '<datalist id="to-org-dl">' + orgOptions + '</datalist></div>'
+    +     '<div class="form-group"><label class="form-label">ИНН организации</label>'
     + '<div style="display:flex;gap:8px">'
     + '<input type="text" id="to-inn" class="form-input" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр" oninput="onTransportInnInput(this.value)" value="' + escHtml(obj && obj.inn ? obj.inn : '') + '">'
     + '<button type="button" class="btn btn-sm btn-ghost" id="to-inn-btn" onclick="lookupTransportInn()">Найти</button></div>'
@@ -14701,6 +14712,22 @@ async function promptTransportObject(id) {
       } catch (e) { toast(e.message, 'error'); }
     });
   _toRenderRows();
+}
+
+let _toOrgs = [];
+
+function _toOrgLabel(o) {
+  return o.company_name + (o.inn ? ' · ИНН ' + o.inn : '');
+}
+
+// Выбрана организация из системы — подставляем её ИНН и название.
+function onTransportOrgPick(v) {
+  const org = _toOrgs.find(function (o) { return _toOrgLabel(o) === v; });
+  if (!org) return;
+  document.getElementById('to-inn').value = org.inn || '';
+  document.getElementById('to-name').value = org.company_name;
+  const note = document.getElementById('to-inn-note');
+  if (note) note.textContent = 'Организация из системы';
 }
 
 // Объекты организации в окне: строки «название + адрес», добавляются плюсиком.
