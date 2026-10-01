@@ -133,16 +133,25 @@ async def get_client_object(
     return obj
 
 
-def _clean_addresses(raw: list[str]) -> list[str]:
-    """Обрезать, выбросить пустые и дубли, сохранив порядок ввода."""
-    seen: set[str] = set()
-    out: list[str] = []
+def _clean_addresses(raw: list) -> list[tuple[str | None, str]]:
+    """Обрезать, выбросить пустые и дубли, сохранив порядок ввода.
+
+    Элемент — строка-адрес (старый формат) или {name, address}.
+    """
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str | None, str]] = []
     for item in raw:
-        address = (item or "").strip()
-        if not address or address in seen:
+        if isinstance(item, str):
+            name, address = None, item
+        else:
+            name, address = item.name, item.address
+        address = (address or "").strip()
+        name = (name or "").strip() or None
+        key = (name or "", address)
+        if not address or key in seen:
             continue
-        seen.add(address)
-        out.append(address)
+        seen.add(key)
+        out.append((name, address))
     return out
 
 
@@ -159,8 +168,8 @@ async def create_client_object(
         client_id=data.client_id,
         created_by_id=actor.id,
     )
-    for i, address in enumerate(_clean_addresses(data.addresses)):
-        obj.addresses.append(TransportClientAddress(address=address, sort_order=i))
+    for i, (addr_name, address) in enumerate(_clean_addresses(data.addresses)):
+        obj.addresses.append(TransportClientAddress(name=addr_name, address=address, sort_order=i))
     db.add(obj)
     await db.flush()
     await db.refresh(obj)
@@ -190,8 +199,8 @@ async def update_client_object(
         obj.is_active = data.is_active
     if data.addresses is not None:
         obj.addresses.clear()
-        for i, address in enumerate(_clean_addresses(data.addresses)):
-            obj.addresses.append(TransportClientAddress(address=address, sort_order=i))
+        for i, (addr_name, address) in enumerate(_clean_addresses(data.addresses)):
+            obj.addresses.append(TransportClientAddress(name=addr_name, address=address, sort_order=i))
     await db.flush()
     await db.refresh(obj)
     return obj
@@ -234,7 +243,7 @@ def to_response_dict(obj: TransportClientObject) -> dict:
         "has_contract": bool(obj.contract_file_path),
         "is_active": obj.is_active,
         "addresses": [
-            {"id": a.id, "address": a.address, "sort_order": a.sort_order}
+            {"id": a.id, "name": a.name, "address": a.address, "sort_order": a.sort_order}
             for a in obj.addresses
         ],
         "created_at": obj.created_at,

@@ -14607,7 +14607,9 @@ function renderTransportObjects() {
     return;
   }
   el.innerHTML = _trObjects.map(function (o) {
-    const addrs = (o.addresses || []).map(function (a) { return escHtml(a.address); }).join('<br>');
+    const addrs = (o.addresses || []).map(function (a) {
+      return (a.name ? '<strong>' + escHtml(a.name) + '</strong> — ' : '') + escHtml(a.address);
+    }).join('<br>');
     const contract = o.has_contract
       ? '<a href="#" onclick="downloadTransportContract(\'' + o.id + '\');return false">договор: ' + escHtml(o.contract_file_name || 'файл') + '</a>'
       : 'договор не прикреплён';
@@ -14663,7 +14665,8 @@ async function promptTransportObject(id) {
   // Правка 2026-10-01: клиент перевозки — ОРГАНИЗАЦИЯ по ИНН (название тянем из ФНС),
   // адреса объектов — в свободной форме. Привязка к физлицу-пользователю убрана
   // (при правке прежняя привязка не трогается — поле client_id не шлём).
-  const addrText = (obj && obj.addresses ? obj.addresses : []).map(function (a) { return a.address; }).join('\n');
+  _toRows = (obj && obj.addresses ? obj.addresses : []).map(function (a) { return { name: a.name || '', address: a.address }; });
+  if (!_toRows.length) _toRows.push({ name: '', address: '' });
   openModal(obj ? 'Изменить объект клиента' : 'Новый объект клиента',
     '<div class="form-group"><label class="form-label">ИНН организации</label>'
     + '<div style="display:flex;gap:8px">'
@@ -14672,15 +14675,18 @@ async function promptTransportObject(id) {
     + '<div id="to-inn-note" style="font-size:11px;color:var(--text3);margin-top:4px">Название подтянется из ФНС, его можно поправить</div></div>'
     + '<div class="form-group"><label class="form-label">Название организации</label>'
     + '<input type="text" id="to-name" class="form-input" value="' + escHtml(obj ? obj.name : '') + '"></div>'
-    + '<div class="form-group"><label class="form-label">Адреса объектов (по одному в строке, в свободной форме)</label>'
-    + '<textarea id="to-addresses" class="form-input" rows="4">' + escHtml(addrText) + '</textarea></div>',
+    + '<div class="form-group"><label class="form-label">Объекты организации (название и адрес в свободной форме)</label>'
+    + '<div id="to-rows"></div>'
+    + '<button type="button" class="btn btn-sm btn-ghost" onclick="addTransportObjRow()">+ объект</button></div>',
     async function () {
       const name = (document.getElementById('to-name').value || '').trim();
       if (!name) return toast('Укажите название', 'error');
       const inn = (document.getElementById('to-inn').value || '').trim();
       if (inn && !/^\d{10}(\d{2})?$/.test(inn)) return toast('ИНН — 10 или 12 цифр', 'error');
-      const addresses = (document.getElementById('to-addresses').value || '')
-        .split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      _toReadRows();
+      const addresses = _toRows
+        .map(function (r) { return { name: r.name.trim() || null, address: r.address.trim() }; })
+        .filter(function (r) { return r.address; });
       const body = {
         name: name,
         inn: inn || null,
@@ -14694,6 +14700,45 @@ async function promptTransportObject(id) {
         loadTransportDirectory();
       } catch (e) { toast(e.message, 'error'); }
     });
+  _toRenderRows();
+}
+
+// Объекты организации в окне: строки «название + адрес», добавляются плюсиком.
+let _toRows = [];
+
+function _toReadRows() {
+  const wrap = document.getElementById('to-rows');
+  if (!wrap) return;
+  _toRows = Array.prototype.map.call(wrap.querySelectorAll('[data-to-row]'), function (row) {
+    return {
+      name: row.querySelector('.to-row-name').value,
+      address: row.querySelector('.to-row-addr').value,
+    };
+  });
+}
+
+function _toRenderRows() {
+  const wrap = document.getElementById('to-rows');
+  if (!wrap) return;
+  wrap.innerHTML = _toRows.map(function (r, i) {
+    return '<div data-to-row style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;padding:8px;border:1px solid var(--border);border-radius:8px">'
+      + '<div style="display:flex;gap:8px"><input type="text" class="form-input to-row-name" placeholder="Название объекта" value="' + escHtml(r.name) + '" style="flex:1">'
+      + '<button type="button" class="btn btn-sm btn-ghost" style="color:var(--red)" title="Убрать" onclick="removeTransportObjRow(' + i + ')">✕</button></div>'
+      + '<input type="text" class="form-input to-row-addr" placeholder="Адрес (в свободной форме)" value="' + escHtml(r.address) + '">'
+      + '</div>';
+  }).join('');
+}
+
+function addTransportObjRow() {
+  _toReadRows();
+  _toRows.push({ name: '', address: '' });
+  _toRenderRows();
+}
+
+function removeTransportObjRow(i) {
+  _toReadRows();
+  _toRows.splice(i, 1);
+  _toRenderRows();
 }
 
 // Полный ИНН введён — ищем сами, кнопку «Найти» нажимать не обязательно.

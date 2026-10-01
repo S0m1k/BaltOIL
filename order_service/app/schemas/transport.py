@@ -37,10 +37,17 @@ class TransportBaseResponse(BaseModel):
 
 class TransportClientAddressResponse(BaseModel):
     id: uuid.UUID
+    name: str | None = None
     address: str
     sort_order: int
 
     model_config = {"from_attributes": True}
+
+
+class TransportAddressIn(BaseModel):
+    """Объект организации: название (необязательно) + адрес в свободной форме."""
+    name: str | None = Field(None, max_length=200)
+    address: str = Field(..., max_length=500)
 
 
 class TransportClientObjectCreateRequest(BaseModel):
@@ -48,7 +55,7 @@ class TransportClientObjectCreateRequest(BaseModel):
     inn: str | None = Field(None, pattern=r"^[0-9]{10}([0-9]{2})?$")
     # Прикреплённый клиент (user_id). Необязателен: объект можно завести заранее.
     client_id: uuid.UUID | None = None
-    addresses: list[str] = Field(default_factory=list, max_length=50)
+    addresses: list[TransportAddressIn | str] = Field(default_factory=list, max_length=50)
 
 
 class TransportClientObjectUpdateRequest(BaseModel):
@@ -56,7 +63,7 @@ class TransportClientObjectUpdateRequest(BaseModel):
     inn: str | None = Field(None, pattern=r"^[0-9]{10}([0-9]{2})?$")
     client_id: uuid.UUID | None = None
     # Полная замена списка адресов. None = не трогать.
-    addresses: list[str] | None = Field(None, max_length=50)
+    addresses: list[TransportAddressIn | str] | None = Field(None, max_length=50)
     is_active: bool | None = None
 
 

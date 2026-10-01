@@ -131,6 +131,8 @@ class TransportClientAddress(Base):
         ForeignKey("transport_client_objects.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
+    # Название объекта (необязательно): у организации их может быть несколько.
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     address: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
