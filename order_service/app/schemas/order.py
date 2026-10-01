@@ -17,6 +17,8 @@ class PricePreviewRequest(BaseModel):
     # Ручная стоимость доставки из формы админа (правки 2026-08-24): перекрывает
     # зональный расчёт, чтобы «Итого» в превью совпадало с созданной заявкой.
     manual_delivery_cost: Decimal | None = Field(None, ge=0)
+    # Ручная цена за литр (правки 2026-10-01, только staff): перекрывает тариф.
+    manual_price_per_liter: Decimal | None = Field(None, gt=0, le=100000)
 
 
 class PricePreviewResponse(BaseModel):
@@ -71,6 +73,8 @@ class OrderCreateRequest(BaseModel):
     # Ручная стоимость доставки (правки 2026-07-25, только staff): если задана —
     # используется вместо зонального автосчёта.
     manual_delivery_cost: Decimal | None = Field(None, ge=0)
+    # Ручная цена за литр (правки 2026-10-01, только staff): вместо тарифной.
+    manual_price_per_liter: Decimal | None = Field(None, gt=0, le=100000)
     # «Ждём оплату» при создании (правки 2026-07-25, только staff):
     # ставит shipment_override='hold' — водитель видит красное «ждём оплату».
     shipment_hold: bool = False

@@ -155,6 +155,7 @@ async def create_client_object(
         raise ValidationError("Укажите название объекта")
     obj = TransportClientObject(
         name=name,
+        inn=data.inn,
         client_id=data.client_id,
         created_by_id=actor.id,
     )
@@ -179,6 +180,8 @@ async def update_client_object(
         if not name:
             raise ValidationError("Укажите название объекта")
         obj.name = name
+    if "inn" in data.model_fields_set:
+        obj.inn = data.inn or None
     # client_id=null — валидное «открепить клиента», поэтому смотрим fields_set.
     if "client_id" in data.model_fields_set:
         obj.client_id = data.client_id
@@ -222,6 +225,7 @@ def to_response_dict(obj: TransportClientObject) -> dict:
     return {
         "id": obj.id,
         "name": obj.name,
+        "inn": obj.inn,
         "client_id": obj.client_id,
         "contract_file_name": obj.contract_file_name,
         "has_contract": bool(obj.contract_file_path),

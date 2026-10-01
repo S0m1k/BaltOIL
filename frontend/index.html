@@ -2189,6 +2189,11 @@ setTimeout(function () {
               <button type="button" id="c-dc-vat-btn" class="btn btn-ghost" style="white-space:nowrap" onclick="addDeliveryVat('c-manual-delivery-cost', this)">Добавить НДС</button>
             </div>
           </div>
+          <!-- Ручная цена за литр (правки 2026-10-01): перекрывает тариф -->
+          <div class="form-group">
+            <label class="form-label">Цена за литр вручную, ₽/л <span style="color:var(--text3);font-weight:400">(пусто = по тарифу)</span></label>
+            <input type="number" id="c-manual-price" class="form-input" min="0" step="0.01" placeholder="Например: 81.50" oninput="updatePricePreview()">
+          </div>
           <div class="section-divider">Данные заявки</div>
         </div>
 
@@ -5018,6 +5023,10 @@ async function _doPricePreview() {
       const manualNum = Number(manualRaw);
       if (isFinite(manualNum) && manualNum >= 0) body.manual_delivery_cost = manualNum;
     }
+    const manualPriceRaw = document.getElementById('c-manual-price')?.value;
+    if (manualPriceRaw !== undefined && String(manualPriceRaw).trim() !== '' && Number(manualPriceRaw) > 0) {
+      body.manual_price_per_liter = Number(manualPriceRaw);
+    }
   }
   const orgSel = document.getElementById('c-organization');
   if (orgSel && orgSel.value) body.organization_id = orgSel.value;
@@ -7699,6 +7708,10 @@ async function doCreateOrder() {
     if (manualDc !== '' && manualDc != null && Number(manualDc) >= 0) {
       body.manual_delivery_cost = Number(manualDc);
     }
+    const manualPrice = document.getElementById('c-manual-price')?.value;
+    if (manualPrice !== '' && manualPrice != null && Number(manualPrice) > 0) {
+      body.manual_price_per_liter = Number(manualPrice);
+    }
   }
 
   // Проверка остатка склада убрана (правки 2026-07-14): продаём даже при
@@ -7726,6 +7739,8 @@ async function doCreateOrder() {
     // Reset form
     const _dcInput = document.getElementById('c-manual-delivery-cost');
     if (_dcInput) _dcInput.value = '';
+    const _mpInput = document.getElementById('c-manual-price');
+    if (_mpInput) _mpInput.value = '';
     resetDeliveryVatBtn('c-dc-vat-btn');
     document.getElementById('c-contact-name').value = '';
     document.getElementById('c-contact-phone').value = '';
@@ -14599,6 +14614,7 @@ function renderTransportObjects() {
     return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--bg2);border-radius:10px">'
       + '<div style="flex:1;min-width:0">'
       + '<div style="font-weight:500">' + escHtml(o.name) + '</div>'
+      + (o.inn ? '<div class="muted" style="font-size:12px;margin-top:2px">ИНН ' + escHtml(o.inn) + '</div>' : '')
       + (addrs ? '<div class="muted" style="font-size:12px;margin-top:2px">' + addrs + '</div>' : '')
       + '<div class="muted" style="font-size:12px;margin-top:2px">' + contract + '</div>'
       + '</div>'
@@ -14644,33 +14660,30 @@ async function deleteTransportBase(id) {
 
 async function promptTransportObject(id) {
   const obj = id ? _trObjects.find(function (o) { return o.id === id; }) : null;
-  // Клиентов подгружаем для привязки объекта (ТЗ: «клиента чтобы можно было
-  // прикрепить к этой организации»).
-  let list = [];
-  try {
-    const clients = await authGet('/users?role=client&limit=200&include_inactive=false');
-    list = Array.isArray(clients) ? clients : (clients && clients.items ? clients.items : []);
-  } catch (e) { /* привязку можно задать позже */ }
-  const opts = ['<option value="">— без клиента —</option>'].concat(list.map(function (c) {
-    const sel = obj && obj.client_id === c.id ? ' selected' : '';
-    return '<option value="' + c.id + '"' + sel + '>' + escHtml(c.full_name || c.phone || c.email || c.id) + '</option>';
-  })).join('');
+  // Правка 2026-10-01: клиент перевозки — ОРГАНИЗАЦИЯ по ИНН (название тянем из ФНС),
+  // адреса объектов — в свободной форме. Привязка к физлицу-пользователю убрана
+  // (при правке прежняя привязка не трогается — поле client_id не шлём).
   const addrText = (obj && obj.addresses ? obj.addresses : []).map(function (a) { return a.address; }).join('\n');
   openModal(obj ? 'Изменить объект клиента' : 'Новый объект клиента',
-    '<div class="form-group"><label class="form-label">Название организации / объекта</label>'
+    '<div class="form-group"><label class="form-label">ИНН организации</label>'
+    + '<div style="display:flex;gap:8px">'
+    + '<input type="text" id="to-inn" class="form-input" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр" value="' + escHtml(obj && obj.inn ? obj.inn : '') + '">'
+    + '<button type="button" class="btn btn-sm btn-ghost" id="to-inn-btn" onclick="lookupTransportInn()">Найти</button></div>'
+    + '<div id="to-inn-note" style="font-size:11px;color:var(--text3);margin-top:4px">Название подтянется из ФНС, его можно поправить</div></div>'
+    + '<div class="form-group"><label class="form-label">Название организации</label>'
     + '<input type="text" id="to-name" class="form-input" value="' + escHtml(obj ? obj.name : '') + '"></div>'
-    + '<div class="form-group"><label class="form-label">Клиент</label>'
-    + '<select id="to-client" class="form-input">' + opts + '</select></div>'
-    + '<div class="form-group"><label class="form-label">Адреса (по одному в строке)</label>'
+    + '<div class="form-group"><label class="form-label">Адреса объектов (по одному в строке, в свободной форме)</label>'
     + '<textarea id="to-addresses" class="form-input" rows="4">' + escHtml(addrText) + '</textarea></div>',
     async function () {
       const name = (document.getElementById('to-name').value || '').trim();
       if (!name) return toast('Укажите название', 'error');
+      const inn = (document.getElementById('to-inn').value || '').trim();
+      if (inn && !/^\d{10}(\d{2})?$/.test(inn)) return toast('ИНН — 10 или 12 цифр', 'error');
       const addresses = (document.getElementById('to-addresses').value || '')
         .split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
       const body = {
         name: name,
-        client_id: document.getElementById('to-client').value || null,
+        inn: inn || null,
         addresses: addresses,
       };
       try {
@@ -14681,6 +14694,28 @@ async function promptTransportObject(id) {
         loadTransportDirectory();
       } catch (e) { toast(e.message, 'error'); }
     });
+}
+
+// Название организации по ИНН (тот же публичный lookup, что и при регистрации юрлица).
+async function lookupTransportInn() {
+  const inn = (document.getElementById('to-inn')?.value || '').trim();
+  const note = document.getElementById('to-inn-note');
+  if (!/^\d{10}(\d{2})?$/.test(inn)) { toast('ИНН — 10 или 12 цифр', 'error'); return; }
+  const btn = document.getElementById('to-inn-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/lookup/inn?inn=${encodeURIComponent(inn)}`).then(function (x) { return x.json(); });
+    if (r && r.found && r.data && r.data.company_name) {
+      document.getElementById('to-name').value = r.data.company_name;
+      if (note) note.textContent = 'Найдено в ФНС' + (r.data.fns_status ? ' · ' + r.data.fns_status : '');
+    } else if (note) {
+      note.textContent = 'В ФНС не найдено — введите название вручную';
+    }
+  } catch (e) {
+    if (note) note.textContent = 'Не удалось проверить ИНН — введите название вручную';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function deleteTransportObject(id) {

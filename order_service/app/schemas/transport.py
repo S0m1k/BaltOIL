@@ -45,6 +45,7 @@ class TransportClientAddressResponse(BaseModel):
 
 class TransportClientObjectCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
+    inn: str | None = Field(None, pattern=r"^[0-9]{10}([0-9]{2})?$")
     # Прикреплённый клиент (user_id). Необязателен: объект можно завести заранее.
     client_id: uuid.UUID | None = None
     addresses: list[str] = Field(default_factory=list, max_length=50)
@@ -52,6 +53,7 @@ class TransportClientObjectCreateRequest(BaseModel):
 
 class TransportClientObjectUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
+    inn: str | None = Field(None, pattern=r"^[0-9]{10}([0-9]{2})?$")
     client_id: uuid.UUID | None = None
     # Полная замена списка адресов. None = не трогать.
     addresses: list[str] | None = Field(None, max_length=50)
@@ -61,6 +63,7 @@ class TransportClientObjectUpdateRequest(BaseModel):
 class TransportClientObjectResponse(BaseModel):
     id: uuid.UUID
     name: str
+    inn: str | None = None
     client_id: uuid.UUID | None
     contract_file_name: str | None
     has_contract: bool = False

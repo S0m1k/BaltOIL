@@ -302,6 +302,10 @@ async def list_orders(
     return orders
 
 
+def _manual_fuel_subtotal(price_per_liter: _Decimal, volume: float) -> _Decimal:
+    return (price_per_liter * _Decimal(str(volume))).quantize(_Decimal("0.01"))
+
+
 async def preview_price(
     db: AsyncSession,
     data: PricePreviewRequest,
@@ -330,6 +334,19 @@ async def preview_price(
     bd = await compute_price_breakdown(db, data.fuel_type, data.volume, ctx.tariff_id, ctx.client_type, ctx.fuel_coefficient)
 
     pricing_warning = not bd["tariff_found"] or bd["price_per_liter"] is None
+
+    # Ручная цена за литр (правки 2026-10-01, только staff): перекрывает тариф,
+    # скидка по объёму не применяется — цена задана менеджером как есть.
+    if is_staff and data.manual_price_per_liter is not None:
+        manual_price = _Decimal(str(data.manual_price_per_liter))
+        bd = {
+            **bd,
+            "price_per_liter": manual_price,
+            "discount_pct": _Decimal("0"),
+            "effective_price_per_liter": manual_price,
+            "fuel_subtotal": _manual_fuel_subtotal(manual_price, data.volume),
+        }
+        pricing_warning = False
 
     # Zone resolution — fail-open
     zone_name = None
@@ -495,6 +512,11 @@ async def create_order(
         db, data.fuel_type, data.volume_requested, ctx.tariff_id, ctx.client_type,
         ctx.fuel_coefficient,
     )
+    # Ручная цена за литр (правки 2026-10-01, только staff) — вместо тарифной.
+    if is_staff and data.manual_price_per_liter is not None:
+        expected_amount = _manual_fuel_subtotal(
+            _Decimal(str(data.manual_price_per_liter)), data.volume_requested
+        )
 
     # Зональная стоимость доставки — fail-open (не блокирует создание заявки)
     resolved_zone_id = None

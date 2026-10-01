@@ -86,6 +86,8 @@ class TransportClientObject(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # ИНН организации (10 или 12 цифр); необязателен — объект можно завести вручную.
+    inn: Mapped[str | None] = mapped_column(String(12), nullable=True)
 
     # Прикреплённый клиент (user_id в auth_service). Soft FK — межсервисный.
     client_id: Mapped[uuid.UUID | None] = mapped_column(
