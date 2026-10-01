@@ -163,6 +163,7 @@ async def create_client_object(
         obj.addresses.append(TransportClientAddress(address=address, sort_order=i))
     db.add(obj)
     await db.flush()
+    await db.refresh(obj)
     return obj
 
 
@@ -192,6 +193,7 @@ async def update_client_object(
         for i, address in enumerate(_clean_addresses(data.addresses)):
             obj.addresses.append(TransportClientAddress(address=address, sort_order=i))
     await db.flush()
+    await db.refresh(obj)
     return obj
 
 
@@ -217,6 +219,7 @@ async def set_contract_file(
     obj.contract_file_path = file_path
     obj.contract_file_name = file_name
     await db.flush()
+    await db.refresh(obj)
     return obj
 
 

@@ -14667,7 +14667,7 @@ async function promptTransportObject(id) {
   openModal(obj ? 'Изменить объект клиента' : 'Новый объект клиента',
     '<div class="form-group"><label class="form-label">ИНН организации</label>'
     + '<div style="display:flex;gap:8px">'
-    + '<input type="text" id="to-inn" class="form-input" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр" value="' + escHtml(obj && obj.inn ? obj.inn : '') + '">'
+    + '<input type="text" id="to-inn" class="form-input" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр" oninput="onTransportInnInput(this.value)" value="' + escHtml(obj && obj.inn ? obj.inn : '') + '">'
     + '<button type="button" class="btn btn-sm btn-ghost" id="to-inn-btn" onclick="lookupTransportInn()">Найти</button></div>'
     + '<div id="to-inn-note" style="font-size:11px;color:var(--text3);margin-top:4px">Название подтянется из ФНС, его можно поправить</div></div>'
     + '<div class="form-group"><label class="form-label">Название организации</label>'
@@ -14694,6 +14694,11 @@ async function promptTransportObject(id) {
         loadTransportDirectory();
       } catch (e) { toast(e.message, 'error'); }
     });
+}
+
+// Полный ИНН введён — ищем сами, кнопку «Найти» нажимать не обязательно.
+function onTransportInnInput(v) {
+  if (/^\d{10}(\d{2})?$/.test((v || '').trim())) lookupTransportInn();
 }
 
 // Название организации по ИНН (тот же публичный lookup, что и при регистрации юрлица).
