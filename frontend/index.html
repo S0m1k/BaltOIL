@@ -1731,6 +1731,11 @@ setTimeout(function () {
     background: linear-gradient(135deg, rgba(59,130,246,.08), rgba(16,185,129,.06));
   }
 </style>
+<script>
+(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+ym(85287763,"init",{clickmap:false,trackLinks:false,accurateTrackBounce:true,webvisor:false});
+function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
+</script>
 </head>
 <body>
 
@@ -1885,6 +1890,7 @@ setTimeout(function () {
           <button type="button" class="pwd-toggle" tabindex="-1" aria-label="Показать пароль" onclick="togglePwd('ri-password',this)"></button>
         </div>
       </div>
+      <label class="consent-row" style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text3);margin:8px 0 12px;line-height:1.4"><input type="checkbox" id="ri-consent" style="margin-top:2px"><span>Я принимаю <a href="https://9171517.ru/terms" target="_blank" rel="noopener">пользовательское соглашение</a>, даю <a href="https://9171517.ru/consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомился с <a href="https://9171517.ru/privacy" target="_blank" rel="noopener">политикой конфиденциальности</a></span></label>
       <div id="ri-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterIndividual()">Зарегистрироваться</button>
       <p style="font-size:11px;color:var(--text3);margin-top:10px;text-align:center">
@@ -1974,6 +1980,7 @@ setTimeout(function () {
         Банковские реквизиты и адрес доставки можно будет указать позже в профиле.
       </div>
 
+      <label class="consent-row" style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text3);margin:8px 0 12px;line-height:1.4"><input type="checkbox" id="rc-consent" style="margin-top:2px"><span>Я принимаю <a href="https://9171517.ru/terms" target="_blank" rel="noopener">пользовательское соглашение</a>, даю <a href="https://9171517.ru/consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомился с <a href="https://9171517.ru/privacy" target="_blank" rel="noopener">политикой конфиденциальности</a></span></label>
       <div id="rc-error"></div>
       <button class="btn btn-primary" style="width:100%" onclick="doRegisterCompany()">Зарегистрировать организацию</button>
     </div>
@@ -4101,8 +4108,13 @@ async function doRegisterIndividual() {
   };
   const errEl = document.getElementById('ri-error');
   errEl.innerHTML = '';
+  if (!document.getElementById('ri-consent').checked) {
+    errEl.innerHTML = '<div class="inline-error">Нужно согласие на обработку персональных данных</div>';
+    return;
+  }
   try {
     const tokens = await authPost('/auth/register/individual', body);
+    ymGoal('registration_done');
     localStorage.setItem('access_token',  tokens.access_token);
     localStorage.setItem('refresh_token', tokens.refresh_token);
     toast('Регистрация успешна! Добро пожаловать.');
@@ -4262,8 +4274,13 @@ async function doRegisterCompany() {
   };
   const errEl = document.getElementById('rc-error');
   errEl.innerHTML = '';
+  if (!document.getElementById('rc-consent').checked) {
+    errEl.innerHTML = '<div class="inline-error">Нужно согласие на обработку персональных данных</div>';
+    return;
+  }
   try {
     const tokens = await authPost('/auth/register/company', body);
+    ymGoal('registration_done');
     localStorage.setItem('access_token',  tokens.access_token);
     localStorage.setItem('refresh_token', tokens.refresh_token);
     toast('Организация зарегистрирована! Добро пожаловать.');
