@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /suppliers.html
+Clean-param: utm_source&utm_medium&utm_campaign&utm_content&utm_term&yclid&gclid&_openstat /
+
+Sitemap: https://9171517.ru/sitemap.xml
