@@ -1,11 +1,30 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../auth/auth_repository.dart';
+import '../organizations/organizations_repository.dart';
 import 'order_models.dart';
+import 'order_edit_rules.dart';
 import 'orders_repository.dart';
 
+/// Подписи типов оплаты (веб PAYMENT_TYPE_LABELS_ALL).
+const _kPaymentLabels = <String, String>{
+  'on_delivery': 'По факту (при прибытии)',
+  'prepaid': 'Предоплата',
+  'trade_credit': 'Товарный кредит',
+  'postpaid': 'Постоплата (по счёту)',
+  'debt': 'В долг',
+};
+
 class OrderCreateScreen extends StatefulWidget {
-  const OrderCreateScreen({super.key});
+  const OrderCreateScreen({super.key, required this.user, this.duplicateFrom});
+
+  final CurrentUser user;
+
+  /// Заявка-исходник для дублирования (веб duplicateOrder, F1 2026-06-24):
+  /// форма открывается с предзаполненными полями — например, чтобы разбить
+  /// крупную заявку на две.
+  final OrderDetail? duplicateFrom;
 
   @override
   State<OrderCreateScreen> createState() => _OrderCreateScreenState();
@@ -16,6 +35,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   final _volume = TextEditingController();
   final _address = TextEditingController();
   final _comment = TextEditingController();
+  final _contactName = TextEditingController();
+  final _contactPhone = TextEditingController();
+  final _managerComment = TextEditingController();
 
   List<FuelType>? _fuelTypes;
   String? _fuelCode;
@@ -24,21 +46,216 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   bool _busy = false;
   String? _error;
 
+  // Тип оплаты (веб renderPaymentRadios): для клиентов individual/company
+  // выбор скрыт — первый доступный тип подставляется автоматически.
+  List<String> _paymentChoices = const ['on_delivery', 'prepaid'];
+  bool _paymentHidden = false;
+
+  // «Оформить от имени» — организации клиента (веб c-organization).
+  List<Organization> _orgs = const [];
+  String? _organizationId; // null = «Физлицо (на себя)»
+
+  // Сохранённые объекты доставки (веб c-saved-object).
+  List<ClientObject> _savedObjects = const [];
+
+  // Поля менеджера/админа.
+  bool get _isStaff =>
+      widget.user.role == 'manager' || widget.user.role == 'admin';
+
+  /// CRM-37: водитель оформляет заявку «с колёс» и адрес может не знать —
+  /// поле необязательное, пустое уходит как "" (менеджер уточнит).
+  bool get _isDriver => widget.user.role == 'driver';
+
+  /// Адрес обязателен только клиенту: сотрудник и водитель принимают заказ
+  /// по телефону и могут не знать его (CRM-37).
+  bool get _addressRequired => widget.user.role == 'client';
+  List<UserBrief>? _clients;
+  List<UserBrief>? _drivers;
+  String? _clientId;
+  String? _driverId; // null = пул («Все водители»)
+  bool _isTtnL = false;
+  bool _allowUnpaid = false;
+
+  // Правки 2026-07-25 (только staff): «Ждём оплату» блокирует отгрузку
+  // водителю (shipment_hold); ручная стоимость доставки — пусто = автосчёт.
+  bool _shipmentHold = false;
+  final _manualDeliveryCost = TextEditingController();
+
+  /// «Добавить НДС» уже нажата для текущего значения ручной доставки —
+  /// кнопка гаснет до ручной правки поля (правки 2026-09-28).
+  bool _manualVatAdded = false;
+
+  // Разовый клиент (веб __oneoff__, правки 2026-07-11): имя+телефон,
+  // всегда физлицо с оплатой по факту; дедуп по номеру на бэке.
+  static const _kOneOffClientId = '__oneoff__';
+
+  /// «Без клиента» (правки 2026-07-22): заявка оформляется на организацию —
+  /// в т.ч. «ничейную», созданную сотрудником без клиента-владельца.
+  static const _kNoClientId = '__none__';
+  final _oneOffName = TextEditingController();
+  final _oneOffPhone = TextEditingController();
+  bool get _isOneOff => _clientId == _kOneOffClientId;
+
   @override
   void initState() {
     super.initState();
     _loadFuelTypes();
+    if (_isStaff) {
+      _loadStaffLists();
+    } else {
+      // Клиент: свои организации/объекты/типы оплаты сразу.
+      _loadClientContext(widget.user.id, isSelf: true);
+    }
+    // Дублирование: предзаполняем поля исходной заявки (веб duplicateOrder).
+    final src = widget.duplicateFrom;
+    if (src != null) {
+      _fuelCode = src.fuelType;
+      _volume.text = src.volumeRequested.toStringAsFixed(0);
+      _address.text = src.deliveryAddress;
+      _contactName.text = src.contactPersonName ?? '';
+      _contactPhone.text = src.contactPersonPhone ?? '';
+      _comment.text = src.clientComment ?? '';
+      if (src.paymentType != null) _paymentType = src.paymentType!;
+      if (_isStaff && src.clientId != null) {
+        _clientId = src.clientId;
+        _managerComment.text = src.managerComment ?? '';
+        _loadClientContext(src.clientId!, isSelf: false);
+      }
+    }
+  }
+
+  /// Все организации для staff без клиента (правки 2026-07-22) — включая
+  /// «ничейные», созданные без клиента-владельца.
+  Future<void> _loadAllOrgsForStaff() async {
+    try {
+      final orgs = await OrganizationsRepository.instance.list();
+      if (mounted) {
+        setState(() {
+          _orgs = orgs;
+          _organizationId = null;
+        });
+      }
+    } on Object catch (_) {
+      if (mounted) setState(() => _orgs = const []);
+    }
+  }
+
+  /// Сохранённые объекты для выбранных клиента и организации (веб
+  /// loadSavedObjects, CRM-45): у организации свои объекты с контактами
+  /// приёмки — они видны и без клиента.
+  Future<void> _reloadSavedObjects() async {
+    final cid = _clientId;
+    final realClient = _isStaff &&
+        cid != null &&
+        cid != _kNoClientId &&
+        cid != _kOneOffClientId;
+    if (_isStaff && !realClient && _organizationId == null) {
+      if (mounted) setState(() => _savedObjects = const []);
+      return;
+    }
+    try {
+      final objs = await OrdersRepository.instance.clientObjects(
+        clientId: realClient ? cid : null,
+        organizationId: _organizationId,
+      );
+      if (mounted) setState(() => _savedObjects = objs);
+    } on Object catch (_) {
+      if (mounted) setState(() => _savedObjects = const []);
+    }
+  }
+
+  /// Выбор сохранённого объекта: адрес + контакт приёмки (CRM-45). Уже
+  /// введённый контакт не перетираем — оператор мог знать другого.
+  void _applySavedObject(ClientObject obj) {
+    setState(() {
+      _address.text = obj.deliveryAddress;
+      if (_contactName.text.trim().isEmpty &&
+          (obj.contactPersonName?.isNotEmpty ?? false)) {
+        _contactName.text = obj.contactPersonName!;
+      }
+      if (_contactPhone.text.trim().isEmpty &&
+          (obj.contactPersonPhone?.isNotEmpty ?? false)) {
+        _contactPhone.text = obj.contactPersonPhone!;
+      }
+    });
+  }
+
+  /// Организации + сохранённые объекты + типы оплаты выбранного клиента.
+  /// Ошибки не блокируют форму (как на вебе) — просто прячем блоки.
+  Future<void> _loadClientContext(String clientId,
+      {required bool isSelf}) async {
+    try {
+      final orgs = await OrganizationsRepository.instance
+          .list(userId: isSelf ? null : clientId);
+      if (mounted) {
+        setState(() {
+          _orgs = orgs;
+          _organizationId = null;
+        });
+      }
+    } on Object catch (_) {
+      if (mounted) setState(() => _orgs = const []);
+    }
+    await _reloadSavedObjects();
+    try {
+      final opts = await OrdersRepository.instance.paymentOptions(clientId);
+      if (!mounted) return;
+      setState(() {
+        final types =
+            opts.types.isEmpty ? const ['on_delivery'] : opts.types;
+        _paymentChoices = types;
+        // Веб: физ и юр лицам выбор скрыт, первый тип — автоматически.
+        _paymentHidden = opts.clientType == 'individual' ||
+            opts.clientType == 'company';
+        if (_paymentHidden || !types.contains(_paymentType)) {
+          _paymentType = types.first;
+        }
+      });
+    } on Object catch (_) {
+      // Оставляем статические дефолты — не блокируем создание заявки.
+    }
+  }
+
+  @override
+  void dispose() {
+    _volume.dispose();
+    _address.dispose();
+    _comment.dispose();
+    _contactName.dispose();
+    _contactPhone.dispose();
+    _managerComment.dispose();
+    _oneOffName.dispose();
+    _oneOffPhone.dispose();
+    _manualDeliveryCost.dispose();
+    super.dispose();
   }
 
   Future<void> _loadFuelTypes() async {
     try {
       final types = await OrdersRepository.instance.fuelTypes();
+      if (!mounted) return;
       setState(() {
         _fuelTypes = types;
         if (types.isNotEmpty) _fuelCode = types.first.code;
       });
-    } catch (e) {
-      setState(() => _error = apiErrorMessage(e));
+    } on Object catch (e) {
+      if (mounted) setState(() => _error = apiErrorMessage(e));
+    }
+  }
+
+  Future<void> _loadStaffLists() async {
+    try {
+      final results = await Future.wait([
+        AuthRepository.instance.listByRole('client'),
+        AuthRepository.instance.listByRole('driver'),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _clients = results[0];
+        _drivers = results[1];
+      });
+    } on Object catch (e) {
+      if (mounted) setState(() => _error = apiErrorMessage(e));
     }
   }
 
@@ -55,11 +272,44 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _fuelCode == null) return;
+    if (_isStaff && (_clientId == null || _clientId == _kNoClientId) &&
+        _organizationId == null) {
+      setState(() => _error = 'Выберите клиента или организацию');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
+      var clientId =
+          _isStaff && _clientId != _kNoClientId ? _clientId : null;
+      var contactName = _contactName.text.trim();
+      var contactPhone = _contactPhone.text.trim();
+      // Разовый клиент (веб __oneoff__): создаём/находим по телефону
+      // перед заявкой; контакт приёмки по умолчанию — сам клиент.
+      if (_isStaff && _isOneOff) {
+        final ooName = _oneOffName.text.trim();
+        final ooPhone = _oneOffPhone.text.trim();
+        final oo = await AuthRepository.instance.createOneOffClient(
+          fullName: ooName,
+          phone: ooPhone,
+        );
+        clientId = oo['id'] as String;
+        if (oo['is_one_off'] != true && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Телефон уже в базе — заявка на клиента ${oo['full_name']}'),
+          ));
+        }
+        if (contactName.isEmpty) contactName = ooName;
+        if (contactPhone.isEmpty) contactPhone = ooPhone;
+      }
+      // Ручная стоимость доставки (правки 2026-07-25): пусто = автосчёт.
+      final manualCostRaw = _manualDeliveryCost.text.trim();
+      final manualCost = manualCostRaw.isEmpty
+          ? null
+          : double.tryParse(manualCostRaw.replaceAll(',', '.'));
       await OrdersRepository.instance.create(
         fuelType: _fuelCode!,
         volume: double.parse(_volume.text.replaceAll(',', '.')),
@@ -67,20 +317,48 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         paymentType: _paymentType,
         desiredDate: _desiredDate,
         comment: _comment.text.trim(),
+        contactName: contactName,
+        contactPhone: contactPhone,
+        clientId: clientId,
+        managerComment: _isStaff ? _managerComment.text.trim() : null,
+        driverId: _isStaff ? _driverId : null,
+        isTtnL: _isStaff && _isTtnL,
+        allowDeliveryUnpaid: _isStaff && _allowUnpaid,
+        organizationId: _organizationId,
+        manualDeliveryCost: _isStaff ? manualCost : null,
+        shipmentHold: _isStaff && _shipmentHold,
       );
       if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
-      setState(() => _error = apiErrorMessage(e));
+    } on Object catch (e) {
+      if (mounted) setState(() => _error = apiErrorMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _addManualDeliveryVat() {
+    final next = withDeliveryVat(_manualDeliveryCost.text);
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Сначала укажите стоимость доставки')));
+      return;
+    }
+    setState(() {
+      _manualDeliveryCost.text = formatDeliveryCostInput(next);
+      _manualVatAdded = true;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final types = _fuelTypes;
     return Scaffold(
-      appBar: AppBar(title: const Text('Новая заявка на топливо')),
+      appBar: AppBar(
+        title: Text(widget.duplicateFrom == null
+            ? 'Новая заявка на топливо'
+            : 'Новая заявка (дублирована из '
+                '№${widget.duplicateFrom!.orderNumber})'),
+      ),
       body: types == null
           ? Center(
               child: _error == null
@@ -89,8 +367,39 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(20),
                 children: [
+                  if (_isStaff) ..._staffSection(),
+                  // «Оформить от имени» — показывается, если у клиента есть
+                  // организации (веб c-org-group).
+                  if (_orgs.isNotEmpty) ...[
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey('org-${_orgs.length}-$_organizationId'),
+                      initialValue: _organizationId,
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem<String?>(
+                            value: null, child: Text('Физлицо (на себя)')),
+                        for (final o in _orgs)
+                          DropdownMenuItem<String?>(
+                            value: o.id,
+                            child: Text(
+                              o.inn == null
+                                  ? o.companyName
+                                  : '${o.companyName} (ИНН ${o.inn})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        setState(() => _organizationId = v);
+                        _reloadSavedObjects();
+                      },
+                      decoration: const InputDecoration(
+                          labelText: 'Оформить от имени'),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   DropdownButtonFormField<String>(
                     initialValue: _fuelCode,
                     items: [
@@ -98,35 +407,76 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                         DropdownMenuItem(value: t.code, child: Text(t.label)),
                     ],
                     onChanged: (v) => setState(() => _fuelCode = v),
-                    decoration: const InputDecoration(
-                      labelText: 'Вид топлива',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Вид топлива'),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _volume,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Объём (литры, min 300)',
-                      border: OutlineInputBorder(),
-                    ),
+                    // Staff не ограничен 300 л (веб-фикс 1980084) —
+                    // минимум остаётся клиентам и водителям.
+                    decoration: InputDecoration(
+                        labelText: _isStaff
+                            ? 'Объём (литры)'
+                            : 'Объём (литры, min 300)'),
                     validator: (v) {
                       final n = double.tryParse((v ?? '').replaceAll(',', '.'));
-                      if (n == null) return 'Укажите объём';
-                      if (n < 300) return 'Минимальный объём — 300 литров';
+                      if (n == null || n <= 0) return 'Укажите объём';
+                      if (!_isStaff && n < 300) {
+                        return 'Минимальный объём — 300 литров';
+                      }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
+                  // Сохранённые объекты доставки клиента (веб c-saved-object):
+                  // выбор подставляет адрес в поле ниже.
+                  if (_savedObjects.isNotEmpty) ...[
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey('obj-${_savedObjects.length}'),
+                      initialValue: null,
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('— сохранённые объекты —')),
+                        for (final o in _savedObjects)
+                          DropdownMenuItem<String?>(
+                            value: o.id,
+                            child: Text(o.label,
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (id) {
+                        if (id == null) return;
+                        final obj = _savedObjects
+                            .where((o) => o.id == id)
+                            .firstOrNull;
+                        if (obj != null) _applySavedObject(obj);
+                      },
+                      decoration: const InputDecoration(
+                          labelText: 'Сохранённые объекты'),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   TextFormField(
                     controller: _address,
-                    decoration: const InputDecoration(
-                      labelText: 'Адрес доставки',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: _addressRequired
+                          ? 'Адрес доставки'
+                          : 'Адрес доставки (необязательно)',
+                      helperText: _isDriver
+                          ? 'Адрес уточнит менеджер'
+                          : (_addressRequired
+                              ? null
+                              : 'Можно добавить позже в карточке заявки'),
                     ),
-                    validator: (v) =>
-                        (v == null || v.trim().length < 5) ? 'Укажите адрес' : null,
+                    validator: (v) {
+                      if (!_addressRequired) return null;
+                      return (v == null || v.trim().length < 5)
+                          ? 'Укажите адрес'
+                          : null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
@@ -137,35 +487,47 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                         : 'Дата: ${_desiredDate!.day}.${_desiredDate!.month}.${_desiredDate!.year}'),
                   ),
                   const SizedBox(height: 16),
-                  Text('Тип оплаты',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  RadioGroup<String>(
-                    groupValue: _paymentType,
-                    onChanged: (v) =>
-                        setState(() => _paymentType = v ?? 'on_delivery'),
-                    child: const Column(
-                      children: [
-                        RadioListTile<String>(
-                          value: 'on_delivery',
-                          dense: true,
-                          title: Text('По факту (при прибытии)'),
-                        ),
-                        RadioListTile<String>(
-                          value: 'prepaid',
-                          dense: true,
-                          title: Text('Предоплата'),
-                        ),
-                      ],
-                    ),
+                  TextFormField(
+                    controller: _contactName,
+                    decoration: const InputDecoration(
+                        labelText: 'Контактное лицо для приёмки'),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _contactPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                        labelText: 'Телефон контактного лица'),
+                  ),
+                  const SizedBox(height: 16),
+                  // Тип оплаты: для физ/юр лиц скрыт (веб renderPaymentRadios) —
+                  // первый доступный тип выбран автоматически.
+                  if (!_paymentHidden) ...[
+                    Text('Тип оплаты',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    RadioGroup<String>(
+                      groupValue: _paymentType,
+                      onChanged: (v) =>
+                          setState(() => _paymentType = v ?? 'on_delivery'),
+                      child: Column(
+                        children: [
+                          for (final pt in _paymentChoices)
+                            RadioListTile<String>(
+                              value: pt,
+                              dense: true,
+                              title: Text(_kPaymentLabels[pt] ?? pt),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   TextFormField(
                     controller: _comment,
                     maxLines: 2,
                     decoration: const InputDecoration(
                       labelText: 'Комментарий',
                       hintText: 'Дополнительные пожелания...',
-                      border: OutlineInputBorder(),
                     ),
                   ),
                   if (_error != null) ...[
@@ -186,5 +548,190 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
               ),
             ),
     );
+  }
+
+  /// Блок полей, доступных только менеджеру/админу (как `#manager-create-fields`
+  /// на вебе): клиент*, комментарий менеджера, водитель, ТТН-Л, долговая заявка.
+  List<Widget> _staffSection() {
+    final clients = _clients;
+    final drivers = _drivers;
+    return [
+      Text('Параметры менеджера',
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.w700)),
+      const SizedBox(height: 12),
+      // Клиент — необязателен, если заявка на организацию (правки 2026-07-22:
+      // «ничейные» организации без владельца ведёт сам сотрудник).
+      // Первый пункт — «⭐ Разовый клиент» (веб __oneoff__).
+      DropdownButtonFormField<String>(
+        initialValue: _clientId,
+        isExpanded: true,
+        items: [
+          const DropdownMenuItem(
+              value: _kNoClientId,
+              child: Text('Без клиента (заявка на организацию)')),
+          const DropdownMenuItem(
+              value: _kOneOffClientId,
+              child: Text('⭐ Разовый клиент (имя + телефон)')),
+          for (final c in clients ?? const <UserBrief>[])
+            DropdownMenuItem(
+                value: c.id,
+                child: Text(c.label, overflow: TextOverflow.ellipsis)),
+        ],
+        onChanged: clients == null
+            ? null
+            : (v) {
+                setState(() {
+                  _clientId = v;
+                  if (v == _kOneOffClientId) {
+                    // Разовый — всегда физлицо, оплата по факту;
+                    // организаций и объектов у него ещё нет.
+                    _orgs = const [];
+                    _organizationId = null;
+                    _savedObjects = const [];
+                    _paymentChoices = const ['on_delivery'];
+                    _paymentType = 'on_delivery';
+                    _paymentHidden = true;
+                  }
+                });
+                // Подгружаем организации/объекты/типы оплаты выбранного
+                // клиента — как на вебе при смене c-client-id.
+                if (v == _kNoClientId) {
+                  // Без клиента: все организации (включая «ничейные»);
+                  // объекты появятся после выбора организации.
+                  setState(() => _savedObjects = const []);
+                  _loadAllOrgsForStaff();
+                } else if (v != null && v != _kOneOffClientId) {
+                  _loadClientContext(v, isSelf: false);
+                }
+              },
+        decoration: InputDecoration(
+          labelText: 'Клиент *',
+          hintText: clients == null ? 'Загрузка…' : 'Выберите клиента',
+        ),
+        validator: (v) => (_isStaff && v == null) ? 'Выберите клиента' : null,
+      ),
+      if (_isOneOff) ...[
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _oneOffName,
+          decoration: const InputDecoration(
+            labelText: 'Имя разового клиента *',
+            hintText: 'Иван Петров',
+          ),
+          validator: (v) => _isOneOff && (v ?? '').trim().isEmpty
+              ? 'Укажите имя разового клиента'
+              : null,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _oneOffPhone,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Телефон *',
+            hintText: '+7 999 000 00 00',
+          ),
+          validator: (v) => _isOneOff && (v ?? '').trim().isEmpty
+              ? 'Укажите телефон разового клиента'
+              : null,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Разовый клиент — всегда физлицо, оплата по факту. Если телефон '
+          'уже есть в базе — заявка привяжется к существующему клиенту.',
+          style: TextStyle(
+              fontSize: 11, color: Theme.of(context).hintColor),
+        ),
+      ],
+      const SizedBox(height: 16),
+      TextFormField(
+        controller: _managerComment,
+        decoration: const InputDecoration(labelText: 'Комментарий менеджера'),
+      ),
+      const SizedBox(height: 16),
+      // Назначить водителя — по умолчанию пул (null).
+      DropdownButtonFormField<String?>(
+        initialValue: _driverId,
+        isExpanded: true,
+        items: [
+          const DropdownMenuItem<String?>(
+              value: null, child: Text('Все водители (пул)')),
+          for (final d in drivers ?? const <UserBrief>[])
+            DropdownMenuItem<String?>(
+                value: d.id,
+                child: Text(d.label, overflow: TextOverflow.ellipsis)),
+        ],
+        onChanged: drivers == null
+            ? null
+            : (v) => setState(() {
+                  _driverId = v;
+                  if (v == null) _isTtnL = false; // ТТН-Л только при водителе
+                }),
+        decoration: const InputDecoration(labelText: 'Назначить водителя'),
+      ),
+      // ТТН-Л показываем только если выбран конкретный водитель (как на вебе).
+      if (_driverId != null)
+        CheckboxListTile(
+          value: _isTtnL,
+          onChanged: (v) => setState(() => _isTtnL = v ?? false),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text('ТТН-Л (внутренняя заявка)'),
+        ),
+      CheckboxListTile(
+        value: _allowUnpaid,
+        onChanged: (v) => setState(() => _allowUnpaid = v ?? false),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text('Долговая заявка (доставка без оплаты)'),
+      ),
+      // «Ждём оплату» (правки 2026-07-25): заявка создаётся с
+      // shipment_override='hold' — водитель видит красную плашку.
+      CheckboxListTile(
+        value: _shipmentHold,
+        onChanged: (v) => setState(() => _shipmentHold = v ?? false),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text('Ждём оплату (заблокировать отгрузку)'),
+      ),
+      const SizedBox(height: 8),
+      // Ручная стоимость доставки (правки 2026-07-25): пусто = автосчёт
+      // по зоне; заданное число уходит как manual_delivery_cost.
+      TextFormField(
+        controller: _manualDeliveryCost,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: (_) {
+          if (_manualVatAdded) setState(() => _manualVatAdded = false);
+        },
+        decoration: const InputDecoration(
+          labelText: 'Стоимость доставки вручную, ₽',
+          hintText: 'Пусто — автоматический расчёт',
+        ),
+        validator: (v) {
+          final t = (v ?? '').trim();
+          if (t.isEmpty) return null;
+          final n = double.tryParse(t.replaceAll(',', '.'));
+          if (n == null || n < 0) return 'Некорректная сумма';
+          return null;
+        },
+      ),
+      // «Добавить НДС» (правки 2026-09-28): одноразово ×1,22 к введённой
+      // стоимости доставки — 3 500 → 4 270 в итоге заявки.
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: _manualVatAdded ? null : _addManualDeliveryVat,
+          child: Text(_manualVatAdded
+              ? 'НДС $kDeliveryVatPercent% добавлен'
+              : 'Добавить НДС'),
+        ),
+      ),
+      const Divider(height: 32),
+    ];
   }
 }

@@ -1,0 +1,271 @@
+/// Модели чата — поля соответствуют схемам chat_service.
+
+class ChatMessage {
+  ChatMessage({
+    required this.id,
+    required this.conversationId,
+    required this.senderId,
+    required this.senderRole,
+    required this.senderName,
+    required this.msgType,
+    required this.text,
+    required this.createdAt,
+    this.metadata,
+    this.replyToId,
+    this.isPinned = false,
+    this.replyPreview,
+    this.status,
+  });
+
+  final String id;
+  final String conversationId;
+  final String senderId;
+  final String senderRole;
+  final String senderName;
+
+  /// text | photo | video | document
+  final String msgType;
+  final String text;
+  final DateTime createdAt;
+
+  /// Для photo/video: {path, mime, size, original_name}
+  final Map<String, dynamic>? metadata;
+
+  // Ответ + закреп (правки 2026-06-24)
+  final String? replyToId;
+  final bool isPinned;
+  final ReplyPreview? replyPreview;
+
+  /// Статус доставки СВОЕГО сообщения (правки 2026-07-21):
+  /// "sent" | "delivered" | "read"; для чужих сообщений — null.
+  final String? status;
+
+  bool get isPhoto => msgType == 'photo';
+  bool get isVideo => msgType == 'video';
+  bool get isDocument => msgType == 'document';
+  bool get isFile => msgType == 'file'; // pdf/doc/xls/zip (правки 2026-07-11)
+  bool get isText => msgType == 'text';
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    id: json['id'] as String,
+    conversationId: json['conversation_id'] as String,
+    senderId: json['sender_id'] as String,
+    senderRole: json['sender_role'] as String,
+    senderName: json['sender_name'] as String,
+    msgType: (json['msg_type'] ?? 'text') as String,
+    text: (json['text'] ?? '') as String,
+    createdAt: DateTime.parse(json['created_at'] as String),
+    metadata: json['metadata'] as Map<String, dynamic>?,
+    replyToId: json['reply_to_id']?.toString(),
+    isPinned: (json['is_pinned'] ?? false) as bool,
+    replyPreview: json['reply_preview'] == null
+        ? null
+        : ReplyPreview.fromJson(json['reply_preview'] as Map<String, dynamic>),
+    status: json['status'] as String?,
+  );
+
+  /// Строит URL вложения для скачивания через бэк.
+  String attachmentUrl(String chatBase) {
+    final path = metadata?['path'] as String?;
+    if (path == null) return '';
+    return '$chatBase/conversations/$conversationId/attachments/$path';
+  }
+}
+
+/// Снимок родительского сообщения для отрисовки «ответа» (ReplyPreview).
+class ReplyPreview {
+  ReplyPreview({
+    required this.id,
+    required this.senderName,
+    required this.text,
+  });
+
+  final String id;
+  final String senderName;
+  final String text;
+
+  factory ReplyPreview.fromJson(Map<String, dynamic> json) => ReplyPreview(
+    id: (json['id'] as Object).toString(),
+    senderName: (json['sender_name'] ?? '') as String,
+    text: (json['text'] ?? '') as String,
+  );
+}
+
+class Conversation {
+  Conversation({
+    required this.id,
+    required this.kind,
+    required this.createdById,
+    required this.createdByRole,
+    required this.unreadCount,
+    required this.updatedAt,
+    required this.isPinned,
+    this.title,
+    this.clientId,
+    this.driverId,
+    this.orderId,
+    this.groupCode,
+    this.lastMessage,
+    this.peerName,
+    this.peerPhone,
+    this.peerId,
+    this.peerRole,
+    this.avatarPath,
+  });
+
+  final String id;
+  final String kind;
+  final String? title;
+  final String? clientId;
+  final String? driverId;
+  final String? orderId;
+  final String? groupCode;
+  final String createdById;
+  final String createdByRole;
+  final int unreadCount;
+  final ChatMessage? lastMessage;
+  final DateTime updatedAt;
+  final String? peerName;
+  final String? peerPhone;
+
+  /// Для kind=direct: id и роль собеседника (папка «Рабочие» у staff↔staff).
+  final String? peerId;
+  final String? peerRole;
+  final bool isPinned;
+
+  /// Картинка чата (правки 2026-07-25): имя файла на бэке или null.
+  /// Сама картинка отдаётся GET /conversations/{id}/avatar (нужен Bearer).
+  final String? avatarPath;
+
+  /// Человекочитаемое название диалога (fallback: kind).
+  /// Приватная группа сотрудников (веб _isPrivateGroupConv, CRM-47): состав
+  /// хранится явно и редактируется. Штатные «Работа»/«Бухгалтерия» — ролевые.
+  bool get isPrivateGroup =>
+      kind == 'staff_group' && (groupCode?.startsWith('custom-') ?? false);
+
+  /// Может ли пользователь менять состав группы — админ или создатель чата
+  /// (те же права, что `check_group_manage_access` на бэке).
+  bool canManageMembers({required String userId, required String role}) =>
+      isPrivateGroup && (role == 'admin' || createdById == userId);
+
+  String get displayTitle {
+    if (title != null && title!.isNotEmpty) return title!;
+    if (peerName != null && peerName!.isNotEmpty) return peerName!;
+    switch (kind) {
+      case 'direct':
+        return peerPhone ?? 'Прямой чат';
+      case 'client_manager':
+        return 'Чат с менеджером';
+      case 'client_accountant':
+        return 'Чат с бухгалтером';
+      default:
+        return kind;
+    }
+  }
+
+  factory Conversation.fromJson(Map<String, dynamic> json) {
+    final lm = json['last_message'];
+    return Conversation(
+      id: json['id'] as String,
+      kind: json['kind'] as String,
+      title: json['title'] as String?,
+      clientId: json['client_id'] as String?,
+      driverId: json['driver_id'] as String?,
+      orderId: json['order_id'] as String?,
+      groupCode: json['group_code'] as String?,
+      createdById: json['created_by_id'] as String,
+      createdByRole: json['created_by_role'] as String,
+      unreadCount: (json['unread_count'] ?? 0) as int,
+      lastMessage: lm != null
+          ? ChatMessage.fromJson(lm as Map<String, dynamic>)
+          : null,
+      updatedAt: DateTime.parse(json['updated_at'] as String),
+      peerName: json['peer_name'] as String?,
+      peerPhone: json['peer_phone'] as String?,
+      peerId: json['peer_id']?.toString(),
+      peerRole: json['peer_role'] as String?,
+      isPinned: (json['is_pinned'] ?? false) as bool,
+      avatarPath: json['avatar_path'] as String?,
+    );
+  }
+}
+
+const _kSearchKindLabels = {
+  'client_manager': 'Поддержка',
+  'client_accountant': 'Бухгалтерия',
+  'client_driver_order': 'Заявка',
+  'staff_group': 'Группа',
+  'direct': 'Личный',
+};
+
+/// Найденное сообщение (поиск по чатам, правки 2026-09-21). Вместе с самим
+/// сообщением сервер отдаёт диалог, чтобы список результатов можно было
+/// показать без второго запроса за названием чата.
+class MessageSearchResult {
+  const MessageSearchResult({
+    required this.id,
+    required this.conversationId,
+    required this.conversationKind,
+    required this.senderName,
+    required this.text,
+    required this.createdAt,
+    this.conversationTitle,
+    this.conversationGroupCode,
+  });
+
+  final String id;
+  final String conversationId;
+  final String conversationKind;
+  final String senderName;
+  final String text;
+  final DateTime createdAt;
+  final String? conversationTitle;
+  final String? conversationGroupCode;
+
+  /// Название чата для строки результата.
+  String get chatTitle {
+    final title = conversationTitle;
+    if (title != null && title.isNotEmpty) return title;
+    switch (conversationGroupCode) {
+      case 'work':
+        return 'Работа';
+      case 'accounting':
+        return 'Бухгалтерия';
+    }
+    return _kSearchKindLabels[conversationKind] ?? 'Чат';
+  }
+
+  factory MessageSearchResult.fromJson(Map<String, dynamic> json) =>
+      MessageSearchResult(
+        id: json['id'] as String,
+        conversationId: json['conversation_id'] as String,
+        conversationKind: (json['conversation_kind'] ?? '') as String,
+        conversationTitle: json['conversation_title'] as String?,
+        conversationGroupCode: json['conversation_group_code'] as String?,
+        senderName: (json['sender_name'] ?? '') as String,
+        text: (json['text'] ?? '') as String,
+        createdAt:
+            DateTime.tryParse(
+              json['created_at']?.toString() ?? '',
+            )?.toLocal() ??
+            DateTime.now(),
+      );
+}
+
+/// Участник чата (GET /conversations/{id} → participants).
+class ChatMember {
+  const ChatMember({required this.userId, required this.role, this.fullName});
+
+  final String userId;
+  final String role;
+  final String? fullName;
+
+  String get label =>
+      (fullName?.isNotEmpty ?? false) ? fullName! : userId.substring(0, 8);
+
+  factory ChatMember.fromJson(Map<String, dynamic> json) => ChatMember(
+    userId: json['user_id'].toString(),
+    role: (json['user_role'] ?? '') as String,
+    fullName: json['full_name'] as String?,
+  );
+}

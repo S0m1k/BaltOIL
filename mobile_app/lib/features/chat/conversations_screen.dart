@@ -1,0 +1,653 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../core/api_client.dart';
+import '../../core/app_config.dart';
+import '../../core/token_storage.dart';
+import '../auth/auth_repository.dart';
+import 'chat_models.dart';
+import 'chat_repository.dart';
+import 'chat_screen.dart';
+
+/// Список диалогов текущего пользователя.
+class ConversationsScreen extends StatefulWidget {
+  const ConversationsScreen({super.key});
+
+  @override
+  State<ConversationsScreen> createState() => _ConversationsScreenState();
+}
+
+/// Папки диалогов — 1:1 с вебом (CONV_FOLDERS, правки 2026-06-11).
+const _kConvFolders = <({String key, String label})>[
+  (key: 'all', label: 'Все'),
+  (key: 'work', label: 'Рабочие'),
+  (key: 'orders', label: 'Заявки'),
+  (key: 'clients', label: 'Клиенты'),
+  (key: 'accounting', label: 'Бухгалтерия'),
+  (key: 'personal', label: 'Личные'),
+];
+
+/// Папка диалога по kind — зеркало web convFolderOf().
+String _convFolderOf(Conversation c, String role) {
+  switch (c.kind) {
+    case 'staff_group':
+      return 'work';
+    case 'client_driver_order':
+      return 'orders';
+    // Клиент↔бухгалтерия — отдельная папка для staff (F6, 2026-06-24);
+    // клиенту такие чаты остаются в «Рабочие».
+    case 'client_accountant':
+      return role == 'client' ? 'work' : 'accounting';
+    case 'client_manager':
+      return role == 'client' ? 'work' : 'clients';
+    case 'direct':
+      // Правки 2026-07-11: личные чаты сотрудника с коллегами живут
+      // в «Рабочих», с клиентами — в «Личных». У клиента все direct
+      // остаются в «Личных».
+      const staffRoles = {'admin', 'manager', 'driver'};
+      final isStaff = staffRoles.contains(role);
+      final peerIsStaff = staffRoles.contains(c.peerRole);
+      return isStaff && peerIsStaff ? 'work' : 'personal';
+    default:
+      return 'work';
+  }
+}
+
+class _ConversationsScreenState extends State<ConversationsScreen> {
+  late Future<List<Conversation>> _future;
+  CurrentUser? _user;
+  String _folder = 'all';
+
+  // Поиск по сообщениям (правки 2026-09-21). Пока в поле меньше двух символов —
+  // обычный список чатов; дальше он подменяется найденными сообщениями.
+  static const _searchMinLen = 2;
+  final _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  Future<List<MessageSearchResult>>? _searchFuture;
+
+  /// Bearer для загрузки аватарок чатов через Image.network
+  /// (правки 2026-07-25): грузим один раз, чтобы не дёргать storage на тайл.
+  String? _token;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _loadUser();
+    TokenStorage.instance.accessToken.then((t) {
+      if (mounted) setState(() => _token = t);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _load() {
+    setState(() {
+      _future = ChatRepository.instance.listConversations();
+    });
+  }
+
+  /// Запрос уходит не на каждую букву: печатать быстрее, чем раз в 300 мс,
+  /// человек всё равно не перестаёт, а трафик в поле — дорогой.
+  void _onSearchChanged(String value) {
+    final query = value.trim();
+    _searchDebounce?.cancel();
+    // setState на каждый символ — из-за крестика «очистить»: он зависит от
+    // текста поля, а не от результатов поиска.
+    if (query.length < _searchMinLen) {
+      setState(() => _searchFuture = null);
+      return;
+    }
+    setState(() {});
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _searchFuture = ChatRepository.instance.searchMessages(query);
+      });
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchCtrl.clear();
+    setState(() => _searchFuture = null);
+  }
+
+  /// Открыть чат из результата поиска.
+  Future<void> _openFoundChat(MessageSearchResult result) async {
+    final convs = await _future;
+    Conversation? conv;
+    for (final c in convs) {
+      if (c.id == result.conversationId) {
+        conv = c;
+        break;
+      }
+    }
+    if (conv == null || !mounted) return;
+    _clearSearch();
+    _openChat(conv);
+  }
+
+  Future<void> _loadUser() async {
+    try {
+      final u = await AuthRepository.instance.me();
+      if (mounted) setState(() => _user = u);
+    } catch (_) {}
+  }
+
+  void _openChat(Conversation conv) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)))
+        .then((_) => _load()); // обновить список после возврата (прочитано)
+  }
+
+  /// Диалог ввода номера телефона для start-by-phone.
+  Future<void> _startByPhone() async {
+    final ctrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Новый чат по номеру'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(labelText: 'Номер телефона'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Начать'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || ctrl.text.trim().isEmpty) return;
+    try {
+      final conv = await ChatRepository.instance.startByPhone(ctrl.text.trim());
+      if (mounted) _openChat(conv);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
+  /// Приватная staff-группа (веб promptCreateStaffGroup): название +
+  /// участники — сотрудники ВСЕХ ролей (менеджеры, админы, водители,
+  /// бухгалтеры — как веб /users/directory, фикс 2026-07-22; раньше были
+  /// только manager/admin). Создатель добавляется автоматически.
+  Future<void> _createStaffGroup() async {
+    List<UserBrief> staff;
+    try {
+      final all = await AuthRepository.instance.directory();
+      staff = all
+          .where((u) => u.role != 'client' && u.id != _user?.id)
+          .toList();
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final titleCtrl = TextEditingController();
+    final selected = <String>{};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Новый групповой чат'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Приватная группа сотрудников. Видна только выбранным '
+                  'участникам. Вы добавляетесь автоматически.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                TextField(
+                  controller: titleCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Название',
+                    hintText: 'Например: СЗТК',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final u in staff)
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: selected.contains(u.id),
+                          onChanged: (v) => setD(
+                            () => v == true
+                                ? selected.add(u.id)
+                                : selected.remove(u.id),
+                          ),
+                          title: Text(u.label, overflow: TextOverflow.ellipsis),
+                          subtitle: u.roleLabel.isEmpty
+                              ? null
+                              : Text(
+                                  u.roleLabel,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Создать'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Укажите название группы')));
+      return;
+    }
+    try {
+      final conv = await ChatRepository.instance.createStaffGroup(
+        titleCtrl.text.trim(),
+        selected.toList(),
+      );
+      if (mounted) _openChat(conv);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
+  /// Чат клиент–бухгалтер (только client-company или manager/admin).
+  Future<void> _openAccountantChat() async {
+    try {
+      final conv = await ChatRepository.instance.ensureClientAccountant();
+      if (mounted) _openChat(conv);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiErrorMessage(e))));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final role = _user?.role ?? '';
+    final isStaff = role == 'manager' || role == 'admin';
+    final isClient = role == 'client';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Чаты'),
+        actions: [
+          // Групповой staff-чат (веб btn-new-staff-group)
+          if (isStaff)
+            IconButton(
+              tooltip: 'Новая группа',
+              icon: const Icon(Icons.group_add_outlined),
+              onPressed: _createStaffGroup,
+            ),
+        ],
+      ),
+      // FAB с меню: у staff — start-by-phone; у клиентов-юрлиц — бухгалтер.
+      // У всех — start-by-phone (сервер сам проверит роль/блокировку).
+      floatingActionButton: FloatingActionButton(
+        onPressed: _startByPhone,
+        tooltip: 'Новый чат',
+        child: const Icon(Icons.chat_bubble_outline),
+      ),
+      body: Column(
+        children: [
+          // Быстрые кнопки-экшены для нужных ролей
+          if (isClient)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.account_balance),
+                label: const Text('Чат с бухгалтером'),
+                onPressed: _openAccountantChat,
+              ),
+            ),
+          if (isStaff)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.phone),
+                label: const Text('Найти клиента по телефону'),
+                onPressed: _startByPhone,
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: _onSearchChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search, size: 20),
+                hintText: 'Поиск по сообщениям',
+                border: const OutlineInputBorder(),
+                suffixIcon: _searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Очистить',
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: _clearSearch,
+                      ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Чипы папок — как на вебе: клиент видит только «Все» и «Личные».
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final f
+                      in isClient
+                          ? _kConvFolders.where(
+                              (f) => f.key == 'all' || f.key == 'personal',
+                            )
+                          : _kConvFolders)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(
+                          f.label,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        selected: _folder == f.key,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) => setState(() => _folder = f.key),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (_searchFuture != null)
+            Expanded(child: _buildSearchResults())
+          else
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async => _load(),
+                child: FutureBuilder<List<Conversation>>(
+                  future: _future,
+                  builder: (context, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snap.hasError) {
+                      return _ErrorRetry(
+                        message: apiErrorMessage(snap.error!),
+                        onRetry: _load,
+                      );
+                    }
+                    final convs = snap.data ?? const [];
+                    final visible = _folder == 'all'
+                        ? convs
+                        : convs
+                              .where((c) => _convFolderOf(c, role) == _folder)
+                              .toList();
+                    if (visible.isEmpty) {
+                      return ListView(
+                        children: const [
+                          SizedBox(height: 120),
+                          Center(child: Text('Нет диалогов')),
+                        ],
+                      );
+                    }
+                    // Закреплённые — первыми
+                    final sorted = [...visible]
+                      ..sort((a, b) {
+                        if (a.isPinned == b.isPinned) {
+                          return b.updatedAt.compareTo(a.updatedAt);
+                        }
+                        return a.isPinned ? -1 : 1;
+                      });
+                    return ListView.separated(
+                      itemCount: sorted.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, i) => _ConvTile(
+                        conv: sorted[i],
+                        token: _token,
+                        onTap: () => _openChat(sorted[i]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+extension _ConversationsSearchView on _ConversationsScreenState {
+  Widget _buildSearchResults() {
+    return FutureBuilder<List<MessageSearchResult>>(
+      future: _searchFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return _ErrorRetry(
+            message: apiErrorMessage(snap.error!),
+            onRetry: () => _onSearchChanged(_searchCtrl.text),
+          );
+        }
+        final found = snap.data ?? const <MessageSearchResult>[];
+        if (found.isEmpty) {
+          return ListView(
+            children: const [
+              SizedBox(height: 120),
+              Center(child: Text('Ничего не найдено')),
+            ],
+          );
+        }
+        return ListView.separated(
+          itemCount: found.length + 1,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                child: Text(
+                  'Найдено: ${found.length}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              );
+            }
+            final r = found[i - 1];
+            return ListTile(
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      r.chatTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(
+                    _fmtSearchTime(r.createdAt),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+              subtitle: Text(
+                '${r.senderName}: ${r.text}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _openFoundChat(r),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _fmtSearchTime(DateTime dt) {
+    final d = dt.day.toString().padLeft(2, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final mi = dt.minute.toString().padLeft(2, '0');
+    return dt.year == DateTime.now().year
+        ? '$d.$mo $h:$mi'
+        : '$d.$mo.${(dt.year % 100).toString().padLeft(2, '0')}';
+  }
+}
+
+class _ConvTile extends StatelessWidget {
+  const _ConvTile({required this.conv, required this.onTap, this.token});
+  final Conversation conv;
+  final VoidCallback onTap;
+
+  /// Bearer-токен для загрузки аватарки (правки 2026-07-25).
+  final String? token;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final subtitle = conv.lastMessage?.text ?? '';
+    return ListTile(
+      leading: _ConvAvatar(conv: conv, token: token),
+      title: Row(
+        children: [
+          if (conv.isPinned)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(
+                Icons.push_pin,
+                size: 14,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          Expanded(
+            child: Text(
+              conv.displayTitle,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+      subtitle: subtitle.isNotEmpty
+          ? Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            )
+          : null,
+      trailing: conv.unreadCount > 0
+          ? Badge(
+              label: Text('${conv.unreadCount}'),
+              child: const Icon(Icons.chat_bubble_outline, size: 20),
+            )
+          : null,
+      onTap: onTap,
+    );
+  }
+}
+
+/// Кружок 40px слева от названия (правки 2026-07-25): картинка чата,
+/// если менеджер её установил (avatar_path), иначе первая буква названия.
+class _ConvAvatar extends StatelessWidget {
+  const _ConvAvatar({required this.conv, this.token});
+
+  final Conversation conv;
+  final String? token;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final letter = CircleAvatar(
+      backgroundColor: theme.colorScheme.primaryContainer,
+      child: Text(
+        conv.displayTitle.isNotEmpty ? conv.displayTitle[0].toUpperCase() : '?',
+        style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
+      ),
+    );
+    if (conv.avatarPath == null || token == null) return letter;
+    // Картинка отдаётся только с Bearer — передаём заголовок вручную.
+    return ClipOval(
+      child: Image.network(
+        '${AppConfig.chatBase}/conversations/${conv.id}/avatar',
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        headers: {'Authorization': 'Bearer $token'},
+        errorBuilder: (_, _, _) => letter,
+      ),
+    );
+  }
+}
+
+class _ErrorRetry extends StatelessWidget {
+  const _ErrorRetry({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: onRetry, child: const Text('Повторить')),
+          ],
+        ),
+      ),
+    );
+  }
+}

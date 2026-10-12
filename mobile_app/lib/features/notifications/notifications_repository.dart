@@ -10,6 +10,8 @@ class AppNotification {
     required this.title,
     required this.body,
     required this.isRead,
+    this.entityType,
+    this.entityId,
     this.createdAt,
   });
 
@@ -18,6 +20,8 @@ class AppNotification {
   final String title;
   final String body;
   final bool isRead;
+  final String? entityType; // conversation | order | call | xlsx_download
+  final String? entityId; // conversation → conversation_id, order → order_id
   final DateTime? createdAt;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
@@ -27,10 +31,29 @@ class AppNotification {
         title: json['title'] as String,
         body: json['body'] as String,
         isRead: (json['is_read'] ?? false) as bool,
+        entityType: json['entity_type'] as String?,
+        entityId: json['entity_id']?.toString(),
         createdAt: json['created_at'] == null
             ? null
             : DateTime.tryParse(json['created_at'] as String),
       );
+}
+
+extension AppNotificationTarget on AppNotification {
+  /// Уведомление ведёт в чат (есть id диалога).
+  bool get opensChat => type == 'chat_message' && (entityId ?? '').isNotEmpty;
+
+  /// Уведомление ведёт в заявку: «новая заявка», «статус/изменения/перенос»
+  /// (правки 2026-09-14). Основной признак — entity_type=order; для записей
+  /// без entity_type опираемся на тип: order_created/order_status бэк
+  /// создаёт только из событий заявки, и id там всегда id заявки.
+  bool get opensOrder {
+    if ((entityId ?? '').isEmpty) return false;
+    if (entityType != null) return entityType == 'order';
+    return type == 'order_created' || type == 'order_status';
+  }
+
+  bool get isNavigable => opensChat || opensOrder;
 }
 
 class NotificationsRepository {

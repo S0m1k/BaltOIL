@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.2.2+7
 
 environment:
   sdk: ^3.11.5
@@ -38,10 +38,34 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   firebase_core: ^4.10.0
   firebase_messaging: ^16.3.0
+  web_socket_channel: ^3.0.1
+  image_picker: ^1.1.2
+  sqflite: ^2.4.2
+  connectivity_plus: ^6.1.4
+  uuid: ^4.5.1
+  path: ^1.9.1
+  shared_preferences: ^2.3.2
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  file_picker: 8.3.7
+  open_filex: ^4.7.0
+  path_provider: ^2.1.6
+  livekit_client: ^2.3.1+hotfix.1
+  flutter_callkit_incoming: ^3.1.3
+  # Экран не гаснет во время звонка (З1, правки 2026-07-21): без этого Android
+  # усыплял устройство вместе с аудиопотоком LiveKit.
+  wakelock_plus: ^1.2.8
+  # Звонки (правки 2026-07-22): гудки КПВ звонящему (assets/sounds/ringback.wav)
+  # и зацикленный системный рингтон на полноэкранном входящем.
+  audioplayers: ^6.1.0
+  flutter_ringtone_player: ^4.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Генерация лаунчер-иконок из assets/icon/ (запуск:
+  # dart run flutter_launcher_icons). Релизная иконка 2026-07-22.
+  flutter_launcher_icons: ^0.14.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -60,6 +84,23 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/sounds/ringback.wav
+
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Light.ttf
+          weight: 300
+        - asset: assets/fonts/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -91,3 +132,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Лаунчер-иконки (2026-07-22): dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#10151D"
+  adaptive_icon_foreground: "assets/icon/icon_fg.png"

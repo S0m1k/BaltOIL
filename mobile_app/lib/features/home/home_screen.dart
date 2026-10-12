@@ -1,12 +1,148 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
+import '../../core/theme_controller.dart';
+import '../../push/push_registrar.dart';
 import '../auth/auth_repository.dart';
 import '../auth/login_screen.dart';
+import '../calls/callkit_service.dart';
+import '../calls/incoming_call_watcher.dart';
+import '../chat/conversations_screen.dart';
+import '../clients/clients_screen.dart';
+import '../finance/finance_screen.dart';
+import '../inventory/inventory_screen.dart';
 import '../notifications/notifications_repository.dart';
 import '../notifications/notifications_screen.dart';
 import '../orders/driver_orders_screen.dart';
+import '../orders/order_create_screen.dart';
 import '../orders/orders_screen.dart';
+import '../fuels/fuels_screen.dart';
+import '../organizations/organizations_screen.dart';
+import '../vehicles/vehicles_screen.dart';
+import '../profile/profile_screen.dart';
+import '../report/report_screen.dart';
+import '../requisites/requisites_screen.dart';
+import '../tariffs/tariffs_screen.dart';
+import '../trips/trips_screen.dart';
+import '../users/users_screen.dart';
+import '../zones/zones_screen.dart';
 
+// ---------------------------------------------------------------------------
+// Destination enum — mirrors web sidebar order.
+// ---------------------------------------------------------------------------
+enum _Dest {
+  orders,
+  createOrder,
+  orgs,
+  vehicles,
+  trips,
+  finance,
+  inventory,
+  fuels,
+  tariffs,
+  report,
+  clients,
+  users,
+  requisites,
+  zones,
+  chat,
+  notifications,
+  profile,
+}
+
+// ---------------------------------------------------------------------------
+// Role helpers
+// ---------------------------------------------------------------------------
+const _roleLabels = {
+  'admin': 'Админ',
+  'manager': 'Менеджер',
+  'driver': 'Водитель',
+  'client': 'Клиент',
+};
+
+bool _allowed(CurrentUser user, _Dest dest) {
+  // Клиент в режиме «только чаты» (правки 2026-07-14): только мессенджер
+  // и профиль — без заявок, документов и прочего (веб _isChatsOnly).
+  if (user.role == 'client' && user.chatsOnly) {
+    return dest == _Dest.chat || dest == _Dest.profile;
+  }
+  return _allowedByRole(user.role, dest);
+}
+
+bool _allowedByRole(String role, _Dest dest) => switch (dest) {
+      _Dest.orders => true,
+      _Dest.createOrder =>
+        role == 'client' || role == 'manager' || role == 'admin',
+      // Организации — все кроме водителя (веб: show role !== 'driver')
+      _Dest.orgs => role != 'driver',
+      // ТС — все кроме клиента (веб: show role !== 'client')
+      _Dest.vehicles => role != 'client',
+      _Dest.trips =>
+        role == 'admin' || role == 'manager' || role == 'driver',
+      _Dest.finance => role == 'admin' || role == 'manager',
+      _Dest.inventory =>
+        role == 'admin' || role == 'manager' || role == 'driver',
+      // Топливо — справочник, виден всем (веб: show true)
+      _Dest.fuels => true,
+      _Dest.tariffs => role == 'admin' || role == 'manager',
+      _Dest.report =>
+        role == 'admin' || role == 'manager' || role == 'driver',
+      _Dest.clients => role == 'admin' || role == 'manager',
+      _Dest.users => role == 'admin' || role == 'manager',
+      _Dest.requisites => role == 'admin',
+      _Dest.zones => role == 'admin',
+      _Dest.chat => true,
+      _Dest.notifications => true,
+      _Dest.profile => true,
+    };
+
+String _destLabel(_Dest dest, [String? role]) => switch (dest) {
+      _Dest.orders => 'Заявки',
+      _Dest.createOrder => 'Создать заявку',
+      // Как на вебе: клиенту — «Мои организации», staff — «Организации»
+      _Dest.orgs =>
+        role == 'client' ? 'Мои организации' : 'Организации',
+      _Dest.vehicles => 'ТС',
+      _Dest.trips => 'Рейсы',
+      _Dest.finance => 'Финансы',
+      _Dest.inventory => 'Склад',
+      _Dest.fuels => 'Топливо',
+      _Dest.tariffs => 'Тарифы',
+      _Dest.report => 'Отчёт',
+      _Dest.clients => 'Клиенты',
+      _Dest.users => 'Пользователи',
+      _Dest.requisites => 'Реквизиты',
+      _Dest.zones => 'Зоны',
+      _Dest.chat => 'Чат',
+      _Dest.notifications => 'Уведомления',
+      _Dest.profile => 'Профиль',
+    };
+
+IconData _destIcon(_Dest dest) => switch (dest) {
+      _Dest.orders => Icons.local_shipping,
+      _Dest.createOrder => Icons.add_box,
+      _Dest.orgs => Icons.business_center,
+      _Dest.vehicles => Icons.local_shipping_outlined,
+      _Dest.trips => Icons.route,
+      _Dest.finance => Icons.payments,
+      _Dest.inventory => Icons.inventory_2,
+      _Dest.fuels => Icons.local_gas_station,
+      _Dest.tariffs => Icons.request_quote,
+      _Dest.report => Icons.assessment,
+      _Dest.clients => Icons.groups,
+      _Dest.users => Icons.manage_accounts,
+      _Dest.requisites => Icons.business,
+      _Dest.zones => Icons.map,
+      _Dest.chat => Icons.chat_bubble,
+      _Dest.notifications => Icons.notifications,
+      _Dest.profile => Icons.person,
+    };
+
+// ---------------------------------------------------------------------------
+// HomeScreen
+// ---------------------------------------------------------------------------
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -15,7 +151,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _tab = 0;
+  _Dest _dest = _Dest.orders;
   CurrentUser? _user;
   int _unread = 0;
 
@@ -30,21 +166,43 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final count = await NotificationsRepository.instance.unreadCount();
       if (mounted) setState(() => _unread = count);
-    } catch (_) {
-      // Badge — некритичная информация, ошибку глотаем.
+    } on Exception {
+      // Badge — некритичная информация.
     }
   }
 
   Future<void> _loadUser() async {
     try {
       final user = await AuthRepository.instance.me();
-      if (mounted) setState(() => _user = user);
-    } catch (_) {
-      // 401 обработает интерцептор (refresh → или выход на логин).
+      if (mounted) {
+        setState(() {
+          _user = user;
+          // «Только чаты»: стартуем сразу в мессенджере (веб _isChatsOnly).
+          if (user.role == 'client' && user.chatsOnly) _dest = _Dest.chat;
+          // Сотрудники живут в чатах — стартовый экран для manager/admin
+          // тоже чаты (просьба заказчика, правки 2026-07-22).
+          if (user.role == 'manager' || user.role == 'admin') {
+            _dest = _Dest.chat;
+          }
+        });
+        // Входящие звонки — поллинг как startCallPolling на вебе.
+        IncomingCallWatcher.instance.start(userId: user.id);
+        // Звонок, принятый с заблокированного экрана до готовности Dart:
+        // событие accept могло уйти в пустоту — догоняем (2026-07-22).
+        unawaited(CallkitService.instance.resumePendingAcceptedCall());
+      }
+      // FCM-токен регистрируется в login(), но при старте с сохранённой
+      // сессией логина не происходит — без этого у уже залогиненных
+      // устройств токен никогда не попадал бы на бэк и пуши не приходили.
+      // Повторный POST /devices идемпотентен (upsert по токену).
+      unawaited(PushRegistrar.instance.registerCurrentToken());
+    } on Exception {
+      // 401 обработает интерцептор.
     }
   }
 
   Future<void> _logout() async {
+    IncomingCallWatcher.instance.stop();
     await AuthRepository.instance.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -53,70 +211,374 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _select(_Dest dest) {
+    Navigator.of(context).pop(); // close drawer
+    // «Только чаты»: любые попытки уйти с чата возвращают в чат
+    // (профиль разрешён) — зеркало switchTab веба.
+    final user = _user;
+    if (user != null &&
+        user.role == 'client' &&
+        user.chatsOnly &&
+        dest != _Dest.chat &&
+        dest != _Dest.profile) {
+      dest = _Dest.chat;
+    }
+    if (dest == _Dest.createOrder) {
+      final user = _user;
+      if (user == null) return; // профиль ещё грузится
+      // Push as full route; return to orders after.
+      Navigator.of(context)
+          .push(MaterialPageRoute(
+              builder: (_) => OrderCreateScreen(user: user)))
+          .then((_) => setState(() => _dest = _Dest.orders));
+      return;
+    }
+    setState(() {
+      _dest = dest;
+      if (dest == _Dest.notifications) _refreshUnread();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Body builder
+  // -------------------------------------------------------------------------
+  Widget _buildBody() {
+    final user = _user;
+    if (user == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return switch (_dest) {
+      _Dest.orders => user.role == 'driver'
+          ? DriverOrdersScreen(user: user)
+          : OrdersScreen(
+              canCreate: user.role == 'client' ||
+                  user.role == 'manager' ||
+                  user.role == 'admin',
+              user: user,
+            ),
+      _Dest.createOrder => const Center(child: CircularProgressIndicator()),
+      _Dest.orgs => OrganizationsScreen(user: user),
+      _Dest.vehicles => VehiclesScreen(user: user),
+      _Dest.trips => TripsScreen(user: user),
+      _Dest.finance => FinanceScreen(user: user),
+      _Dest.inventory => InventoryScreen(user: user),
+      _Dest.fuels => FuelsScreen(user: user),
+      _Dest.tariffs => TariffsScreen(user: user),
+      _Dest.report => ReportScreen(user: user),
+      _Dest.clients => ClientsScreen(user: user),
+      _Dest.users => UsersScreen(user: user),
+      _Dest.requisites => RequisitesScreen(user: user),
+      _Dest.zones => ZonesScreen(user: user),
+      _Dest.chat => const ConversationsScreen(),
+      _Dest.notifications => NotificationsScreen(user: user),
+      _Dest.profile => ProfileScreen(user: user),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // AppBar title
+  // -------------------------------------------------------------------------
+  String get _appBarTitle {
+    if (_dest == _Dest.orders) {
+      return _user?.role == 'driver' ? 'Заявки на доставку' : 'Мои заявки';
+    }
+    return _destLabel(_dest, _user?.role);
+  }
+
+  // -------------------------------------------------------------------------
+  // Build
+  // -------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final user = _user;
-    final isDriver = user?.role == 'driver';
-    final isClient = user == null || user.role == 'client';
-
-    // Профиль ещё грузится — без него не знаем, какой экран заявок показывать.
-    final Widget ordersBody;
-    if (user == null) {
-      ordersBody = const Center(child: CircularProgressIndicator());
-    } else if (isDriver) {
-      ordersBody = DriverOrdersScreen(driverId: user.id);
-    } else {
-      ordersBody = OrdersScreen(canCreate: isClient);
-    }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tab == 0
-            ? (isDriver ? 'Заявки на доставку' : 'Мои заявки')
-            : 'Уведомления'),
+        title: Text(_appBarTitle),
         actions: [
-          if (_user != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Center(
-                  child: Text(_user!.fullName,
-                      style: Theme.of(context).textTheme.bodySmall)),
-            ),
+          // Theme toggle
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Выйти',
-            onPressed: _logout,
+            icon: Icon(brightness == Brightness.dark
+                ? Icons.light_mode
+                : Icons.dark_mode),
+            tooltip: 'Тёмная/светлая тема',
+            onPressed: () => ThemeController.instance.toggle(brightness),
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          ordersBody,
-          const NotificationsScreen(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) {
-          setState(() => _tab = i);
-          _refreshUnread();
-        },
-        destinations: [
-          const NavigationDestination(
-              icon: Icon(Icons.local_shipping_outlined),
-              selectedIcon: Icon(Icons.local_shipping),
-              label: 'Заявки'),
-          NavigationDestination(
-              icon: Badge(
-                isLabelVisible: _unread > 0,
-                label: Text('$_unread'),
-                child: const Icon(Icons.notifications_outlined),
+          // Notification bell with badge
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _unread > 0,
+              label: Text('$_unread'),
+              child: const Icon(Icons.notifications_outlined),
+            ),
+            tooltip: 'Уведомления',
+            onPressed: () => setState(() {
+              _dest = _Dest.notifications;
+              _refreshUnread();
+            }),
+          ),
+          // User chip
+          if (user != null)
+            GestureDetector(
+              onTap: () => setState(() => _dest = _Dest.profile),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12, left: 4),
+                child: _UserChip(user: user),
               ),
-              selectedIcon: const Icon(Icons.notifications),
-              label: 'Уведомления'),
+            ),
         ],
       ),
+      drawer: _AppDrawer(
+        user: user,
+        selected: _dest,
+        unread: _unread,
+        onSelect: _select,
+        onLogout: _logout,
+      ),
+      body: _buildBody(),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Drawer
+// ---------------------------------------------------------------------------
+class _AppDrawer extends StatelessWidget {
+  const _AppDrawer({
+    required this.user,
+    required this.selected,
+    required this.unread,
+    required this.onSelect,
+    required this.onLogout,
+  });
+
+  final CurrentUser? user;
+  final _Dest selected;
+  final int unread;
+  final void Function(_Dest) onSelect;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final role = user?.role ?? 'client';
+
+    return Drawer(
+      child: Column(
+        children: [
+          // Header
+          DrawerHeader(
+            decoration: BoxDecoration(color: colors.bg2),
+            margin: EdgeInsets.zero,
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _GradientWordmark(colors: colors),
+                const SizedBox(height: 10),
+                if (user != null) ...[
+                  Text(
+                    user!.fullName,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: colors.text,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  _RoleChip(role: role, colors: colors),
+                ],
+              ],
+            ),
+          ),
+          // Nav items. overscroll: false убирает stretch-эффект Android 12+,
+          // из-за которого выбранный пункт «протекал» к шапке при скролле.
+          Expanded(
+            child: ScrollConfiguration(
+              behavior:
+                  ScrollConfiguration.of(context).copyWith(overscroll: false),
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: _Dest.values
+                    .where((d) =>
+                        user == null || _allowed(user!, d))
+                    .map((d) => _DrawerTile(
+                          dest: d,
+                          isSelected: d == selected,
+                          unread: d == _Dest.notifications ? unread : 0,
+                          onTap: () => onSelect(d),
+                          colors: colors,
+                          role: role,
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          // Logout
+          ListTile(
+            leading: Icon(Icons.logout, color: colors.red),
+            title: Text('Выйти',
+                style: TextStyle(color: colors.red, fontWeight: FontWeight.w600)),
+            onTap: onLogout,
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _DrawerTile extends StatelessWidget {
+  const _DrawerTile({
+    required this.dest,
+    required this.isSelected,
+    required this.unread,
+    required this.onTap,
+    required this.colors,
+    this.role,
+  });
+
+  final _Dest dest;
+  final bool isSelected;
+  final int unread;
+  final VoidCallback onTap;
+  final AppColors colors;
+  final String? role;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconColor = isSelected ? colors.primary : colors.text2;
+    final textColor = isSelected ? colors.primary : colors.text;
+    // Непрозрачная подсветка: примешиваем primaryDim к фону drawer, чтобы
+    // выбранный пункт не «просвечивал» при overscroll-растяжении списка.
+    final bgColor = isSelected
+        ? Color.alphaBlend(colors.primaryDim, colors.bg2)
+        : Colors.transparent;
+
+    Widget icon = Icon(_destIcon(dest), color: iconColor);
+    if (dest == _Dest.notifications && unread > 0) {
+      icon = Badge(label: Text('$unread'), child: icon);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        tileColor: bgColor,
+        leading: icon,
+        title: Text(
+          _destLabel(dest, role),
+          style: TextStyle(
+            color: textColor,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+        onTap: onTap,
+        dense: true,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gradient wordmark (used in DrawerHeader)
+// ---------------------------------------------------------------------------
+class _GradientWordmark extends StatelessWidget {
+  const _GradientWordmark({required this.colors});
+
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      shaderCallback: (bounds) => LinearGradient(
+        colors: [colors.primary, colors.accent],
+      ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
+      child: const Text(
+        'СЗТК',
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 3,
+          color: Colors.white, // masked by shader
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Role chip (used in AppBar and DrawerHeader)
+// ---------------------------------------------------------------------------
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({required this.role, required this.colors});
+
+  final String role;
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = colors.roleColor(role);
+    final label = _roleLabels[role] ?? role;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User chip shown in AppBar actions
+// ---------------------------------------------------------------------------
+class _UserChip extends StatelessWidget {
+  const _UserChip({required this.user});
+
+  final CurrentUser user;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    // Узкий экран (портрет телефона): полное ФИО не влезает — actions
+    // выталкивали заголовок и налезали на бургер. Показываем только чип роли;
+    // ФИО (обрезанное) — лишь когда места достаточно.
+    final isNarrow = MediaQuery.sizeOf(context).width < 520;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!isNarrow) ...[
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              user.fullName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: colors.text2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+        _RoleChip(role: user.role, colors: colors),
+      ],
     );
   }
 }
