@@ -6377,6 +6377,18 @@ async function promptEditOrderOrganization(orderId) {
 // F1 (правка 2026-06-24): дублировать заявку — открыть форму «Новая заявка» с
 // предзаполненными полями исходной заявки (для разбивки крупной заявки на две).
 // Доступно только staff (кнопка рендерится только в actionBarHTML для manager/admin).
+// «г Санкт-Петербург, ул Садовая, д 5» → { city, street, house }. Если адрес не
+// раскладывается на три части — вся строка уходит в «город», как раньше.
+function splitAddressParts(address) {
+  const parts = String(address || '').split(',').map(x => x.trim()).filter(Boolean);
+  if (parts.length < 3) return { city: parts.join(', '), street: '', house: '' };
+  return {
+    city: parts[0],
+    street: parts.slice(1, -1).join(', '),
+    house: parts[parts.length - 1],
+  };
+}
+
 async function duplicateOrder(orderId) {
   let order;
   try {
@@ -6420,14 +6432,35 @@ async function duplicateOrder(orderId) {
     dateEl.dispatchEvent(new Event('input'));
   }
 
-  // Адрес — заполняем как готовую строку (без повторного геокодинга/подсказок DaData)
+  // Адрес: полная строка остаётся в _orderAddress (уйдёт в заявку как есть, без
+  // повторного геокодинга), а в поля каскада раскладываем «город, улица, дом» —
+  // иначе вся строка оказывается в поле «город». Координаты берём из заявки,
+  // чтобы сразу показать зону, карту и пересчитать стоимость.
   _orderAddress = order.delivery_address || '';
+  _orderGeo = (order.delivery_lat != null && order.delivery_lon != null)
+    ? { lat: Number(order.delivery_lat), lon: Number(order.delivery_lon) }
+    : null;
+  const parts = splitAddressParts(order.delivery_address);
   const cityEl = document.getElementById('c-addr-city');
-  if (cityEl) cityEl.value = order.delivery_address || '';
   const streetEl = document.getElementById('c-addr-street');
   const houseEl = document.getElementById('c-addr-house');
-  if (streetEl) { streetEl.value = ''; streetEl.disabled = false; }
-  if (houseEl) { houseEl.value = ''; houseEl.disabled = false; }
+  if (cityEl) cityEl.value = parts.city;
+  if (streetEl) { streetEl.value = parts.street; streetEl.disabled = false; }
+  if (houseEl) { houseEl.value = parts.house; houseEl.disabled = false; }
+  if (_orderGeo) {
+    previewDeliveryZone();
+    initClientZoneMap().then(() => {
+      setClientMapMarker();
+      updatePricePreview();
+    });
+  }
+
+  // Ручная стоимость доставки переносится как есть (авто-расчёт по зоне — нет)
+  const manualDcEl = document.getElementById('c-manual-delivery-cost');
+  if (manualDcEl && order.delivery_cost_is_manual && order.delivery_cost != null) {
+    manualDcEl.value = Number(order.delivery_cost);
+    manualDcEl.dispatchEvent(new Event('input'));
+  }
 
   const nameEl = document.getElementById('c-contact-name');
   if (nameEl) nameEl.value = order.contact_person_name || '';
