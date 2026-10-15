@@ -5696,7 +5696,7 @@ async function loadDocs(orderId) {
             onclick="downloadDocExport('${orderId}','${d.id}')">⬇ ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
         ${canSend && isStaff ? `<button class="btn btn-sm btn-primary" style="padding:4px 10px;font-size:11px"
             onclick="sendDocToChat('${orderId}','${d.id}',this)">${icon('chat-circle',14)} В чат</button>` : ''}
-        ${canSend ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
+        ${canSend && EMAIL_SEND_ENABLED ? `<button class="btn btn-sm btn-ghost" style="padding:4px 10px;font-size:11px"
             onclick="sendDocEmail('${orderId}','${d.id}',this)">${icon('envelope-simple',14)} На почту</button>` : ''}
       </div>`;
     }).join('');
@@ -5903,7 +5903,7 @@ async function openOrgContract(orgId) {
   }
   const dateStr = c.signed_at ? new Date(c.signed_at).toLocaleDateString('ru-RU')
                 : (c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU') : '—');
-  const staffBtns = isStaff ? `
+  const staffBtns = isStaff && EMAIL_SEND_ENABLED ? `
     <button class="btn btn-sm btn-ghost" onclick="contractSendEmail('${c.id}',this)">${icon('envelope',14)} На почту</button>` : '';
   const signedDateValue = c.signed_at ? c.signed_at.slice(0, 10) : '';
   const regenFields = isStaff ? `
@@ -7648,6 +7648,10 @@ function toggleSelfContact(cb) {
     phoneEl.value = '';
   }
 }
+
+// Кнопки «На почту» скрыты (2026-10-15): Unisender Go на free_tier шлёт только на
+// подтверждённые адреса, остальным — 403. Включить обратно после платного тарифа/SMTP.
+const EMAIL_SEND_ENABLED = false;
 
 let _orderSubmitting = false;
 async function doCreateOrder() {
@@ -12250,8 +12254,8 @@ function _ccDocsRender(docs, typeFilter) {
                 onclick="event.stopPropagation();downloadDocExport('${d.order_id}','${d.id}')">${DOWNLOAD_ICON} ${DOC_EXPORT_FMT[d.doc_type]}</button>` : ''}
               <button class="btn btn-sm btn-ghost" title="Отправить в чат"
                 onclick="ccDocToChat('${d.order_id}','${d.id}',this)">${CHAT_ICON} В чат</button>
-              <button class="btn btn-sm btn-ghost" title="Отправить на почту"
-                onclick="ccDocSendEmail('${d.order_id}','${d.id}',this)">${EMAIL_ICON} На почту</button>
+              ${EMAIL_SEND_ENABLED ? `<button class="btn btn-sm btn-ghost" title="Отправить на почту"
+                onclick="ccDocSendEmail('${d.order_id}','${d.id}',this)">${EMAIL_ICON} На почту</button>` : ''}
             ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
           </td>
         </tr>`).join('')}
