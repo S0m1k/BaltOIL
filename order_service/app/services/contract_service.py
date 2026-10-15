@@ -172,6 +172,27 @@ def _name_genitive(full_name: str | None) -> str:
         return full_name
 
 
+_IP_NAME_PREFIX = re.compile(r"^\s*(ИП|Индивидуальный\s+предприниматель)\s+", re.IGNORECASE)
+
+
+def _is_sole_proprietor(party: dict) -> bool:
+    """ИП: 12-значный ИНН или «ИП …» в названии.
+
+    Отдельной ОПФ в реквизитах нет, а снимок покупателя в старых договорах
+    уже сохранён — поэтому определяем по данным снимка, без похода в auth.
+    """
+    inn = (party.get("inn") or "").strip()
+    return len(inn) == 12 or bool(_IP_NAME_PREFIX.match(party.get("name") or ""))
+
+
+def _buyer_sign_name(buyer: dict) -> str:
+    """У ИП подписывает он сам: ФИО берём из названия, если директор не заполнен."""
+    name = buyer.get("director_name")
+    if not name and _is_sole_proprietor(buyer):
+        name = _IP_NAME_PREFIX.sub("", buyer.get("name") or "")
+    return _short_sign_name(name)
+
+
 def _plus_five_years(d: date) -> date:
     try:
         return d.replace(year=d.year + 5)
@@ -293,7 +314,8 @@ def _build_contract_ctx(
         "seller":           seller,
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
-        "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "buyer_sign_name":  _buyer_sign_name(buyer),
+        "buyer_is_ip":      _is_sole_proprietor(buyer),
         "seller_signature": seller_signature_data_uri(),
         "seller_stamp":      seller_stamp_data_uri(),
         # Родительный падеж для преамбулы "в лице ... кого" (правка 2026-06-24).
@@ -392,7 +414,8 @@ def build_contract_export_ctx(contract: Contract) -> dict:
         "seller":           seller,
         "buyer":            buyer,
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
-        "buyer_sign_name":  _short_sign_name(buyer.get("director_name")),
+        "buyer_sign_name":  _buyer_sign_name(buyer),
+        "buyer_is_ip":      _is_sole_proprietor(buyer),
         "seller_title_genitive":    _title_genitive(seller.get("director_title")),
         "seller_director_genitive": _name_genitive(seller.get("director_name")),
         "buyer_title_genitive":     _title_genitive(buyer.get("director_title")),

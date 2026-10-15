@@ -43,9 +43,14 @@
   {{ seller.name }}, именуемое в дальнейшем «Поставщик», в лице
   {{ seller_title_genitive or "Генерального директора" }} {{ seller_director_genitive or "________________" }},
   действующего на основании Устава, с одной стороны, и
+  {% if buyer_is_ip %}
+  {{ buyer.name }}, именуемый в дальнейшем «Покупатель», с другой стороны,
+  {% else %}
   {{ buyer.name }}, именуемое в дальнейшем «Покупатель», в лице
   {{ buyer_title_genitive or "руководителя" }} {{ buyer_director_genitive or "________________" }},
-  действующего на основании Устава с другой стороны, заключили настоящий Договор о нижеследующем:
+  действующего на основании Устава с другой стороны,
+  {% endif %}
+  заключили настоящий Договор о нижеследующем:
 </p>
 
 <h2>1. Предмет договора</h2>
@@ -237,7 +242,7 @@
       <div class="sign-cap" style="text-align:center;">Ф.И.О.</div>
     </td>
     <td class="sign-block">
-      <div>{{ buyer.director_title or "Руководитель" }}</div>
+      <div>{% if buyer_is_ip %}Индивидуальный предприниматель{% else %}{{ buyer.director_title or "Руководитель" }}{% endif %}</div>
       <div style="margin-top:18px;">
         <span class="sign-line"></span> / {{ buyer_sign_name }} /
       </div>

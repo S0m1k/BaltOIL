@@ -1000,6 +1000,18 @@ async def update_order(
         order.organization_id = data.organization_id
         changed = True
         changed_keys.append("organization")
+        # Физ <-> юр меняет тариф и правила оплаты: вид заявки выводим так же, как
+        # при создании, иначе «переделанная на юрлицо» заявка считалась бы по
+        # тарифу физлица (правка заказчика 2026-10-15). Номер заявки не меняем —
+        # номера не переиспользуются, а на него уже могут ссылаться документы.
+        if order.order_kind in (OrderKind.INDIVIDUAL, OrderKind.COMPANY):
+            _org_ctx = await get_client_context(order.client_id, order.organization_id)
+            order.order_kind = (
+                OrderKind.INDIVIDUAL if _org_ctx.client_type == "individual"
+                else OrderKind.COMPANY
+            )
+            if order.order_kind == OrderKind.INDIVIDUAL:
+                order.payment_type = PaymentType.ON_DELIVERY
     _final_amount_touched = False
     if data.delivery_cost is not None:
         # Перекладываем долю доставки в суммы заявки: топливная часть
@@ -1059,9 +1071,12 @@ async def update_order(
 
     # Смена топлива/объёма меняет стоимость — пересчитываем, если сумма
     # не передана явно в этом же запросе (staff может задать вручную).
-    if (("fuel_type" in changed_keys or "volume" in changed_keys)
+    if (({"fuel_type", "volume", "organization"} & set(changed_keys))
             and data.expected_amount is None):
+        _expected_before = order.expected_amount
         await _recompute_expected_amount(db, order)
+        if order.expected_amount != _expected_before and "amount" not in changed_keys:
+            changed_keys.append("amount")
 
     # final_amount меняет цель — пересчитываем payment_status
     if data.final_amount is not None:

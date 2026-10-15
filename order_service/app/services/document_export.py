@@ -316,15 +316,23 @@ def contract_docx(ctx: dict) -> bytes:
                 f'\t\t«{ctx.get("signed_day","")}» {ctx.get("signed_month_ru","")} {ctx.get("signed_year","")} года')
     seller = ctx.get("seller") or {}
     buyer = ctx.get("buyer") or {}
+    # ИП действует сам за себя — без «в лице … на основании Устава» (правка 2026-10-15)
+    if ctx.get("buyer_is_ip"):
+        buyer_part = f'{_g(buyer,"name")}, именуемый в дальнейшем «Покупатель», с другой стороны'
+    else:
+        buyer_part = (
+            f'{_g(buyer,"name")}, именуемое в дальнейшем «Покупатель», в лице '
+            f'{ctx.get("buyer_title_genitive") or _g(buyer,"director_title", default="руководителя")} '
+            f'{ctx.get("buyer_director_genitive") or _g(buyer,"director_name", default="________________")}, '
+            f'действующего на основании Устава, с другой стороны'
+        )
     p = d.add_paragraph()
     p.add_run(
         f'{_g(seller,"name")}, именуемое в дальнейшем «Поставщик», в лице '
         f'{ctx.get("seller_title_genitive") or _g(seller,"director_title", default="Генерального директора")} '
         f'{ctx.get("seller_director_genitive") or _g(seller,"director_name", default="________________")}, '
-        f'действующего на основании Устава, с одной стороны, и {_g(buyer,"name")}, именуемое в дальнейшем '
-        f'«Покупатель», в лице {ctx.get("buyer_title_genitive") or _g(buyer,"director_title", default="руководителя")} '
-        f'{ctx.get("buyer_director_genitive") or _g(buyer,"director_name", default="________________")}, '
-        f'действующего на основании Устава, с другой стороны, заключили настоящий Договор о нижеследующем.'
+        f'действующего на основании Устава, с одной стороны, и {buyer_part}, '
+        f'заключили настоящий Договор о нижеследующем.'
     )
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     sections = [
@@ -408,7 +416,7 @@ def contract_docx(ctx: dict) -> bytes:
     d.add_paragraph("")
     sp = d.add_paragraph()
     sp.add_run(f'{_g(seller,"director_title", default="Генеральный директор")}: ______________  /{ctx.get("seller_sign_name","")}/'
-               f'\t\t{_g(buyer,"director_title", default="Руководитель")}: ______________  /{ctx.get("buyer_sign_name","")}/')
+               f'\t\t{"Индивидуальный предприниматель" if ctx.get("buyer_is_ip") else _g(buyer,"director_title", default="Руководитель")}: ______________  /{ctx.get("buyer_sign_name","")}/')
     buf = io.BytesIO(); d.save(buf); return buf.getvalue()
 
 

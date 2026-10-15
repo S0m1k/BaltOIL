@@ -5555,7 +5555,9 @@ async function setShipment(orderId, mode) {
 // «цена/л × литры + доставка = сумма». Цена за литр восстанавливается из
 // суммы заявки: (сумма − доставка) / литры — то же, что видел клиент в превью.
 function priceFormulaHTML(o, driverHidesMoney) {
-  if (o.order_kind !== 'individual' || driverHidesMoney) return '';
+  // Формула и у юрлиц: менеджер сверяет «цена × литры + доставка» (правка 2026-10-15).
+  // У перевозки своя тарификация — формула топлива к ней не относится.
+  if (o.order_kind === 'transport' || driverHidesMoney) return '';
   const amount = o.final_amount != null ? Number(o.final_amount)
                : o.expected_amount != null ? Number(o.expected_amount) : null;
   const volume = o.final_amount != null && o.volume_delivered != null
@@ -6269,10 +6271,17 @@ async function promptEditOrderField(orderId, field) {
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Например, при переадресации на 2 адреса. Сумма заявки пересчитается, счёт перевыпустится с тем же номером.</div>`;
   } else if (field === 'fuel_cost') {
-    title = 'Изменить стоимость топлива';
-    const _fuel = order.expected_amount != null ? order.expected_amount - (order.delivery_cost || 0) : '';
-    inputHtml = `<input type="number" id="eof-value" class="form-input" min="0" step="100" value="${_fuel !== '' ? Number(_fuel) : ''}" placeholder="0">
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Стоимость топлива без доставки (например, скидка клиенту). Доставка ${order.delivery_cost != null ? Number(order.delivery_cost).toLocaleString('ru') + ' ₽' : '0 ₽'} добавится к сумме заявки. Счёт перевыпустится с тем же номером.</div>`;
+    // Вводится цена за литр, а не сумма: менеджер мыслит «85 ₽/л», и ввод
+    // «85» в поле суммы давал заявку на 85 ₽ (правка 2026-10-15).
+    title = 'Изменить цену топлива';
+    const _vol = Number(order.volume_requested) || 0;
+    const _fuel = order.expected_amount != null ? order.expected_amount - (order.delivery_cost || 0) : null;
+    const _perL = (_fuel != null && _vol > 0) ? Math.round(_fuel / _vol * 100) / 100 : '';
+    inputHtml = `<label class="form-label">Цена за литр, ₽</label>
+      <input type="number" id="eof-value" class="form-input" min="0" step="0.01" value="${_perL}" placeholder="0,00"
+             oninput="previewFuelPriceEdit(this.value, ${_vol}, ${Number(order.delivery_cost || 0)})">
+      <div id="eof-fuel-preview" style="font-size:13px;margin-top:8px"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Без доставки (например, скидка клиенту). Счёт перевыпустится с тем же номером.</div>`;
   } else if (field === 'client_comment' || field === 'manager_comment') {
     // CRM-39: staff правит оба комментария прямо в карточке. Пустое поле = очистить.
     const isMgr = field === 'manager_comment';
@@ -6311,10 +6320,10 @@ async function promptEditOrderField(orderId, field) {
         if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
         body[field] = v;
       } else if (field === 'fuel_cost') {
-        const v = parseFloat(raw || '0');
-        if (isNaN(v) || v < 0) { toast('Стоимость не может быть отрицательной', 'error'); return; }
+        const v = parseFloat(String(raw).replace(',', '.'));
+        if (isNaN(v) || v <= 0) { toast('Укажите цену за литр', 'error'); return; }
         // Бэкенд хранит бандл expected_amount = топливо + доставка
-        body.expected_amount = v + (order.delivery_cost || 0);
+        body.expected_amount = _fuelEditTotal(v, Number(order.volume_requested) || 0, Number(order.delivery_cost || 0));
       } else if (field === 'desired_date') {
         // Полдень UTC — не даёт дате «съехать» на день назад при toISOString() (см. форму создания).
         body[field] = new Date(raw + 'T12:00:00Z').toISOString();
@@ -6331,6 +6340,22 @@ async function promptEditOrderField(orderId, field) {
       }
     }
   );
+  if (field === 'fuel_cost') document.getElementById('eof-value')?.dispatchEvent(new Event('input'));
+}
+
+function _fuelEditTotal(perLiter, volume, delivery) {
+  return Math.round((Math.round(perLiter * volume * 100) / 100 + delivery) * 100) / 100;
+}
+
+function previewFuelPriceEdit(raw, volume, delivery) {
+  const el = document.getElementById('eof-fuel-preview');
+  if (!el) return;
+  const v = parseFloat(String(raw).replace(',', '.'));
+  if (isNaN(v) || v <= 0 || !(volume > 0)) { el.innerHTML = ''; return; }
+  const fuel = Math.round(v * volume * 100) / 100;
+  el.innerHTML = `${fmtPerLiter(v)} ₽/л × ${volume.toLocaleString('ru')} л = ${fmtRub(fuel)} ₽`
+    + (delivery > 0 ? ` + ${fmtRub(delivery)} ₽ доставка` : '')
+    + ` = <strong>${fmtRub(_fuelEditTotal(v, volume, delivery))} ₽</strong>`;
 }
 
 // F2 (правка 2026-06-24): сменить заказчика заявки (организацию юрлица или физлицо).
