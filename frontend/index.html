@@ -6078,6 +6078,8 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-danger" onclick="promptCancel('${o.id}')">✗ Отменить</button>`);
     if (s === 'new' || s === 'accepted')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести</button>`);
+    // Смена водителя в любой заявке (правки 2026-10-19), в т.ч. уже принятой/доставленной
+    btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptAssign('${o.id}', true)">${icon('truck',14)} ${o.driver_id ? 'Сменить водителя' : 'Назначить водителя'}</button>`);
     // Payment recording: any non-cancelled order with outstanding debt (2-bucket check)
     const payable = s !== 'cancelled' && paymentStatusDisplay(o.payment_status || 'unpaid') !== 'paid';
     if (payable)
@@ -6859,8 +6861,8 @@ function promptRecordPayment(orderId, debt, orderNumber) {
   );
 }
 
-function promptAssign(orderId) {
-  openModal('Назначить водителя',
+function promptAssign(orderId, changeOnly = false) {
+  openModal(changeOnly ? 'Сменить водителя' : 'Назначить водителя',
     `<div class="form-group">
       <label class="form-label">Водитель <span style="color:var(--red)">*</span></label>
       <input type="text" id="modal-driver-search" class="form-input" placeholder="Поиск по имени..."
@@ -6881,6 +6883,17 @@ function promptAssign(orderId) {
       const comment   = document.getElementById('modal-assign-comment').value.trim() || undefined;
       if (!driver_id) { toast('Выберите водителя', 'error'); return; }
       closeModal();
+      if (changeOnly) {
+        // Только смена водителя: статус заявки не трогаем
+        try {
+          await orderPost(`/orders/${orderId}/reschedule`, { driver_id });
+          toast('Водитель изменён');
+          await loadOrders();
+        } catch (e) {
+          toast(e.message, 'error');
+        }
+        return;
+      }
       await transitionOrder(orderId, 'accepted', { driver_id, comment });
     }
   );
