@@ -479,8 +479,13 @@ async def create_order(
         # Юрлицо с разрешённым кредитом и без явного выбора типа оплаты работает
         # «в долг» — иначе заявка молча уезжала предоплатой и вставала в «ждём
         # оплату» (правки 2026-09-02). Сервер — источник истины, фронт лишь отражает.
-        if "payment_type" not in data.model_fields_set and ctx.credit_allowed:
-            data.payment_type = PaymentType.DEBT
+        if "payment_type" not in data.model_fields_set:
+            # Без явного выбора: кредит разрешён → «в долг», иначе предоплата
+            # («ждём оплату»); дефолт схемы on_delivery для юрлица = «отгрузка
+            # разрешена», чего заказчица не включала (правки 2026-10-19).
+            data.payment_type = (
+                PaymentType.DEBT if ctx.credit_allowed else PaymentType.PREPAID
+            )
         # Validate payment_type against role × client_type × credit_allowed matrix
         validate_payment_type(
             data.payment_type,

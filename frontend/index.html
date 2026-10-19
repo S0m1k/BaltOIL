@@ -2297,12 +2297,12 @@ function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
           <label class="form-label">Тип оплаты</label>
           <div class="radio-group" id="payment-radio-group">
             <!-- Populated by renderPaymentRadios(); defaults shown until client context loads -->
-            <label class="radio-label selected" id="pay-ondelivery-label">
-              <input type="radio" name="payment" value="on_delivery" checked onchange="updatePaymentUI()">
+            <label class="radio-label" id="pay-ondelivery-label">
+              <input type="radio" name="payment" value="on_delivery" onchange="updatePaymentUI()">
               По факту (при прибытии)
             </label>
-            <label class="radio-label" id="pay-prepaid-label">
-              <input type="radio" name="payment" value="prepaid" onchange="updatePaymentUI()">
+            <label class="radio-label selected" id="pay-prepaid-label">
+              <input type="radio" name="payment" value="prepaid" checked onchange="updatePaymentUI()">
               Предоплата
             </label>
           </div>
