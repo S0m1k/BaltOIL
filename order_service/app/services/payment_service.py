@@ -558,13 +558,7 @@ async def payment_report(
 
 def generate_invoice_html(payment: Payment, order: Order, client_info: dict, seller_info: dict) -> str:
     """Генерация HTML-счёта. Возвращается как строка для отображения/печати."""
-    fuel_labels = {
-        "diesel_summer": "Дизельное топливо летнее (ДТ-Л)",
-        "diesel_winter": "Дизельное топливо зимнее (ДТ-З)",
-        "petrol_92":     "Бензин АИ-92",
-        "petrol_95":     "Бензин АИ-95",
-        "fuel_oil":      "Топочный мазут М-100",
-    }
+    from app.services.document_service import FUEL_LABELS as fuel_labels  # один источник названий
     fuel_type = order.fuel_type.value if hasattr(order.fuel_type, 'value') else str(order.fuel_type)
     fuel_name = fuel_labels.get(fuel_type, fuel_type)
 
