@@ -1157,6 +1157,7 @@ body::before {
     transition-duration: 0.01ms !important;
   }
 }
+.sr-only{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 <script>
 (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
@@ -1291,8 +1292,6 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
     <span class="ticker-item">ДТ ЛЕТО · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ДТ ЗИМА · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ДТ МЕЖСЕЗОН · <span class="price">цена по заявке</span></span>
-    <span class="ticker-item">АИ-92 · <span class="price">цена по заявке</span></span>
-    <span class="ticker-item">АИ-95 · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">МАЗУТ М-100 · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ТС-1 · <span class="price">по запросу</span></span>
     <span class="ticker-item">ЦЕНА РАССЧИТЫВАЕТСЯ ПОСЛЕ ЗАЯВКИ</span>
@@ -1300,8 +1299,6 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
     <span class="ticker-item">ДТ ЛЕТО · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ДТ ЗИМА · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ДТ МЕЖСЕЗОН · <span class="price">цена по заявке</span></span>
-    <span class="ticker-item">АИ-92 · <span class="price">цена по заявке</span></span>
-    <span class="ticker-item">АИ-95 · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">МАЗУТ М-100 · <span class="price">цена по заявке</span></span>
     <span class="ticker-item">ТС-1 · <span class="price">по запросу</span></span>
     <span class="ticker-item">ЦЕНА РАССЧИТЫВАЕТСЯ ПОСЛЕ ЗАЯВКИ</span>
@@ -1383,7 +1380,7 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
         <div class="fuel-price">по запросу<span class="perliter">партия от 5 000 л</span></div>
       </article>
 
-      <article class="fuel reveal">
+      <article class="fuel reveal sr-only">
         <span class="fuel-swatch petrol-92"></span>
         <div class="fuel-info">
           <h3 class="fuel-name">Бензин АИ-92</h3>
@@ -1392,7 +1389,7 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
         <div class="fuel-price">по заявке<span class="perliter">расчёт после заявки</span></div>
       </article>
 
-      <article class="fuel reveal reveal-d1">
+      <article class="fuel reveal reveal-d1 sr-only">
         <span class="fuel-swatch petrol-95"></span>
         <div class="fuel-info">
           <h3 class="fuel-name">Бензин АИ-95</h3>
@@ -1608,13 +1605,13 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
     </div>
   </div>
 </section>
-<section class="section" id="benzin">
+<section class="section sr-only" id="benzin">
   <div class="wrap">
     <h2 class="section-title reveal">Бензин оптом <em>с&nbsp;доставкой</em></h2>
     <div class="seo-grid">
       <div><h3>Бензин АИ-92 и АИ-95 оптом</h3><p>Поставляем бензин для автопарков, строительной техники и генераторов по СПб и Ленобласти.</p></div>
       <div><h3>Мелкий опт от 300 литров</h3><p>Не нужно брать цистерну: привезём от 300 литров в ваши ёмкости.</p></div>
-      <div><h3>Бензин в бочках и на стройку</h3><p>Налив в бочки и ёмкости на объекте, документы — в день доставки. <a href="/benzin">Подробнее о поставке бензина</a></p></div>
+      <div><h3>Бензин в бочках и на стройку</h3><p>Налив в бочки и ёмкости на объекте, документы — в день доставки.</p></div>
     </div>
   </div>
 </section>
@@ -1735,7 +1732,6 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
         <a href="https://crm.9171517.ru/">Войти в кабинет</a>
         <a href="https://crm.9171517.ru/#register">Регистрация</a>
         <a href="suppliers.html">Поставщикам</a>
-        <a href="/benzin">Бензин оптом</a>
         <a href="/dizelnoe-toplivo">Дизельное топливо</a>
         <a href="#fuels">Виды топлива</a>
         <a href="#process">Как заказать</a>
