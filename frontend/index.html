@@ -3180,9 +3180,9 @@ function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
         </div>
 
         <div class="form-group">
-          <label class="form-label">вид топлива</label>
+          <label class="form-label">вид топлива <span style="color:var(--red)">*</span></label>
           <select id="tr-fuel" class="form-input">
-            <option value="">— не указан —</option>
+            <option value="">— выберите вид топлива —</option>
           </select>
         </div>
 
@@ -15177,7 +15177,7 @@ function _trFillFuelSelect() {
   const sel = document.getElementById('tr-fuel');
   if (!sel) return;
   const active = (_fuelCatalog || []).filter(function (f) { return f.is_active !== false; });
-  sel.innerHTML = ['<option value="">— не указан —</option>'].concat(active.map(function (f) {
+  sel.innerHTML = ['<option value="">— выберите вид топлива —</option>'].concat(active.map(function (f) {
     return '<option value="' + escHtml(f.code) + '">' + escHtml(f.label) + '</option>';
   })).join('');
 }
@@ -15243,6 +15243,13 @@ async function _trLoadIntoForm(orderId) {
 async function submitTransportOrder() {
   const type = document.getElementById('tr-type')?.value || 'to_base';
   _trSyncWaypointsFromDom();
+  // Новая заявка — вид топлива обязателен (правки 2026-10-27). Старые заявки без
+  // топлива при правке не блокируем: у них поле могло быть пустым по прежнему ТЗ.
+  if (!_trEditingId && !_trStr('tr-fuel')) {
+    toast('Выберите вид топлива', 'error');
+    document.getElementById('tr-fuel')?.focus();
+    return;
+  }
   const body = {
     transport_type: type,
     client_object_id: type === 'to_client' ? _trReadClient().id : null,
