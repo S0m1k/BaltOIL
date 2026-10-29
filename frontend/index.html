@@ -5328,7 +5328,10 @@ function _editPencil(o, field) {
 // клиент (своя заявка) или staff, в редактируемых статусах (F2, правка 2026-06-24)
 function _canEditOrgOf(o) {
   const role = currentUser?.role;
-  if (role === 'manager' || role === 'admin')
+  // Админ меняет заказчика и в закрытых заявках (доставлена/отменена) — правки 2026-10-29;
+  // менеджеру закрытые правит бэкенд только админу (CRM-39).
+  if (role === 'admin') return true;
+  if (role === 'manager')
     return ['new', 'awaiting_manager', 'accepted'].includes(o.status);
   if (role === 'client')
     return o.client_id === currentUser?.id

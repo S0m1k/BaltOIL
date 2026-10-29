@@ -286,9 +286,15 @@ async def get_org_contract(
 
     contract = await contract_service.get_active_contract_by_org(db, org_id)
     if contract is None:
+        # «Ничейная» организация (заведена staff-ом без клиента, правки 2026-07-22):
+        # участников нет — договор оформляем на сотрудника, который его формирует
+        # (auth пропускает проверку членства для staff). Дальше договор ищется по
+        # organization_id, поэтому привязка к клиенту не важна.
         owner_id = target.get("owner_client_id")
         if not owner_id:
-            raise HTTPException(status_code=422, detail="У организации нет активных участников")
+            if not is_staff:
+                raise HTTPException(status_code=422, detail="У организации нет активных участников")
+            owner_id = str(actor.id)
         contract = await contract_service.create_contract(
             db, uuid.UUID(owner_id), actor, org_id
         )
