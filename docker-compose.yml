@@ -1,5 +1,6 @@
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
@@ -19,6 +20,7 @@ services:
       retries: 5
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports:
       # Localhost only — no auth, must not be reachable externally.
@@ -34,6 +36,7 @@ services:
   # frontend → service:port directly.
 
   auth_service:
+    restart: unless-stopped
     build:
       context: ./auth_service
     env_file:
@@ -47,6 +50,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001
 
   order_service:
+    restart: unless-stopped
     build:
       context: ./order_service
     env_file:
@@ -60,6 +64,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002
 
   delivery_service:
+    restart: unless-stopped
     build:
       context: ./delivery_service
     env_file:
@@ -73,6 +78,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003
 
   chat_service:
+    restart: unless-stopped
     build:
       context: ./chat_service
     env_file:
@@ -88,6 +94,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8004
 
   livekit:
+    restart: unless-stopped
     image: livekit/livekit-server:latest
     command: --config /etc/livekit.yaml
     ports:
@@ -101,6 +108,7 @@ services:
         condition: service_healthy
 
   call_service:
+    restart: unless-stopped
     build:
       context: ./call_service
     env_file:
@@ -118,6 +126,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8006
 
   notification_service:
+    restart: unless-stopped
     build:
       context: ./notification_service
     env_file:
@@ -132,6 +141,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8005
 
   frontend:
+    restart: unless-stopped
     image: nginx:alpine
     # Owns every public port. nginx terminates TLS and reverse-proxies to
     # the matching backend service on the docker network.
