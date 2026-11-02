@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import CurrentUser, require_roles
-from app.core.media import resolve_media_path
+from app.core.media import content_disposition_attachment, resolve_media_path
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models.contract import ContractStatus
 from app.services import contract_service
@@ -230,11 +230,11 @@ async def export_contract(
         raise ForbiddenError("Договор принадлежит другому клиенту")
     ctx = contract_service.build_contract_export_ctx(contract)
     content = document_export.contract_docx(ctx)
-    filename = f"contract_{contract.contract_number.replace('/', '-')}.docx"
+    filename = contract_service.contract_file_name(contract, "docx")
     return Response(
         content=content,
         media_type=document_export.DOCX_MIME,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition_attachment(filename)},
     )
 
 
@@ -258,7 +258,7 @@ async def download_contract(
     return FileResponse(
         path=str(full_path),
         media_type="application/pdf",
-        filename=f"contract_{contract.contract_number.replace('/', '-')}.pdf",
+        filename=contract_service.contract_file_name(contract, "pdf"),
         headers={"Cache-Control": "no-store"},
     )
 
@@ -350,7 +350,7 @@ async def send_contract_by_email(
     content_b64 = base64.b64encode(full_path.read_bytes()).decode()
     subject = f"Договор № {contract.contract_number}"
     body_text = "Здравствуйте,\n\nВо вложении договор поставки нефтепродуктов.\n\n— СЗТК"
-    filename = f"Договор_{contract.contract_number.replace('/', '-')}.pdf"
+    filename = contract_service.contract_file_name(contract, "pdf")
 
     notif_base = settings.notification_service_url.rstrip("/")
     headers = {"X-Internal-Secret": settings.internal_api_secret}

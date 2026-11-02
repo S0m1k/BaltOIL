@@ -5863,13 +5863,14 @@ function downloadDocExport(orderId, docId) {
 
 function downloadContractPdf(contractId) {
   const token = localStorage.getItem('access_token');
+  let fname = `contract_${contractId.slice(0,8)}.pdf`;
   fetch(`${ORDER_URL}/contracts/${contractId}/download`, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); fname = _filenameFromDisposition(r, fname); return r.blob(); })
     .then(blob => {
       if (blob.type && blob.type.indexOf('pdf') === -1) throw new Error('сервер вернул не PDF');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `contract_${contractId.slice(0,8)}.pdf`;
+      a.download = fname;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })
@@ -5878,12 +5879,13 @@ function downloadContractPdf(contractId) {
 
 function downloadContractExport(contractId) {
   const token = localStorage.getItem('access_token');
+  let fname = `contract_${contractId.slice(0,8)}.docx`;
   fetch(`${ORDER_URL}/contracts/${contractId}/export`, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); fname = _filenameFromDisposition(r, fname); return r.blob(); })
     .then(blob => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `contract_${contractId.slice(0,8)}.docx`;
+      a.download = fname;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     })

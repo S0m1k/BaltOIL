@@ -304,16 +304,90 @@ def poa_docx(ctx: dict) -> bytes:
 
 # ── DOCX: договор поставки ────────────────────────────────────────────────────
 
-def contract_docx(ctx: dict) -> bytes:
+_DOCX_FONT = "Times New Roman"
+
+
+def _force_font(run, size_pt: float | None = None, bold: bool | None = None) -> None:
+    """Шрифт и цвет прямо в run: без наследования из стилей Word (Calibri, синий заголовок)."""
+    from docx.oxml.ns import qn
+    from docx.shared import Pt, RGBColor
+    run.font.name = _DOCX_FONT
+    rfonts = run._element.get_or_add_rPr().find(qn("w:rFonts"))
+    for attr in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rfonts.set(qn(attr), _DOCX_FONT)
+    run.font.color.rgb = RGBColor(0, 0, 0)
+    if size_pt is not None:
+        run.font.size = Pt(size_pt)
+    if bold is not None:
+        run.font.bold = bold
+
+
+def _contract_paragraph(container, text: str = "", *, size=11, bold=False, align=None,
+                        space_after=4):
+    """Абзац договора: Times New Roman, чёрный, свои отступы — всё явно."""
     from docx.shared import Pt
+    p = container.add_paragraph()
+    pf = p.paragraph_format
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(space_after)
+    pf.line_spacing = 1.15
+    if align is not None:
+        p.alignment = align
+    if text:
+        _force_font(p.add_run(text), size, bold)
+    return p
+
+
+def _no_borders(table) -> None:
+    """Таблица без рамок и с фиксированной раскладкой — ничего не «съезжает»."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:val"), "nil")
+        borders.append(el)
+    table._tbl.tblPr.append(borders)
+    table.autofit = False
+
+
+def _fill_cell(cell, lines: list[str], *, size=10, bold_first=False, width_cm=8.7) -> None:
+    from docx.shared import Cm
+    cell.width = Cm(width_cm)
+    for i, line in enumerate(lines):
+        p = cell.paragraphs[0] if i == 0 else cell.add_paragraph()
+        p.paragraph_format.space_after = 0
+        _force_font(p.add_run(line), size, bold=bold_first and i == 0)
+
+
+def contract_docx(ctx: dict) -> bytes:
+    from docx import Document as Docx
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    d = _docx_doc()
-    h = d.add_heading(level=1)
-    h.add_run(f'ДОГОВОР ПОСТАВКИ НЕФТЕПРОДУКТОВ № {ctx.get("contract_number","")}')
-    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    hdr = d.add_paragraph()
-    hdr.add_run(f'г. {ctx.get("city","Санкт-Петербург")}'
-                f'\t\t«{ctx.get("signed_day","")}» {ctx.get("signed_month_ru","")} {ctx.get("signed_year","")} года')
+    from docx.shared import Mm, Pt
+    d = Docx()
+    sec = d.sections[0]
+    sec.page_width, sec.page_height = Mm(210), Mm(297)
+    sec.left_margin = sec.right_margin = Mm(18)
+    sec.top_margin = sec.bottom_margin = Mm(18)
+    d.styles["Normal"].font.name = _DOCX_FONT
+    d.styles["Normal"].font.size = Pt(11)
+
+    _contract_paragraph(
+        d, f'ДОГОВОР ПОСТАВКИ НЕФТЕПРОДУКТОВ № {ctx.get("contract_number","")}',
+        size=13, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8,
+    )
+    # Город слева, дата справа — таблица без рамок вместо табуляции
+    date_tbl = d.add_table(rows=1, cols=2)
+    _no_borders(date_tbl)
+    _fill_cell(date_tbl.rows[0].cells[0], [f'г. {ctx.get("city","Санкт-Петербург")}'], size=11)
+    _fill_cell(
+        date_tbl.rows[0].cells[1],
+        [f'«{ctx.get("signed_day","")}» {ctx.get("signed_month_ru","")} {ctx.get("signed_year","")} года'],
+        size=11,
+    )
+    date_tbl.rows[0].cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    _contract_paragraph(d, "", space_after=4)
+
     seller = ctx.get("seller") or {}
     buyer = ctx.get("buyer") or {}
     # ИП действует сам за себя — без «в лице … на основании Устава» (правка 2026-10-15)
@@ -326,15 +400,15 @@ def contract_docx(ctx: dict) -> bytes:
             f'{ctx.get("buyer_director_genitive") or _g(buyer,"director_name", default="________________")}, '
             f'действующего на основании Устава, с другой стороны'
         )
-    p = d.add_paragraph()
-    p.add_run(
+    _contract_paragraph(
+        d,
         f'{_g(seller,"name")}, именуемое в дальнейшем «Поставщик», в лице '
         f'{ctx.get("seller_title_genitive") or _g(seller,"director_title", default="Генерального директора")} '
         f'{ctx.get("seller_director_genitive") or _g(seller,"director_name", default="________________")}, '
         f'действующего на основании Устава, с одной стороны, и {buyer_part}, '
-        f'заключили настоящий Договор о нижеследующем.'
+        f'заключили настоящий Договор о нижеследующем.',
+        align=WD_ALIGN_PARAGRAPH.JUSTIFY, space_after=8,
     )
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     sections = [
         ("1. Предмет договора", [
             "Поставщик обязуется в течение срока действия настоящего Договора поставить, а Покупатель принять и оплатить нефтепродукты, далее именуемые Товар, в порядке и на условиях настоящего Договора.",
@@ -383,40 +457,57 @@ def contract_docx(ctx: dict) -> bytes:
             "Во всем остальном, что не предусмотрено настоящим договором, стороны будут руководствоваться действующим гражданским законодательством.",
         ]),
     ]
-    for title, clauses in sections:
-        hp = d.add_paragraph(); hp.add_run(title).bold = True
+    from docx.shared import Pt
+    for sec_no, (title, clauses) in enumerate(sections, 1):
+        p = _contract_paragraph(d, title, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+        p.paragraph_format.space_before = Pt(8)
+        p.paragraph_format.keep_with_next = True
         for i, cl in enumerate(clauses, 1):
-            cp = d.add_paragraph(f'{cl}', style="List Number")
-            cp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            # Нумерация «1.1.» текстом: у списка Word она шла сквозь разделы и «ехала»
+            _contract_paragraph(d, f'{sec_no}.{i}. {cl}', align=WD_ALIGN_PARAGRAPH.JUSTIFY)
+
     # Реквизиты сторон
-    rp = d.add_paragraph(); rp.add_run("7. Реквизиты и подписи сторон").bold = True
-    tbl = d.add_table(rows=2, cols=2); tbl.style = "Table Grid"
-    tbl.rows[0].cells[0].paragraphs[0].add_run("ПОСТАВЩИК").bold = True
-    tbl.rows[0].cells[1].paragraphs[0].add_run("ПОКУПАТЕЛЬ").bold = True
+    p = _contract_paragraph(d, "7. Реквизиты и подписи сторон", bold=True,
+                            align=WD_ALIGN_PARAGRAPH.CENTER)
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.keep_with_next = True
 
     def reqs(party):
         lines = [_g(party, "name")]
         if _g(party, "legal_address"):
             lines.append(f'Адрес: {_g(party,"legal_address")}')
         lines.append(f'ИНН {_g(party,"inn", default="—")}' + (f' / КПП {_g(party,"kpp")}' if _g(party, "kpp") else ''))
-        if _g(party, "ogrn"):
-            lines.append(f'ОГРН {_g(party,"ogrn")}')
+        for label, key in (("ОГРН", "ogrn"), ("ОКПО", "okpo")):
+            if _g(party, key):
+                lines.append(f'{label} {_g(party, key)}')
         if _g(party, "bank_name"):
             lines.append(f'Банк: {_g(party,"bank_name")}')
-        if _g(party, "bik"):
-            lines.append(f'БИК {_g(party,"bik")}')
-        if _g(party, "checking_account"):
-            lines.append(f'Р/с {_g(party,"checking_account")}')
-        if _g(party, "correspondent_account"):
-            lines.append(f'К/с {_g(party,"correspondent_account")}')
-        return "\n".join(lines)
+        for label, key in (("БИК", "bik"), ("Р/с", "checking_account"), ("К/с", "correspondent_account")):
+            if _g(party, key):
+                lines.append(f'{label} {_g(party, key)}')
+        if _g(party, "phone"):
+            lines.append(f'Тел.: {_g(party,"phone")}')
+        if _g(party, "email"):
+            lines.append(f'E-mail: {_g(party,"email")}')
+        return lines
 
-    tbl.rows[1].cells[0].text = reqs(seller)
-    tbl.rows[1].cells[1].text = reqs(buyer)
-    d.add_paragraph("")
-    sp = d.add_paragraph()
-    sp.add_run(f'{_g(seller,"director_title", default="Генеральный директор")}: ______________  /{ctx.get("seller_sign_name","")}/'
-               f'\t\t{"Индивидуальный предприниматель" if ctx.get("buyer_is_ip") else _g(buyer,"director_title", default="Руководитель")}: ______________  /{ctx.get("buyer_sign_name","")}/')
+    tbl = d.add_table(rows=3, cols=2)
+    _no_borders(tbl)
+    _fill_cell(tbl.rows[0].cells[0], ["ПОСТАВЩИК"], bold_first=True)
+    _fill_cell(tbl.rows[0].cells[1], ["ПОКУПАТЕЛЬ"], bold_first=True)
+    _fill_cell(tbl.rows[1].cells[0], reqs(seller))
+    _fill_cell(tbl.rows[1].cells[1], reqs(buyer))
+    buyer_title = ("Индивидуальный предприниматель" if ctx.get("buyer_is_ip")
+                   else _g(buyer, "director_title", default="Руководитель"))
+    _fill_cell(
+        tbl.rows[2].cells[0],
+        ["", _g(seller, "director_title", default="Генеральный директор"), "",
+         f'______________  /{ctx.get("seller_sign_name","")}/', "М.П."],
+    )
+    _fill_cell(
+        tbl.rows[2].cells[1],
+        ["", buyer_title, "", f'______________  /{ctx.get("buyer_sign_name","")}/', "М.П."],
+    )
     buf = io.BytesIO(); d.save(buf); return buf.getvalue()
 
 

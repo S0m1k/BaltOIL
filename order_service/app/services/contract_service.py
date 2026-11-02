@@ -193,6 +193,32 @@ def _buyer_sign_name(buyer: dict) -> str:
     return _short_sign_name(name)
 
 
+_OOO_RE = re.compile(r"(?<![\w])ООО(?![\w])")
+_FILENAME_BAD = re.compile(r'[\/:*?"<>|«»\s]+')
+
+
+def expand_legal_form(name: str | None) -> str:
+    """«ООО "Ромашка"» → «Общество с ограниченной ответственностью "Ромашка"».
+
+    В тексте договора форма собственности пишется полностью (правка 2026-10-29).
+    """
+    return _OOO_RE.sub("Общество с ограниченной ответственностью", name or "")
+
+
+def _party_for_contract(party: dict) -> dict:
+    """Копия реквизитов стороны с полным названием организации (снимок не трогаем)."""
+    return {**party, "name": expand_legal_form(party.get("name"))}
+
+
+def contract_file_name(contract: Contract, ext: str) -> str:
+    """«Договор № 058 ООО Ромашка.docx» — номер и название заказчика."""
+    number = str(contract.contract_number).replace("/", "-")
+    buyer = (contract.buyer_snapshot or {}).get("name") or ""
+    title = _FILENAME_BAD.sub(" ", buyer)
+    title = re.sub(r"\s+", " ", title).strip()[:80]
+    return f"Договор № {number}{' ' + title if title else ''}.{ext}"
+
+
 def _plus_five_years(d: date) -> date:
     try:
         return d.replace(year=d.year + 5)
@@ -311,8 +337,8 @@ def _build_contract_ctx(
         "signed_month_ru":  _MONTHS_RU[signed_at.month],
         "signed_year":      signed_at.year,
         "effective_until":  effective_until.strftime("%d.%m.%Y"),
-        "seller":           seller,
-        "buyer":            buyer,
+        "seller":           _party_for_contract(seller),
+        "buyer":            _party_for_contract(buyer),
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _buyer_sign_name(buyer),
         "buyer_is_ip":      _is_sole_proprietor(buyer),
@@ -411,8 +437,8 @@ def build_contract_export_ctx(contract: Contract) -> dict:
         "signed_month_ru":  _MONTHS_RU[signed.month] if signed else "",
         "signed_year":      signed.year if signed else "",
         "effective_until":  contract.effective_until.strftime("%d.%m.%Y") if contract.effective_until else "",
-        "seller":           seller,
-        "buyer":            buyer,
+        "seller":           _party_for_contract(seller),
+        "buyer":            _party_for_contract(buyer),
         "seller_sign_name": _short_sign_name(seller.get("director_name")),
         "buyer_sign_name":  _buyer_sign_name(buyer),
         "buyer_is_ip":      _is_sole_proprietor(buyer),
