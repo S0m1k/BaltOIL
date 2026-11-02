@@ -83,3 +83,31 @@ def test_docx_numbers_clauses_per_section():
     texts = [p.text for p in Document(io.BytesIO(docx_bytes)).paragraphs]
     for prefix in ("1.1. ", "2.1. ", "3.1. ", "6.1. "):
         assert any(t.startswith(prefix) for t in texts), prefix
+
+
+def _docx_doc():
+    from docx import Document
+    return Document(io.BytesIO(document_export.contract_docx(build_contract_export_ctx(_contract()))))
+
+
+def test_docx_title_is_two_lines_and_sections_uppercase():
+    texts = [p.text for p in _docx_doc().paragraphs]
+    assert texts[0] == "ДОГОВОР ПОСТАВКИ НЕФТЕПРОДУКТОВ"
+    assert texts[1] == "№ 058/2026"
+    for title in ("1. ПРЕДМЕТ ДОГОВОРА", "2. ПОРЯДОК ПОСТАВКИ ТОВАРА", "3. ЦЕНЫ И ПОРЯДОК РАСЧЕТОВ",
+                  "6. ЗАКЛЮЧИТЕЛЬНЫЕ ПОЛОЖЕНИЯ", "7. ЮРИДИЧЕСКИЕ АДРЕСА И РЕКВИЗИТЫ СТОРОН"):
+        assert title in texts, title
+
+
+def test_docx_guarantees_and_documents_are_dash_lists():
+    texts = [p.text for p in _docx_doc().paragraphs]
+    i = next(k for k, t in enumerate(texts) if t.endswith("Поставщик гарантирует:"))
+    assert all(t.startswith("- ") for t in texts[i + 1:i + 4])
+    j = next(k for k, t in enumerate(texts) if t.endswith("следующие документы:"))
+    assert texts[j + 1].startswith("- универсальный передаточный документ")
+
+
+def test_docx_page_margins_match_sample():
+    sec = _docx_doc().sections[0]
+    assert (round(sec.left_margin.mm), round(sec.right_margin.mm)) == (20, 15)
+    assert round(sec.top_margin.mm, 1) == 12.7
