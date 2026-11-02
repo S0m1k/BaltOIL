@@ -5328,11 +5328,9 @@ function _editPencil(o, field) {
 // клиент (своя заявка) или staff, в редактируемых статусах (F2, правка 2026-06-24)
 function _canEditOrgOf(o) {
   const role = currentUser?.role;
-  // Админ меняет заказчика и в закрытых заявках (доставлена/отменена) — правки 2026-10-29;
-  // менеджеру закрытые правит бэкенд только админу (CRM-39).
-  if (role === 'admin') return true;
-  if (role === 'manager')
-    return ['new', 'awaiting_manager', 'accepted'].includes(o.status);
+  // Админ и менеджер меняют заказчика в любой заявке, и в закрытых (доставлена/отменена) —
+  // правки 2026-10-29 и 2026-11-02; остальные поля закрытой заявки правит только админ (CRM-39).
+  if (role === 'admin' || role === 'manager') return true;
   if (role === 'client')
     return o.client_id === currentUser?.id
       && ['new', 'awaiting_manager', 'accepted'].includes(o.status);
@@ -6374,9 +6372,10 @@ async function promptEditOrderOrganization(orderId) {
   let orgs = [];
   try {
     const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-    const path = isStaff ? `/organizations?user_id=${order.client_id}` : '/organizations';
-    orgs = await authGet(path);
+    // Staff выбирает из всех организаций (правка 2026-11-02), клиент — из своих
+    orgs = await authGet('/organizations');
     if (!Array.isArray(orgs)) orgs = [];
+    if (isStaff) orgs = [...orgs].sort((a, b) => String(a.company_name).localeCompare(String(b.company_name), 'ru'));
   } catch (_) { orgs = []; }
 
   const opts = [`<option value="">Физлицо</option>`]

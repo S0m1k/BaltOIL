@@ -43,6 +43,20 @@ def test_manager_cannot_edit_closed_order(status):
 
 
 @pytest.mark.parametrize("status", CLOSED)
+def test_manager_may_change_customer_of_closed_order(status):
+    _check_closed_order_edit(_order(status), _actor("manager"), {"organization_id"})
+
+
+@pytest.mark.parametrize("status", CLOSED)
+def test_manager_cannot_mix_customer_with_other_fields(status):
+    with pytest.raises(Exception) as exc:
+        _check_closed_order_edit(
+            _order(status), _actor("manager"), {"organization_id", "delivery_address"},
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("status", CLOSED)
 def test_admin_may_edit_paper_fields_of_closed_order(status):
     _check_closed_order_edit(
         _order(status), _actor("admin"),

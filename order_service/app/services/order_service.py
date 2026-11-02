@@ -31,7 +31,10 @@ from app.services import order_audit
 from app.services import client_object_service
 from app.services.actor_names import resolve_names as resolve_actor_names
 from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
-from app.services.client_context import get_client_context, get_user_organization_ids
+from fastapi import HTTPException
+from app.services.client_context import (
+    get_client_context, get_organization_target, get_user_organization_ids,
+)
 from app.services.payment_type_rules import validate_payment_type
 from app.services.pricing_service import compute_expected_amount, compute_price_breakdown, compute_delivery_cost, compute_zone_delivery_cost, get_tariff, get_default_tariff
 from app.services.zone_pricing import resolve_zone
@@ -754,18 +757,20 @@ _CLOSED_STATUSES = {
     OrderStatus.CANCELLED: ("Отменённую", "отменённой"),
 }
 _FROZEN_IN_CLOSED = {"fuel_type", "volume_requested"}
+_MANAGER_CLOSED_EDITABLE = {"organization_id"}
 
 
 def _check_closed_order_edit(order: Order, actor: TokenUser, requested_fields: set[str]) -> None:
     """CRM-39: правка заявки в закрытом статусе (доставлена/отменена).
 
-    Менеджеру закрыто совсем, админу — всё, кроме объёма и вида топлива:
-    по ним уже выписаны ТТН со счётом и списан склад.
+    Менеджеру закрыто всё, кроме смены заказчика (правка 2026-11-02); админу —
+    всё, кроме объёма и вида топлива: по ним уже выписаны ТТН со счётом и
+    списан склад.
     """
     if order.status not in _CLOSED_STATUSES:
         return
     accusative, genitive = _CLOSED_STATUSES[order.status]
-    if actor.role != ROLE_ADMIN:
+    if actor.role != ROLE_ADMIN and not requested_fields <= _MANAGER_CLOSED_EDITABLE:
         raise ForbiddenError(f"{accusative} заявку правит только администратор")
     if requested_fields & _FROZEN_IN_CLOSED:
         raise ValidationError(f"Объём и вид топлива {genitive} заявки не меняются")
@@ -776,7 +781,7 @@ _AUDITED_FIELDS = (
     "fuel_type", "volume_requested", "volume_delivered", "delivery_address",
     "desired_date", "contact_person_name", "contact_person_phone",
     "client_comment", "manager_comment", "driver_id", "expected_amount",
-    "final_amount", "delivery_cost", "payment_type", "organization_id",
+    "final_amount", "delivery_cost", "payment_type", "organization_id", "client_id",
     "allow_delivery_unpaid", "trade_credit_contract_signed",
 )
 
@@ -886,6 +891,34 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
                     order.id, exc)
 
 
+async def _client_for_org_switch(
+    client_id: uuid.UUID, org_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Кому принадлежит заявка после смены организации (staff, любая организация).
+
+    None — клиент заявки остаётся. Иначе — id владельца выбранной организации.
+    """
+    target = await get_organization_target(org_id)
+    if target is None:
+        raise ValidationError("Организация не найдена или сервис авторизации недоступен")
+    members = {uuid.UUID(m) for m in target.get("member_ids", [])}
+    if client_id in members:
+        return None
+    owner = target.get("owner_client_id")
+    if owner:
+        return uuid.UUID(owner)
+    # Ничейная организация: клиент остаётся только если auth отдаёт ему контекст
+    # (разовый клиент / staff), иначе тариф организации не посчитать.
+    try:
+        await get_client_context(client_id, org_id)
+    except HTTPException:
+        raise ValidationError(
+            "В организации нет участников — добавьте сотрудника в организацию "
+            "и повторите смену заказчика"
+        )
+    return None
+
+
 async def update_order(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -927,13 +960,22 @@ async def update_order(
     # только если новая организация — та, в которой состоит клиент заявки (та же
     # проверка членства, что и при создании заявки через get_client_context).
     # Существующие документы/договор по заявке не трогаем — это ручное действие.
+    # Staff (правка 2026-11-02) выбирает любую организацию: если клиента заявки в ней
+    # нет, заявка переходит на владельца выбранной организации — иначе тариф и
+    # кредит организации не посчитать (auth отдаёт их только участникам).
+    new_client_id: uuid.UUID | None = None
     if organization_id_requested and data.organization_id != order.organization_id:
         if data.organization_id is not None:
-            member_org_ids = await get_user_organization_ids(order.client_id)
-            if data.organization_id not in member_org_ids:
-                raise ValidationError(
-                    "Указанная организация не найдена среди организаций клиента заявки"
+            if is_staff:
+                new_client_id = await _client_for_org_switch(
+                    order.client_id, data.organization_id
                 )
+            else:
+                member_org_ids = await get_user_organization_ids(order.client_id)
+                if data.organization_id not in member_org_ids:
+                    raise ValidationError(
+                        "Указанная организация не найдена среди организаций клиента заявки"
+                    )
 
     # Снимок «до» для журнала действий (CRM-44) — снимаем ДО любых мутаций,
     # чтобы в него попали и косвенные правки (пересчёт сумм по объёму).
@@ -1003,6 +1045,8 @@ async def update_order(
         changed = True
     if organization_id_requested and data.organization_id != order.organization_id:
         order.organization_id = data.organization_id
+        if new_client_id is not None:
+            order.client_id = new_client_id
         changed = True
         changed_keys.append("organization")
         # Физ <-> юр меняет тариф и правила оплаты: вид заявки выводим так же, как

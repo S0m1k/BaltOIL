@@ -68,6 +68,23 @@ async def get_user_organization_ids(user_id: uuid.UUID) -> list[uuid.UUID]:
     return []
 
 
+async def get_organization_target(org_id: uuid.UUID) -> dict | None:
+    """Владелец и активные участники организации (auth internal contract-target).
+
+    None — организации нет или auth недоступен (вызывающий решает, что делать).
+    """
+    url = f"{AUTH_SERVICE_URL}/api/v1/internal/organizations/{org_id}/contract-target"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers={"X-Internal-Secret": INTERNAL_SECRET})
+        if resp.status_code == 200:
+            return resp.json()
+        log.warning("contract-target returned %s for org %s", resp.status_code, org_id)
+    except Exception as exc:
+        log.warning("Failed to fetch contract-target for org %s: %s", org_id, exc)
+    return None
+
+
 async def get_client_context(
     client_id: uuid.UUID, organization_id: uuid.UUID | None = None
 ) -> ClientContext:
