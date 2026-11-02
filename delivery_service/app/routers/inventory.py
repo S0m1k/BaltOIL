@@ -149,7 +149,7 @@ async def request_inventory_report_xlsx(
     fuel_type: str | None = Query(
         None,
         description="Фильтр по виду топлива (пусто = все)",
-        pattern=r"^(diesel_summer|diesel_winter|petrol_92|petrol_95|fuel_oil)$",
+        pattern=r"^[a-z0-9_]{1,50}$",
     ),
 ):
     """Сформировать XLSX складского отчёта и отправить уведомление со ссылкой."""
