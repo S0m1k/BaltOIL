@@ -6451,8 +6451,15 @@ async function duplicateOrder(orderId) {
   const clientSel = document.getElementById('c-client-id');
   if (clientSel) {
     clientSel.value = order.client_id || '';
-    // Подгружаем платёж/организации/сохранённые объекты под выбранного клиента
-    if (order.client_id) {
+    // Заявка «От организации (без клиента)»: клиента-человека нет (в заявке — сам
+    // сотрудник), в списке клиентов такого значения нет и организация не
+    // подтягивалась. Выбираем псевдо-пункт и грузим ВСЕ организации (2026-11-03).
+    const orgOnly = !!order.organization_id && (!order.client_id || clientSel.value !== order.client_id);
+    if (orgOnly) {
+      clientSel.value = '__org__';
+      await loadOrganizationSelectForOrder(null, true);
+    } else if (order.client_id) {
+      // Подгружаем платёж/организации/сохранённые объекты под выбранного клиента
       await loadOrganizationSelectForOrder(order.client_id);
       renderPaymentRadios(order.client_id, order.organization_id || '');
     }
@@ -6515,7 +6522,37 @@ async function duplicateOrder(orderId) {
   const commentEl = document.getElementById('c-manager-comment');
   if (commentEl) commentEl.value = order.manager_comment || '';
 
+  await _duplicateCarryManualPrice(order);
+
   toast(`Заявка ${order.order_number} взята за основу — проверьте поля и отправьте`);
+}
+
+// Ручная цена за литр в заявке не хранится отдельным полем — только итог. При
+// дублировании восстанавливаем её: цена топлива исходной заявки (итог минус
+// доставка, делённый на объём) сравнивается с тарифной ценой; если расходятся —
+// заявка считалась по ручной цене, и она переносится в форму (2026-11-03).
+async function _duplicateCarryManualPrice(order) {
+  try {
+    const volume = Number(order.volume_requested);
+    const amount = Number(order.final_amount != null ? order.final_amount : order.expected_amount);
+    if (!(volume > 0) || !(amount > 0) || !order.fuel_type) return;
+    const delivery = Number(order.delivery_cost || 0);
+    const originalPerLiter = (amount - delivery) / volume;
+    const body = { fuel_type: order.fuel_type, volume };
+    const cid = document.getElementById('c-client-id')?.value;
+    if (cid && !_isPseudoClient(cid)) body.client_id = cid;
+    if (order.organization_id) body.organization_id = order.organization_id;
+    const r = await orderPost('/orders/preview-price', body);
+    const tariffPerLiter = Number(r.effective_price_per_liter);
+    if (!isFinite(tariffPerLiter) || !isFinite(originalPerLiter)) return;
+    // Итог округляется до рубля, а копейки уходят в доставку — допуск 0.05 ₽/л
+    if (Math.abs(originalPerLiter - tariffPerLiter) <= 0.05) return;
+    const manualPriceEl = document.getElementById('c-manual-price');
+    if (manualPriceEl) {
+      manualPriceEl.value = originalPerLiter.toFixed(2);
+      manualPriceEl.dispatchEvent(new Event('input'));
+    }
+  } catch (_) { /* цена пересчитается по тарифу — не блокируем дублирование */ }
 }
 
 function promptDeliver(orderId) {
