@@ -12690,7 +12690,8 @@ async function loadTanks() {
             <button class="btn btn-sm btn-ghost" onclick="promptTankArrival('${t.id}')">+ Приход</button>
             ${isAdmin ? `
               <button class="btn btn-sm btn-ghost" title="Переименовать / сменить топливо" onclick="promptEditTank('${t.id}')">✎</button>
-              <button class="btn btn-sm btn-ghost" title="Задать точный остаток и счётчик" onclick="promptAdjustTank('${t.id}')">±</button>` : ''}
+              <button class="btn btn-sm btn-ghost" title="Задать точный остаток и счётчик" onclick="promptAdjustTank('${t.id}')">±</button>
+              <button class="btn btn-sm btn-ghost" title="Удалить ёмкость" style="color:var(--red)" onclick="promptDeleteTank('${t.id}')">🗑</button>` : ''}
           </div>
         </div>`).join('');
     }
@@ -12866,6 +12867,24 @@ function promptAdjustTank(tankId) {
         loadTanks();
       } catch (e) { toast(e.message, 'error'); }
     });
+}
+
+function promptDeleteTank(tankId) {
+  const t = _tanks.find(x => x.id === tankId);
+  if (!t) return;
+  openModal('Удалить ёмкость?',
+    `<div style="font-size:14px;line-height:1.5">Ёмкость <strong>${escHtml(t.name)}</strong> и её записи прихода/корректировок будут удалены без возможности восстановления.</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:8px">Если по ёмкости были выдачи, расходы или переливы, удалить её нельзя — скройте через ✎ (снимите «Ёмкость активна»).</div>`,
+    async () => {
+      try {
+        await deliveryDelete(`/inventory/tanks/${tankId}`);
+        closeModal();
+        toast('Ёмкость удалена');
+        loadTanks();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  const btn = document.getElementById('modal-confirm');
+  if (btn) btn.textContent = 'Удалить';
 }
 
 function promptTankArrival(tankId) {

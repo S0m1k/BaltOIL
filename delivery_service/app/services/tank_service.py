@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.dependencies import TokenUser, ROLE_ADMIN, ROLE_MANAGER, ROLE_DRIVER
-from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.models.fuel_tank import FuelTank, TankTransaction, TankTxKind, TANK_COUNTER_MODULUS
 from app.schemas.tank import (
     TankCreate, TankUpdate, TankAdjust, TankArrival, TankIssue, TankTransfer,
@@ -200,6 +200,33 @@ async def update_tank(
         tank.is_active = data.is_active
     await db.flush()
     return await _tank_response(tank)
+
+
+async def delete_tank(db: AsyncSession, tank_id: uuid.UUID, actor: TokenUser) -> None:
+    """Удалить ёмкость (admin) — только «чистую», без реальных операций.
+
+    Приход и корректировки (в т.ч. пробные) уходят вместе с ёмкостью. Если были
+    выдачи по заявкам, расходы или переливы — удалять нельзя, журнал для учёта
+    должен остаться: такую ёмкость скрывают (is_active=false).
+    """
+    _require_admin(actor)
+    tank = await _get_tank_locked(db, tank_id)
+    used = await db.execute(
+        select(TankTransaction.id).where(
+            TankTransaction.tank_id == tank.id,
+            TankTransaction.kind.in_([
+                TankTxKind.ISSUE, TankTxKind.EXPENSE,
+                TankTxKind.TRANSFER_IN, TankTxKind.TRANSFER_OUT,
+            ]),
+        ).limit(1)
+    )
+    if used.first() is not None:
+        raise ConflictError(
+            "По ёмкости были выдачи, расходы или переливы — удалить нельзя, "
+            "чтобы не потерять историю. Скройте её (снимите «Ёмкость активна»)."
+        )
+    await db.delete(tank)
+    await db.flush()
 
 
 async def adjust_tank(

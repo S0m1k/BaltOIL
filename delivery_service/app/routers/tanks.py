@@ -3,6 +3,7 @@
 GET    /inventory/tanks                     — список (водитель/менеджер/админ)
 POST   /inventory/tanks                     — создать (админ)
 PATCH  /inventory/tanks/{id}                — переименовать/сменить топливо/скрыть (админ)
+DELETE /inventory/tanks/{id}                — удалить «чистую» ёмкость (админ)
 POST   /inventory/tanks/{id}/adjust         — корректировка литров/счётчика (админ)
 POST   /inventory/tanks/{id}/arrival        — приход в ёмкость (водитель+)
 POST   /inventory/tanks/{id}/issue          — выдача по счётчику (водитель+)
@@ -73,6 +74,17 @@ async def update_tank(
     tank = await tank_service.update_tank(db, tank_id, data, current_user)
     await db.commit()
     return tank
+
+
+@router.delete("/{tank_id}", status_code=204,
+               summary="Удалить ёмкость без выдач/расходов/переливов (админ)")
+async def delete_tank(
+    tank_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await tank_service.delete_tank(db, tank_id, current_user)
+    await db.commit()
 
 
 @router.post("/transfer", response_model=list[TankResponse],
