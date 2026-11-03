@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_call:
+
+jobs:
+  frontend:
+    name: Фронт (синтаксис SPA + тесты)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Одна опечатка в инлайновом <script> гасит все кнопки (авария 24.08.2026) —
+      # поэтому самый большой скрипт index.html должен проходить node --check.
+      - name: Синтаксис инлайнового скрипта index.html
+        run: |
+          python3 - <<'EOF'
+          import re
+          s = open('frontend/index.html', encoding='utf-8').read()
+          parts = re.findall(r'<script(?![^>]*src)[^>]*>(.*?)</script>', s, re.S)
+          open('/tmp/spa.js', 'w', encoding='utf-8').write(max(parts, key=len))
+          EOF
+          node --check /tmp/spa.js
+      - name: Тесты фронта
+        run: node --test frontend/tests/*.test.mjs
+
+  backend:
+    name: Бэкенд (компиляция + compose-конфиг)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Компиляция Python
+        run: python -m compileall -q auth_service order_service delivery_service chat_service call_service notification_service
+      - name: Валидность docker-compose.yml
+        run: |
+          touch auth_service/.env order_service/.env delivery_service/.env chat_service/.env call_service/.env notification_service/.env
+          docker compose config -q

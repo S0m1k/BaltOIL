@@ -1,0 +1,38 @@
+name: Deploy to prod
+
+# Деплой идёт только после зелёного CI на master. Вручную: Actions -> Deploy to prod -> Run workflow.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Выкатка на прод
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH-ключ и known_hosts
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Отпечаток хоста берём из секрета (ssh-keyscan на прод, один раз), без слепого доверия
+          printf '%s %s\n' "$DEPLOY_HOST" "$DEPLOY_HOST_KEY" > ~/.ssh/known_hosts
+      - name: Деплой
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" /opt/baltoil/scripts/deploy.sh
