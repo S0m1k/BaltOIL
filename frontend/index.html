@@ -7914,8 +7914,8 @@ async function loadFuels() {
     const fuels = await orderGet(isAdmin ? '/fuel-types?include_inactive=true' : '/fuel-types');
     el.innerHTML = fuels.map(f => `
       <div class="fuel-card" style="${f.is_active ? '' : 'opacity:.45'}">
-        <div class="fuel-short">${escHtml(f.code)}</div>
-        <div class="fuel-name">${escHtml(f.label)}
+        <div class="fuel-short" style="font-size:22px;line-height:1.2;word-break:break-word">${escHtml(f.label)}</div>
+        <div class="fuel-name">
           ${isAdmin ? `<button class="btn btn-sm btn-ghost" title="Переименовать" style="padding:2px 6px"
             onclick="promptRenameFuelType('${escHtml(f.code)}','${escHtml(f.label)}')">✎</button>` : ''}
         </div>
