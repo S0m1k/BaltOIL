@@ -2771,6 +2771,8 @@ function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
       <div class="toolbar">
         <div class="toolbar-title">Тарифы</div>
         <button class="btn btn-sm btn-primary" id="btn-create-tariff" onclick="promptCreateTariff()" style="margin-left:auto">+ Новый тариф</button>
+        <button class="btn btn-sm btn-ghost" id="btn-tariff-fuels" onclick="switchTab('fuels')" style="display:none"
+          title="Добавить или переименовать вид топлива — он сразу появится в тарифах">⛽ Виды топлива</button>
         <button class="btn btn-sm btn-ghost" onclick="loadTariffs()">↻ Обновить</button>
       </div>
       <!-- Default tariff quick-edit block (visible to manager + admin) -->
@@ -4418,6 +4420,8 @@ async function initApp() {
     (role === 'admin' || role === 'manager') ? '' : 'none';
   const btnCreateTariff = document.getElementById('btn-create-tariff');
   if (btnCreateTariff) btnCreateTariff.style.display = (role === 'admin' || role === 'manager') ? '' : 'none';
+  const btnTariffFuels = document.getElementById('btn-tariff-fuels');
+  if (btnTariffFuels) btnTariffFuels.style.display = role === 'admin' ? '' : 'none';
 
   // Chat tab — visible to all roles
   document.getElementById('tab-chat-btn').style.display = '';
