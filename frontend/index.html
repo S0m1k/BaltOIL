@@ -2778,7 +2778,7 @@ function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
       <!-- Default tariff quick-edit block (visible to manager + admin) -->
       <div id="tariff-default-block" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-          <span style="font-weight:600;font-size:14px">Базовый тариф — актуальные цены</span>
+          <span style="font-weight:600;font-size:14px">Базовый тариф юрлиц — актуальные цены (с НДС)</span>
           <span class="status-badge" style="background:var(--green-bg);color:var(--green)">Активный</span>
           <span id="tariff-default-name" style="font-size:12px;color:var(--text3);margin-left:4px"></span>
         </div>
@@ -13651,7 +13651,11 @@ async function loadTariffs() {
   try {
     const tariffs = await orderGet('/tariffs?include_archived=false');
     _allTariffs = tariffs;
-    _defaultTariff = tariffs.find(t => t.is_default) || null;
+    // Быстрые цены правятся у базового тарифа ЮРЛИЦ (цены с НДС): базовый для физлиц
+    // заказчица считает формулой со скидкой от него (правки 2026-11-03). Нет базового
+    // юрлиц — прежнее поведение, первый базовый.
+    _defaultTariff = tariffs.find(t => t.is_default && t.client_type === 'company')
+      || tariffs.find(t => t.is_default) || null;
     renderDefaultTariffBlock(_defaultTariff);
     renderTariffsList(tariffs);
   } catch (e) {
