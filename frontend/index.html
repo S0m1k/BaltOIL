@@ -4415,6 +4415,11 @@ async function initApp() {
   document.getElementById('tab-finance-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
 
+  // Справочник топлива: вкладка на десктопе была создана скрытой и нигде не
+  // включалась (в бургер-меню на мобиле она есть). Админ правит каталог, менеджер смотрит.
+  const tabFuels = document.getElementById('tab-fuels-btn');
+  if (tabFuels) tabFuels.style.display = (role === 'admin' || role === 'manager') ? '' : 'none';
+
   // Tariffs — полный CRUD у admin + manager
   document.getElementById('tab-tariffs-btn').style.display =
     (role === 'admin' || role === 'manager') ? '' : 'none';
