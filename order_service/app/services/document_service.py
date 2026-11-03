@@ -29,6 +29,7 @@ from app.models.order import Order
 from app.models.payment import Payment, PaymentStatus
 from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
+from app.services import fuel_type_service
 from app.services.legal_entity_service import get_seller_snapshot
 from app.services.money import DEFAULT_VAT_RATE, invoice_display_number, price_first_breakdown
 
@@ -261,7 +262,7 @@ def _save_pdf(order_id: uuid.UUID, doc_number: str, pdf_bytes: bytes) -> str:
 
 def _fuel_name(order: Order) -> str:
     fuel_val = order.fuel_type.value if hasattr(order.fuel_type, "value") else str(order.fuel_type)
-    return FUEL_LABELS.get(fuel_val, fuel_val)
+    return fuel_type_service.document_name(fuel_val, FUEL_LABELS)
 
 
 def _order_amount(order: Order) -> float:

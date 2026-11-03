@@ -65,6 +65,7 @@ async def create_fuel_type(
     try:
         entry = await fuel_type_service.create_fuel_type(db, data)
         await db.commit()
+        await fuel_type_service.refresh_labels(db)
         await db.refresh(entry)
         return entry
     except Exception as exc:
@@ -84,6 +85,7 @@ async def update_fuel_type(
     """Обновить запись каталога (только admin)."""
     entry = await fuel_type_service.update_fuel_type(db, code, data)
     await db.commit()
+    await fuel_type_service.refresh_labels(db)
     await db.refresh(entry)
     return entry
 
@@ -97,5 +99,6 @@ async def delete_fuel_type(
     """Деактивировать вид топлива (мягкое удаление, только admin)."""
     entry = await fuel_type_service.soft_delete(db, code)
     await db.commit()
+    await fuel_type_service.refresh_labels(db)
     await db.refresh(entry)
     return entry

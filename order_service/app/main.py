@@ -41,6 +41,14 @@ async def lifespan(app: FastAPI):
     _assert_prod_secrets_safe()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services import fuel_type_service
+        async with AsyncSessionLocal() as _db:
+            await fuel_type_service.refresh_labels(_db)
+    except Exception:  # документы не должны ронять старт: останутся прежние названия
+        import logging
+        logging.getLogger(__name__).warning("fuel labels cache not loaded", exc_info=True)
     yield
     await engine.dispose()
 

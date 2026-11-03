@@ -558,9 +558,10 @@ async def payment_report(
 
 def generate_invoice_html(payment: Payment, order: Order, client_info: dict, seller_info: dict) -> str:
     """Генерация HTML-счёта. Возвращается как строка для отображения/печати."""
-    from app.services.document_service import FUEL_LABELS as fuel_labels  # один источник названий
+    from app.services import fuel_type_service
+    from app.services.document_service import FUEL_LABELS  # один источник названий
     fuel_type = order.fuel_type.value if hasattr(order.fuel_type, 'value') else str(order.fuel_type)
-    fuel_name = fuel_labels.get(fuel_type, fuel_type)
+    fuel_name = fuel_type_service.document_name(fuel_type, FUEL_LABELS)
 
     basis_label = "Предоплата" if payment.kind == PaymentKind.PREPAYMENT else "По факту доставки"
     volume = float(order.volume_requested) if payment.kind == PaymentKind.PREPAYMENT else float(order.volume_delivered or order.volume_requested)

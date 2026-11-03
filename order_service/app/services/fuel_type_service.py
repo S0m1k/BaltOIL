@@ -12,6 +12,33 @@ from app.core.exceptions import ValidationError, NotFoundError
 
 log = logging.getLogger(__name__)
 
+# Названия видов топлива из каталога для документов (счёт, ТТН, договор…).
+# Генераторы документов синхронные, поэтому берём из памяти; кэш обновляется на
+# старте сервиса и при каждой правке каталога администратором (2026-11-03).
+_catalog_labels: dict[str, str] = {}
+
+
+async def refresh_labels(db: AsyncSession) -> None:
+    """Перечитать названия всех видов топлива (включая скрытые) из каталога."""
+    global _catalog_labels
+    _catalog_labels = {e.code: e.label for e in await list_all(db)}
+
+
+def document_name(code: str, legacy: dict[str, str]) -> str:
+    """Название топлива в документе.
+
+    Прежние пять кодов (ДТ-Л, ДТ-З, АИ-92/95, мазут) выводятся как раньше — по
+    ним уже выписаны документы. Остальное берём из каталога, поэтому виды,
+    добавленные админом (в т.ч. «ДТ-Е-К5, сорт F»), попадают в документ с
+    собственным названием, а не сырым кодом.
+    """
+    if code in legacy:
+        return legacy[code]
+    label = _catalog_labels.get(code)
+    if not label:
+        return code
+    return f"Дизельное топливо ({label})" if label.upper().startswith("ДТ") else label
+
 
 async def list_active(db: AsyncSession) -> list[FuelTypeCatalog]:
     """Все активные записи, отсортированные по sort_order, code."""
