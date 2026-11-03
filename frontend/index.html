@@ -12727,7 +12727,9 @@ async function loadTankTransactions() {
 }
 
 function _tankFuelOpts(selected) {
-  return _fuelCatalog.filter(f => f.is_active)
+  // Текущее топливо ёмкости показываем всегда, даже если оно скрыто в каталоге —
+  // иначе select молча подставит первый пункт и сменит топливо.
+  return _fuelCatalog.filter(f => f.is_active || f.code === selected)
     .map(f => `<option value="${escHtml(f.code)}"${f.code === selected ? ' selected' : ''}>${escHtml(f.label)}</option>`)
     .join('');
 }
@@ -12780,6 +12782,20 @@ function promptEditTank(tankId) {
       <label class="form-label">Вид топлива</label>
       <select id="tk-fuel" class="form-input">${_tankFuelOpts(t.fuel_type)}</select>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Остаток, л</label>
+        <input type="number" id="tk-volume" class="form-input" step="0.01" value="${Number(t.current_volume)}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Счётчик (6 цифр)</label>
+        <input type="number" id="tk-counter" class="form-input" min="0" max="999999" step="1" value="${t.counter}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Причина изменения остатка / счётчика</label>
+      <input type="text" id="tk-notes" class="form-input" placeholder="Нужна, только если меняете остаток или счётчик">
+    </div>
     <div class="form-group">
       <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="tk-active" ${t.is_active ? 'checked' : ''}><span>Ёмкость активна (видна в операциях)</span>
@@ -12789,10 +12805,30 @@ function promptEditTank(tankId) {
       const name = document.getElementById('tk-name').value.trim();
       if (!name) { toast('Укажите название', 'error'); return; }
       const fuel = document.getElementById('tk-fuel').value;
+      if (!fuel) { toast('Выберите вид топлива', 'error'); return; }
       const isActive = document.getElementById('tk-active').checked;
-      closeModal();
+      const vol = parseFloat(document.getElementById('tk-volume').value);
+      const counter = parseInt(document.getElementById('tk-counter').value, 10);
+      const notes = document.getElementById('tk-notes').value.trim();
+      if (isNaN(counter) || counter < 0 || counter > 999999) { toast('Счётчик — число от 0 до 999999', 'error'); return; }
+      const volChanged = !isNaN(vol) && vol !== Number(t.current_volume);
+      const counterChanged = counter !== Number(t.counter);
+      if ((volChanged || counterChanged) && !notes) { toast('Укажите причину изменения остатка / счётчика', 'error'); return; }
+      const infoChanged = name !== t.name || fuel !== t.fuel_type || isActive !== t.is_active;
+      if (!infoChanged && !volChanged && !counterChanged) { closeModal(); return; }
+      // Окно не закрываем до успеха — при ошибке введённое не теряется
       try {
-        await api(`${DELIVERY_URL}/inventory/tanks/${tankId}`, { method: 'PATCH', body: JSON.stringify({ name, fuel_type: fuel, is_active: isActive }) });
+        if (infoChanged) {
+          await deliveryPatch(`/inventory/tanks/${tankId}`, { name, fuel_type: fuel, is_active: isActive });
+        }
+        if (volChanged || counterChanged) {
+          await deliveryPost(`/inventory/tanks/${tankId}/adjust`, {
+            volume: volChanged ? vol : null,
+            counter: counterChanged ? counter : null,
+            notes,
+          });
+        }
+        closeModal();
         toast('Сохранено');
         loadTanks();
       } catch (e) { toast(e.message, 'error'); }
