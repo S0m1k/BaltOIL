@@ -36,7 +36,19 @@ def _dec(value) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
-def apply_formula(base_price, formula_type: str | None, formula_value) -> Decimal:
+def round_to_step(price: Decimal, step) -> Decimal:
+    """Округлить цену до ближайшего шага (0.50 → до 50 копеек, половина вверх)."""
+    if step is None:
+        return price
+    st = _dec(step)
+    if st <= 0:
+        return price
+    return ((price / st).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * st).quantize(
+        _PRICE_Q, rounding=ROUND_HALF_UP
+    )
+
+
+def apply_formula(base_price, formula_type: str | None, formula_value, round_to=None) -> Decimal:
     """Цена формульного тарифа от цены базового.
 
     percent: base × (1 + value/100);  fixed: base + value;  equal: база как есть.
@@ -45,7 +57,7 @@ def apply_formula(base_price, formula_type: str | None, formula_value) -> Decima
     price = _dec(base_price)
     if formula_type == FORMULA_EQUAL:
         # Величина у «= базовый» не хранится, а присланную игнорируем.
-        return price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP)
+        return round_to_step(price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP), round_to)
     if formula_type is None or formula_value is None:
         return price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP)
     val = _dec(formula_value)
@@ -55,7 +67,7 @@ def apply_formula(base_price, formula_type: str | None, formula_value) -> Decima
         price = price + val
     else:
         raise ValueError(f"Неизвестный тип формулы: {formula_type}")
-    price = price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP)
+    price = round_to_step(price.quantize(_PRICE_Q, rounding=ROUND_HALF_UP), round_to)
     return price if price >= MIN_PRICE else MIN_PRICE
 
 
@@ -102,6 +114,7 @@ def derive_price_rows(
     own_rows,
     formula_type: str | None,
     formula_value,
+    round_to=None,
 ) -> list[dict]:
     """Эффективные цены формульного тарифа.
 
@@ -118,7 +131,7 @@ def derive_price_rows(
         result.append({
             "fuel_type": row["fuel_type"],
             "price_per_liter": apply_formula(
-                row["price_per_liter"], formula_type, formula_value
+                row["price_per_liter"], formula_type, formula_value, round_to
             ),
             "is_hidden": row["fuel_type"] in own_hidden,
         })

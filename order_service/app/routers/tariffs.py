@@ -83,6 +83,7 @@ async def create_tariff(
         base_tariff_id=data.base_tariff_id,
         formula_type=data.formula_type,
         formula_value=data.formula_value,
+        formula_round_to=data.formula_round_to,
     )
 
 
@@ -108,6 +109,7 @@ async def update_tariff(
         base_tariff_id=data.base_tariff_id,
         formula_type=data.formula_type,
         formula_value=data.formula_value,
+        formula_round_to=data.formula_round_to,
         _formula_set=formula_set,
     )
 

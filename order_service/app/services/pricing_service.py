@@ -43,7 +43,8 @@ async def resolve_fuel_price(
             )
             return None
         rows = tariff_formula.derive_price_rows(
-            base.fuel_prices, tariff.fuel_prices, tariff.formula_type, tariff.formula_value
+            base.fuel_prices, tariff.fuel_prices, tariff.formula_type, tariff.formula_value,
+            tariff.formula_round_to,
         )
     else:
         rows = tariff_formula.normalize_rows(tariff.fuel_prices)

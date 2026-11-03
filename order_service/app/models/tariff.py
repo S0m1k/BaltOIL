@@ -34,6 +34,8 @@ class Tariff(Base):
     formula_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
     # Знаковое: +5 = наценка, −5 = скидка (в % или ₽/л по formula_type)
     formula_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    # Округление результата формулы до шага, ₽ (0.50 = до 50 копеек); NULL — без округления
+    formula_round_to: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

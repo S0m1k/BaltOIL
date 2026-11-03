@@ -51,7 +51,8 @@ async def _attach_effective(db: AsyncSession, tariffs: list[Tariff]) -> None:
         t.base_tariff_name = base.name if base else None
         if base is not None:
             t.effective_fuel_prices = tariff_formula.derive_price_rows(
-                base.fuel_prices, t.fuel_prices, t.formula_type, t.formula_value
+                base.fuel_prices, t.fuel_prices, t.formula_type, t.formula_value,
+                t.formula_round_to,
             )
         else:
             t.effective_fuel_prices = tariff_formula.normalize_rows(t.fuel_prices)
@@ -271,6 +272,7 @@ async def create_tariff(
     base_tariff_id: uuid.UUID | None = None,
     formula_type: str | None = None,
     formula_value: Decimal | None = None,
+    formula_round_to: Decimal | None = None,
 ) -> Tariff:
     _check_staff(actor)
     is_formula = base_tariff_id is not None
@@ -296,6 +298,7 @@ async def create_tariff(
         base_tariff_id=base_tariff_id,
         formula_type=formula_type if is_formula else None,
         formula_value=_stored_formula_value(formula_type, formula_value) if is_formula else None,
+        formula_round_to=formula_round_to if is_formula else None,
     )
     db.add(tariff)
     await db.flush()
@@ -331,6 +334,7 @@ async def update_tariff(
     base_tariff_id: uuid.UUID | None = None,
     formula_type: str | None = None,
     formula_value: Decimal | None = None,
+    formula_round_to: Decimal | None = None,
     _formula_set: bool = False,
 ) -> Tariff:
     tariff = await _load_tariff(db, tariff_id)
@@ -351,10 +355,12 @@ async def update_tariff(
             _stored_formula_value(formula_type, formula_value)
             if base_tariff_id is not None else None
         )
+        new_round_to = formula_round_to if base_tariff_id is not None else None
     else:
         new_base_id = tariff.base_tariff_id
         new_formula_type = tariff.formula_type
         new_formula_value = tariff.formula_value
+        new_round_to = tariff.formula_round_to
 
     _validate_fuel_prices(fuel_prices, is_formula=new_base_id is not None)
     _validate_tiers(volume_tiers)
@@ -365,6 +371,7 @@ async def update_tariff(
     tariff.base_tariff_id = new_base_id
     tariff.formula_type = new_formula_type
     tariff.formula_value = new_formula_value
+    tariff.formula_round_to = new_round_to
 
     if name and name != tariff.name:
         _check_staff(actor)

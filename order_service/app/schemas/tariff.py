@@ -41,6 +41,8 @@ class TariffCreateRequest(BaseModel):
     formula_type: FormulaType | None = Field(None, description="percent | fixed | equal")
     formula_value: Decimal | None = Field(None, decimal_places=4,
                                           description="Знаковое: +наценка / −скидка")
+    # Округление результата формулы до шага, ₽ (0.5 = до 50 копеек); null — без округления
+    formula_round_to: Decimal | None = Field(None, gt=0, le=Decimal("100"), decimal_places=2)
 
 
 class TariffUpdateRequest(BaseModel):
@@ -55,6 +57,7 @@ class TariffUpdateRequest(BaseModel):
     base_tariff_id: uuid.UUID | None = None
     formula_type: FormulaType | None = None
     formula_value: Decimal | None = Field(None, decimal_places=4)
+    formula_round_to: Decimal | None = Field(None, gt=0, le=Decimal("100"), decimal_places=2)
 
 
 class FuelPriceResponse(BaseModel):
@@ -91,6 +94,7 @@ class TariffResponse(BaseModel):
     base_tariff_name: str | None = None
     formula_type: str | None = None
     formula_value: Decimal | None = None
+    formula_round_to: Decimal | None = None
     # Итоговые цены после применения формулы (для обычных тарифов совпадают
     # с fuel_prices). Клиентам и расчётам следует смотреть сюда.
     effective_fuel_prices: list[FuelPriceResponse] = Field(default_factory=list)
