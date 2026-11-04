@@ -92,6 +92,8 @@ async def list_tanks(
     db: AsyncSession, actor: TokenUser, *, include_inactive: bool = False
 ) -> list[TankResponse]:
     _require_view(actor)
+    if actor.role == ROLE_DRIVER and get_settings().tanks_hidden_from_drivers:
+        return []
     conditions = []
     if not include_inactive:
         conditions.append(FuelTank.is_active == True)  # noqa: E712
