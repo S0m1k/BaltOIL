@@ -112,9 +112,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     if (_isStaff) {
       // ФИО водителя в карточке (2026-07-25); ошибка не критична —
       // останется фолбэк из первых символов id.
-      AuthRepository.instance.listByRole('driver').then((list) {
-        if (mounted) setState(() => _drivers = list);
-      }).catchError((_) {});
+      AuthRepository.instance
+          .listByRole('driver')
+          .then((list) {
+            if (mounted) setState(() => _drivers = list);
+          })
+          .catchError((_) {});
     }
   }
 
@@ -806,9 +809,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     if (!mounted || res == null) return;
     final warning = res.warning;
     if (warning != null) _snack(warning);
-    _snack(res.paymentRecorded
-        ? 'Доставлена, оплата зафиксирована'
-        : 'Статус изменён → Доставлена');
+    _snack(
+      res.paymentRecorded
+          ? 'Доставлена, оплата зафиксирована'
+          : 'Статус изменён → Доставлена',
+    );
     _reload();
   }
 
@@ -981,7 +986,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         _DetailRow(
           label: 'Заказчик',
           text: order.buyerName ?? 'Физлицо',
-          onEdit: _editIf(order, 'organization_id', () => _changeCustomer(order)),
+          onEdit: _editIf(
+            order,
+            'organization_id',
+            () => _changeCustomer(order),
+          ),
         ),
       );
     }
@@ -1027,7 +1036,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     rows.add(
       _DetailRow(
         label: 'Адрес доставки',
-        text: order.deliveryAddress.trim().isEmpty ? null : order.deliveryAddress,
+        text: order.deliveryAddress.trim().isEmpty
+            ? null
+            : order.deliveryAddress,
         child: order.deliveryAddress.trim().isEmpty
             ? Text('Адрес уточняется', style: TextStyle(color: c.text3))
             : null,
@@ -1076,7 +1087,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
 
     // CRM-45: строка есть и у пустого контакта — иначе его нечем добавить.
-    final hasContact = (order.contactPersonName?.isNotEmpty ?? false) ||
+    final hasContact =
+        (order.contactPersonName?.isNotEmpty ?? false) ||
         (order.contactPersonPhone?.isNotEmpty ?? false);
     final canEditContact = _can(order, 'contact_person_name');
     if (hasContact || canEditContact) {
@@ -1134,6 +1146,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           onEdit: _editIf(order, 'fuel_cost', () => _editFuelCost(order)),
         ),
       );
+      // Формула цены — как в вебе (priceFormulaHTML); у перевозки топливной формулы нет.
+      final formula = order.isTransport ? null : _priceFormula(order);
+      if (formula != null) {
+        rows.add(_DetailRow(label: 'Расчёт цены', text: formula));
+      }
     }
 
     if (_isStaff && order.driverId != null) {
@@ -1238,26 +1255,36 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       // Маршрут бэкенд кладёт в адрес доставки как «А → Б», поэтому названия
       // точек видны и без доступа к справочникам.
       _DetailRow(label: 'Маршрут', text: order.deliveryAddress),
-      if (d.amountKg != null) _DetailRow(label: 'Количество, кг', text: '${d.amountKg}'),
-      if (d.amountL != null) _DetailRow(label: 'Количество, л', text: '${d.amountL}'),
+      if (d.amountKg != null)
+        _DetailRow(label: 'Количество, кг', text: '${d.amountKg}'),
+      if (d.amountL != null)
+        _DetailRow(label: 'Количество, л', text: '${d.amountL}'),
       _DetailRow(label: 'Дата', text: d.desiredDateText ?? '—'),
     ];
 
     final financeRows = <_DetailRow>[
-      if (d.pricePerKg != null) _DetailRow(label: 'Цена, ₽/кг', text: '${d.pricePerKg}'),
-      if (d.pricePerL != null) _DetailRow(label: 'Цена, ₽/л', text: '${d.pricePerL}'),
-      if (d.density != null) _DetailRow(label: 'Плотность', text: '${d.density}'),
-      if (d.totalAmount != null) _DetailRow(label: 'Итого', text: money(d.totalAmount)),
+      if (d.pricePerKg != null)
+        _DetailRow(label: 'Цена, ₽/кг', text: '${d.pricePerKg}'),
+      if (d.pricePerL != null)
+        _DetailRow(label: 'Цена, ₽/л', text: '${d.pricePerL}'),
+      if (d.density != null)
+        _DetailRow(label: 'Плотность', text: '${d.density}'),
+      if (d.totalAmount != null)
+        _DetailRow(label: 'Итого', text: money(d.totalAmount)),
       for (var i = 0; i < d.supplierPayments.length; i++)
         _DetailRow(
           label: 'Поставщику ${i + 1}',
-          text: '${money(d.supplierPayments[i].amount)}'
+          text:
+              '${money(d.supplierPayments[i].amount)}'
               '${d.supplierPayments[i].date != null ? ' от ${d.supplierPayments[i].date}' : ''}',
         ),
       if (d.deliveryPrice != null)
         _DetailRow(label: 'Стоимость доставки', text: money(d.deliveryPrice)),
       if (d.deliveryPrice != null)
-        _DetailRow(label: 'Оплата получена', text: d.deliveryPaid ? 'да' : 'нет'),
+        _DetailRow(
+          label: 'Оплата получена',
+          text: d.deliveryPaid ? 'да' : 'нет',
+        ),
       if (d.driverPaymentAmount != null)
         _DetailRow(label: 'Водителю', text: money(d.driverPaymentAmount)),
     ];
@@ -1304,10 +1331,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   Future<void> _editTransport(OrderDetail order) async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => TransportCreateScreen(
-          user: widget.user,
-          orderId: order.id,
-        ),
+        builder: (_) =>
+            TransportCreateScreen(user: widget.user, orderId: order.id),
       ),
     );
     if (changed == true) _reload();
@@ -1944,6 +1969,42 @@ String _fmtNum(double v) {
         .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]} ');
   }
   return v.toString();
+}
+
+String _perLiter(double v, {int maxDecimals = 2}) {
+  var s = v.toStringAsFixed(maxDecimals);
+  if (maxDecimals > 2) s = s.replaceFirst(RegExp(r'0{1,2}$'), '');
+  return s
+      .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?=\.))'), (m) => '${m[1]} ')
+      .replaceFirst('.', ',');
+}
+
+/// «цена/л × литры + доставка = сумма» (веб priceFormulaHTML). Итог заявки
+/// считается от цены за литр с доставкой, округлённой до копейки (CRM-27), поэтому
+/// запись «цена × литры + доставка» не всегда сходится: тогда показываем точную
+/// «цена с доставкой × литры» и топливо/доставку справкой.
+String? _priceFormula(OrderDetail o) {
+  final amount = o.finalAmount ?? o.expectedAmount;
+  final volume = o.finalAmount != null && o.volumeDelivered != null
+      ? o.volumeDelivered!
+      : o.volumeRequested;
+  if (amount == null || volume <= 0) return null;
+  final delivery = o.deliveryCost ?? 0;
+  final perLiter = (amount - delivery) / volume;
+  if (perLiter <= 0) return null;
+  final perLiterAll = (amount / volume * 100).round() / 100;
+  final rounded = (perLiter * 100).round() / 100;
+  final vol = _fmtNum(volume);
+  if ((rounded * volume + delivery - amount).abs() <= 0.01) {
+    return '${_perLiter(perLiter)} ₽/л × $vol л'
+        '${delivery > 0 ? ' + ${_fmtNum(delivery)} ₽ доставка' : ''}'
+        ' = ${_fmtMoney(amount)} ₽\n'
+        'Цена за литр с учётом доставки: ${_perLiter(perLiterAll)} ₽';
+  }
+  return '${_perLiter(perLiterAll)} ₽/л × $vol л = ${_fmtMoney(amount)} ₽\n'
+      'Цена за литр с доставкой округляется до копейки, от неё считается итог. '
+      'В том числе топливо ≈ ${_perLiter(perLiter, maxDecimals: 4)} ₽/л'
+      '${delivery > 0 ? ' и доставка ${_fmtNum(delivery)} ₽' : ''}.';
 }
 
 String _fmtMoney(double v) => v

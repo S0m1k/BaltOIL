@@ -5576,11 +5576,27 @@ function priceFormulaHTML(o, driverHidesMoney) {
   const delivery = o.delivery_cost != null ? Number(o.delivery_cost) : 0;
   const perLiter = (amount - delivery) / volume;
   if (!(perLiter > 0)) return '';
-  const formula = `${fmtPerLiter(perLiter)} ₽/л × ${Number(volume).toLocaleString('ru')} л`
-    + (delivery > 0 ? ` + ${fmtRub(delivery)} ₽ доставка` : '')
-    + ` = <strong>${fmtRub(amount)} ₽</strong>`;
-  // Справочная цена за литр «под ключ» — итог / литры (правки 2026-08-24)
-  const perLiterAll = `<div style="color:var(--text3);font-size:12px;margin-top:2px">Цена за литр с учётом доставки: ${fmtPerLiter(amount / volume)} ₽</div>`;
+  const volTxt = Number(volume).toLocaleString('ru');
+  const perLiterAllNum = Math.round(amount / volume * 100) / 100;
+  // Итог заявки считается от цены за литр С ДОСТАВКОЙ, округлённой до копейки
+  // (CRM-27), поэтому «цена × литры + доставка» не всегда равна итогу: цену
+  // топлива из итога восстановить можно только приблизительно (76,9956 → «77,00»).
+  // Если запись сходится до копейки — показываем её, иначе — точную запись
+  // «цена с доставкой × литры» и топливо/доставку справкой.
+  const roundedPerLiter = Math.round(perLiter * 100) / 100;
+  const sums = Math.abs(roundedPerLiter * volume + delivery - amount) <= 0.01;
+  let formula, perLiterAll;
+  if (sums) {
+    formula = `${fmtPerLiter(perLiter)} ₽/л × ${volTxt} л`
+      + (delivery > 0 ? ` + ${fmtRub(delivery)} ₽ доставка` : '')
+      + ` = <strong>${fmtRub(amount)} ₽</strong>`;
+    perLiterAll = `<div style="color:var(--text3);font-size:12px;margin-top:2px">Цена за литр с учётом доставки: ${fmtPerLiter(perLiterAllNum)} ₽</div>`;
+  } else {
+    formula = `${fmtPerLiter(perLiterAllNum)} ₽/л × ${volTxt} л = <strong>${fmtRub(amount)} ₽</strong>`;
+    perLiterAll = `<div style="color:var(--text3);font-size:12px;margin-top:2px">Цена за литр с учётом доставки округляется до копейки, от неё считается итог. `
+      + `В том числе топливо ≈ ${perLiter.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ₽/л`
+      + (delivery > 0 ? ` и доставка ${fmtRub(delivery)} ₽` : '') + `.</div>`;
+  }
   return `<div class="detail-item"><div class="detail-label">Расчёт цены</div><div class="detail-value">${formula}${perLiterAll}</div></div>`;
 }
 
