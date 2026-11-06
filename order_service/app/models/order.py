@@ -122,6 +122,11 @@ class Order(Base):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
+    # Ручная цена за литр (staff при создании). Если задана — итог = цена × литры
+    # + доставка БЕЗ округления цены «с доставкой» (CRM-27 для таких заявок не
+    # действует), пересчёт идёт по ней, а не по тарифу. NULL — цена по тарифу.
+    manual_price_per_liter: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+
     # Комментарии
     client_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     manager_comment: Mapped[str | None] = mapped_column(Text, nullable=True)

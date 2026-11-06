@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.money import (  # noqa: E402
     invoice_display_number,
+    manual_price_lines,
     order_total,
     per_liter_with_delivery,
     price_first_breakdown,
@@ -178,3 +179,44 @@ def test_invoice_display_number():
     assert invoice_display_number("0166", None) == "166"
     assert invoice_display_number("0166", "   ") == "166"
     assert invoice_display_number("0145", "ИП Петров П.П.") == "145 Петров П.П."
+
+
+# ── ручная цена за литр (2026-11-06) ──────────────────────────────────────────
+
+def test_order_total_exact_keeps_manual_price_exactly():
+    # Заявка ф41: 77 ₽/л × 900 л + доставка 4000 = 73 300, а не 73 296
+    # (по CRM-27 цена с доставкой 81,44 × 900). Ручная цена считается точно.
+    assert order_total(D("69300.00"), D("4000"), 900) == D("73296.00")
+    assert order_total(D("69300.00"), D("4000"), 900, exact=True) == D("73300.00")
+
+
+def test_order_total_exact_without_delivery_or_volume():
+    assert order_total(D("1000"), None, None, exact=True) == D("1000.00")
+    assert order_total(None, D("4000"), 900, exact=True) is None
+
+
+def test_manual_price_lines_fuel_and_delivery_add_up_to_total():
+    res = manual_price_lines(D("77"), 900, D("4000"), D("73300"), 22)
+    assert [l["kind"] for l in res["lines"]] == ["fuel", "delivery"]
+    assert res["total"] == D("73300.00")
+    # НДС выделяется из каждой строки, итоги сходятся без расхождений
+    assert res["subtotal_no_vat"] + res["vat"] == res["total"]
+    fuel, delivery = res["lines"]
+    assert fuel["sum"] == D("69300.00") and delivery["sum"] == D("4000.00")
+    assert fuel["sum_no_vat"] == D("56803.28")
+    assert delivery["qty"] == D("1")
+
+
+def test_manual_price_lines_without_delivery_is_single_line():
+    res = manual_price_lines(D("77"), 900, None, D("69300"), 22)
+    assert len(res["lines"]) == 1 and res["total"] == D("69300.00")
+
+
+def test_manual_price_lines_none_when_total_was_edited_by_hand():
+    # Итог правили руками — строки не сходятся, счёт идёт по общему правилу
+    assert manual_price_lines(D("77"), 900, D("4000"), D("73296"), 22) is None
+
+
+def test_manual_price_lines_none_on_bad_volume():
+    assert manual_price_lines(D("77"), 0, D("4000"), D("4000"), 22) is None
+    assert manual_price_lines(None, 900, D("4000"), D("73300"), 22) is None

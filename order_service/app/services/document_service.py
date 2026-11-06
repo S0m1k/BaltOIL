@@ -31,7 +31,9 @@ from app.core.dependencies import TokenUser
 from app.core.exceptions import ValidationError, NotFoundError
 from app.services import fuel_type_service
 from app.services.legal_entity_service import get_seller_snapshot
-from app.services.money import DEFAULT_VAT_RATE, invoice_display_number, price_first_breakdown
+from app.services.money import (
+    DEFAULT_VAT_RATE, invoice_display_number, manual_price_lines, price_first_breakdown,
+)
 
 
 # ── Сумма прописью ────────────────────────────────────────────────────────────
@@ -351,6 +353,29 @@ def _build_line_items(
     Возвращает (items, subtotal_no_vat, vat_amount, total).
     """
     rate = vat_rate or 0
+
+    # Ручная цена за литр (2026-11-06): итог точный, поэтому топливо и доставка —
+    # отдельными строками по цене менеджера, без сведения к цене «с доставкой».
+    if getattr(order, "manual_price_per_liter", None) is not None:
+        manual = manual_price_lines(
+            order.manual_price_per_liter, volume, order.delivery_cost, total_amount, rate,
+        )
+        if manual is not None:
+            items = [{
+                "name":       _fuel_name(order) if l["kind"] == "fuel" else "Доставка топлива",
+                "qty":        float(l["qty"]),
+                "unit":       l["unit"],
+                "unit_code":  l["unit_code"],
+                "price":      float(l["price_no_vat"]),
+                "sum_no_vat": float(l["sum_no_vat"]),
+                "vat":        float(l["vat"]),
+                "sum":        float(l["sum"]),
+            } for l in manual["lines"]]
+            return (
+                items, float(manual["subtotal_no_vat"]),
+                float(manual["vat"]), float(manual["total"]),
+            )
+
     bd = price_first_breakdown(total_amount, volume, rate)
     if bd is None:
         # Объём нулевой/не задан — цену за литр вывести не из чего; показываем

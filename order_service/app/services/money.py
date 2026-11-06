@@ -27,6 +27,7 @@ __all__ = [
     "to_decimal",
     "price_first_breakdown",
     "order_total",
+    "manual_price_lines",
     "per_liter_with_delivery",
     "short_org_name",
     "strip_leading_zeros",
@@ -87,8 +88,11 @@ def price_first_breakdown(raw_total, volume, vat_rate=DEFAULT_VAT_RATE) -> dict 
     }
 
 
-def order_total(fuel_subtotal, delivery_cost, volume=None, vat_rate=DEFAULT_VAT_RATE):
+def order_total(fuel_subtotal, delivery_cost, volume=None, vat_rate=DEFAULT_VAT_RATE, *, exact=False):
     """Итог заявки = топливо + доставка, приведённый к цене за литр (2 знака).
+
+    exact=True — заявка с ручной ценой за литр (2026-11-06): итог ровно
+    «топливо + доставка» до копейки, без сведения к цене за литр с доставкой.
 
     Цена за литр с учётом доставки округляется до копейки, и уже она умножается
     на объём — поэтому `per_liter_with_delivery(order_total(...), volume)` даёт
@@ -111,11 +115,58 @@ def order_total(fuel_subtotal, delivery_cost, volume=None, vat_rate=DEFAULT_VAT_
 
     delivery = to_decimal(delivery_cost) or Decimal("0")
     raw_total = (fuel + delivery).quantize(CENT, rounding=ROUND_HALF_UP)
+    if exact:
+        return raw_total
 
     breakdown = price_first_breakdown(raw_total, volume, vat_rate)
     if breakdown is None:
         return raw_total
     return breakdown["total"]
+
+
+def manual_price_lines(price_per_liter, volume, delivery_cost, total, vat_rate=DEFAULT_VAT_RATE):
+    """Строки счёта для заявки с РУЧНОЙ ценой за литр: топливо и доставка отдельно.
+
+    Итог такой заявки точный (цена × литры + доставка), поэтому одной строкой с
+    ценой «за литр с доставкой» он не выражается без потери копеек — выводим две
+    строки: топливо по цене менеджера и доставка. Цены и суммы строк — с НДС
+    («итог» — то, что платит клиент), НДС по каждой строке выделяется из неё.
+
+    Возвращает {"lines": [...], "subtotal_no_vat", "vat", "total"} или None, если
+    строки не сходятся с итогом (сумму правили руками) — тогда вызывающий код
+    выпускает счёт по общему правилу.
+    """
+    price = to_decimal(price_per_liter)
+    vol = to_decimal(volume)
+    total_d = to_decimal(total)
+    if price is None or vol is None or vol <= 0 or total_d is None:
+        return None
+
+    delivery = (to_decimal(delivery_cost) or Decimal("0")).quantize(CENT, rounding=ROUND_HALF_UP)
+    fuel_gross = (price * vol).quantize(CENT, rounding=ROUND_HALF_UP)
+    if abs(fuel_gross + delivery - total_d) > CENT / 2:
+        return None
+
+    rate = to_decimal(vat_rate) or Decimal("0")
+    divisor = Decimal("1") + rate / Decimal("100")
+
+    def _line(name_kind, qty, unit, unit_code, gross):
+        net = (gross / divisor).quantize(CENT, rounding=ROUND_HALF_UP)
+        return {
+            "kind": name_kind, "qty": qty, "unit": unit, "unit_code": unit_code,
+            "sum": gross, "sum_no_vat": net, "vat": (gross - net).quantize(CENT),
+            "price_no_vat": (net / qty).quantize(CENT, rounding=ROUND_HALF_UP),
+        }
+
+    lines = [_line("fuel", vol, "л", "112", fuel_gross)]
+    if delivery > 0:
+        lines.append(_line("delivery", Decimal("1"), "усл.", "642", delivery))
+    return {
+        "lines": lines,
+        "subtotal_no_vat": sum((l["sum_no_vat"] for l in lines), Decimal("0")),
+        "vat": sum((l["vat"] for l in lines), Decimal("0")),
+        "total": sum((l["sum"] for l in lines), Decimal("0")),
+    }
 
 
 def per_liter_with_delivery(total, volume) -> Decimal | None:
