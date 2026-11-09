@@ -44,12 +44,16 @@ async def list_orders(
     driver_id: uuid.UUID | None = Query(None),
     client_id: uuid.UUID | None = Query(None),
     kind: OrderKind | None = Query(None, description="Вид заявки: individual | company | ttn_l | transport"),
+    q: str | None = Query(
+        None, max_length=100,
+        description="Поиск: номер заявки/ТТН, адрес, контакт приёмки, название организации или ФИО клиента",
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
     orders = await order_service.list_orders(
         db, current_user, status=status, driver_id=driver_id, client_id=client_id,
-        kind=kind, offset=offset, limit=limit
+        kind=kind, q=q, offset=offset, limit=limit
     )
     return _hide_internal(orders, current_user, OrderListResponse)
 

@@ -5,12 +5,13 @@ on the Docker internal network. Auth is done via X-Internal-Secret header
 (HMAC-safe comparison, same secret used by delivery/notification services).
 """
 import hmac
+import re
 import uuid
 from decimal import Decimal
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -302,6 +303,78 @@ async def get_buyer_names(
         )
         for i in body.items
     ]
+
+
+class FindBuyersRequest(BaseModel):
+    q: str
+
+
+class FindBuyersResponse(BaseModel):
+    client_ids: list[uuid.UUID]
+    organization_ids: list[uuid.UUID]
+
+
+#: Потолок выдачи: поиск заявок по названию — фильтр, а не выгрузка справочника.
+FIND_BUYERS_LIMIT = 300
+_LIKE_SPECIAL = re.compile(r"([%_\\])")
+
+
+def _like_pattern(text: str) -> str:
+    """«%текст%» с экранированием спецсимволов LIKE (чтобы «100%» искалось как текст)."""
+    return "%" + _LIKE_SPECIAL.sub(r"\\\1", text) + "%"
+
+
+@router.post(
+    "/orders/find-buyers",
+    response_model=FindBuyersResponse,
+    dependencies=[Depends(_require_internal)],
+)
+async def find_buyers(
+    body: FindBuyersRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> FindBuyersResponse:
+    """Кого называют так: организации и клиенты, чьё название/ФИО/ИНН/телефон
+    содержит текст. order_service ограничивает ими поиск заявок «по названию».
+
+    Отдаются только идентификаторы — order_service накладывает их ПОВЕРХ условия
+    видимости роли, так что клиент не увидит чужие заявки, даже если его запрос
+    совпал с чужой организацией.
+    """
+    text_q = body.q.strip()
+    if not text_q:
+        return FindBuyersResponse(client_ids=[], organization_ids=[])
+    pattern = _like_pattern(text_q)
+
+    org_conds = [
+        Organization.company_name.ilike(pattern, escape="\\"),
+        Organization.inn.ilike(pattern, escape="\\"),
+    ]
+    user_conds = [
+        User.full_name.ilike(pattern, escape="\\"),
+        ClientProfile.company_name.ilike(pattern, escape="\\"),
+        ClientProfile.inn.ilike(pattern, escape="\\"),
+    ]
+    digits = normalize_phone(text_q)
+    # Телефон ищем, только если в запросе есть хотя бы 4 цифры: иначе «12» в
+    # названии улицы цепляло бы половину базы по любому номеру.
+    if len(re.sub(r"\D", "", text_q)) >= 4:
+        user_conds.append(normalized_phone_column(User.phone).like(f"%{digits}%"))
+
+    org_res = await db.execute(
+        select(Organization.id).where(or_(*org_conds)).limit(FIND_BUYERS_LIMIT)
+    )
+    # Только клиенты: на сотрудников (менеджер, оформивший перевозку) заявки записаны
+    # технически, «заказчиком» они не являются — по их имени заявки не ищем.
+    user_res = await db.execute(
+        select(User.id)
+        .outerjoin(ClientProfile, ClientProfile.user_id == User.id)
+        .where(User.role == UserRole.CLIENT, or_(*user_conds))
+        .limit(FIND_BUYERS_LIMIT)
+    )
+    return FindBuyersResponse(
+        client_ids=list(user_res.scalars().all()),
+        organization_ids=list(org_res.scalars().all()),
+    )
 
 
 class ContractTargetResponse(BaseModel):

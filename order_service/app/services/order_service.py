@@ -28,6 +28,7 @@ from app.services.payment_service import (
 from app.services import document_service
 from app.services import contract_service
 from app.services import order_audit
+from app.services import order_search
 from app.services import client_object_service
 from app.services.actor_names import resolve_names as resolve_actor_names
 from app.services.buyer_info import attach_buyer_names, attach_buyer_name_one
@@ -279,6 +280,7 @@ async def list_orders(
     driver_id: uuid.UUID | None = None,
     client_id: uuid.UUID | None = None,
     kind: OrderKind | None = None,
+    q: str | None = None,
     offset: int = 0,
     limit: int = 50,
 ) -> list[Order]:
@@ -292,10 +294,19 @@ async def list_orders(
     if client_id and actor.role in (ROLE_MANAGER, ROLE_ADMIN):
         conditions.append(Order.client_id == client_id)
 
+    text = order_search.normalize_query(q)
+    if text:
+        if len(text) < order_search.MIN_SEARCH_LEN:
+            raise ValidationError(f"Запрос короче {order_search.MIN_SEARCH_LEN} символов")
+        buyer_client_ids, buyer_org_ids = await order_search.find_buyer_ids(text)
+        conditions.append(
+            order_search.build_search_condition(text, buyer_client_ids, buyer_org_ids)
+        )
+
     result = await db.execute(
         _with_logs(
             select(Order).where(and_(*conditions))
-            .order_by(Order.created_at.desc())
+            .order_by(*order_search.order_by_clauses(status))
             .offset(offset).limit(limit)
         )
     )
