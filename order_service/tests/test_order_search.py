@@ -95,7 +95,8 @@ def test_delivered_are_ordered_by_shipment_moment_not_by_order_number():
     order_by = order_search.order_by_clauses(OrderStatus.DELIVERED)
     first = _sql(order_by[0])
     assert "order_status_logs" in first
-    assert "max(" in first.lower()
+    # первый переход, а не последний: повторно доставленная заявка сохраняет старый ТТН
+    assert "min(" in first.lower() and "max(" not in first.lower()
     assert "DESC" in first.upper()
     # номер заявки/дата создания — только запасной ключ, не главный
     assert "order_number" not in first
