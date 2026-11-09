@@ -56,6 +56,9 @@ class Organization(Base):
     contract_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     billing_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Заметка сотрудников рядом с названием организации (CRM-62). Клиенту не отдаётся.
+    manager_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # DaData (ЕГРЮЛ/ЕГРИП)
     okved: Mapped[str | None] = mapped_column(String(20), nullable=True)
     okpo: Mapped[str | None] = mapped_column(String(10), nullable=True)

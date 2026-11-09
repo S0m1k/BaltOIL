@@ -88,6 +88,87 @@ async def _check_inn_unique(db: AsyncSession, inn: str | None, exclude_user_id=N
         raise ConflictError("Организация с таким ИНН уже зарегистрирована")
 
 
+async def _find_passwordless_individual(db: AsyncSession, phone: str | None) -> User | None:
+    """Аккаунт физлица-клиента без пароля с таким телефоном (CRM-59), если есть.
+
+    Подходит только клиент (не сотрудник), не архивный, физлицо: юрлицо
+    регистрируется по ИНН своим путём.
+    """
+    norm = normalize_phone(phone)
+    if len(norm) != 10:
+        return None
+    res = await db.execute(
+        select(User)
+        .options(selectinload(User.client_profile))
+        .where(
+            User.phone.isnot(None),
+            normalized_phone_column(User.phone) == norm,
+            User.role == UserRole.CLIENT,
+            User.is_archived == False,  # noqa: E712
+            User.password_set == False,  # noqa: E712
+        )
+    )
+    user = res.scalars().first()
+    if user is None:
+        return None
+    profile = user.client_profile
+    if profile is not None and profile.client_type != ClientType.INDIVIDUAL:
+        return None
+    return user
+
+
+async def _claim_passwordless_account(
+    db: AsyncSession,
+    user: User,
+    data: RegisterIndividualRequest,
+    *,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> User:
+    """Человек регистрируется по телефону аккаунта, который завёл сотрудник:
+    вместо дубля он забирает этот аккаунт, задаёт пароль и видит свою историю заявок.
+
+    Имя, тариф и всё, что настроил сотрудник, остаются как были; из формы
+    берём пароль, email (если свободен), адрес и паспорт — когда в аккаунте пусто.
+    """
+    if not user.is_active:
+        raise ConflictError("Аккаунт отключён — обратитесь к менеджеру")
+    if data.email:
+        data.email = _normalize_email(data.email)
+        await _check_email_unique(db, data.email, exclude_id=user.id)
+        if not user.email:
+            user.email = data.email
+
+    user.hashed_password = hash_password(data.password)
+    user.password_set = True
+
+    profile = user.client_profile
+    if profile is None:
+        profile = ClientProfile(user_id=user.id, client_type=ClientType.INDIVIDUAL)
+        db.add(profile)
+    profile.is_one_off = False
+    if data.delivery_address and not profile.delivery_address:
+        profile.delivery_address = data.delivery_address
+    if data.passport_series and not profile.passport_series:
+        profile.passport_series = data.passport_series
+    if data.passport_number and not profile.passport_number:
+        profile.passport_number = data.passport_number
+    await db.flush()
+
+    await organization_service.link_pending_invites(db, user)
+    await log_action(
+        db,
+        action="user.claimed_by_registration",
+        actor_id=user.id,
+        entity_type="user",
+        entity_id=user.id,
+        details={"phone": data.phone},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    return await get_user_by_id(db, user.id)
+
+
 async def register_individual(
     db: AsyncSession,
     data: RegisterIndividualRequest,
@@ -95,6 +176,12 @@ async def register_individual(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> User:
+    claimable = await _find_passwordless_individual(db, data.phone)
+    if claimable is not None:
+        return await _claim_passwordless_account(
+            db, claimable, data, ip_address=ip_address, user_agent=user_agent
+        )
+
     if data.email:
         data.email = _normalize_email(data.email)
         await _check_email_unique(db, data.email)
@@ -305,10 +392,16 @@ async def create_user_by_admin(
     await _check_email_unique(db, data.email)
     await _check_phone_unique(db, data.phone)
 
+    # Клиент без пароля (CRM-59): пароль случайный и никому не известен, аккаунт
+    # помечен password_set=False — войти нельзя, но можно заказывать от его имени,
+    # привязывать тариф и т. д. Человек сам задаст пароль, зарегистрировавшись по
+    # этому телефону (см. register_individual → _claim_passwordless_account).
+    has_password = bool(data.password)
     user = User(
         email=data.email,
         phone=data.phone,
-        hashed_password=hash_password(data.password),
+        hashed_password=hash_password(data.password or secrets.token_urlsafe(24)),
+        password_set=has_password,
         full_name=data.full_name,
         role=data.role,
     )
@@ -375,8 +468,11 @@ async def get_or_create_one_off_client(
     user = User(
         email=None,
         phone=phone,
-        # Случайный пароль: разовый клиент в систему не входит.
+        # Случайный пароль: разовый клиент в систему не входит. password_set=False —
+        # если он потом сам зарегистрируется по этому телефону, получит этот аккаунт
+        # (и историю заявок) вместо ошибки «номер уже занят» (CRM-59).
         hashed_password=hash_password(secrets.token_urlsafe(24)),
+        password_set=False,
         full_name=full_name,
         role=UserRole.CLIENT,
     )

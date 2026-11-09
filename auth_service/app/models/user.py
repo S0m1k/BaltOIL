@@ -25,6 +25,12 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # false — аккаунт заведён сотрудником (или это разовый клиент) без пароля: войти
+    # нельзя, пока человек сам не зарегистрируется по этому телефону и не задаст
+    # пароль (CRM-59). Пароль в таком аккаунте случайный и никому не известен.
+    password_set: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, values_callable=lambda x: [e.value for e in x], name="userrole"),
         nullable=False,

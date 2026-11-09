@@ -35,11 +35,31 @@ class OrganizationResponse(BaseModel):
     fuel_coefficient: float
     delivery_coefficient: float
 
+    # Заметка сотрудников (CRM-62). Клиенту НЕ отдаётся: роутер обнуляет поле
+    # для не-staff (см. routers/organizations.py::_for_viewer).
+    manager_comment: str | None = None
+
     is_archived: bool
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class OrganizationFileResponse(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    filename: str
+    content_type: str
+    size: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OrganizationCommentRequest(BaseModel):
+    """Заметка сотрудников об организации; пустая строка = убрать."""
+    comment: str | None = Field(None, max_length=2000)
 
 
 class OrganizationMemberResponse(BaseModel):

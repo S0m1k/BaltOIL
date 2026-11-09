@@ -17,6 +17,8 @@ class UserShortResponse(BaseModel):
     is_active: bool
     client_number: int | None = None  # set for CLIENT role, None for staff
     is_one_off: bool = False  # разовый клиент (правки 2026-07-11)
+    # False — клиента завёл сотрудник без пароля, он ещё не зарегистрировался (CRM-59)
+    password_set: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -136,7 +138,10 @@ class CreateUserRequest(BaseModel):
     """
     email: EmailStr | None = None
     phone: str | None = None
-    password: str
+    # Пароль опционален ТОЛЬКО для клиента (CRM-59): без него аккаунт «ждёт
+    # регистрации» — человек придумает пароль сам, зарегистрировавшись по этому
+    # же телефону, и увидит историю своих заявок. Сотруднику пароль обязателен.
+    password: str | None = None
     full_name: str
     role: UserRole
 
@@ -147,11 +152,18 @@ class CreateUserRequest(BaseModel):
     def _need_login(self):
         if not (self.email or self.phone):
             raise ValueError("Укажите телефон или email")
+        if not self.password:
+            if self.role != UserRole.CLIENT:
+                raise ValueError("Для сотрудника пароль обязателен")
+            if not self.phone:
+                raise ValueError("Клиенту без пароля нужен телефон — по нему он зарегистрируется")
         return self
 
     @field_validator("password")
     @classmethod
-    def password_strength(cls, v: str) -> str:
+    def password_strength(cls, v: str | None) -> str | None:
+        if not v:
+            return None
         if len(v) < 8:
             raise ValueError("Пароль должен быть не менее 8 символов")
         if not any(c.isdigit() for c in v):

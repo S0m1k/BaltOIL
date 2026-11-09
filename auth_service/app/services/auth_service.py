@@ -60,7 +60,9 @@ async def login(
 
     # Record failure for non-existent identifier too — prevents user enumeration via
     # differential blocking (attacker can't tell "no such account" from "wrong pw")
-    if not user or not verify_password(password, user.hashed_password):
+    # Аккаунт без пароля (заведён сотрудником / разовый клиент, CRM-59) — войти
+    # нельзя, пока человек сам не зарегистрируется по этому телефону.
+    if not user or not user.password_set or not verify_password(password, user.hashed_password):
         await login_throttle.record_failure(throttle_key)
         raise AuthError(GENERIC_ERR)
 

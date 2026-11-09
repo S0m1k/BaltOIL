@@ -175,7 +175,11 @@ async def list_all_organizations(
         conds.append(Organization.is_archived == False)  # noqa: E712
     if search:
         like = f"%{search.strip()}%"
-        conds.append(or_(Organization.company_name.ilike(like), Organization.inn.ilike(like)))
+        conds.append(or_(
+            Organization.company_name.ilike(like),
+            Organization.inn.ilike(like),
+            Organization.manager_comment.ilike(like),
+        ))
     stmt = (
         select(Organization)
         .where(*conds)
@@ -203,6 +207,19 @@ async def update_commercial(
     org = await _get_org_or_404(db, org_id)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(org, field, value)
+    await db.commit()
+    await db.refresh(org)
+    return org
+
+
+async def set_manager_comment(
+    db: AsyncSession, org_id: uuid.UUID, actor: User, comment: str | None
+) -> Organization:
+    """Заметка сотрудников рядом с названием организации (CRM-62). Только staff."""
+    if actor.role not in _STAFF_ROLES:
+        raise ForbiddenError("Комментарий к организации оставляет только сотрудник")
+    org = await _get_org_or_404(db, org_id)
+    org.manager_comment = (comment or "").strip() or None
     await db.commit()
     await db.refresh(org)
     return org
