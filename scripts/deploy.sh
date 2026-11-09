@@ -78,8 +78,12 @@ while read -r name state; do
   fi
 done < <(docker compose ps --format '{{.Service}} {{.State}}')
 
-if ! curl -ksf -o /dev/null --max-time 15 https://localhost/; then
-  echo "  ✗ фронт (https://localhost/) не отвечает"; FAILED=1
+# На этом хосте фронт стоит за внешним прокси и на 443 самого хоста не слушает
+# (https://localhost/ даёт 000), поэтому проверяем публичный адрес. Переопределяется
+# переменной HEALTH_URL.
+HEALTH_URL="${HEALTH_URL:-https://crm.9171517.ru/}"
+if ! curl -ksf -o /dev/null --max-time 15 "$HEALTH_URL"; then
+  echo "  ✗ фронт ($HEALTH_URL) не отвечает"; FAILED=1
 fi
 
 if [ "$FAILED" -ne 0 ]; then
