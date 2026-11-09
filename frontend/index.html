@@ -683,6 +683,14 @@ setTimeout(function () {
     font-family: 'SF Mono', ui-monospace, 'Cascadia Code', monospace, monospace; font-size: 13px; font-weight: 500;
     color: var(--amber); flex-shrink: 0; min-width: 140px;
   }
+  /* Номер ТТН под номером заявки (правка 2026-11-09): по нему бухгалтер сверяет хронологию отгрузок */
+  .order-ttn {
+    display: block; margin-top: 2px; font-size: 10px; font-weight: 400;
+    letter-spacing: .2px; color: var(--text3); white-space: nowrap;
+  }
+  .orders-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
+  .orders-search-row .form-input { flex: 1; min-width: 0; max-width: 520px; }
+  .orders-search-hint { font-size: 12px; color: var(--text3); margin: -4px 0 10px 2px; }
   .order-fuel {
     font-size: 13px; color: var(--text2); flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -2109,6 +2117,16 @@ function ymGoal(n){try{if(window.ym)ym(85287763,'reachGoal',n);}catch(e){}}
         <button class="kind-chip"        data-kind="ttn_l"      onclick="switchOrderKind('ttn_l')">Л</button>
         <button class="kind-chip"        data-kind="transport"  onclick="switchOrderKind('transport')">Перевозка</button>
       </div>
+      <!-- Поиск по всем заявкам (правка 2026-11-09): номер, ТТН, адрес, контакт, название клиента -->
+      <div class="orders-search-row">
+        <input type="search" id="orders-search" class="form-input" autocomplete="off"
+               placeholder="Поиск по заявкам: номер, ТТН, адрес, название, телефон"
+               aria-label="Поиск по заявкам" oninput="onOrdersSearchInput()"
+               onkeydown="if(event.key==='Escape')clearOrdersSearch()">
+        <button type="button" class="btn btn-sm btn-ghost" id="orders-search-clear"
+                style="display:none" onclick="clearOrdersSearch()">✕ Сбросить</button>
+      </div>
+      <div id="orders-search-hint" class="orders-search-hint" style="display:none"></div>
       <button id="orders-new-btn" class="btn btn-primary"
         style="width:100%;margin:4px 0 14px;font-size:15px;padding:14px;display:none"
         onclick="switchTab('create')">+ Новая заявка</button>
@@ -5117,7 +5135,64 @@ let _activeOrderKind = (() => {
   } catch { return ''; }
 })();
 
+// Поиск по заявкам (правка 2026-11-09): ищем по ВСЕМ статусам сразу — менеджер
+// не знает, на какой вкладке лежит заявка «с Лесной, 5». Запрос короче двух
+// символов бэкенд отклоняет, поэтому не отправляем его вовсе.
+const ORDERS_SEARCH_MIN_LEN = 2;
+const ORDERS_SEARCH_DEBOUNCE_MS = 350;
+let _orderSearchQuery = '';
+let _orderSearchTimer = null;
+let _orderSearchSeq = 0;  // отбрасываем ответы устаревших запросов
+
+function _activeOrderSearch() {
+  return _orderSearchQuery.length >= ORDERS_SEARCH_MIN_LEN ? _orderSearchQuery : '';
+}
+
+function onOrdersSearchInput() {
+  const input = document.getElementById('orders-search');
+  _orderSearchQuery = (input?.value || '').trim();
+  const clearBtn = document.getElementById('orders-search-clear');
+  if (clearBtn) clearBtn.style.display = input?.value ? '' : 'none';
+  clearTimeout(_orderSearchTimer);
+  _orderSearchTimer = setTimeout(loadOrders, ORDERS_SEARCH_DEBOUNCE_MS);
+}
+
+function clearOrdersSearch() {
+  const input = document.getElementById('orders-search');
+  if (input) input.value = '';
+  const had = !!_orderSearchQuery;
+  _orderSearchQuery = '';
+  clearTimeout(_orderSearchTimer);
+  const clearBtn = document.getElementById('orders-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  if (had) loadOrders(); else syncOrdersSearchHint(null);
+}
+
+function syncOrdersSearchHint(count) {
+  const hint = document.getElementById('orders-search-hint');
+  if (!hint) return;
+  const typed = _orderSearchQuery.length > 0;
+  const searching = !!_activeOrderSearch();
+  document.querySelectorAll('.status-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', !searching && btn.dataset.status === _activeOrderStatus);
+  });
+  if (!typed) { hint.style.display = 'none'; return; }
+  hint.style.display = '';
+  hint.textContent = !searching
+    ? `Введите минимум ${ORDERS_SEARCH_MIN_LEN} символа для поиска`
+    : (count == null ? 'Ищу по всем статусам…' : `Найдено: ${count} — по всем статусам (до 200 заявок)`);
+}
+
 function switchOrderTab(status) {
+  // Выбор вкладки = выход из режима поиска
+  if (_orderSearchQuery) {
+    const input = document.getElementById('orders-search');
+    if (input) input.value = '';
+    _orderSearchQuery = '';
+    const clearBtn = document.getElementById('orders-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    syncOrdersSearchHint(null);
+  }
   _activeOrderStatus = status;
   document.querySelectorAll('.status-tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.status === status);
@@ -5155,10 +5230,18 @@ async function loadOrders() {
   }
   syncOrderKindChips();
   const kindQs = _activeOrderKind ? `&kind=${_activeOrderKind}` : '';
+  const search = _activeOrderSearch();
+  const statusQs = search ? '' : `&status=${_activeOrderStatus}`;
+  const searchQs = search ? `&q=${encodeURIComponent(search)}` : '';
+  const seq = ++_orderSearchSeq;
+  syncOrdersSearchHint(null);
   try {
-    const orders = await orderGet(`/orders?limit=200&status=${_activeOrderStatus}${kindQs}`);
+    const orders = await orderGet(`/orders?limit=200${statusQs}${kindQs}${searchQs}`);
+    if (seq !== _orderSearchSeq) return;  // пока ждали, запрос сменился — этот ответ уже не нужен
     renderOrders(orders);
+    syncOrdersSearchHint(orders.length);
   } catch (e) {
+    if (seq !== _orderSearchSeq) return;
     el.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`;
   }
   refreshOrderTabCounts();
@@ -5202,7 +5285,7 @@ function renderOrders(orders) {
   }
   // F3 (правка 2026-06-24): водителю в «Ждут доставки» группируем заявки по дате
   // доставки — «Без даты» сверху, затем «Сегодня», «Завтра», далее по датам.
-  if (currentUser?.role === 'driver' && _activeOrderStatus === 'accepted') {
+  if (currentUser?.role === 'driver' && _activeOrderStatus === 'accepted' && !_activeOrderSearch()) {
     el.innerHTML = renderOrdersGroupedByDate(orders);
     return;
   }
@@ -5447,7 +5530,7 @@ function orderCardHTML(o) {
       ${_changedMark(o)}
       ${_commentMark(o)}
       ${isStaff ? _payIcon(o) : ''}
-      <div class="order-number">${o.order_number}</div>
+      <div class="order-number">${o.order_number}${isStaff && o.ttn_number ? `<span class="order-ttn" title="Номер ТТН">${escHtml(o.ttn_number)}</span>` : ''}</div>
       <div class="order-fuel">${o.buyer_name ? `<strong>${escHtml(o.buyer_name)}</strong> · ` : ''}${fuelLabel} · ${o.delivery_address ? escHtml(o.delivery_address) : 'адрес уточняется'}</div>
       <div class="order-volume">
         ${Number(o.volume_requested).toLocaleString('ru')} л
@@ -6108,10 +6191,11 @@ function actionBarHTML(o) {
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptReschedule('${o.id}','${escHtml(o.order_number||'')}')">${icon('calendar',14)} Перенести</button>`);
     // Смена водителя в любой заявке (правки 2026-10-19), в т.ч. уже принятой/доставленной
     btns.push(`<button class="btn btn-sm btn-ghost" onclick="promptAssign('${o.id}', true)">${icon('truck',14)} ${o.driver_id ? 'Сменить водителя' : 'Назначить водителя'}</button>`);
-    // Payment recording: any non-cancelled order with outstanding debt (2-bucket check)
-    const payable = s !== 'cancelled' && paymentStatusDisplay(o.payment_status || 'unpaid') !== 'paid';
-    if (payable)
-      btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} Зафиксировать оплату</button>`);
+    // Оплату можно вносить в любой не отменённой заявке и ПОСЛЕ первой оплаты тоже
+    // (CRM-61): клиент нередко платит за 2–3 раза. Кнопка не исчезает, когда долг закрыт.
+    const alreadyPaid = (o.paid_total || 0) > 0 || paymentStatusDisplay(o.payment_status || 'unpaid') === 'paid';
+    if (s !== 'cancelled')
+      btns.push(`<button class="btn btn-sm btn-success" onclick="promptRecordPayment('${o.id}', ${o.debt_amount || 0}, '${escHtml(o.order_number||'')}')">${icon('wallet',14)} ${alreadyPaid ? 'Внести ещё оплату' : 'Зафиксировать оплату'}</button>`);
     // F1 (правка 2026-06-24): дублировать заявку — например, разбить заявку >3000 л на две
     btns.push(`<button class="btn btn-sm btn-ghost" onclick="duplicateOrder('${o.id}')">${icon('copy',14)} Дублировать</button>`);
     // Платежи заявки (правки 2026-08-12): просмотр и отмена ошибочных платежей
@@ -7369,6 +7453,8 @@ function orgCardHTML(o) {
   btns.push(`<button class="btn btn-sm btn-ghost" onclick="openEditOrgModal('${o.id}')">Реквизиты</button>`);
   // Договор виден и админу, и клиенту-участнику (правки 2026-06-23)
   btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgContract('${o.id}')">Договор</button>`);
+  // Файлы организации (карточка реквизитов Word/PDF) — CRM-63
+  if (staff) btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgFiles('${o.id}')">${icon('paperclip',13)} Файлы</button>`);
   if (staff) {
     if (currentUser?.role === 'admin')
       btns.push(`<button class="btn btn-sm btn-ghost" onclick="openOrgCommercial('${o.id}')">Тариф / кредит</button>`);
@@ -7379,7 +7465,7 @@ function orgCardHTML(o) {
   <div class="surface-card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div>
-        <div style="font-weight:600">${escHtml(o.company_name)}</div>
+        <div style="font-weight:600">${escHtml(o.company_name)}${staff && o.manager_comment ? `<span style="font-weight:400;font-size:12px;color:var(--amber);margin-left:8px" title="Комментарий менеджера (клиент не видит)">— ${escHtml(o.manager_comment)}</span>` : ''}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:2px">${req || '—'}</div>
         ${o.legal_address ? `<div style="font-size:12px;color:var(--text3);margin-top:2px">${escHtml(o.legal_address)}</div>` : ''}
         ${commercial}
@@ -7415,6 +7501,8 @@ function openEditOrgModal(orgId) {
       <input id="eo-contract" class="form-input" value="${escHtml(o.contract_number || '')}"></div>
     <div class="form-group"><label class="form-label">Email для счетов</label>
       <input id="eo-email" class="form-input" type="email" value="${escHtml(o.billing_email || '')}" placeholder="на эту почту уйдут счета"></div>
+    ${_isOrgStaff() ? `<div class="form-group"><label class="form-label">Комментарий менеджера</label>
+      <textarea id="eo-comment" class="form-input" rows="2" maxlength="2000" placeholder="Виден только сотрудникам, показывается рядом с названием">${escHtml(o.manager_comment || '')}</textarea></div>` : ''}
   `, () => submitEditOrg(orgId));
 }
 
@@ -7432,9 +7520,111 @@ async function submitEditOrg(orgId) {
   };
   try {
     await authPatch(`/organizations/${orgId}`, body);
+    // Комментарий менеджера (CRM-62) — отдельным запросом, правят только сотрудники
+    const commentEl = document.getElementById('eo-comment');
+    if (commentEl) {
+      await api(`${AUTH_URL}/organizations/${orgId}/manager-comment`, {
+        method: 'PUT', body: JSON.stringify({ comment: commentEl.value.trim() || null }),
+      });
+    }
     closeModal();
     toast('Реквизиты сохранены');
     loadMyOrganizations();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Файлы организации (CRM-63): карточка реквизитов Word/PDF/Excel ───────────
+const ORG_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+function _fmtFileSize(n) {
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1).replace('.', ',') + ' МБ';
+  return Math.max(1, Math.round(n / 1024)) + ' КБ';
+}
+
+// multipart-загрузка: api() принудительно ставит JSON Content-Type, поэтому свой fetch
+async function authUpload(path, formData, _retry = false) {
+  const res = await fetch(`${AUTH_URL}${path}`, {
+    method: 'POST', body: formData,
+    headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+  });
+  if (res.status === 401 && !_retry && localStorage.getItem('refresh_token')) {
+    if (await _doRefresh()) return authUpload(path, formData, true);
+    _sessionExpired();
+    throw new Error('Сессия истекла, войдите снова');
+  }
+  const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(_formatApiError(data.detail));
+  return data;
+}
+
+async function openOrgFiles(orgId) {
+  const o = _myOrgs.find(x => x.id === orgId);
+  openModal(`Файлы — ${o?.company_name || ''}`, '<div class="loading"></div>', null);
+  document.getElementById('modal-confirm').style.display = 'none';
+  await renderOrgFiles(orgId);
+}
+
+async function renderOrgFiles(orgId) {
+  const body = document.getElementById('modal-body');
+  if (!body) return;
+  let files = [];
+  try { files = await authGet(`/organizations/${orgId}/files`); }
+  catch (e) { body.innerHTML = `<div class="inline-error">${escHtml(e.message)}</div>`; return; }
+  const rows = files.length ? files.map(f => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(f.filename)}">${escHtml(f.filename)}</div>
+        <div style="font-size:11px;color:var(--text3)">${_fmtFileSize(f.size)} · ${fmtDate(f.created_at)}</div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="downloadOrgFile('${orgId}','${f.id}')">Скачать</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteOrgFile('${orgId}','${f.id}')">Удалить</button>
+    </div>`).join('')
+    : '<div class="empty-state" style="padding:16px">Файлов пока нет</div>';
+  body.innerHTML = `
+    ${rows}
+    <div style="margin-top:12px">
+      <input type="file" id="org-file-input" accept=".pdf,.doc,.docx,.xls,.xlsx" style="display:none"
+             onchange="uploadOrgFile('${orgId}', this)">
+      <button class="btn btn-sm btn-primary" onclick="document.getElementById('org-file-input').click()">+ Прикрепить файл</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">PDF, Word или Excel, до 10 МБ. Клиент эти файлы не видит.</div>
+    </div>`;
+}
+
+async function uploadOrgFile(orgId, input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > ORG_FILE_MAX_BYTES) { toast('Файл больше 10 МБ', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    await authUpload(`/organizations/${orgId}/files`, fd);
+    toast('Файл прикреплён');
+    await renderOrgFiles(orgId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function downloadOrgFile(orgId, fileId) {
+  const token = localStorage.getItem('access_token');
+  let fname = 'file';
+  fetch(`${AUTH_URL}/organizations/${orgId}/files/${fileId}/download`, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); fname = _filenameFromDisposition(r, fname); return r.blob(); })
+    .then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fname;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => toast('Ошибка скачивания: ' + e.message, 'error'));
+}
+
+async function deleteOrgFile(orgId, fileId) {
+  if (!confirm('Удалить файл? Это нельзя отменить.')) return;
+  try {
+    await api(`${AUTH_URL}/organizations/${orgId}/files/${fileId}`, { method: 'DELETE' });
+    toast('Файл удалён');
+    await renderOrgFiles(orgId);
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -9641,7 +9831,7 @@ function promptCreateUser() {
   openModal('Создать пользователя', `
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label">Email (необязательно)</label>
         <input type="email" id="nu-email" class="form-input" placeholder="user@example.com">
       </div>
       <div class="form-group">
@@ -9656,36 +9846,52 @@ function promptCreateUser() {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Роль</label>
-        <select id="nu-role" class="form-input">
+        <select id="nu-role" class="form-input" onchange="syncCreateUserPasswordHint()">
           <option value="manager">Manager</option>
           <option value="driver">Driver</option>
           <option value="client">Client</option>
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Пароль</label>
+        <label class="form-label" id="nu-password-label">Пароль</label>
         <input type="password" id="nu-password" class="form-input" placeholder="Минимум 8 символов">
       </div>
+    </div>
+    <div id="nu-password-hint" style="display:none;font-size:11px;color:var(--text3);margin:-6px 0 6px">
+      Клиенту пароль можно не задавать: он зарегистрируется сам по этому номеру телефона,
+      придумает пароль и увидит историю своих заявок. До этого заявки оформляет сотрудник.
     </div>`,
     async () => {
+      const role = document.getElementById('nu-role').value;
       const body = {
-        email:     document.getElementById('nu-email').value.trim(),
+        email:     document.getElementById('nu-email').value.trim() || undefined,
         full_name: document.getElementById('nu-name').value.trim(),
         phone:     document.getElementById('nu-phone').value.trim() || undefined,
-        role:      document.getElementById('nu-role').value,
-        password:  document.getElementById('nu-password').value,
+        role,
+        password:  document.getElementById('nu-password').value || undefined,
       };
-      if (!body.email || !body.full_name || !body.password) {
-        toast('Заполните обязательные поля', 'error'); return;
-      }
+      if (!body.full_name) { toast('Укажите полное имя', 'error'); return; }
+      if (!body.email && !body.phone) { toast('Укажите телефон или email', 'error'); return; }
+      if (!body.password && role !== 'client') { toast('Сотруднику нужен пароль', 'error'); return; }
+      if (!body.password && !body.phone) { toast('Клиенту без пароля нужен телефон', 'error'); return; }
       closeModal();
       try {
         const u = await api(`${AUTH_URL}/users`, { method:'POST', body: JSON.stringify(body) });
-        toast(`Пользователь ${u.email} создан`);
+        toast(`Пользователь ${u.email || u.phone || u.full_name} создан`);
         loadUsers();
       } catch (e) { toast(e.message, 'error'); }
     }
   );
+  syncCreateUserPasswordHint();
+}
+
+// Пароль обязателен только сотруднику; клиенту без пароля — подсказка про самостоятельную регистрацию
+function syncCreateUserPasswordHint() {
+  const isClient = document.getElementById('nu-role')?.value === 'client';
+  const hint = document.getElementById('nu-password-hint');
+  const label = document.getElementById('nu-password-label');
+  if (hint) hint.style.display = isClient ? '' : 'none';
+  if (label) label.textContent = isClient ? 'Пароль (необязательно)' : 'Пароль';
 }
 
 async function promptDriverPassport(userId) {
@@ -11864,7 +12070,9 @@ function clientCardHTML(u) {
     : '';
   const oneOffBadge = u.is_one_off
     ? `<span style="font-size:10px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:1px 5px;white-space:nowrap">⭐ разовый</span>`
-    : '';
+    : (u.role === 'client' && u.password_set === false
+      ? `<span title="Клиента завели без пароля: он зарегистрируется сам по этому телефону" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;white-space:nowrap">⏳ ждёт регистрации</span>`
+      : '');
   const lastDelivery = _lastDeliveryByClient[u.id];
   const lastDeliveryLine = lastDelivery
     ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">Последняя доставка: ${fmtDate(lastDelivery)}</div>`
@@ -13563,8 +13771,9 @@ async function loadFinancePaymentOrders() {
                 ? `<span style="color:var(--amber)" title="Тариф не настроен">${icon('warning',13,'margin-right:2px')} —</span>`
                 : Number(target).toLocaleString('ru-RU', {minimumFractionDigits:2});
               const rowClick = `event.stopPropagation();switchTab('orders');setTimeout(()=>{const c=document.getElementById('card-${o.id}');if(c){c.scrollIntoView({behavior:'smooth',block:'center'});toggleCard('${o.id}')}},200)`;
-              const payBtn = canRecord && dispPs !== 'paid' && o.status !== 'cancelled'
-                ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">${icon('wallet',13)} Оплата</button>`
+              // CRM-61: доплата после первой оплаты тоже возможна — кнопка не прячется
+              const payBtn = canRecord && o.status !== 'cancelled'
+                ? `<button class="btn btn-sm btn-success" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();promptRecordPayment('${o.id}', ${debt}, '${escHtml(o.order_number||'')}')">${icon('wallet',13)} ${dispPs === 'paid' ? '+ Оплата' : 'Оплата'}</button>`
                 : '';
               return `
                 <tr style="cursor:pointer" onclick="${rowClick}">
@@ -13854,15 +14063,23 @@ function renderTariffsList(tariffs) {
     el.innerHTML = '<div class="empty-state">Нет тарифов</div>';
     return;
   }
-  el.innerHTML = tariffs.map(t => `
+  // Выбор нескольких тарифов для массовой формулы (CRM-60): храним только то, что ещё есть в списке
+  const liveIds = new Set(tariffs.map(t => String(t.id)));
+  [..._tariffSelection].forEach(id => { if (!liveIds.has(id)) _tariffSelection.delete(id); });
+  el.innerHTML = renderTariffBulkBar(isStaff) + tariffs.map(t => `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        ${isStaff && !t.is_default && !t.is_archived ? `
+          <input type="checkbox" title="Выбрать для массовой смены цены"
+            ${_tariffSelection.has(String(t.id)) ? 'checked' : ''}
+            onchange="toggleTariffSelected('${t.id}', this.checked)">` : ''}
         <span style="font-weight:600">${escHtml(t.name)}</span>
         ${t.is_default ? '<span class="status-badge" style="background:var(--green-bg);color:var(--green)">Базовый</span>' : ''}
         ${t.is_archived ? '<span class="status-badge" style="background:var(--bg3);color:var(--text3)">Архив</span>' : ''}
         ${isStaff && !t.is_default && !t.is_archived ? `
           <button class="btn btn-sm btn-ghost" style="margin-left:auto"
-            onclick="setDefaultTariff('${t.id}')">Сделать базовым</button>
+            title="Цены этого тарифа = цены базового один в один"
+            onclick="setTariffEqualToBase('${t.id}')">= базовый</button>
           <button class="btn btn-sm btn-ghost" style="color:var(--red)"
             onclick="archiveTariff('${t.id}', '${escHtml(t.name)}')">Архивировать</button>` : ''}
         ${isStaff && !t.is_archived ? `
@@ -13891,11 +14108,106 @@ function renderTariffsList(tariffs) {
 }
 
 async function setDefaultTariff(tariffId) {
+  if (!confirm('Сделать этот тариф базовым для ВСЕХ клиентов этого типа?')) return;
   try {
     await orderPost(`/tariffs/${tariffId}/set-default`, {});
+    closeModal();
     toast('Базовый тариф изменён');
     loadTariffs();
   } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+// ── «= базовый» и массовая смена формулы (CRM-60) ────────────────────────────
+
+// Выбранные галочками тарифы (id строками) — для массового применения формулы
+const _tariffSelection = new Set();
+
+function toggleTariffSelected(tariffId, checked) {
+  if (checked) _tariffSelection.add(String(tariffId)); else _tariffSelection.delete(String(tariffId));
+  renderTariffBulkBarInPlace();
+}
+
+function renderTariffBulkBar(isStaff) {
+  if (!isStaff) return '';
+  const n = _tariffSelection.size;
+  return `<div id="tariff-bulk-bar" style="display:${n ? 'flex' : 'none'};align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--accent);border-radius:6px;background:var(--bg2)">
+      <span style="font-size:13px">Выбрано тарифов: <strong id="tariff-bulk-count">${n}</strong></span>
+      <button class="btn btn-sm btn-primary" onclick="promptBulkTariffFormula()">Задать им одну цену…</button>
+      <button class="btn btn-sm btn-ghost" onclick="clearTariffSelection()">Снять выбор</button>
+    </div>`;
+}
+
+function renderTariffBulkBarInPlace() {
+  const bar = document.getElementById('tariff-bulk-bar');
+  if (!bar) return;
+  bar.style.display = _tariffSelection.size ? 'flex' : 'none';
+  const cnt = document.getElementById('tariff-bulk-count');
+  if (cnt) cnt.textContent = _tariffSelection.size;
+}
+
+function clearTariffSelection() {
+  _tariffSelection.clear();
+  renderTariffsList(_allTariffs || []);
+}
+
+// Базовый тариф для «= базовый»: тот, от которого тариф уже считается; иначе базовый юрлиц
+function _baseTariffFor(t) {
+  if (t && t.base_tariff_id) return (_allTariffs || []).find(x => String(x.id) === String(t.base_tariff_id)) || null;
+  return _defaultTariff || (_allTariffs || []).find(x => x.is_default && !x.is_archived) || null;
+}
+
+// Тело PUT для смены формулы с сохранением скрытых видов топлива и ступеней скидок тарифа
+function _tariffFormulaPutBody(t, formula) {
+  return {
+    fuel_prices: (t.fuel_prices || []).map(fp => ({
+      fuel_type: fp.fuel_type,
+      price_per_liter: fp.price_per_liter,
+      is_hidden: !!fp.is_hidden,
+    })),
+    volume_tiers: (t.volume_tiers || []).map(v => ({ min_volume: v.min_volume, discount_pct: v.discount_pct })),
+    ...formula,
+  };
+}
+
+async function setTariffEqualToBase(tariffId) {
+  const t = (_allTariffs || []).find(x => String(x.id) === String(tariffId));
+  const base = _baseTariffFor(t);
+  if (!t || !base) { toast('Базовый тариф не настроен'); return; }
+  if (!confirm(`Тариф «${t.name}» будет брать цены из «${base.name}» один в один.\nСвои цены и наценка этого тарифа перестанут действовать. Продолжить?`)) return;
+  try {
+    await orderPut(`/tariffs/${tariffId}`, _tariffFormulaPutBody(t, {
+      base_tariff_id: base.id, formula_type: 'equal', formula_value: null, formula_round_to: null,
+    }));
+    toast(`«${t.name}» = «${base.name}»`);
+    loadTariffs();
+  } catch (e) { toast('Ошибка: ' + e.message); }
+}
+
+function promptBulkTariffFormula() {
+  const ids = [..._tariffSelection];
+  const picked = (_allTariffs || []).filter(t => ids.includes(String(t.id)));
+  if (!picked.length) return;
+  const names = picked.map(t => escHtml(t.name)).join(', ');
+  openModal(`Одна цена для ${picked.length} тариф${picked.length === 1 ? 'а' : 'ов'}`, `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${names}</div>
+    ${tariffFormulaBlockHtml('bt', { base_tariff_id: (_baseTariffFor(null) || {}).id, formula_type: 'equal' })}
+    <div style="font-size:11px;color:var(--text3)">Формула заменит прежнюю у каждого из выбранных тарифов. Свои цены тарифов не затрагиваются.</div>`,
+    async () => {
+      const formula = _collectTariffFormula('bt');
+      if (formula === null) { toast('Укажите величину наценки или скидки'); return; }
+      if (!formula.base_tariff_id) { toast('Выберите базовый тариф, от которого считать'); return; }
+      const failed = [];
+      for (const t of picked) {
+        try { await orderPut(`/tariffs/${t.id}`, _tariffFormulaPutBody(t, formula)); }
+        catch (e) { failed.push(`${t.name}: ${e.message}`); }
+      }
+      closeModal();
+      _tariffSelection.clear();
+      toast(failed.length
+        ? `Не удалось: ${failed.join('; ')}`
+        : `Готово: обновлено тарифов — ${picked.length}`);
+      loadTariffs();
+    });
 }
 
 async function archiveTariff(tariffId, name) {
@@ -14010,7 +14322,12 @@ async function promptEditTariff(tariffId) {
       <label class="form-label">Ступени скидок</label>
       <div id="et-tiers"></div>
       <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="addTierRow('et-tiers')">+ Добавить</button>
-    </div>`,
+    </div>
+    ${!tariff.is_default && !tariff.base_tariff_id ? `
+    <div class="form-group" style="border-top:1px solid var(--border);padding-top:10px">
+      <button class="btn btn-sm btn-ghost" onclick="setDefaultTariff('${tariffId}')">Сделать этот тариф базовым для всех</button>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">Меняет базовый тариф системы. Для цены «как у базового» используйте кнопку «= базовый» на карточке тарифа.</div>
+    </div>` : ''}`,
     async () => {
       const formula = _collectTariffFormula('et');
       if (formula === null) { toast('Укажите величину наценки или скидки'); return; }
