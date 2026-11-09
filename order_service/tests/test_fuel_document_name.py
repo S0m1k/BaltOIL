@@ -31,3 +31,15 @@ def test_new_non_diesel_code_uses_label_as_is(monkeypatch):
 def test_unknown_code_falls_back_to_code(monkeypatch):
     monkeypatch.setattr(fts, "_catalog_labels", {})
     assert fts.document_name("mystery", LEGACY) == "mystery"
+
+
+def test_dt_e_grades_are_not_hardcoded_in_documents():
+    # Сорта ДТ-Е живут в каталоге: переименование админом должно попадать в счета.
+    from app.services.document_service import FUEL_LABELS
+    assert "dt_e" not in FUEL_LABELS and "dt_e_c" not in FUEL_LABELS
+
+
+def test_renamed_dt_e_grade_reaches_documents(monkeypatch):
+    from app.services.document_service import FUEL_LABELS
+    monkeypatch.setattr(fts, "_catalog_labels", {"dt_e_c": "ДТ-Е-К5, сорт Е"})
+    assert fts.document_name("dt_e_c", FUEL_LABELS) == "Дизельное топливо (ДТ-Е-К5, сорт Е)"
