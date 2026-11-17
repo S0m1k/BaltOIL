@@ -167,7 +167,6 @@ async def create_device(
         sim_phone=data.sim_phone,
         notes=data.notes,
         with_token=data.with_token,
-        with_totp=data.with_totp,
     )
     return await _created(db, device, issued)
 
@@ -199,7 +198,6 @@ async def _created(db: AsyncSession, device, issued: gps_service.IssuedCredentia
     return {
         "device": gps_service._device_dict(device, vehicle, datetime.now(timezone.utc)),
         "token": issued.token,
-        "totp": issued.totp,
     }
 
 

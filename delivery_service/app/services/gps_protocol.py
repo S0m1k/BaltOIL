@@ -57,12 +57,13 @@ _KEYS_SATS   = ("sats", "sat", "satellites", "nsat", "sv", "s")
 _KEYS_SPEED  = ("speed", "spd", "v", "kmh", "velocity")
 _KEYS_TS     = ("ts", "time", "timestamp", "utc", "t")
 _KEYS_TOKEN  = ("token", "key", "secret", "auth")
-_KEYS_CODE   = ("code", "otp", "totp", "pin")
 
-# Код TOTP в позиционной строке стоит сразу после номера устройства:
-# «SZTK-01 48291376 59.938732 30.312345 9». Цифр 6–10 — с координатой не
-# спутать (у той максимум 3 цифры до точки), с hex-токеном тоже (тот от 16).
-_CODE_RE = re.compile(r"^\d{6,10}$")
+# С 19.09 по 17.11.2026 трекер подтверждал себя кодом TOTP сразу после номера:
+# «SZTK-01 48291376 59.938732 30.312345 9». TOTP убран, но прошивка с кодом
+# могла остаться на машинах — такое поле молча пропускаем, а не режем точку.
+# Цифр 6–10 — с координатой не спутать (у той максимум 3 цифры до точки),
+# с hex-токеном тоже (тот от 16).
+_LEGACY_CODE_RE = re.compile(r"^\d{6,10}$")
 _TOKEN_HEX_RE = re.compile(r"^[0-9a-fA-F]{16,64}$")
 
 # Ниже этой скорости считаем, что машина стоит (шум GPS на стоянке иначе даёт
@@ -96,7 +97,6 @@ class ParsedPoint:
     speed_kmh: float | None = None
     recorded_at: datetime | None = None  # None → подставится время приёма
     token: str | None = None
-    code: str | None = None  # TOTP, если прошивка его шлёт
 
 
 def is_valid_device_number(value: str) -> bool:
@@ -136,7 +136,6 @@ def _to_decimal(value: str) -> Decimal:
 def _build_point(
     device: str, lat_s: str, lon_s: str, sats_s: str,
     speed_s: str = "", ts_s: str = "", token: str | None = None,
-    code: str | None = None,
     *, now: datetime,
 ) -> ParsedPoint:
     device = device.strip()
@@ -192,7 +191,6 @@ def _build_point(
         speed_kmh=speed,
         recorded_at=recorded_at,
         token=(token or None),
-        code=(code or None),
     )
 
 
@@ -224,12 +222,11 @@ def parse_mapping(data: dict, *, now: datetime | None = None) -> ParsedPoint:
         _first(flat, _KEYS_SPEED) or "",
         _first(flat, _KEYS_TS) or "",
         _first(flat, _KEYS_TOKEN),
-        _first(flat, _KEYS_CODE),
         now=now,
     )
 
 
-def _split_positional(raw: str) -> tuple[list[str], str | None, str | None]:
+def _split_positional(raw: str) -> tuple[list[str], str | None]:
     """Делит строку на поля, сам выбирая разделитель.
 
     Запятая двусмысленна: она и разделитель полей («id,59.9,30.3,9»), и
@@ -250,22 +247,21 @@ def _split_positional(raw: str) -> tuple[list[str], str | None, str | None]:
     best: list[str] = []
     for parts in candidates:
         parts = [p for p in (x.strip() for x in parts) if p != ""]
-        token = code = None
-        # На втором месте может стоять не координата, а удостоверение
-        # устройства: код TOTP (цифры) или статический hex-токен («BO1,dev,
-        # token,…»). Убираем его и проверяем раскладку дальше.
+        token = None
+        # На втором месте может стоять не координата, а статический
+        # hex-токен устройства («BO1,dev,token,…») или старый код TOTP.
+        # Убираем его и проверяем раскладку дальше; код просто отбрасываем.
         if len(parts) >= 5 and not _COORD_RE.match(parts[1]):
-            if _CODE_RE.match(parts[1]):
-                code = parts[1]
+            if _LEGACY_CODE_RE.match(parts[1]):
                 parts = parts[:1] + parts[2:]
             elif _TOKEN_HEX_RE.match(parts[1]):
                 token = parts[1]
                 parts = parts[:1] + parts[2:]
         if len(parts) >= 3 and _COORD_RE.match(parts[1]) and _COORD_RE.match(parts[2]):
-            return parts, token, code
+            return parts, token
         if len(parts) > len(best):
             best = parts
-    return best, None, None
+    return best, None
 
 
 def parse_line(line: str, *, now: datetime | None = None) -> ParsedPoint:
@@ -310,21 +306,20 @@ def parse_line(line: str, *, now: datetime | None = None) -> ParsedPoint:
             raw = raw[len(prefix) + 1:]
             break
 
-    parts, token, code = _split_positional(raw)
+    parts, token = _split_positional(raw)
 
     if len(parts) < 3:
         raise ProtocolError(ERR_BADFMT, f"мало полей: «{raw[:60]}»")
     if len(parts) == 3:
         # Без спутников: номер, широта, долгота.
         return _build_point(parts[0], parts[1], parts[2], str(MIN_SATS_FOR_FIX),
-                            token=token, code=code, now=now)
+                            token=token, now=now)
 
     return _build_point(
         parts[0], parts[1], parts[2], parts[3],
         parts[4] if len(parts) > 4 else "",
         parts[5] if len(parts) > 5 else "",
         token,
-        code,
         now=now,
     )
 
@@ -417,46 +412,3 @@ class RateLimiter:
                 del self._last[stale_key]
         self._last[key] = now
         return True
-
-
-class FailureThrottle:
-    """Ограничение неверных попыток на ключ (устройство) в скользящем окне.
-
-    Защита кода TOTP от перебора: приёмник открыт в интернет, и без этого
-    8-значный код со временем подбирается с множества адресов. После
-    `max_failures` неверных кодов за `window_sec` устройство перестаёт
-    проверяться до конца окна. Успешный код счётчик не сбрасывает — иначе
-    атакующий получал бы новую порцию попыток после каждой точки трекера.
-
-    Цена: перебором можно временно заглушить трекер, но не подделать его
-    точки. Живёт в памяти процесса, как и антифлуд.
-    """
-
-    def __init__(self, max_failures: int, window_sec: float, max_entries: int = 5000):
-        self.max_failures = max_failures
-        self.window = window_sec
-        self.max_entries = max_entries
-        self._fails: dict[str, list[float]] = {}
-
-    def _recent(self, key: str, now: float) -> list[float]:
-        fresh = [t for t in self._fails.get(key, []) if now - t < self.window]
-        if fresh:
-            self._fails[key] = fresh
-        else:
-            self._fails.pop(key, None)
-        return fresh
-
-    def is_blocked(self, key: str, now: float) -> bool:
-        return len(self._recent(key, now)) >= self.max_failures
-
-    def record_failure(self, key: str, now: float) -> None:
-        if len(self._fails) >= self.max_entries and key not in self._fails:
-            # Сначала выкидываем протухшие записи, потом самые старые.
-            for k in list(self._fails):
-                self._recent(k, now)
-            if len(self._fails) >= self.max_entries:
-                oldest = sorted(self._fails, key=lambda k: self._fails[k][-1])
-                for k in oldest[: self.max_entries // 2]:
-                    del self._fails[k]
-        self._recent(key, now)
-        self._fails.setdefault(key, []).append(now)
