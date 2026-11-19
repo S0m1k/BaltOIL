@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<yml_catalog date="2026-11-19 15:00">
+  <shop>
+    <name>СЗТК</name>
+    <company>ООО «Лидер Диз»</company>
+    <url>https://9171517.ru/</url>
+    <currencies>
+      <currency id="RUR" rate="1"/>
+    </currencies>
+    <categories>
+      <category id="1">Дизельное топливо</category>
+    </categories>
+    <offers>
+      <offer id="dt-leto" available="true">
+        <url>https://9171517.ru/dizelnoe-toplivo</url>
+        <price>66</price>
+        <currencyId>RUR</currencyId>
+        <categoryId>1</categoryId>
+        <picture>https://9171517.ru/img/dt-leto.jpg</picture>
+        <name>Дизельное топливо летнее</name>
+        <description>Летнее дизельное топливо за литр, цена без доставки. Доставка бензовозом по Санкт-Петербургу и Ленинградской области, от 300 литров, документы в день налива.</description>
+        <sales_notes>От 300 л. Цена без доставки, доставка считается отдельно. Безнал для юрлиц.</sales_notes>
+      </offer>
+      <offer id="dt-mezhsezon" available="true">
+        <url>https://9171517.ru/dizelnoe-toplivo</url>
+        <price>70</price>
+        <currencyId>RUR</currencyId>
+        <categoryId>1</categoryId>
+        <picture>https://9171517.ru/img/dt-mezhsezon.jpg</picture>
+        <name>Дизельное топливо межсезонное</name>
+        <description>Межсезонное дизельное топливо за литр, цена без доставки. Доставка бензовозом по Санкт-Петербургу и Ленинградской области, от 300 литров, документы в день налива.</description>
+        <sales_notes>От 300 л. Цена без доставки, доставка считается отдельно. Безнал для юрлиц.</sales_notes>
+      </offer>
+      <offer id="dt-minus27" available="true">
+        <url>https://9171517.ru/zimnee-dt</url>
+        <price>74.5</price>
+        <currencyId>RUR</currencyId>
+        <categoryId>1</categoryId>
+        <picture>https://9171517.ru/img/dt-minus27.jpg</picture>
+        <name>Дизельное топливо межсезонное -27°C</name>
+        <description>Дизельное топливо межсезонное с температурой применения до -27°C, за литр, цена без доставки. Доставка бензовозом по Санкт-Петербургу и Ленинградской области, от 300 литров.</description>
+        <sales_notes>От 300 л. Цена без доставки, доставка считается отдельно. Безнал для юрлиц.</sales_notes>
+      </offer>
+    </offers>
+  </shop>
+</yml_catalog>
