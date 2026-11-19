@@ -6,6 +6,7 @@ import '../organizations/organizations_repository.dart';
 import 'order_models.dart';
 import 'order_edit_rules.dart';
 import 'orders_repository.dart';
+import 'payment_context.dart';
 
 /// Подписи типов оплаты (веб PAYMENT_TYPE_LABELS_ALL).
 const _kPaymentLabels = <String, String>{
@@ -50,6 +51,25 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   // выбор скрыт — первый доступный тип подставляется автоматически.
   List<String> _paymentChoices = const ['on_delivery', 'prepaid'];
   bool _paymentHidden = false;
+
+  /// Для каких клиента+организации загружены варианты оплаты. Пока не совпадает
+  /// с текущим выбором, тип оплаты на сервер не шлём — его выбирает сервер
+  /// (юрлицо с кредитом → «в долг»). Жалоба 19.11.2026: статичное «По факту»
+  /// уводило заявки кредитных организаций в «ждём оплату».
+  String? _paymentCtxKey;
+  int _paymentSeq = 0;
+
+  String? get _expectedPaymentKey =>
+      paymentCtxKey(_paymentClientId(), _organizationId);
+
+  String? _paymentClientId() => paymentOptionsClientId(
+    isStaff: _isStaff,
+    userId: widget.user.id,
+    selectedClientId: _clientId,
+    organizationId: _organizationId,
+    noClientMarker: _kNoClientId,
+    oneOffMarker: _kOneOffClientId,
+  );
 
   // «Оформить от имени» — организации клиента (веб c-organization).
   List<Organization> _orgs = const [];
@@ -115,7 +135,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       _contactName.text = src.contactPersonName ?? '';
       _contactPhone.text = src.contactPersonPhone ?? '';
       _comment.text = src.clientComment ?? '';
-      if (src.paymentType != null) _paymentType = src.paymentType!;
+      // Тип оплаты исходной заявки НЕ копируем: он берётся по условиям
+      // организации («в долг» у кредитных), иначе ошибочная «предоплата»
+      // размножалась бы из заявки в заявку.
       if (_isStaff && src.clientId != null) {
         _clientId = src.clientId;
         _managerComment.text = src.managerComment ?? '';
@@ -145,7 +167,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   /// приёмки — они видны и без клиента.
   Future<void> _reloadSavedObjects() async {
     final cid = _clientId;
-    final realClient = _isStaff &&
+    final realClient =
+        _isStaff &&
         cid != null &&
         cid != _kNoClientId &&
         cid != _kOneOffClientId;
@@ -182,11 +205,14 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
 
   /// Организации + сохранённые объекты + типы оплаты выбранного клиента.
   /// Ошибки не блокируют форму (как на вебе) — просто прячем блоки.
-  Future<void> _loadClientContext(String clientId,
-      {required bool isSelf}) async {
+  Future<void> _loadClientContext(
+    String clientId, {
+    required bool isSelf,
+  }) async {
     try {
-      final orgs = await OrganizationsRepository.instance
-          .list(userId: isSelf ? null : clientId);
+      final orgs = await OrganizationsRepository.instance.list(
+        userId: isSelf ? null : clientId,
+      );
       if (mounted) {
         setState(() {
           _orgs = orgs;
@@ -197,22 +223,40 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       if (mounted) setState(() => _orgs = const []);
     }
     await _reloadSavedObjects();
+    await _loadPaymentOptions();
+  }
+
+  /// Типы оплаты под выбранные клиента и организацию (веб renderPaymentRadios).
+  /// Ошибка не блокирует форму: тип оплаты тогда не уходит, решает сервер.
+  Future<void> _loadPaymentOptions() async {
+    final seq = ++_paymentSeq;
+    final cid = _paymentClientId();
+    final orgId = _organizationId;
+    if (mounted) setState(() => _paymentCtxKey = null);
+    if (cid == null) return;
     try {
-      final opts = await OrdersRepository.instance.paymentOptions(clientId);
-      if (!mounted) return;
+      final opts = await OrdersRepository.instance.paymentOptions(
+        cid,
+        organizationId: orgId,
+      );
+      // Клиента или организацию уже сменили — ответ устарел.
+      if (!mounted || seq != _paymentSeq) return;
       setState(() {
-        final types =
-            opts.types.isEmpty ? const ['on_delivery'] : opts.types;
+        final types = opts.types.isEmpty ? const ['on_delivery'] : opts.types;
         _paymentChoices = types;
-        // Веб: физ и юр лицам выбор скрыт, первый тип — автоматически.
-        _paymentHidden = opts.clientType == 'individual' ||
-            opts.clientType == 'company';
+        // Веб: физ и юр лицам выбор скрыт, тип выбирается автоматически.
+        _paymentHidden =
+            opts.clientType == 'individual' || opts.clientType == 'company';
         if (_paymentHidden || !types.contains(_paymentType)) {
-          _paymentType = types.first;
+          _paymentType = defaultPaymentType(
+            types: types,
+            creditAllowed: opts.creditAllowed,
+          );
         }
+        _paymentCtxKey = paymentCtxKey(cid, orgId);
       });
     } on Object catch (_) {
-      // Оставляем статические дефолты — не блокируем создание заявки.
+      // Не блокируем создание заявки: тип оплаты не отправится.
     }
   }
 
@@ -272,7 +316,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _fuelCode == null) return;
-    if (_isStaff && (_clientId == null || _clientId == _kNoClientId) &&
+    if (_isStaff &&
+        (_clientId == null || _clientId == _kNoClientId) &&
         _organizationId == null) {
       setState(() => _error = 'Выберите клиента или организацию');
       return;
@@ -282,8 +327,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
       _error = null;
     });
     try {
-      var clientId =
-          _isStaff && _clientId != _kNoClientId ? _clientId : null;
+      var clientId = _isStaff && _clientId != _kNoClientId ? _clientId : null;
       var contactName = _contactName.text.trim();
       var contactPhone = _contactPhone.text.trim();
       // Разовый клиент (веб __oneoff__): создаём/находим по телефону
@@ -297,10 +341,13 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         );
         clientId = oo['id'] as String;
         if (oo['is_one_off'] != true && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Телефон уже в базе — заявка на клиента ${oo['full_name']}'),
-          ));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Телефон уже в базе — заявка на клиента ${oo['full_name']}',
+              ),
+            ),
+          );
         }
         if (contactName.isEmpty) contactName = ooName;
         if (contactPhone.isEmpty) contactPhone = ooPhone;
@@ -314,7 +361,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         fuelType: _fuelCode!,
         volume: double.parse(_volume.text.replaceAll(',', '.')),
         address: _address.text.trim(),
-        paymentType: _paymentType,
+        paymentType: paymentRadiosMatch(_paymentCtxKey, _expectedPaymentKey)
+            ? _paymentType
+            : null,
         desiredDate: _desiredDate,
         comment: _comment.text.trim(),
         contactName: contactName,
@@ -339,8 +388,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
   void _addManualDeliveryVat() {
     final next = withDeliveryVat(_manualDeliveryCost.text);
     if (next == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Сначала укажите стоимость доставки')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Сначала укажите стоимость доставки')),
+      );
       return;
     }
     setState(() {
@@ -354,16 +404,19 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     final types = _fuelTypes;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.duplicateFrom == null
-            ? 'Новая заявка на топливо'
-            : 'Новая заявка (дублирована из '
-                '№${widget.duplicateFrom!.orderNumber})'),
+        title: Text(
+          widget.duplicateFrom == null
+              ? 'Новая заявка на топливо'
+              : 'Новая заявка (дублирована из '
+                    '№${widget.duplicateFrom!.orderNumber})',
+        ),
       ),
       body: types == null
           ? Center(
               child: _error == null
                   ? const CircularProgressIndicator()
-                  : Text(_error!))
+                  : Text(_error!),
+            )
           : Form(
               key: _formKey,
               child: ListView(
@@ -379,7 +432,9 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                       isExpanded: true,
                       items: [
                         const DropdownMenuItem<String?>(
-                            value: null, child: Text('Физлицо (на себя)')),
+                          value: null,
+                          child: Text('Физлицо (на себя)'),
+                        ),
                         for (final o in _orgs)
                           DropdownMenuItem<String?>(
                             value: o.id,
@@ -394,9 +449,12 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                       onChanged: (v) {
                         setState(() => _organizationId = v);
                         _reloadSavedObjects();
+                        // Кредит («в долг») задан на организации.
+                        _loadPaymentOptions();
                       },
                       decoration: const InputDecoration(
-                          labelText: 'Оформить от имени'),
+                        labelText: 'Оформить от имени',
+                      ),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -416,9 +474,10 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                     // Staff не ограничен 300 л (веб-фикс 1980084) —
                     // минимум остаётся клиентам и водителям.
                     decoration: InputDecoration(
-                        labelText: _isStaff
-                            ? 'Объём (литры)'
-                            : 'Объём (литры, min 300)'),
+                      labelText: _isStaff
+                          ? 'Объём (литры)'
+                          : 'Объём (литры, min 300)',
+                    ),
                     validator: (v) {
                       final n = double.tryParse((v ?? '').replaceAll(',', '.'));
                       if (n == null || n <= 0) return 'Укажите объём';
@@ -438,13 +497,16 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                       isExpanded: true,
                       items: [
                         const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('— сохранённые объекты —')),
+                          value: null,
+                          child: Text('— сохранённые объекты —'),
+                        ),
                         for (final o in _savedObjects)
                           DropdownMenuItem<String?>(
                             value: o.id,
-                            child: Text(o.label,
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              o.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (id) {
@@ -455,7 +517,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                         if (obj != null) _applySavedObject(obj);
                       },
                       decoration: const InputDecoration(
-                          labelText: 'Сохранённые объекты'),
+                        labelText: 'Сохранённые объекты',
+                      ),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -468,8 +531,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                       helperText: _isDriver
                           ? 'Адрес уточнит менеджер'
                           : (_addressRequired
-                              ? null
-                              : 'Можно добавить позже в карточке заявки'),
+                                ? null
+                                : 'Можно добавить позже в карточке заявки'),
                     ),
                     validator: (v) {
                       if (!_addressRequired) return null;
@@ -482,29 +545,35 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                   OutlinedButton.icon(
                     onPressed: _pickDate,
                     icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text(_desiredDate == null
-                        ? 'Желаемая дата доставки'
-                        : 'Дата: ${_desiredDate!.day}.${_desiredDate!.month}.${_desiredDate!.year}'),
+                    label: Text(
+                      _desiredDate == null
+                          ? 'Желаемая дата доставки'
+                          : 'Дата: ${_desiredDate!.day}.${_desiredDate!.month}.${_desiredDate!.year}',
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _contactName,
                     decoration: const InputDecoration(
-                        labelText: 'Контактное лицо для приёмки'),
+                      labelText: 'Контактное лицо для приёмки',
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _contactPhone,
                     keyboardType: TextInputType.phone,
                     decoration: const InputDecoration(
-                        labelText: 'Телефон контактного лица'),
+                      labelText: 'Телефон контактного лица',
+                    ),
                   ),
                   const SizedBox(height: 16),
                   // Тип оплаты: для физ/юр лиц скрыт (веб renderPaymentRadios) —
                   // первый доступный тип выбран автоматически.
                   if (!_paymentHidden) ...[
-                    Text('Тип оплаты',
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      'Тип оплаты',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     RadioGroup<String>(
                       groupValue: _paymentType,
                       onChanged: (v) =>
@@ -541,7 +610,8 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Text('Отправить заявку'),
                   ),
                 ],
@@ -556,11 +626,12 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
     final clients = _clients;
     final drivers = _drivers;
     return [
-      Text('Параметры менеджера',
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.w700)),
+      Text(
+        'Параметры менеджера',
+        style: Theme.of(
+          context,
+        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      ),
       const SizedBox(height: 12),
       // Клиент — необязателен, если заявка на организацию (правки 2026-07-22:
       // «ничейные» организации без владельца ведёт сам сотрудник).
@@ -570,21 +641,25 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         isExpanded: true,
         items: [
           const DropdownMenuItem(
-              value: _kNoClientId,
-              child: Text('Без клиента (заявка на организацию)')),
+            value: _kNoClientId,
+            child: Text('Без клиента (заявка на организацию)'),
+          ),
           const DropdownMenuItem(
-              value: _kOneOffClientId,
-              child: Text('⭐ Разовый клиент (имя + телефон)')),
+            value: _kOneOffClientId,
+            child: Text('⭐ Разовый клиент (имя + телефон)'),
+          ),
           for (final c in clients ?? const <UserBrief>[])
             DropdownMenuItem(
-                value: c.id,
-                child: Text(c.label, overflow: TextOverflow.ellipsis)),
+              value: c.id,
+              child: Text(c.label, overflow: TextOverflow.ellipsis),
+            ),
         ],
         onChanged: clients == null
             ? null
             : (v) {
                 setState(() {
                   _clientId = v;
+                  _paymentCtxKey = null; // варианты оплаты — под нового клиента
                   if (v == _kOneOffClientId) {
                     // Разовый — всегда физлицо, оплата по факту;
                     // организаций и объектов у него ещё нет.
@@ -641,8 +716,7 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         Text(
           'Разовый клиент — всегда физлицо, оплата по факту. Если телефон '
           'уже есть в базе — заявка привяжется к существующему клиенту.',
-          style: TextStyle(
-              fontSize: 11, color: Theme.of(context).hintColor),
+          style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor),
         ),
       ],
       const SizedBox(height: 16),
@@ -657,18 +731,21 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         isExpanded: true,
         items: [
           const DropdownMenuItem<String?>(
-              value: null, child: Text('Все водители (пул)')),
+            value: null,
+            child: Text('Все водители (пул)'),
+          ),
           for (final d in drivers ?? const <UserBrief>[])
             DropdownMenuItem<String?>(
-                value: d.id,
-                child: Text(d.label, overflow: TextOverflow.ellipsis)),
+              value: d.id,
+              child: Text(d.label, overflow: TextOverflow.ellipsis),
+            ),
         ],
         onChanged: drivers == null
             ? null
             : (v) => setState(() {
-                  _driverId = v;
-                  if (v == null) _isTtnL = false; // ТТН-Л только при водителе
-                }),
+                _driverId = v;
+                if (v == null) _isTtnL = false; // ТТН-Л только при водителе
+              }),
         decoration: const InputDecoration(labelText: 'Назначить водителя'),
       ),
       // ТТН-Л показываем только если выбран конкретный водитель (как на вебе).
@@ -726,9 +803,11 @@ class _OrderCreateScreenState extends State<OrderCreateScreen> {
         alignment: Alignment.centerLeft,
         child: TextButton(
           onPressed: _manualVatAdded ? null : _addManualDeliveryVat,
-          child: Text(_manualVatAdded
-              ? 'НДС $kDeliveryVatPercent% добавлен'
-              : 'Добавить НДС'),
+          child: Text(
+            _manualVatAdded
+                ? 'НДС $kDeliveryVatPercent% добавлен'
+                : 'Добавить НДС',
+          ),
         ),
       ),
       const Divider(height: 32),

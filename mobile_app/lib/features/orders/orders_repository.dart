@@ -388,7 +388,9 @@ class OrdersRepository {
     required String fuelType,
     required double volume,
     required String address,
-    String paymentType = 'on_delivery',
+    // null — тип оплаты не шлём, его выбирает сервер (юрлицо с кредитом →
+    // «в долг», иначе предоплата; физлицо — по факту).
+    String? paymentType,
     DateTime? desiredDate,
     String? comment,
     String? contactName,
@@ -411,7 +413,7 @@ class OrdersRepository {
         'fuel_type': fuelType,
         'volume_requested': volume,
         'delivery_address': address,
-        'payment_type': paymentType,
+        if (paymentType != null) 'payment_type': paymentType,
         if (desiredDate != null) 'desired_date': _desiredDateIso(desiredDate),
         if (comment != null && comment.isNotEmpty) 'client_comment': comment,
         if (contactName != null && contactName.isNotEmpty)
@@ -437,11 +439,16 @@ class OrdersRepository {
 
   /// Доступные типы оплаты клиента (веб renderPaymentRadios):
   /// GET /tariffs/clients/{id}/payment-options.
-  Future<({String clientType, List<String> types})> paymentOptions(
-    String clientId,
-  ) async {
+  ///
+  /// [organizationId] — заявка от юрлица: кредит («в долг») задаётся на
+  /// организации, а не на клиенте.
+  Future<({String clientType, List<String> types, bool creditAllowed})>
+  paymentOptions(String clientId, {String? organizationId}) async {
     final resp = await _dio.get(
       '$_base/tariffs/clients/$clientId/payment-options',
+      queryParameters: {
+        if (organizationId != null) 'organization_id': organizationId,
+      },
     );
     final data = resp.data as Map<String, dynamic>;
     return (
@@ -449,6 +456,7 @@ class OrdersRepository {
       types: ((data['available_payment_types'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),
+      creditAllowed: data['credit_allowed'] == true,
     );
   }
 
