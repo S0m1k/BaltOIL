@@ -395,8 +395,7 @@ async def preview_price(
         # Итог считаем от округлённой цены за литр с доставкой — той же
         # функцией, что и счёт (CRM-27)
         vat_rate = await get_seller_vat_rate(db)
-        manual_used = is_staff and data.manual_price_per_liter is not None
-        total = order_total(fuel_subtotal, delivery_cost, data.volume, vat_rate, exact=manual_used)
+        total = order_total(fuel_subtotal, delivery_cost, data.volume, vat_rate)
         breakdown = price_first_breakdown(total, data.volume, vat_rate)
         unit_price_no_vat = breakdown["unit_no_vat"] if breakdown else None
     else:
@@ -592,7 +591,6 @@ async def create_order(
         expected_amount = order_total(
             expected_amount, delivery_cost, data.volume_requested,
             await get_seller_vat_rate(db),
-            exact=manual_price_used,
         )
     elif delivery_cost is not None:
         log.warning(
@@ -902,7 +900,6 @@ async def _recompute_expected_amount(db: AsyncSession, order: Order) -> None:
         order.expected_amount = order_total(
             expected, delivery_cost, float(order.volume_requested or 0),
             await get_seller_vat_rate(db),
-            exact=order.manual_price_per_liter is not None,
         )
     except Exception as exc:
         log.warning("recompute_expected_amount failed for order %s (non-fatal): %s",
@@ -1124,7 +1121,6 @@ async def update_order(
         if data.expected_amount is None and fuel_expected is not None:
             order.expected_amount = order_total(
                 fuel_expected, order.delivery_cost, _vol_req, _vat_rate,
-                exact=order.manual_price_per_liter is not None,
             )
         # Доставленная заявка: долг и счёт считаются от final_amount — его тоже
         # надо подвинуть на дельту доставки (баг 2026-08-24).
@@ -1132,7 +1128,6 @@ async def update_order(
             order.final_amount = order_total(
                 fuel_final, order.delivery_cost,
                 float(order.volume_delivered or 0) or _vol_req, _vat_rate,
-                exact=order.manual_price_per_liter is not None,
             )
             _final_amount_touched = True
         changed = True
@@ -1572,7 +1567,6 @@ async def transition_status(
                 # Итог сводим через цену за литр без НДС — как в счёте (CRM-27)
                 order.final_amount = order_total(
                     recalc, order.delivery_cost, vol_fact, await get_seller_vat_rate(db),
-                    exact=order.manual_price_per_liter is not None,
                 )
             else:
                 log.warning(

@@ -6561,11 +6561,14 @@ async function duplicateOrder(orderId) {
     } else if (order.client_id) {
       // Подгружаем платёж/организации/сохранённые объекты под выбранного клиента
       await loadOrganizationSelectForOrder(order.client_id);
-      renderPaymentRadios(order.client_id, order.organization_id || '');
     }
   }
   const orgSel = document.getElementById('c-organization');
   if (orgSel && order.organization_id) orgSel.value = order.organization_id;
+  // Тип оплаты НЕ копируется из исходной заявки: берётся по условиям организации
+  // («в долг» у кредитных). Копирование размножало ошибочную «предоплату» из
+  // заявки в заявку (жалоба 19.11.2026).
+  await refreshPaymentRadios();
 
   const fuelSel = document.getElementById('c-fuel');
   if (fuelSel && order.fuel_type) fuelSel.value = order.fuel_type;
@@ -6613,11 +6616,6 @@ async function duplicateOrder(orderId) {
   if (nameEl) nameEl.value = order.contact_person_name || '';
   const phoneEl = document.getElementById('c-contact-phone');
   if (phoneEl) phoneEl.value = order.contact_person_phone || '';
-
-  if (order.payment_type) {
-    const radio = document.querySelector(`input[name="payment"][value="${order.payment_type}"]`);
-    if (radio) { radio.checked = true; updatePaymentUI(); }
-  }
 
   const commentEl = document.getElementById('c-manager-comment');
   if (commentEl) commentEl.value = order.manager_comment || '';
@@ -7155,9 +7153,7 @@ function updatePaymentUI() {
 // оплаты — кредит («в долг») задаётся на организации, а не на клиенте.
 function onOrderOrgChange() {
   updatePricePreview();
-  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  const cid = isStaff ? document.getElementById('c-client-id')?.value : currentUser?.id;
-  if (cid && !_isPseudoClient(cid)) renderPaymentRadios(cid);
+  refreshPaymentRadios();
   // CRM-45: у организации свой список сохранённых объектов с контактами приёмки
   loadSavedObjects();
 }
@@ -7166,6 +7162,41 @@ function onOrderOrgChange() {
 // заявка от организации без клиента (правки 2026-09-02) — id клиента у них нет.
 function _isPseudoClient(cid) {
   return cid === '__oneoff__' || cid === '__org__';
+}
+
+// @pure:payment-ctx
+// Чьи коммерческие условия (кредит «в долг») грузить в блок «Тип оплаты».
+// Заявка «От организации (без клиента)» — условия организации через самого
+// сотрудника: без этого блок оставался статичным «Предоплата», уходил явно, и
+// заявка юрлица с кредитом вставала в «ждём оплату» (регрессия 03.11 → 19.11.2026).
+function paymentOptionsClientId(clientSelValue, isStaff, userId, orgId) {
+  if (!isStaff) return userId || null;
+  if (clientSelValue === '__org__') return orgId ? (userId || null) : null;
+  if (!clientSelValue || clientSelValue === '__oneoff__') return null;
+  return clientSelValue;
+}
+function paymentCtxKey(clientId, orgId) {
+  return clientId ? `${clientId}|${orgId || ''}` : '';
+}
+// Тип оплаты из формы отправляем, только если варианты загружены именно для
+// этих клиента и организации; иначе тип решает сервер (кредит → «в долг»).
+function paymentRadiosMatch(renderedKey, expectedKey) {
+  return !!expectedKey && renderedKey === expectedKey;
+}
+// @end:payment-ctx
+
+// Перегрузить «Тип оплаты» под клиента и организацию, выбранных в форме.
+async function refreshPaymentRadios() {
+  const isStaff = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const orgId = document.getElementById('c-organization')?.value || '';
+  const selValue = isStaff ? (document.getElementById('c-client-id')?.value || '') : '';
+  const cid = paymentOptionsClientId(selValue, isStaff, currentUser?.id, orgId);
+  if (!cid) {
+    const group = document.getElementById('payment-radio-group');
+    if (group) delete group.dataset.paymentCtx;
+    return;
+  }
+  await renderPaymentRadios(cid, orgId);
 }
 
 async function loadClientSelectForOrder() {
@@ -7196,7 +7227,7 @@ async function loadClientSelectForOrder() {
       // Организации грузим ДО типов оплаты: кредит («в долг») висит на юрлице,
       // а renderPaymentRadios читает выбранную организацию из селектора.
       await loadOrganizationSelectForOrder(_isPseudoClient(cid) ? null : (cid || null), cid === '__org__');
-      if (cid && !_isPseudoClient(cid)) renderPaymentRadios(cid);
+      await refreshPaymentRadios();
     };
     toggleOneOffFields(current === '__oneoff__');
     if (current && !_isPseudoClient(current)) { await loadOrganizationSelectForOrder(current); renderPaymentRadios(current); }
@@ -7994,6 +8025,17 @@ async function doCreateOrder() {
   // Организация (юрлицо), от имени которой создаётся заявка. Пусто = физлицо.
   const orgSel = document.getElementById('c-organization');
   if (orgSel && orgSel.value) body.organization_id = orgSel.value;
+
+  // Варианты оплаты загружены не для этих клиента/организации (или не загрузились) —
+  // тип не шлём, его выбирает сервер: юрлицо с кредитом → «в долг» (жалоба 19.11.2026).
+  {
+    const selValue = isStaff ? (document.getElementById('c-client-id')?.value || '') : '';
+    const payCid = paymentOptionsClientId(selValue, isStaff, currentUser?.id, body.organization_id || '');
+    const rendered = document.getElementById('payment-radio-group')?.dataset.paymentCtx;
+    if (!paymentRadiosMatch(rendered, paymentCtxKey(payCid, body.organization_id || ''))) {
+      delete body.payment_type;
+    }
+  }
 
   // Координаты прикладываем только если дом выбран из подсказки с геокодингом.
   if (_orderGeo && _orderGeo.lat != null && _orderGeo.lon != null) {
@@ -14379,9 +14421,13 @@ async function openTariffHistory(tariffId) {
 // DYNAMIC PAYMENT RADIO
 // ═══════════════════════════════════════════════════════════════
 
+let _paymentRadiosSeq = 0;
 async function renderPaymentRadios(clientId, organizationId) {
   const container = document.getElementById('payment-radio-group');
   if (!container) return;
+  // Пока варианты не загружены, тип оплаты из формы не отправляется (см. paymentRadiosMatch)
+  delete container.dataset.paymentCtx;
+  const seq = ++_paymentRadiosSeq;
   try {
     // Организация задаёт коммерческие условия (кредит) — без неё «в долг»
     // у клиента с кредитом на юрлице не приходил вовсе (правки 2026-09-02).
@@ -14390,6 +14436,8 @@ async function renderPaymentRadios(clientId, organizationId) {
       : document.getElementById('c-organization')?.value;
     const opts = await orderGet(`/tariffs/clients/${clientId}/payment-options`
       + (orgId ? `?organization_id=${orgId}` : ''));
+    if (seq !== _paymentRadiosSeq) return; // клиента/организацию уже сменили
+    const ctxKey = paymentCtxKey(clientId, orgId);
     const wrapper = container.closest('.form-group');
     const types = opts.available_payment_types || ['on_delivery'];
     // Юрлицо с кредитом работает «в долг» — это же ставит и бэкенд, когда фронт
@@ -14401,6 +14449,7 @@ async function renderPaymentRadios(clientId, organizationId) {
     if (opts.client_type === 'individual' || types.length <= 1) {
       if (wrapper) wrapper.style.display = 'none';
       container.innerHTML = `<label class="radio-label selected"><input type="radio" name="payment" value="${defaultType}" checked onchange="updatePaymentUI()"></label>`;
+      container.dataset.paymentCtx = ctxKey;
       return;
     }
     if (wrapper) wrapper.style.display = '';
@@ -14413,6 +14462,7 @@ async function renderPaymentRadios(clientId, organizationId) {
           onchange="updatePaymentUI()">
         ${escHtml(PAYMENT_TYPE_LABELS_ALL[pt] || pt)}
       </label>`).join('');
+    container.dataset.paymentCtx = ctxKey;
   } catch (_) {
     // If fetch fails, keep the static defaults — don't block order creation
   }
