@@ -800,6 +800,23 @@ setTimeout(function () {
   .radio-label input { display: none; }
   .radio-label.selected { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
 
+  /* Список выбора водителя (окно «Назначить/Сменить водителя»): обычные кнопки,
+     а не <select size>, который на iPhone показывается пустой полоской и без
+     выбранного пункта (жалоба 20.11.2026). */
+  .driver-pick-list {
+    max-height: 240px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: 8px; margin-top: 4px; -webkit-overflow-scrolling: touch;
+  }
+  .driver-pick {
+    display: block; width: 100%; text-align: left; padding: 12px 14px; min-height: 44px;
+    background: transparent; border: 0; border-bottom: 1px solid var(--border);
+    color: var(--text); font: inherit; cursor: pointer;
+  }
+  .driver-pick:last-child { border-bottom: 0; }
+  .driver-pick:hover { background: var(--amber-dim); }
+  .driver-pick.selected { background: var(--amber-dim); color: var(--amber); font-weight: 600; }
+  .driver-pick-empty { padding: 12px 14px; color: var(--text3); }
+
   textarea.form-input { resize: vertical; min-height: 80px; }
 
   /* ── FUEL TYPES TAB ── */
@@ -7014,13 +7031,11 @@ function promptAssign(orderId, changeOnly = false) {
     `<div class="form-group">
       <label class="form-label">Водитель <span style="color:var(--red)">*</span></label>
       <input type="text" id="modal-driver-search" class="form-input" placeholder="Поиск по имени..."
-             oninput="filterDriverSelect()" autocomplete="off"
-             style="margin-bottom:4px;border-bottom-left-radius:0;border-bottom-right-radius:0">
-      <select id="modal-driver" class="form-input" size="5"
-              style="border-top:none;border-top-left-radius:0;border-top-right-radius:0;
-                     height:auto;padding:0;overflow-y:auto">
-        <option value="">— загрузка... —</option>
-      </select>
+             oninput="filterDriverSelect()" autocomplete="off">
+      <input type="hidden" id="modal-driver" value="">
+      <div id="modal-driver-list" class="driver-pick-list">
+        <div class="driver-pick-empty">Загрузка…</div>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Комментарий (необязательно)</label>
@@ -7049,42 +7064,65 @@ function promptAssign(orderId, changeOnly = false) {
 }
 
 let _allDrivers = [];
+// Только активные водители для выбора в окне назначения. Отдельно от _allDrivers:
+// тот справочник (с неактивными) нужен для имён водителей в карточках заявок.
+let _assignDrivers = [];
 
 async function loadDriverSelectForAssign() {
-  const sel = document.getElementById('modal-driver');
-  if (!sel) return;
+  const list = document.getElementById('modal-driver-list');
+  if (!list) return;
   try {
-    _allDrivers = await authGet('/users?role=driver&limit=200&include_inactive=false');
-    _renderDriverOptions(_allDrivers);
-    // Focus the search box
+    _assignDrivers = await authGet('/users?role=driver&limit=200&include_inactive=false');
+    _renderDriverOptions(_assignDrivers);
+    // Focus the search box (на телефоне не фокусируем — клавиатура закроет список)
     const searchEl = document.getElementById('modal-driver-search');
-    if (searchEl) setTimeout(() => searchEl.focus(), 60);
+    if (searchEl && !window.matchMedia('(max-width: 768px)').matches) setTimeout(() => searchEl.focus(), 60);
   } catch {
-    if (sel) sel.innerHTML = '<option value="">— ошибка загрузки —</option>';
+    list.innerHTML = '<div class="driver-pick-empty">Не удалось загрузить водителей</div>';
   }
 }
 
 function filterDriverSelect() {
   const q = (document.getElementById('modal-driver-search')?.value || '').toLowerCase();
   const filtered = q
-    ? _allDrivers.filter(d =>
+    ? _assignDrivers.filter(d =>
         (d.full_name || '').toLowerCase().includes(q) ||
         (d.email || '').toLowerCase().includes(q))
-    : _allDrivers;
+    : _assignDrivers;
   _renderDriverOptions(filtered);
 }
 
+// @pure:driver-pick
+// Список водителей кнопками. Выбор хранится в скрытом поле #modal-driver.
+function driverPickItems(drivers, selectedId) {
+  return (drivers || []).map(d => ({
+    id: d.id,
+    label: (d.full_name || d.email || '') + (d.phone ? ' · ' + d.phone : ''),
+    selected: d.id === selectedId,
+  }));
+}
+// @end:driver-pick
+
 function _renderDriverOptions(drivers) {
-  const sel = document.getElementById('modal-driver');
-  if (!sel) return;
-  const cur = sel.value;
-  if (!drivers.length) {
-    sel.innerHTML = '<option value="" disabled>Водителей не найдено</option>';
+  const list = document.getElementById('modal-driver-list');
+  const hidden = document.getElementById('modal-driver');
+  if (!list || !hidden) return;
+  const items = driverPickItems(drivers, hidden.value);
+  if (!items.length) {
+    list.innerHTML = '<div class="driver-pick-empty">Водителей не найдено</div>';
     return;
   }
-  sel.innerHTML = drivers.map(d =>
-    `<option value="${d.id}"${d.id === cur ? ' selected' : ''}>${escHtml(d.full_name || d.email)}${d.phone ? ' · ' + escHtml(d.phone) : ''}</option>`
+  list.innerHTML = items.map(it =>
+    `<button type="button" class="driver-pick${it.selected ? ' selected' : ''}" data-id="${escHtml(it.id)}" onclick="pickAssignDriver(this)">${escHtml(it.label)}</button>`
   ).join('');
+}
+
+function pickAssignDriver(btn) {
+  const hidden = document.getElementById('modal-driver');
+  if (!hidden) return;
+  hidden.value = btn.dataset.id;
+  document.querySelectorAll('#modal-driver-list .driver-pick').forEach(b =>
+    b.classList.toggle('selected', b === btn));
 }
 
 function promptVolume(orderId, toStatus) {
